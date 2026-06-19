@@ -1,0 +1,14 @@
+{
+  "version": "0.2.0",
+  "configurations": [
+    {
+      "name": "Cloth Rental App",
+      "type": "debugpy",
+      "request": "launch",
+      "program": "${workspaceFolder}/fancynew/app.py",
+      "cwd": "${workspaceFolder}/fancynew",
+      "console": "integratedTerminal",
+      "justMyCode": true
+    }
+  ]
+}

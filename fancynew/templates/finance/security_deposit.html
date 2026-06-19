@@ -1,0 +1,71 @@
+{% extends "base.html" %}
+{% block title %}Security Deposit{% endblock %}
+{% block page_title %}Security Deposit{% endblock %}
+{% block breadcrumb %}Track all security deposits collected and held{% endblock %}
+
+{% block content %}
+<!-- Summary Cards -->
+<div class="stats-grid" style="margin-bottom:24px;">
+  <div class="stat-card primary">
+    <div class="stat-icon"><i class="fa-solid fa-shield-halved"></i></div>
+    <div class="stat-value">₹{{ '{:,.0f}'.format(total_collected or 0) }}</div>
+    <div class="stat-label">Total Collected</div>
+  </div>
+  <div class="stat-card warning">
+    <div class="stat-icon"><i class="fa-solid fa-lock"></i></div>
+    <div class="stat-value">₹{{ '{:,.0f}'.format(total_held or 0) }}</div>
+    <div class="stat-label">Currently Held (Incomplete)</div>
+  </div>
+  <div class="stat-card success">
+    <div class="stat-icon"><i class="fa-solid fa-unlock"></i></div>
+    <div class="stat-value">₹{{ '{:,.0f}'.format(total_returned or 0) }}</div>
+    <div class="stat-label">Returned to Customers</div>
+  </div>
+</div>
+
+<!-- Records Table -->
+<div class="card">
+  <div class="card-header">
+    <h3 class="card-title"><i class="fa-solid fa-list"></i> Security Deposit Records</h3>
+    <button onclick="window.print()" class="btn btn-outline btn-sm no-print"><i class="fa-solid fa-print"></i> Print</button>
+  </div>
+  <div class="card-body p-0">
+    {% if bookings %}
+    <table class="data-table">
+      <thead>
+        <tr>
+          <th>S.No</th>
+          <th>Customer</th>
+          <th>Phone</th>
+          <th>Security Amount</th>
+          <th>Status</th>
+          <th>Held Amount</th>
+          <th>Delivered On</th>
+        </tr>
+      </thead>
+      <tbody>
+        {% for b in bookings %}
+        <tr>
+          <td>{{ '%02d'|format(b.monthly_serial) }}</td>
+          <td>{{ b.customer_name }}</td>
+          <td>{{ b.contact_1 }}</td>
+          <td>₹{{ '{:,.0f}'.format(b.security_collected or 0) }}</td>
+          <td>
+            <span class="badge badge-{{ 'warning' if b.status == 'incomplete_return' else 'success' if b.status == 'returned' else 'info' }}">
+              {{ b.status|replace('_',' ')|title }}
+            </span>
+          </td>
+          <td>{% if b.status == 'incomplete_return' %}₹{{ '{:,.0f}'.format(b.security_held or 0) }}{% else %}-{% endif %}</td>
+          <td>{{ b.delivered_at.strftime('%d-%b-%Y') if b.delivered_at else '-' }}</td>
+        </tr>
+        {% endfor %}
+      </tbody>
+    </table>
+    {% else %}
+    <div style="text-align:center; padding:40px; color:#999;">
+      <p>No security deposits recorded yet.</p>
+    </div>
+    {% endif %}
+  </div>
+</div>
+{% endblock %}

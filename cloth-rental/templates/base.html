@@ -1,0 +1,123 @@
+<!DOCTYPE html>
+<html lang="en">
+<head>
+  <meta charset="UTF-8">
+  <meta name="viewport" content="width=device-width, initial-scale=1.0">
+  <title>{% block title %}Fancy Collection{% endblock %} – Rental Management</title>
+  <link rel="stylesheet" href="{{ url_for('static', filename='css/style.css') }}">
+  <link rel="stylesheet" href="https://cdnjs.cloudflare.com/ajax/libs/font-awesome/6.5.0/css/all.min.css">
+</head>
+<body>
+<div class="app-layout">
+
+  <!-- ── Sidebar ─────────────────────────────────────────────── -->
+  <aside class="sidebar no-print">
+    <div class="sidebar-brand">
+      <div class="brand-icon">👑</div>
+      <h1>Fancy Collection</h1>
+      <span>Rental Management System</span>
+    </div>
+
+    <nav class="sidebar-nav">
+      <div class="nav-section-label">Main Menu</div>
+
+      <a href="{{ url_for('dashboard') }}"
+         class="nav-item {% if request.endpoint == 'dashboard' %}active{% endif %}">
+        <i class="fa-solid fa-house-chimney"></i> Dashboard
+      </a>
+
+      <a href="{{ url_for('booking_panel') }}"
+         class="nav-item {% if 'booking' in request.endpoint %}active{% endif %}">
+        <i class="fa-solid fa-calendar-plus"></i> Booking Panel
+      </a>
+
+      <a href="{{ url_for('inventory_list') }}"
+         class="nav-item {% if 'inventory' in request.endpoint %}active{% endif %}">
+        <i class="fa-solid fa-layer-group"></i> Inventory
+      </a>
+
+      <a href="{{ url_for('customers_list') }}"
+         class="nav-item {% if 'customers' in request.endpoint %}active{% endif %}">
+        <i class="fa-solid fa-users"></i> Customers
+      </a>
+
+      <a href="{{ url_for('rentals_list') }}"
+         class="nav-item {% if 'rentals' in request.endpoint %}active{% endif %}">
+        <i class="fa-solid fa-calendar-check"></i> Rentals
+      </a>
+
+      <div class="nav-section-label" style="margin-top:8px;">Finance</div>
+
+      <a href="{{ url_for('billing_list') }}"
+         class="nav-item {% if 'billing' in request.endpoint %}active{% endif %}">
+        <i class="fa-solid fa-file-invoice-dollar"></i> Billing
+      </a>
+
+      <a href="{{ url_for('reports') }}"
+         class="nav-item {% if request.endpoint == 'reports' %}active{% endif %}">
+        <i class="fa-solid fa-chart-pie"></i> Reports
+      </a>
+
+      <div class="nav-section-label" style="margin-top:8px;">Quick Actions</div>
+
+      <a href="{{ url_for('booking_new') }}" class="nav-item">
+        <i class="fa-solid fa-plus-circle"></i> New Booking
+      </a>
+
+      <a href="{{ url_for('inventory_add') }}" class="nav-item">
+        <i class="fa-solid fa-shirt"></i> Add Item
+      </a>
+
+      <a href="{{ url_for('customers_add') }}" class="nav-item">
+        <i class="fa-solid fa-user-plus"></i> Add Customer
+      </a>
+    </nav>
+
+    <div class="sidebar-footer">
+      <i class="fa-solid fa-gem" style="color:var(--gold); margin-right:4px;"></i>
+      Fancy Collection &copy; {{ now.year if now else '2026' }}
+    </div>
+  </aside>
+
+  <!-- ── Main Area ──────────────────────────────────────────── -->
+  <div class="main-content">
+
+    <!-- Top Header -->
+    <header class="top-header no-print">
+      <div>
+        <h1 class="page-title">{% block page_title %}Dashboard{% endblock %}</h1>
+        <div class="breadcrumb-trail">{% block breadcrumb %}Home{% endblock %}</div>
+      </div>
+      <div class="header-actions">
+        {% block header_actions %}{% endblock %}
+      </div>
+    </header>
+
+    <!-- Flash Messages -->
+    {% with messages = get_flashed_messages(with_categories=true) %}
+      {% if messages %}
+      <div class="flash-messages" style="padding: 16px 32px 0;">
+        {% for category, message in messages %}
+        <div class="alert alert-{{ category }}">
+          {% if category == 'success' %}<i class="fa-solid fa-circle-check"></i>
+          {% elif category == 'error' or category == 'danger' %}<i class="fa-solid fa-circle-xmark"></i>
+          {% elif category == 'warning' %}<i class="fa-solid fa-triangle-exclamation"></i>
+          {% else %}<i class="fa-solid fa-circle-info"></i>{% endif %}
+          {{ message }}
+        </div>
+        {% endfor %}
+      </div>
+      {% endif %}
+    {% endwith %}
+
+    <!-- Page Body -->
+    <div class="page-body">
+      {% block content %}{% endblock %}
+    </div>
+
+  </div>
+</div>
+
+{% block scripts %}{% endblock %}
+</body>
+</html>

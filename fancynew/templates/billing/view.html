@@ -1,0 +1,229 @@
+{% extends "base.html" %}
+
+{% block title %}Invoice {{ invoice.invoice_number }}{% endblock %}
+{% block page_title %}Invoice {{ invoice.invoice_number }}{% endblock %}
+{% block breadcrumb %}
+  <a href="{{ url_for('billing_list') }}" style="color:var(--primary); text-decoration:none;">Billing</a>
+  &rsaquo; {{ invoice.invoice_number }}
+{% endblock %}
+
+{% block header_actions %}
+<a href="{{ url_for('billing_print', id=invoice.id) }}" class="btn btn-outline" target="_blank">
+  <i class="fa-solid fa-print"></i> Print Invoice
+</a>
+{% endblock %}
+
+{% block content %}
+
+<div class="two-col mb-24">
+
+  <!-- ── Invoice Details ──────────────────────────────────────── -->
+  <div class="card">
+    <div class="card-header">
+      <h3 class="card-title"><i class="fa-solid fa-file-invoice" style="margin-right:8px;"></i>Invoice Details</h3>
+      <span class="badge badge-{{ invoice.status }}">{{ invoice.status }}</span>
+    </div>
+    <div class="card-body">
+      <div class="detail-grid">
+        <div class="detail-item">
+          <label>Invoice Number</label>
+          <div class="value font-mono">{{ invoice.invoice_number }}</div>
+        </div>
+        <div class="detail-item">
+          <label>Rental Number</label>
+          <div class="value">
+            <a href="{{ url_for('rentals_view', id=invoice.rental.id) }}" style="color:var(--primary); text-decoration:none; font-family:monospace; font-weight:700;">
+              {{ invoice.rental.rental_number }}
+            </a>
+          </div>
+        </div>
+        <div class="detail-item">
+          <label>Customer</label>
+          <div class="value">
+            <a href="{{ url_for('customers_view', id=invoice.rental.customer.id) }}" style="color:var(--primary); text-decoration:none; font-weight:600;">
+              {{ invoice.rental.customer.name }}
+            </a>
+          </div>
+        </div>
+        <div class="detail-item">
+          <label>Phone</label>
+          <div class="value">{{ invoice.rental.customer.phone }}</div>
+        </div>
+        <div class="detail-item">
+          <label>Issue Date</label>
+          <div class="value">{{ invoice.issue_date.strftime('%d %B %Y') }}</div>
+        </div>
+        <div class="detail-item">
+          <label>Due Date</label>
+          <div class="value">{{ invoice.due_date.strftime('%d %B %Y') if invoice.due_date else '—' }}</div>
+        </div>
+      </div>
+
+      <hr class="divider">
+
+      <!-- Items breakdown -->
+      <table class="invoice-table">
+        <thead>
+          <tr>
+            <th>Item</th>
+            <th>Category</th>
+            <th>Rate/Day</th>
+            <th>Days</th>
+            <th>Amount</th>
+          </tr>
+        </thead>
+        <tbody>
+          {% for ri in invoice.rental.items %}
+          <tr>
+            <td style="font-weight:600;">{{ ri.item.name }}</td>
+            <td>
+              <span class="badge {% if ri.item.category in ['Jewellery','Necklace','Accessory'] %}badge-jewellery{% else %}badge-clothing{% endif %}" style="font-size:10px;">
+                {{ ri.item.category }}
+              </span>
+            </td>
+            <td>₹{{ "{:,.0f}".format(ri.daily_rate) }}</td>
+            <td>{{ invoice.rental.rental_days }}</td>
+            <td style="font-weight:700;">₹{{ "{:,.0f}".format(ri.daily_rate * invoice.rental.rental_days) }}</td>
+          </tr>
+          {% endfor %}
+        </tbody>
+      </table>
+
+      <div class="totals-box" style="margin-top:16px;">
+        <div class="totals-row">
+          <span>Subtotal</span>
+          <span>₹{{ "{:,.0f}".format(invoice.rental.subtotal) }}</span>
+        </div>
+        {% if invoice.rental.late_fee > 0 %}
+        <div class="totals-row" style="color:var(--warning);">
+          <span>Late Fee</span>
+          <span>₹{{ "{:,.0f}".format(invoice.rental.late_fee) }}</span>
+        </div>
+        {% endif %}
+        {% if invoice.rental.damage_fee > 0 %}
+        <div class="totals-row" style="color:var(--danger);">
+          <span>Damage Fee</span>
+          <span>₹{{ "{:,.0f}".format(invoice.rental.damage_fee) }}</span>
+        </div>
+        {% endif %}
+        {% if invoice.rental.discount > 0 %}
+        <div class="totals-row" style="color:var(--success);">
+          <span>Discount</span>
+          <span>- ₹{{ "{:,.0f}".format(invoice.rental.discount) }}</span>
+        </div>
+        {% endif %}
+        <div class="totals-row grand">
+          <span>Invoice Total</span>
+          <span>₹{{ "{:,.0f}".format(invoice.total) }}</span>
+        </div>
+        <div class="totals-row" style="color:var(--success);">
+          <span>Amount Paid</span>
+          <span>₹{{ "{:,.0f}".format(invoice.amount_paid) }}</span>
+        </div>
+        <div class="totals-row" style="font-size:15px; font-weight:800; color: {% if invoice.balance_due > 0 %}var(--danger){% else %}var(--success){% endif %};">
+          <span>Balance Due</span>
+          <span>₹{{ "{:,.0f}".format(invoice.balance_due) }}</span>
+        </div>
+      </div>
+    </div>
+  </div>
+
+  <!-- ── Payment Section ──────────────────────────────────────── -->
+  <div style="display:flex; flex-direction:column; gap:20px;">
+
+    {% if invoice.balance_due > 0 %}
+    <!-- Record Payment -->
+    <div class="card">
+      <div class="card-header">
+        <h3 class="card-title"><i class="fa-solid fa-indian-rupee-sign" style="margin-right:8px;"></i>Record Payment</h3>
+      </div>
+      <div class="card-body">
+        <form method="post" action="{{ url_for('billing_pay', id=invoice.id) }}">
+          <div class="form-group" style="margin-bottom:14px;">
+            <label class="form-label">Amount (₹) *</label>
+            <div class="input-group">
+              <span class="input-group-text">₹</span>
+              <input type="number" name="amount" class="form-control"
+                     placeholder="{{ "{:.2f}".format(invoice.balance_due) }}"
+                     value="{{ "{:.2f}".format(invoice.balance_due) }}"
+                     step="0.01" min="0.01" required>
+            </div>
+          </div>
+          <div class="form-group" style="margin-bottom:14px;">
+            <label class="form-label">Payment Method *</label>
+            <select name="method" class="form-control">
+              {% for m in payment_methods %}
+              <option value="{{ m }}">
+                {% if m == 'cash' %}💵 Cash
+                {% elif m == 'card' %}💳 Card
+                {% elif m == 'upi' %}📱 UPI
+                {% elif m == 'bank' %}🏦 Bank Transfer
+                {% else %}{{ m|capitalize }}{% endif %}
+              </option>
+              {% endfor %}
+            </select>
+          </div>
+          <div class="form-group" style="margin-bottom:14px;">
+            <label class="form-label">Reference / Transaction ID</label>
+            <input type="text" name="reference" class="form-control"
+                   placeholder="UPI ref, transaction number, etc.">
+          </div>
+          <div class="form-group" style="margin-bottom:16px;">
+            <label class="form-label">Notes</label>
+            <input type="text" name="notes" class="form-control" placeholder="Optional notes">
+          </div>
+          <button type="submit" class="btn btn-gold" style="width:100%; justify-content:center;">
+            <i class="fa-solid fa-circle-check"></i> Record Payment
+          </button>
+        </form>
+      </div>
+    </div>
+    {% else %}
+    <div class="card">
+      <div class="card-body" style="text-align:center; padding:32px;">
+        <div style="font-size:48px; margin-bottom:12px;">✅</div>
+        <div style="font-size:16px; font-weight:700; color:var(--success);">Fully Paid</div>
+        <div style="font-size:13px; color:var(--text-muted); margin-top:6px;">
+          Total Paid: ₹{{ "{:,.0f}".format(invoice.amount_paid) }}
+        </div>
+      </div>
+    </div>
+    {% endif %}
+
+    <!-- Payment History -->
+    <div class="card">
+      <div class="card-header">
+        <h3 class="card-title"><i class="fa-solid fa-clock-rotate-left" style="margin-right:8px;"></i>Payment History</h3>
+      </div>
+      {% if invoice.payments %}
+      <div class="card-body p-0">
+        {% for p in invoice.payments %}
+        <div style="display:flex; align-items:center; gap:12px; padding:14px 20px; border-bottom:1px solid var(--border);">
+          <div style="width:38px; height:38px; background:var(--success-bg); border-radius:10px;
+                      display:flex; align-items:center; justify-content:center; color:var(--success); font-size:16px;">
+            <i class="fa-solid fa-{% if p.method == 'cash' %}money-bill{% elif p.method == 'card' %}credit-card{% elif p.method == 'upi' %}mobile{% else %}building-columns{% endif %}"></i>
+          </div>
+          <div style="flex:1;">
+            <div style="font-weight:700; font-size:14px; color:var(--success);">₹{{ "{:,.0f}".format(p.amount) }}</div>
+            <div style="font-size:11.5px; color:var(--text-muted);">
+              <span class="method-pill method-{{ p.method }}">{{ p.method|upper }}</span>
+              &bull; {{ p.paid_at.strftime('%d %b %Y, %I:%M %p') }}
+              {% if p.reference %} &bull; Ref: {{ p.reference }}{% endif %}
+            </div>
+          </div>
+        </div>
+        {% endfor %}
+      </div>
+      {% else %}
+      <div class="empty-state" style="padding:30px;">
+        <div class="empty-icon"><i class="fa-solid fa-receipt"></i></div>
+        <p>No payments recorded yet</p>
+      </div>
+      {% endif %}
+    </div>
+
+  </div>
+
+</div>
+
+{% endblock %}

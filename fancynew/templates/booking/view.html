@@ -1,0 +1,304 @@
+{% extends "base.html" %}
+
+{% block title %}Booking Serial #{{ '%02d'|format(booking.monthly_serial or 0) }}{% endblock %}
+{% block page_title %}Booking Serial #{{ '%02d'|format(booking.monthly_serial or 0) }}{% endblock %}
+{% block breadcrumb %}
+  <a href="{{ url_for('booking_panel') }}" style="color:var(--primary); text-decoration:none;">Bookings</a>
+  &rsaquo; Serial #{{ '%02d'|format(booking.monthly_serial or 0) }}
+{% endblock %}
+
+{% block content %}
+
+<!-- ── Status Bar ──────────────────────────────────────────── -->
+{% if booking.status == 'delivered' and booking.return_date < today %}
+<div class="alert alert-error mb-24" style="margin-bottom:20px;">
+  <i class="fa-solid fa-triangle-exclamation"></i>
+  <strong>Overdue!</strong> This booking was due for return on {{ booking.return_date.strftime('%d %B %Y') }}.
+  <strong>{{ (today - booking.return_date).days }} day(s) late.</strong>
+</div>
+{% endif %}
+
+<!-- ── Timeline ──────────────────────────────────────────────── -->
+<div class="card" style="margin-bottom:20px;">
+  <div class="card-body" style="padding:20px 28px;">
+    <div class="rental-timeline">
+      <div class="timeline-step done">
+        <div class="step-dot"><i class="fa-solid fa-check"></i></div>
+        <div class="step-label">Booked</div>
+        <div class="step-date">{{ booking.created_at.strftime('%d %b') }}</div>
+      </div>
+      <div class="timeline-step {% if booking.status in ('delivered','returned') %}done{% elif booking.status == 'booked' %}active{% endif %}">
+        <div class="step-dot">
+          {% if booking.status in ('delivered','returned') %}<i class="fa-solid fa-check"></i>
+          {% else %}<i class="fa-solid fa-truck"></i>{% endif %}
+        </div>
+        <div class="step-label">Delivery</div>
+        <div class="step-date">{{ booking.delivery_date.strftime('%d %b') }} · {{ booking.delivery_time }}</div>
+      </div>
+      <div class="timeline-step {% if booking.status == 'returned' %}done{% elif booking.status == 'delivered' %}active{% endif %}">
+        <div class="step-dot">
+          {% if booking.status == 'returned' %}<i class="fa-solid fa-check"></i>
+          {% else %}<i class="fa-solid fa-rotate-left"></i>{% endif %}
+        </div>
+        <div class="step-label">Return</div>
+        <div class="step-date">{{ booking.return_date.strftime('%d %b') }} · {{ booking.return_time }}</div>
+      </div>
+    </div>
+  </div>
+</div>
+
+<div class="two-col" style="margin-bottom:20px;">
+
+  <!-- ── Customer Details ──────────────────────────────────── -->
+  <div class="card">
+    <div class="card-header">
+      <h3 class="card-title"><i class="fa-solid fa-user" style="margin-right:8px;"></i>Customer</h3>
+    </div>
+    <div class="card-body">
+      <div class="detail-grid">
+        <div class="detail-item" style="grid-column:1/-1;">
+          <label>Name</label>
+          <div class="value" style="font-size:18px;">{{ booking.customer_name }}</div>
+        </div>
+        <div class="detail-item" style="grid-column:1/-1;">
+          <label>Address</label>
+          <div class="value">{{ booking.customer_address }}</div>
+        </div>
+        <div class="detail-item">
+          <label><i class="fa-solid fa-phone" style="margin-right:4px;"></i>Contact</label>
+          <div class="value">
+            <a href="tel:{{ booking.contact_1 }}" style="color:var(--primary); text-decoration:none; font-weight:700;">
+              {{ booking.contact_1 }}
+            </a>
+          </div>
+        </div>
+        <div class="detail-item">
+          <label><i class="fa-brands fa-whatsapp" style="margin-right:4px; color:#25D366;"></i>WhatsApp</label>
+          <div class="value">
+            {% if booking.whatsapp_no %}
+            <a href="https://wa.me/91{{ booking.whatsapp_no }}" target="_blank" style="color:#25D366; text-decoration:none; font-weight:600;">
+              {{ booking.whatsapp_no }}
+            </a>
+            {% else %}—{% endif %}
+          </div>
+        </div>
+        {% if booking.venue %}
+        <div class="detail-item" style="grid-column:1/-1;">
+          <label><i class="fa-solid fa-location-dot" style="margin-right:4px; color:var(--danger);"></i>Venue</label>
+          <div class="value" style="font-weight:600; color:var(--primary);">{{ booking.venue }}</div>
+        </div>
+        {% endif %}
+      </div>
+    </div>
+  </div>
+
+  <!-- ── Booking Details ──────────────────────────────────── -->
+  <div class="card">
+    <div class="card-header">
+      <h3 class="card-title"><i class="fa-solid fa-circle-info" style="margin-right:8px;"></i>Booking Info</h3>
+      <span class="badge badge-{{ booking.status }}">{{ booking.status }}</span>
+    </div>
+    <div class="card-body">
+      <div class="detail-grid">
+        <div class="detail-item">
+          <label>Serial No</label>
+          <div class="value">
+            <span style="display:inline-flex; align-items:center; justify-content:center;
+                         width:32px; height:32px; border-radius:50%;
+                         background:linear-gradient(135deg, var(--primary), var(--primary-light));
+                         color:white; font-weight:800; font-size:14px;">
+              {{ '%02d'|format(booking.monthly_serial or 0) }}
+            </span>
+          </div>
+        </div>
+        <div class="detail-item">
+          <label>Booked On</label>
+          <div class="value">{{ booking.created_at.strftime('%d %b %Y, %I:%M %p') }}</div>
+        </div>
+        <div class="detail-item">
+          <label>Security Deposit</label>
+          <div class="value" style="font-weight:700; color:var(--gold-dark);">
+            ₹{{ "{:,.0f}".format(booking.security_deposit) }}
+          </div>
+        </div>
+        <div class="detail-item">
+          <label>Delivery Date & Time</label>
+          <div class="value" style="color:var(--info);">
+            <i class="fa-solid fa-truck" style="margin-right:5px;"></i>
+            {{ booking.delivery_date.strftime('%d %B %Y') }} at {{ booking.delivery_time }}
+          </div>
+        </div>
+        <div class="detail-item">
+          <label>Return Date & Time</label>
+          <div class="value" style="color:var(--warning);">
+            <i class="fa-solid fa-rotate-left" style="margin-right:5px;"></i>
+            {{ booking.return_date.strftime('%d %B %Y') }} at {{ booking.return_time }}
+          </div>
+        </div>
+      </div>
+    </div>
+  </div>
+
+</div>
+
+<!-- ── Dresses in this Booking ──────────────────────────────── -->
+<div class="card" style="margin-bottom:20px;">
+  <div class="card-header">
+    <h3 class="card-title"><i class="fa-solid fa-shirt" style="margin-right:8px;"></i>Dresses ({{ booking.booking_items|length or 1 }})</h3>
+  </div>
+  <div class="card-body p-0">
+    {% if booking.booking_items %}
+      {% for bi in booking.booking_items %}
+      <div style="padding:16px 20px; border-bottom:1px solid var(--border); display:flex; gap:14px; align-items:flex-start;">
+        {% if bi.item and bi.item.photo %}
+        <img src="{{ url_for('static', filename='uploads/' + bi.item.photo) }}"
+             style="width:60px; height:60px; border-radius:10px; object-fit:cover; border:2px solid var(--border);">
+        {% else %}
+        <div style="width:60px; height:60px; border-radius:10px; background:linear-gradient(135deg, var(--cream-dark), var(--cream));
+                    display:flex; align-items:center; justify-content:center; font-size:24px; border:2px solid var(--border);">👗</div>
+        {% endif %}
+        <div style="flex:1;">
+          <div style="font-size:15px; font-weight:700; color:var(--text-dark);">{{ bi.dress_name|dress_label(bi.category, bi.size) }}</div>
+          <div style="font-size:12px; color:var(--text-muted); margin-bottom:8px;">
+            {{ bi.category or (bi.item.category if bi.item else '') }}
+            {% if bi.item and bi.item.size %} · {{ bi.item.size }}{% endif %}
+            {% if bi.item and bi.item.color %} · {{ bi.item.color }}{% endif %}
+          </div>
+          <div style="display:flex; gap:16px; font-size:12px;">
+            <span><strong>Rent:</strong> ₹{{ "{:,.0f}".format(bi.price) }}</span>
+            <span style="color:var(--success);"><strong>Advance:</strong> ₹{{ "{:,.0f}".format(bi.advance) }}</span>
+            <span style="color:var(--danger);"><strong>Remaining:</strong> ₹{{ "{:,.0f}".format(bi.remaining) }}</span>
+          </div>
+          {% if bi.notes %}
+          <div style="margin-top:6px; font-size:11px; color:var(--text-muted); font-style:italic;">
+            <i class="fa-solid fa-note-sticky" style="margin-right:4px;"></i>{{ bi.notes }}
+          </div>
+          {% endif %}
+        </div>
+      </div>
+      {% endfor %}
+    {% else %}
+      <!-- Legacy single-item view -->
+      <div style="padding:16px 20px; display:flex; gap:14px; align-items:center;">
+        {% if booking.item and booking.item.photo %}
+        <img src="{{ url_for('static', filename='uploads/' + booking.item.photo) }}"
+             style="width:60px; height:60px; border-radius:10px; object-fit:cover; border:2px solid var(--border);">
+        {% else %}
+        <div style="width:60px; height:60px; border-radius:10px; background:linear-gradient(135deg, var(--cream-dark), var(--cream));
+                    display:flex; align-items:center; justify-content:center; font-size:24px; border:2px solid var(--border);">👗</div>
+        {% endif %}
+        <div>
+          <div style="font-size:15px; font-weight:700;">{{ booking.dress_name }}</div>
+          <div style="font-size:12px; color:var(--text-muted);">
+            {% if booking.item %}{{ booking.item.category }}{% endif %}
+          </div>
+        </div>
+      </div>
+    {% endif %}
+  </div>
+</div>
+
+<!-- ── Payment Summary ──────────────────────────────────── -->
+<div class="card" style="margin-bottom:20px;">
+  <div class="card-header">
+    <h3 class="card-title"><i class="fa-solid fa-indian-rupee-sign" style="margin-right:8px;"></i>Payment Summary</h3>
+  </div>
+  <div class="card-body">
+    <div class="totals-box" style="max-width:100%; margin:0;">
+      <div class="totals-row">
+        <span>Total Rental Price</span>
+        <span style="font-weight:700;">₹{{ "{:,.0f}".format(booking.total_price or booking.price) }}</span>
+      </div>
+      <div class="totals-row" style="color:var(--success);">
+        <span><i class="fa-solid fa-check-circle" style="margin-right:5px;"></i>Total Advance Paid</span>
+        <span style="font-weight:700;">₹{{ "{:,.0f}".format(booking.total_advance or booking.advance) }}</span>
+      </div>
+      {% if booking.security_deposit > 0 %}
+      <div class="totals-row" style="color:var(--gold-dark);">
+        <span><i class="fa-solid fa-shield-halved" style="margin-right:5px;"></i>Security Deposit</span>
+        <span style="font-weight:700;">₹{{ "{:,.0f}".format(booking.security_deposit) }}</span>
+      </div>
+      {% endif %}
+      <div class="totals-row grand" style="color:{% if (booking.total_remaining or booking.remaining) > 0 %}var(--danger){% else %}var(--success){% endif %};">
+        <span>{% if (booking.total_remaining or booking.remaining) > 0 %}Remaining to Collect{% else %}Fully Paid{% endif %}</span>
+        <span>₹{{ "{:,.0f}".format(booking.total_remaining or booking.remaining) }}</span>
+      </div>
+    </div>
+
+    {% if (booking.total_remaining or booking.remaining) > 0 %}
+    <div style="margin-top:16px; padding:12px 14px; background:var(--danger-bg); border-radius:8px;
+                font-size:13px; color:var(--danger); display:flex; align-items:center; gap:8px;">
+      <i class="fa-solid fa-circle-exclamation"></i>
+      <strong>₹{{ "{:,.0f}".format(booking.total_remaining or booking.remaining) }}</strong> remaining to be collected on return.
+    </div>
+    {% endif %}
+  </div>
+</div>
+
+<!-- ── Notes ──────────────────────────────────────────── -->
+{% if booking.common_notes or booking.notes %}
+<div class="card" style="margin-bottom:20px;">
+  <div class="card-header">
+    <h3 class="card-title"><i class="fa-solid fa-note-sticky" style="margin-right:8px;"></i>Common Notes</h3>
+  </div>
+  <div class="card-body">
+    <div style="font-style:italic; color:var(--text-muted);">{{ booking.common_notes or booking.notes }}</div>
+  </div>
+</div>
+{% endif %}
+
+<!-- ── Action Buttons ──────────────────────────────────────── -->
+{% if booking.status in ('booked', 'delivered', 'incomplete_return') %}
+<div class="card">
+  <div class="card-header">
+    <h3 class="card-title"><i class="fa-solid fa-bolt" style="margin-right:8px;"></i>Actions</h3>
+  </div>
+  <div class="card-body">
+    <div style="display:flex; gap:14px; flex-wrap:wrap; align-items:center;">
+      {% if booking.status == 'booked' %}
+      <a href="{{ url_for('booking_delivery_detail', booking_id=booking.id) }}" class="btn btn-primary">
+        <i class="fa-solid fa-truck"></i> Mark as Delivered
+      </a>
+      {% endif %}
+
+      {% if booking.status == 'delivered' %}
+      <a href="{{ url_for('booking_return_detail', booking_id=booking.id) }}" class="btn btn-success">
+        <i class="fa-solid fa-circle-check"></i> Mark as Returned
+      </a>
+      {% endif %}
+
+      <!-- WhatsApp Quick Messages -->
+      {% if booking.whatsapp_no or booking.contact_1 %}
+      {% set wa_phone = booking.whatsapp_no or booking.contact_1 %}
+      {% set serial_fmt = '%02d'|format(booking.monthly_serial or 0) %}
+      {% if booking.status == 'booked' %}
+      <button class="btn" style="background:#25D366;color:#fff;"
+        onclick="whatsAppBookingConfirm('{{ booking.customer_name }}','{{ serial_fmt }}','{{ booking.delivery_date.strftime('%d %b %Y') }}','{{ booking.delivery_time }}','{{ booking.venue or '' }}','{{ wa_phone }}')">
+        <i class="fa-brands fa-whatsapp"></i> Booking Confirm
+      </button>
+      <button class="btn" style="background:#128C7E;color:#fff;"
+        onclick="whatsAppDeliveryReminder('{{ booking.customer_name }}','{{ serial_fmt }}','{{ booking.delivery_date.strftime('%d %b %Y') }}','{{ booking.delivery_time }}','{{ booking.total_remaining or 0 }}','{{ wa_phone }}')">
+        <i class="fa-brands fa-whatsapp"></i> Delivery Reminder
+      </button>
+      {% elif booking.status == 'delivered' %}
+      <button class="btn" style="background:#128C7E;color:#fff;"
+        onclick="whatsAppReturnReminder('{{ booking.customer_name }}','{{ serial_fmt }}','{{ booking.return_date.strftime('%d %b %Y') }}','{{ booking.return_time }}','{{ wa_phone }}')">
+        <i class="fa-brands fa-whatsapp"></i> Return Reminder
+      </button>
+      {% endif %}
+      {% endif %}
+
+      {% if booking.status in ('booked', 'delivered') %}
+      <form method="post" action="{{ url_for('booking_cancel', id=booking.id) }}">
+        <button type="submit" class="btn btn-danger"
+                onclick="return confirm('Cancel this booking? Dresses will be freed up.');">
+          <i class="fa-solid fa-ban"></i> Cancel Booking
+        </button>
+      </form>
+      {% endif %}
+    </div>
+  </div>
+</div>
+{% endif %}
+
+{% endblock %}

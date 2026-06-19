@@ -1,0 +1,112 @@
+{% extends "base.html" %}
+{% block title %}Remaining to Deliver{% endblock %}
+{% block page_title %}Remaining to Deliver{% endblock %}
+{% block breadcrumb %}All undelivered bookings up to today{% endblock %}
+
+{% block header_actions %}
+<button onclick="window.print()" class="btn btn-outline btn-sm no-print">
+  <i class="fa-solid fa-print"></i> Print
+</button>
+{% endblock %}
+
+{% block content %}
+
+{% if bookings %}
+<!-- Stats bar -->
+<div style="display:flex;gap:12px;flex-wrap:wrap;margin-bottom:20px;">
+  {% set overdue = bookings | selectattr('delivery_date', 'lt', today) | list %}
+  {% set today_pending = bookings | selectattr('delivery_date', 'equalto', today) | list %}
+  <div style="background:#7b2d2d;color:#feb2b2;padding:12px 24px;border-radius:12px;font-size:14px;font-weight:700;">
+    <i class="fa-solid fa-triangle-exclamation" style="margin-right:8px;"></i>{{ overdue|length }} Overdue
+  </div>
+  <div style="background:#7b4a00;color:#fbd38d;padding:12px 24px;border-radius:12px;font-size:14px;font-weight:700;">
+    <i class="fa-solid fa-clock" style="margin-right:8px;"></i>{{ today_pending|length }} Due Today
+  </div>
+  <div style="background:var(--surface);border:1px solid var(--border);padding:12px 24px;border-radius:12px;font-size:14px;font-weight:700;color:var(--text-muted);">
+    <i class="fa-solid fa-boxes-packing" style="margin-right:8px;"></i>{{ bookings|length }} Total Pending
+  </div>
+</div>
+
+<!-- Group by date -->
+{% set ns = namespace(prev_date=None) %}
+{% for b in bookings %}
+  {% if b.delivery_date != ns.prev_date %}
+    {% if ns.prev_date is not none %}</div>{% endif %}
+    <div style="margin-bottom:4px;margin-top:{% if loop.index > 1 %}24px{% else %}0px{% endif %};">
+      <div style="display:flex;align-items:center;gap:12px;margin-bottom:8px;">
+        <div style="padding:6px 18px;border-radius:20px;font-size:12px;font-weight:700;
+          {% if b.delivery_date < today %}background:#7b2d2d44;color:#fc8181;border:1px solid #e53e3e55;
+          {% elif b.delivery_date == today %}background:#7b4a0044;color:#fbd38d;border:1px solid #ed8936aa;
+          {% else %}background:#2d3a4f;color:#90cdf4;border:1px solid #4299e188;{% endif %}">
+          {% if b.delivery_date < today %}
+            <i class="fa-solid fa-triangle-exclamation" style="margin-right:6px;"></i>Overdue — {{ b.delivery_date.strftime('%d %b %Y') }}
+          {% elif b.delivery_date == today %}
+            <i class="fa-solid fa-clock" style="margin-right:6px;"></i>Today — {{ b.delivery_date.strftime('%d %b %Y') }}
+          {% else %}
+            <i class="fa-solid fa-calendar" style="margin-right:6px;"></i>{{ b.delivery_date.strftime('%d %b %Y') }}
+          {% endif %}
+        </div>
+        <div style="flex:1;height:1px;background:var(--border);"></div>
+      </div>
+    <div>
+    {% set ns.prev_date = b.delivery_date %}
+  {% endif %}
+
+  <!-- Booking row -->
+  <div style="display:flex;align-items:center;gap:12px;padding:12px 20px;background:var(--surface);border:1px solid var(--border);border-radius:10px;margin-bottom:8px;
+    {% if b.delivery_date < today %}border-left:4px solid #e53e3e;{% else %}border-left:4px solid #ed8936;{% endif %}">
+    <div style="width:34px;height:34px;border-radius:50%;
+      {% if b.delivery_date < today %}background:#7b2d2d;color:#fc8181;{% else %}background:#7b4a00;color:#fbd38d;{% endif %}
+      display:flex;align-items:center;justify-content:center;font-weight:700;font-size:12px;flex-shrink:0;">
+      {{ '%02d'|format(b.monthly_serial or 0) }}
+    </div>
+    <div style="flex:1;">
+      <div style="font-weight:700;font-size:14px;">{{ b.customer_name }}</div>
+      <div style="font-size:11px;color:var(--text-muted);margin-top:2px;">
+        <i class="fa-solid fa-phone" style="margin-right:3px;"></i>{{ b.contact_1 }}
+        {% if b.whatsapp_no %} &nbsp;<i class="fa-brands fa-whatsapp" style="color:#25d366;margin-right:3px;"></i>{{ b.whatsapp_no }}{% endif %}
+        {% if b.venue %} · <i class="fa-solid fa-location-dot" style="margin-right:3px;"></i>{{ b.venue }}{% endif %}
+      </div>
+      <div style="font-size:11px;color:var(--text-muted);margin-top:2px;">
+        {% for bi in b.booking_items %}
+          <span style="background:var(--bg);padding:1px 7px;border-radius:8px;margin-right:4px;">{{ bi.dress_name|dress_label(bi.category, bi.size) }}</span>
+        {% else %}
+          <span style="background:var(--bg);padding:1px 7px;border-radius:8px;">{{ b.dress_name }}</span>
+        {% endfor %}
+      </div>
+    </div>
+    <div style="text-align:right;font-size:12px;min-width:120px;">
+      <div style="font-weight:700;color:var(--gold);">{{ b.delivery_time }}</div>
+      {% if b.total_remaining > 0 %}
+      <div style="color:#fc8181;font-size:11px;">Bal: ₹{{ '{:,.0f}'.format(b.total_remaining) }}</div>
+      {% endif %}
+      {% if b.delivery_date < today %}
+      <div style="font-size:10px;color:#fc8181;font-weight:700;">
+        {{ (today - b.delivery_date).days }} day{% if (today - b.delivery_date).days != 1 %}s{% endif %} overdue
+      </div>
+      {% endif %}
+    </div>
+    <div style="display:flex;gap:6px;" class="no-print">
+      <a href="{{ url_for('booking_delivery_detail', booking_id=b.id) }}" class="btn btn-primary btn-sm" style="padding:6px 14px;font-size:12px;">
+        <i class="fa-solid fa-truck"></i> Deliver
+      </a>
+      <a href="{{ url_for('booking_view', id=b.id) }}" class="btn btn-outline btn-sm" style="padding:6px 10px;">
+        <i class="fa-solid fa-eye"></i>
+      </a>
+    </div>
+  </div>
+{% endfor %}
+</div>
+
+{% else %}
+<div style="text-align:center;padding:60px;color:var(--text-muted);">
+  <i class="fa-solid fa-circle-check" style="font-size:56px;color:#68d391;margin-bottom:16px;display:block;"></i>
+  <h2 style="color:#68d391;margin:0 0 8px;">All caught up!</h2>
+  <p>No pending deliveries as of today.</p>
+  <a href="{{ url_for('booking_delivery_page') }}" class="btn btn-primary" style="margin-top:16px;">
+    <i class="fa-solid fa-truck-fast"></i> Go to Delivery Panel
+  </a>
+</div>
+{% endif %}
+
+{% endblock %}

@@ -1,0 +1,350 @@
+generator client {
+  provider = "prisma-client-js"
+}
+
+datasource db {
+  provider = "postgresql"
+  url      = env("DATABASE_URL")
+}
+
+model User {
+  id           Int      @id @default(autoincrement())
+  username     String   @unique
+  passwordHash String   @map("password_hash")
+  role         String   @default("staff")
+  staffId      Int?     @map("staff_id")
+  active       Boolean  @default(true)
+  createdAt    DateTime @default(now()) @map("created_at")
+
+  staff              Staff?              @relation(fields: [staffId], references: [id])
+  loginRequests      StaffLoginRequest[] @relation("LoginUser")
+  resolvedRequests   StaffLoginRequest[] @relation("ResolvedBy")
+  sessions           UserSession[]       @relation("SessionUser")
+  endedSessions      UserSession[]       @relation("EndedBy")
+
+  @@map("users")
+}
+
+model StaffLoginRequest {
+  id           Int       @id @default(autoincrement())
+  userId       Int       @map("user_id")
+  token        String    @unique
+  status       String    @default("pending")
+  requestedAt  DateTime  @default(now()) @map("requested_at")
+  resolvedAt   DateTime? @map("resolved_at")
+  resolvedById Int?      @map("resolved_by_id")
+
+  user       User  @relation("LoginUser", fields: [userId], references: [id])
+  resolvedBy User? @relation("ResolvedBy", fields: [resolvedById], references: [id])
+
+  @@index([token])
+  @@map("staff_login_requests")
+}
+
+model UserSession {
+  id         Int       @id @default(autoincrement())
+  userId     Int       @map("user_id")
+  sessionId  String    @unique @map("session_id")
+  active     Boolean   @default(true)
+  loginAt    DateTime  @default(now()) @map("login_at")
+  lastSeen   DateTime  @default(now()) @map("last_seen")
+  endedAt    DateTime? @map("ended_at")
+  endedById  Int?      @map("ended_by_id")
+
+  user     User  @relation("SessionUser", fields: [userId], references: [id])
+  endedBy  User? @relation("EndedBy", fields: [endedById], references: [id])
+
+  @@index([sessionId])
+  @@map("user_sessions")
+}
+
+model Customer {
+  id        Int      @id @default(autoincrement())
+  name      String
+  phone     String
+  email     String?
+  address   String?
+  idProof   String?  @map("id_proof")
+  notes     String?
+  createdAt DateTime @default(now()) @map("created_at")
+
+  rentals Rental[]
+
+  @@map("customers")
+}
+
+model ClothingItem {
+  id              Int      @id @default(autoincrement())
+  name            String
+  sku             String   @unique
+  category        String
+  size            String?
+  color           String?
+  dailyRate       Float    @default(0) @map("daily_rate")
+  deposit         Float    @default(0)
+  status          String   @default("available")
+  itemType        String   @default("clothing") @map("item_type")
+  photo           String?
+  conditionNotes  String?  @map("condition_notes")
+  createdAt       DateTime @default(now()) @map("created_at")
+  subCategory     String?  @map("sub_category")
+
+  rentalItems       RentalItem[]
+  bookings          Booking[]          @relation("LegacyBookingItem")
+  bookingItems      BookingItem[]
+  prospectLeadItems ProspectLeadItem[]
+
+  @@map("clothing_items")
+}
+
+model Rental {
+  id               Int       @id @default(autoincrement())
+  rentalNumber     String    @unique @map("rental_number")
+  customerId       Int       @map("customer_id")
+  startDate        DateTime  @map("start_date") @db.Date
+  endDate          DateTime  @map("end_date") @db.Date
+  actualReturnDate DateTime? @map("actual_return_date") @db.Date
+  status           String    @default("active")
+  subtotal         Float     @default(0)
+  depositTotal     Float     @default(0) @map("deposit_total")
+  lateFee          Float     @default(0) @map("late_fee")
+  damageFee        Float     @default(0) @map("damage_fee")
+  discount         Float     @default(0)
+  totalAmount      Float     @default(0) @map("total_amount")
+  notes            String?
+  createdAt        DateTime  @default(now()) @map("created_at")
+
+  customer Customer     @relation(fields: [customerId], references: [id])
+  items    RentalItem[]
+  invoices Invoice[]
+
+  @@map("rentals")
+}
+
+model RentalItem {
+  id        Int   @id @default(autoincrement())
+  rentalId  Int   @map("rental_id")
+  itemId    Int   @map("item_id")
+  dailyRate Float @map("daily_rate")
+  deposit   Float @default(0)
+
+  rental Rental       @relation(fields: [rentalId], references: [id], onDelete: Cascade)
+  item   ClothingItem @relation(fields: [itemId], references: [id])
+
+  @@map("rental_items")
+}
+
+model Invoice {
+  id            Int      @id @default(autoincrement())
+  invoiceNumber String   @unique @map("invoice_number")
+  rentalId      Int      @map("rental_id")
+  issueDate     DateTime @default(now()) @map("issue_date") @db.Date
+  dueDate       DateTime? @map("due_date") @db.Date
+  subtotal      Float    @default(0)
+  taxRate       Float    @default(0) @map("tax_rate")
+  taxAmount     Float    @default(0) @map("tax_amount")
+  total         Float    @default(0)
+  amountPaid    Float    @default(0) @map("amount_paid")
+  status        String   @default("unpaid")
+  notes         String?
+  createdAt     DateTime @default(now()) @map("created_at")
+
+  rental   Rental    @relation(fields: [rentalId], references: [id])
+  payments Payment[]
+
+  @@map("invoices")
+}
+
+model Payment {
+  id        Int      @id @default(autoincrement())
+  invoiceId Int      @map("invoice_id")
+  amount    Float
+  method    String   @default("cash")
+  reference String?
+  notes     String?
+  paidAt    DateTime @default(now()) @map("paid_at")
+
+  invoice Invoice @relation(fields: [invoiceId], references: [id], onDelete: Cascade)
+
+  @@map("payments")
+}
+
+model Booking {
+  id                 Int       @id @default(autoincrement())
+  bookingNumber      String    @unique @map("booking_number")
+  monthlySerial      Int       @default(0) @map("monthly_serial")
+  customerName       String    @map("customer_name")
+  customerAddress    String    @map("customer_address")
+  contact1           String    @map("contact_1")
+  whatsappNo         String?   @map("whatsapp_no")
+  deliveryDate       DateTime  @map("delivery_date") @db.Date
+  deliveryTime       String    @map("delivery_time")
+  returnDate         DateTime  @map("return_date") @db.Date
+  returnTime         String    @map("return_time")
+  venue              String?
+  securityDeposit    Float     @default(0) @map("security_deposit")
+  totalPrice         Float     @default(0) @map("total_price")
+  totalAdvance       Float     @default(0) @map("total_advance")
+  totalRemaining     Float     @default(0) @map("total_remaining")
+  commonNotes        String?   @map("common_notes")
+  staffNames         String?   @map("staff_names")
+  status             String    @default("booked")
+  createdAt          DateTime  @default(now()) @map("created_at")
+  deliveryNotes      String?   @map("delivery_notes")
+  remainingCollected Float     @default(0) @map("remaining_collected")
+  securityCollected  Float     @default(0) @map("security_collected")
+  deliveredAt        DateTime? @map("delivered_at")
+  returnedAt         DateTime? @map("returned_at")
+  incompleteNotes    String?   @map("incomplete_notes")
+  incompletePhoto    String?   @map("incomplete_photo")
+  securityHeld       Float     @default(0) @map("security_held")
+  itemId             Int?      @map("item_id")
+  dressName          String?   @map("dress_name")
+  price              Float     @default(0)
+  advance            Float     @default(0)
+  remaining          Float     @default(0)
+  notes              String?
+  contact2           String?   @map("contact_2")
+  qrToken            String?   @unique @map("qr_token")
+  refundAmount       Float     @default(0) @map("refund_amount")
+  refundedAt         DateTime? @map("refunded_at")
+
+  legacyItem   ClothingItem? @relation("LegacyBookingItem", fields: [itemId], references: [id])
+  bookingItems BookingItem[]
+
+  @@index([deliveryDate, status])
+  @@index([returnDate, status])
+  @@map("bookings")
+}
+
+model BookingItem {
+  id            Int     @id @default(autoincrement())
+  bookingId     Int     @map("booking_id")
+  itemId        Int     @map("item_id")
+  dressName     String  @map("dress_name")
+  category      String?
+  price         Float   @default(0)
+  advance       Float   @default(0)
+  remaining     Float   @default(0)
+  size          String?
+  notes         String?
+  preparedBy    String? @map("prepared_by")
+  checkedBy     String? @map("checked_by")
+  isPackedReady Boolean @default(false) @map("is_packed_ready")
+  packingNote   String? @map("packing_note")
+
+  booking Booking      @relation(fields: [bookingId], references: [id], onDelete: Cascade)
+  item    ClothingItem @relation(fields: [itemId], references: [id])
+
+  @@map("booking_items")
+}
+
+model CustomCategory {
+  id        Int      @id @default(autoincrement())
+  name      String   @unique
+  group     String   @default("other")
+  active    Boolean  @default(true)
+  createdAt DateTime @default(now()) @map("created_at")
+
+  @@map("custom_categories")
+}
+
+model Staff {
+  id        Int      @id @default(autoincrement())
+  name      String
+  phone     String?
+  active    Boolean  @default(true)
+  createdAt DateTime @default(now()) @map("created_at")
+
+  users        User[]
+  attendances  StaffAttendance[]
+
+  @@map("staff")
+}
+
+model StaffAttendance {
+  id      Int      @id @default(autoincrement())
+  staffId Int      @map("staff_id")
+  date    DateTime @db.Date
+  status  String   @default("present")
+
+  staff Staff @relation(fields: [staffId], references: [id])
+
+  @@unique([staffId, date])
+  @@map("staff_attendance")
+}
+
+model Supplier {
+  id        Int      @id @default(autoincrement())
+  name      String
+  phone     String?
+  address   String?
+  createdAt DateTime @default(now()) @map("created_at")
+
+  purchases SupplierPurchase[]
+
+  @@map("suppliers")
+}
+
+model SupplierPurchase {
+  id              Int      @id @default(autoincrement())
+  supplierId      Int      @map("supplier_id")
+  itemDescription String   @map("item_description")
+  category        String?
+  amount          Float    @default(0)
+  gstAmount       Float    @default(0) @map("gst_amount")
+  transactionType String   @default("purchase") @map("transaction_type")
+  date            DateTime @default(now()) @db.Date
+  notes           String?
+
+  supplier Supplier @relation(fields: [supplierId], references: [id])
+
+  @@map("supplier_purchases")
+}
+
+model ProspectLead {
+  id              Int       @id @default(autoincrement())
+  customerName    String    @map("customer_name")
+  customerAddress String?   @map("customer_address")
+  contact1        String?   @map("contact_1")
+  whatsappNo      String?   @map("whatsapp_no")
+  venue           String?
+  notes           String?
+  staffNames      String?   @map("staff_names")
+  deliveryDate    DateTime  @map("delivery_date") @db.Date
+  deliveryTime    String?   @map("delivery_time")
+  returnDate      DateTime  @map("return_date") @db.Date
+  returnTime      String?   @map("return_time")
+  lastReminderAt  DateTime? @map("last_reminder_at")
+  createdAt       DateTime  @default(now()) @map("created_at")
+
+  items ProspectLeadItem[]
+
+  @@map("prospect_leads")
+}
+
+model ProspectLeadItem {
+  id             Int   @id @default(autoincrement())
+  prospectLeadId Int   @map("prospect_lead_id")
+  itemId         Int   @map("item_id")
+  rent           Float @default(0)
+
+  prospectLead ProspectLead @relation(fields: [prospectLeadId], references: [id], onDelete: Cascade)
+  item         ClothingItem @relation(fields: [itemId], references: [id])
+
+  @@map("prospect_lead_items")
+}
+
+model ShopEnquiry {
+  id              Int      @id @default(autoincrement())
+  customerName    String   @map("customer_name")
+  customerAddress String?  @map("customer_address")
+  contact1        String?  @map("contact_1")
+  whatsappNo      String?  @map("whatsapp_no")
+  enquiryNotes    String?  @map("enquiry_notes")
+  staffNames      String?  @map("staff_names")
+  visitDate       DateTime @map("visit_date") @db.Date
+  createdAt       DateTime @default(now()) @map("created_at")
+
+  @@map("shop_enquiries")
+}

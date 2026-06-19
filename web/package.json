@@ -1,0 +1,50 @@
+{
+  "name": "fancy-collection-web",
+  "version": "1.0.0",
+  "private": true,
+  "scripts": {
+    "predev": "node scripts/ensure-dev-ready.mjs",
+    "dev": "next dev -p 3000",
+    "dev:open": "next dev -p 3000",
+    "build": "prisma generate && next build",
+    "start": "next start",
+    "start:prod": "next start -H 0.0.0.0",
+    "preview": "npm run build && npm run start:prod",
+    "lint": "next lint",
+    "postinstall": "prisma generate && node scripts/copy-assets.mjs",
+    "db:push": "prisma db push",
+    "db:seed": "tsx prisma/seed.ts",
+    "copy-assets": "node scripts/copy-assets.mjs",
+    "db:studio": "prisma studio",
+    "db:migrate-sqlite": "python ../scripts/migrate_sqlite_to_postgres.py"
+  },
+  "dependencies": {
+    "@prisma/client": "^6.5.0",
+    "@types/qrcode": "^1.5.6",
+    "@vercel/blob": "^0.27.0",
+    "bcryptjs": "^3.0.2",
+    "chart.js": "^4.4.8",
+    "html5-qrcode": "^2.3.8",
+    "iron-session": "^8.0.4",
+    "next": "^15.2.4",
+    "qrcode": "^1.5.4",
+    "react": "^19.0.0",
+    "react-dom": "^19.0.0",
+    "sharp": "^0.33.5",
+    "uuid": "^11.1.0"
+  },
+  "devDependencies": {
+    "@tailwindcss/postcss": "^4.0.14",
+    "@types/bcryptjs": "^2.4.6",
+    "@types/node": "^22.13.10",
+    "@types/react": "^19.0.12",
+    "@types/react-dom": "^19.0.4",
+    "@types/uuid": "^10.0.0",
+    "eslint": "^9.22.0",
+    "eslint-config-next": "^15.2.4",
+    "prisma": "^6.5.0",
+    "tailwindcss": "^4.0.14",
+    "tsx": "^4.19.3",
+    "typescript": "^5.8.2"
+  }
+}

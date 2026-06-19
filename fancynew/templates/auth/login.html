@@ -1,0 +1,103 @@
+<!DOCTYPE html>
+<html lang="en">
+<head>
+  <meta charset="UTF-8">
+  <meta name="viewport" content="width=device-width, initial-scale=1.0, viewport-fit=cover">
+  <title>Login – Fancy Collection</title>
+  <link rel="stylesheet" href="{{ url_for('static', filename='css/style.css') }}">
+  <link rel="stylesheet" href="https://cdnjs.cloudflare.com/ajax/libs/font-awesome/6.5.0/css/all.min.css">
+  <style>
+    body { background: var(--bg, #0f0f1a); display:flex; align-items:center; justify-content:center; min-height:100vh; margin:0; }
+    .login-box {
+      background: var(--surface, #1a1a2e);
+      border: 1px solid var(--border, #2a2a3e);
+      border-radius: 16px;
+      padding: 48px 40px;
+      width: 100%;
+      max-width: 400px;
+      box-shadow: 0 20px 60px rgba(0,0,0,0.5);
+    }
+    .login-brand { text-align:center; margin-bottom:32px; }
+    .login-brand .brand-icon { font-size:48px; margin-bottom:8px; }
+    .login-brand h1 { color:var(--gold, #d4af37); font-size:22px; margin:0 0 4px; }
+    .login-brand p { color:var(--text-muted, #888); font-size:13px; margin:0; }
+    .login-title { font-size:18px; font-weight:700; color:var(--text, #e2e8f0); margin-bottom:24px; text-align:center; }
+    .form-group { margin-bottom:18px; }
+    .form-label { display:block; font-size:12px; font-weight:600; color:var(--text-muted, #888); margin-bottom:6px; text-transform:uppercase; letter-spacing:0.5px; }
+    .input-with-icon { position:relative; }
+    .input-with-icon i { position:absolute; left:14px; top:50%; transform:translateY(-50%); color:var(--text-muted,#888); }
+    .input-with-icon input { padding-left:40px; }
+    .form-control {
+      width:100%; padding:10px 14px; border:1px solid var(--border,#2a2a3e);
+      border-radius:8px; background:var(--bg,#0f0f1a); color:var(--text,#e2e8f0);
+      font-size:14px; box-sizing:border-box;
+    }
+    .form-control:focus { outline:none; border-color:var(--gold,#d4af37); }
+    .btn-login {
+      width:100%; padding:12px; background:var(--gold,#d4af37); color:#1a1a2e;
+      border:none; border-radius:8px; font-size:15px; font-weight:700;
+      cursor:pointer; transition:opacity 0.2s;
+    }
+    .btn-login:hover { opacity:0.9; }
+    .flash-error { background:#e53e3e22; border:1px solid #e53e3e; color:#fc8181; padding:10px 14px; border-radius:8px; margin-bottom:16px; font-size:13px; }
+    .flash-success { background:#38a16922; border:1px solid #38a169; color:#68d391; padding:10px 14px; border-radius:8px; margin-bottom:16px; font-size:13px; }
+    .flash-info { background:#1565c022; border:1px solid #1565c0; color:#64b5f6; padding:10px 14px; border-radius:8px; margin-bottom:16px; font-size:13px; }
+    .default-hint { text-align:center; margin-top:16px; font-size:12px; color:var(--text-muted,#888); }
+    .default-hint code { background:var(--bg,#0f0f1a); padding:2px 6px; border-radius:4px; color:var(--gold,#d4af37); }
+    @media (max-width: 576px) {
+      .login-box {
+        margin: 16px;
+        padding: 32px 24px;
+        max-width: calc(100% - 32px);
+      }
+      .login-brand h1 { font-size: 20px; }
+      .login-title { font-size: 16px; }
+    }
+  </style>
+</head>
+<body>
+  <div class="login-box">
+    <div class="login-brand">
+      <div class="brand-icon">👑</div>
+      <h1>Fancy Collection</h1>
+      <p>Rental Management System</p>
+    </div>
+
+    <div class="login-title"><i class="fa-solid fa-lock" style="margin-right:8px;"></i>Sign In</div>
+
+    {% with messages = get_flashed_messages(with_categories=true) %}
+      {% for category, msg in messages %}
+        <div class="flash-{{ 'error' if category in ('error','danger') else ('info' if category == 'info' else 'success') }}">
+          <i class="fa-solid fa-{% if category in ('error','danger') %}circle-xmark{% elif category == 'info' %}circle-info{% else %}circle-check{% endif %}" style="margin-right:6px;"></i>{{ msg }}
+        </div>
+      {% endfor %}
+    {% endwith %}
+
+    <form method="post">
+      <div class="form-group">
+        <label class="form-label">Username</label>
+        <div class="input-with-icon">
+          <i class="fa-solid fa-user"></i>
+          <input type="text" name="username" class="form-control" placeholder="Enter username" required autofocus>
+        </div>
+      </div>
+      <div class="form-group">
+        <label class="form-label">Password</label>
+        <div class="input-with-icon">
+          <i class="fa-solid fa-lock"></i>
+          <input type="password" name="password" class="form-control" placeholder="Enter password" required>
+        </div>
+      </div>
+      <button type="submit" class="btn-login">
+        <i class="fa-solid fa-right-to-bracket" style="margin-right:8px;"></i>Sign In
+      </button>
+    </form>
+
+    <div class="default-hint">
+      Default owner login: <code>owner</code> / <code>admin123</code><br>
+      <small style="color:#e53e3e;">Change password after first login!</small><br>
+      <small style="color:#888;margin-top:8px;display:inline-block;">Staff accounts require owner approval on the dashboard before login.</small>
+    </div>
+  </div>
+</body>
+</html>

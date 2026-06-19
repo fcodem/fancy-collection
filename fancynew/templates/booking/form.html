@@ -1,0 +1,726 @@
+{% extends "base.html" %}
+
+{% block title %}{% if edit_booking %}Edit Booking{% else %}New Booking{% endif %}{% endblock %}
+{% block page_title %}{% if edit_booking %}Edit Booking — Serial #{{ '%02d'|format(edit_booking.monthly_serial or 0) }}{% else %}New Booking{% endif %}{% endblock %}
+{% block breadcrumb %}
+  <a href="{{ url_for('booking_panel') }}" style="color:var(--primary); text-decoration:none;">Bookings</a>
+  &rsaquo; {% if edit_booking %}Edit Serial #{{ '%02d'|format(edit_booking.monthly_serial or 0) }}{% else %}New Booking{% endif %}
+{% endblock %}
+
+{% block content %}
+
+<form method="post" id="bookingForm"
+      action="{% if edit_booking %}{{ url_for('booking_edit', id=edit_booking.id) }}{% else %}{{ url_for('booking_new') }}{% endif %}">
+
+  <!-- ══════════ Today's Date & Serial ══════════ -->
+  <div class="card" style="margin-bottom:20px; background:linear-gradient(135deg, var(--primary-dark), var(--primary)); color:white;">
+    <div class="card-body booking-header-bar" style="padding:16px 24px;">
+      <div style="display:flex; align-items:center; gap:16px;">
+        <div style="width:44px; height:44px; background:rgba(255,255,255,0.15); border-radius:10px; display:flex; align-items:center; justify-content:center;">
+          <i class="fa-solid fa-calendar-day" style="font-size:20px;"></i>
+        </div>
+        <div>
+          <div style="font-size:18px; font-weight:700;" id="currentDateTime"></div>
+          <div style="font-size:12px; opacity:0.8;">Booking Date & Time</div>
+        </div>
+      </div>
+      <div style="text-align:right;">
+        <div style="font-size:28px; font-weight:800; font-family:'Playfair Display',serif;" id="serialDisplay">--</div>
+        <div style="font-size:11px; opacity:0.8;">Monthly Serial (based on delivery month)</div>
+      </div>
+    </div>
+  </div>
+
+  <!-- ══════════ ROW 1: Customer + Schedule ══════════ -->
+  <div class="two-col" style="margin-bottom:20px;">
+
+    <!-- ── Customer Details ──────────────────────────────── -->
+    <div class="card">
+      <div class="card-header">
+        <h3 class="card-title"><i class="fa-solid fa-user-circle" style="margin-right:8px;"></i>Customer Details</h3>
+      </div>
+      <div class="card-body">
+        <div class="form-grid">
+          <div class="form-group full-width">
+            <label class="form-label">Customer Name *</label>
+            <input type="text" name="customer_name" class="form-control"
+                   placeholder="Full name of the customer" required
+                   value="{{ edit_booking.customer_name if edit_booking else '' }}">
+          </div>
+          <div class="form-group full-width">
+            <label class="form-label">Address *</label>
+            <textarea name="customer_address" class="form-control" rows="2"
+                      placeholder="Full address…" required>{{ edit_booking.customer_address if edit_booking else '' }}</textarea>
+          </div>
+          <div class="form-group">
+            <label class="form-label">Contact Number *</label>
+            <div class="input-group">
+              <span class="input-group-text"><i class="fa-solid fa-phone"></i></span>
+              <input type="tel" name="contact_1" class="form-control"
+                     placeholder="Primary phone" required
+                     value="{{ edit_booking.contact_1 if edit_booking else '' }}">
+            </div>
+          </div>
+          <div class="form-group">
+            <label class="form-label">WhatsApp No. *</label>
+            <div class="input-group">
+              <span class="input-group-text"><i class="fa-brands fa-whatsapp" style="color:#25D366;"></i></span>
+              <input type="tel" name="whatsapp_no" class="form-control"
+                     placeholder="WhatsApp number" required
+                     value="{{ edit_booking.whatsapp_no if edit_booking else '' }}">
+            </div>
+          </div>
+          <div class="form-group full-width">
+            <label class="form-label">Venue</label>
+            <div class="input-group">
+              <span class="input-group-text"><i class="fa-solid fa-location-dot"></i></span>
+              <input type="text" name="venue" class="form-control"
+                     placeholder="Event venue / location"
+                     value="{{ edit_booking.venue if edit_booking else '' }}">
+            </div>
+          </div>
+          <div class="form-group full-width">
+            <label class="form-label">Security Deposit (₹)</label>
+            <div class="input-group">
+              <span class="input-group-text"><i class="fa-solid fa-shield-halved"></i></span>
+              <input type="number" name="security_deposit" class="form-control"
+                     placeholder="0" value="{{ edit_booking.security_deposit|int if edit_booking else 0 }}" min="0" step="1">
+            </div>
+            <span class="form-hint">Amount collected as security deposit</span>
+          </div>
+          <div class="form-group full-width">
+            <label class="form-label">Staff Name (who handled the customer)</label>
+            <select name="staff_names[]" id="staffSelect" class="form-control" multiple style="min-height:60px;">
+              {% for s in staff_list %}
+              <option value="{{ s.name }}" {% if edit_booking and edit_booking.staff_names and s.name in edit_booking.staff_names.split(', ') %}selected{% endif %}>{{ s.name }}</option>
+              {% endfor %}
+            </select>
+            <span class="form-hint">Hold Ctrl to select multiple staff members</span>
+          </div>
+        </div>
+      </div>
+    </div>
+
+    <!-- ── Delivery & Return Dates ──────────────────────── -->
+    <div class="card">
+      <div class="card-header">
+        <h3 class="card-title"><i class="fa-solid fa-truck-fast" style="margin-right:8px;"></i>Delivery & Return Schedule</h3>
+      </div>
+      <div class="card-body">
+        <div class="form-grid" style="grid-template-columns:1fr 1fr;">
+          <div class="form-group">
+            <label class="form-label">Delivery Date *</label>
+            <input type="date" name="delivery_date" id="deliveryDate"
+                   class="form-control" value="{{ edit_booking.delivery_date.isoformat() if edit_booking else today_iso }}" required
+                   onchange="onDatesChanged(); updateSerialDisplay()">
+          </div>
+          <div class="form-group">
+            <label class="form-label">Delivery Time *</label>
+            <select name="delivery_time" id="deliveryTime" class="form-control" required>
+              <option value="9:00 AM">9:00 AM</option>
+              <option value="10:00 AM">10:00 AM</option>
+              <option value="11:00 AM">11:00 AM</option>
+              <option value="12:00 Noon" selected>12:00 Noon</option>
+              <option value="1:00 PM">1:00 PM</option>
+              <option value="2:00 PM">2:00 PM</option>
+              <option value="3:00 PM">3:00 PM</option>
+              <option value="4:00 PM">4:00 PM</option>
+              <option value="5:00 PM">5:00 PM</option>
+              <option value="6:00 PM">6:00 PM</option>
+              <option value="7:00 PM">7:00 PM</option>
+              <option value="8:00 PM">8:00 PM</option>
+              <option value="9:00 PM">9:00 PM</option>
+              <option value="10:00 PM">10:00 PM</option>
+            </select>
+          </div>
+          <div class="form-group">
+            <label class="form-label">Return Date *</label>
+            <input type="date" name="return_date" id="returnDate"
+                   class="form-control" value="{{ edit_booking.return_date.isoformat() if edit_booking else today_iso }}" required
+                   onchange="onDatesChanged()">
+          </div>
+          <div class="form-group">
+            <label class="form-label">Return Time *</label>
+            <select name="return_time" id="returnTime" class="form-control" required>
+              <option value="9:00 AM">9:00 AM</option>
+              <option value="10:00 AM">10:00 AM</option>
+              <option value="11:00 AM">11:00 AM</option>
+              <option value="12:00 Noon" selected>12:00 Noon</option>
+              <option value="1:00 PM">1:00 PM</option>
+              <option value="2:00 PM">2:00 PM</option>
+              <option value="3:00 PM">3:00 PM</option>
+              <option value="4:00 PM">4:00 PM</option>
+              <option value="5:00 PM">5:00 PM</option>
+              <option value="6:00 PM">6:00 PM</option>
+              <option value="7:00 PM">7:00 PM</option>
+              <option value="8:00 PM">8:00 PM</option>
+              <option value="9:00 PM">9:00 PM</option>
+              <option value="10:00 PM">10:00 PM</option>
+            </select>
+          </div>
+        </div>
+        <div id="durationInfo" style="margin-top:12px; padding:10px 14px;
+             background:var(--cream-dark); border-radius:8px; font-size:13px;
+             color:var(--primary); font-weight:600; display:none;">
+        </div>
+      </div>
+    </div>
+
+  </div>
+
+  <!-- ══════════ ROW 2: Available Dresses ══════════ -->
+  <div class="card" style="margin-bottom:20px;">
+    <div class="card-header">
+      <h3 class="card-title"><i class="fa-solid fa-shirt" style="margin-right:8px; color:var(--success);"></i>Available Dresses</h3>
+      <span class="badge badge-available" id="freeCount">Select dates first</span>
+    </div>
+    <div class="card-body" style="padding-bottom:0;">
+      <!-- Category Filter + Size Filter + Dress Name Search -->
+      <div class="form-row-flex" style="margin-bottom:14px;">
+        <div style="flex:1; min-width:160px;">
+          <label style="font-size:11px; font-weight:600; color:var(--text-muted); text-transform:uppercase; letter-spacing:0.5px; margin-bottom:5px; display:block;">Category</label>
+          <select id="categoryFilter" class="form-control" onchange="onCategoryFilterChange()">
+            <option value="">All Categories</option>
+            <optgroup label="🤵 Men's">
+            {% for cat in mens_categories %}
+            <option value="{{ cat }}">{{ cat }}</option>
+            {% endfor %}
+            </optgroup>
+            <optgroup label="👗 Women's">
+            {% for cat in womens_categories %}
+            <option value="{{ cat }}">{{ cat }}</option>
+            {% endfor %}
+            </optgroup>
+            <optgroup label="💎 Jewellery">
+            {% for cat in jewellery_categories %}
+            <option value="{{ cat }}">{{ cat }}</option>
+            {% endfor %}
+            </optgroup>
+            <optgroup label="👒 Accessories">
+            {% for cat in accessory_categories %}
+            <option value="{{ cat }}">{{ cat }}</option>
+            {% endfor %}
+            </optgroup>
+          </select>
+        </div>
+        <div style="flex:0.7; min-width:120px; display:none;" id="sizeFilterGroup">
+          <label style="font-size:11px; font-weight:600; color:var(--text-muted); text-transform:uppercase; letter-spacing:0.5px; margin-bottom:5px; display:block;">Size *</label>
+          <select id="sizeFilter" class="form-control" onchange="filterItems()">
+            <option value="">All Sizes</option>
+            {% for n in range(32, 59, 2) %}
+            <option value="{{ n }}">{{ n }}</option>
+            {% endfor %}
+            <option value="Free Size">Free Size</option>
+            <option value="Custom">Custom</option>
+          </select>
+        </div>
+        <div style="flex:2; min-width:200px;">
+          <label style="font-size:11px; font-weight:600; color:var(--text-muted); text-transform:uppercase; letter-spacing:0.5px; margin-bottom:5px; display:block;">Search Dress Name</label>
+          <div class="search-input dress-suggest-wrap" style="border:1.5px solid var(--border); padding:7px 12px;">
+            <i class="fa-solid fa-magnifying-glass"></i>
+            <input type="text" id="dressNameSearch" class="dress-name-suggest" data-category-select="#categoryFilter" placeholder="Type dress name…" autocomplete="off" oninput="filterItems()">
+          </div>
+        </div>
+      </div>
+    </div>
+
+    <!-- Dress List -->
+    <div style="border-top:1px solid var(--border);">
+      <div id="freeItemsLoading" style="display:none; padding:30px; text-align:center; color:var(--text-muted);">
+        <i class="fa-solid fa-spinner fa-spin" style="font-size:20px;"></i>
+        <p style="margin-top:8px;">Checking availability…</p>
+      </div>
+      <div id="freeItemsEmpty" style="padding:40px; text-align:center; color:var(--text-muted);">
+        <i class="fa-solid fa-calendar-day" style="font-size:36px; margin-bottom:12px; opacity:0.4;"></i>
+        <p>Select delivery & return dates to see available dresses.</p>
+      </div>
+      <div id="freeItemsList" style="display:none; max-height:350px; overflow-y:auto;"></div>
+    </div>
+
+  </div>
+
+  <!-- ══════════ ROW 3: Selected Dresses (Multi-dress) ══════════ -->
+  <div class="card" style="margin-bottom:20px;" id="selectedDressesCard" style="display:none;">
+    <div class="card-header" style="background:linear-gradient(135deg, rgba(123,31,69,0.06), rgba(201,168,70,0.06));">
+      <h3 class="card-title"><i class="fa-solid fa-check-double" style="margin-right:8px; color:var(--success);"></i>Selected Dresses</h3>
+      <span class="badge badge-available" id="selectedCount">0 selected</span>
+    </div>
+    <div class="card-body" id="selectedDressesBody">
+      <div id="noDressesMsg" style="text-align:center; padding:20px; color:var(--text-muted);">
+        <i class="fa-solid fa-hand-pointer" style="font-size:24px; margin-bottom:8px; opacity:0.4;"></i>
+        <p>Click on dresses above to add them to this booking.</p>
+      </div>
+      <div id="selectedDressesList"></div>
+    </div>
+  </div>
+
+  <!-- ══════════ ROW 4: Grand Total ══════════ -->
+  <div class="card" style="margin-bottom:20px;" id="grandTotalCard">
+    <div class="card-header">
+      <h3 class="card-title"><i class="fa-solid fa-calculator" style="margin-right:8px;"></i>Grand Total</h3>
+    </div>
+    <div class="card-body">
+      <div class="payment-grid-3">
+        <div style="text-align:center; padding:14px; background:var(--cream-dark); border-radius:10px;">
+          <div style="font-size:11px; font-weight:600; color:var(--text-muted); text-transform:uppercase; margin-bottom:4px;">Total Rent</div>
+          <div style="font-size:22px; font-weight:800; color:var(--primary);" id="grandTotalPrice">₹0</div>
+        </div>
+        <div style="text-align:center; padding:14px; background:var(--success-bg); border-radius:10px;">
+          <div style="font-size:11px; font-weight:600; color:var(--text-muted); text-transform:uppercase; margin-bottom:4px;">Total Advance</div>
+          <div style="font-size:22px; font-weight:800; color:var(--success);" id="grandTotalAdvance">₹0</div>
+        </div>
+        <div style="text-align:center; padding:14px; background:var(--danger-bg); border-radius:10px;">
+          <div style="font-size:11px; font-weight:600; color:var(--text-muted); text-transform:uppercase; margin-bottom:4px;">Total Remaining</div>
+          <div style="font-size:22px; font-weight:800; color:var(--danger);" id="grandTotalRemaining">₹0</div>
+        </div>
+      </div>
+
+      <!-- Common Notes -->
+      <div class="form-group" style="margin-top:18px;">
+        <label class="form-label"><i class="fa-solid fa-note-sticky" style="margin-right:5px;"></i>Common Notes (for all dresses)</label>
+        <textarea name="common_notes" class="form-control" rows="2"
+                  placeholder="Any common instructions for this booking…">{{ edit_booking.common_notes if edit_booking else '' }}</textarea>
+      </div>
+    </div>
+  </div>
+
+  <!-- ── Submit Bar ──────────────────────────────────────────── -->
+  <div class="card">
+    <div class="card-body" style="padding:18px 24px;">
+      <div class="form-actions" style="padding-top:0; border-top:none; margin-top:0;">
+        <button type="submit" class="btn btn-primary btn-lg" id="submitBtn" disabled>
+          <i class="fa-solid fa-calendar-plus"></i> {% if edit_booking %}Update Booking{% else %}Confirm Booking{% endif %}
+        </button>
+        <button type="submit" class="btn btn-gold btn-lg" id="submitPrintBtn" disabled onclick="document.getElementById('printAfterSave').value='1';">
+          <i class="fa-solid fa-print"></i> Save & Print Bill
+        </button>
+        <input type="hidden" name="print_after_save" id="printAfterSave" value="0">
+        <a href="{% if edit_booking %}{{ url_for('booking_view', id=edit_booking.id) }}{% else %}{{ url_for('booking_panel') }}{% endif %}" class="btn btn-outline">
+          <i class="fa-solid fa-xmark"></i> Cancel
+        </a>
+        <div style="margin-left:auto; font-size:13px; color:var(--text-muted);">
+          <i class="fa-solid fa-circle-info" style="margin-right:5px;"></i>
+          {% if edit_booking %}Changing dates re-checks availability automatically.{% else %}All selected dresses will be marked as rented.{% endif %}
+        </div>
+      </div>
+    </div>
+  </div>
+
+</form>
+
+{% endblock %}
+
+{% block scripts %}
+<script>
+// Display current date/time
+function updateDateTime() {
+  const now = new Date();
+  const options = { weekday: 'long', day: '2-digit', month: 'long', year: 'numeric', hour: '2-digit', minute: '2-digit' };
+  document.getElementById('currentDateTime').textContent = now.toLocaleDateString('en-IN', options);
+}
+updateDateTime();
+setInterval(updateDateTime, 60000);
+
+// Serial number display
+{% if edit_booking %}
+// In edit mode: always show the existing serial number (never "next")
+function updateSerialDisplay() {
+  document.getElementById('serialDisplay').textContent = '#{{ '%02d'|format(edit_booking.monthly_serial or 0) }}';
+}
+{% else %}
+// In new-booking mode: fetch the next serial for the chosen delivery month
+function updateSerialDisplay() {
+  const dd = document.getElementById('deliveryDate').value;
+  if (!dd) { document.getElementById('serialDisplay').textContent = '--'; return; }
+  fetch(`/api/booking/next-serial?delivery_date=${dd}`)
+    .then(r => r.json())
+    .then(data => {
+      document.getElementById('serialDisplay').textContent = '#' + String(data.serial).padStart(2, '0');
+    })
+    .catch(() => { document.getElementById('serialDisplay').textContent = '--'; });
+}
+{% endif %}
+
+let debounceTimer = null;
+let allFreeItems = [];
+let selectedDresses = []; // {id, name, sku, category, color, size, photo}
+
+function onDatesChanged() {
+  const dd = document.getElementById('deliveryDate').value;
+  const rd = document.getElementById('returnDate').value;
+
+  if (!dd || !rd) return;
+
+  const dDate = new Date(dd);
+  const rDate = new Date(rd);
+  const days = Math.ceil((rDate - dDate) / 86400000) + 1;
+
+  const info = document.getElementById('durationInfo');
+  if (days >= 1) {
+    info.style.display = 'block';
+    info.innerHTML = `<i class="fa-solid fa-calendar-range" style="margin-right:6px;"></i> Duration: <strong>${days} day${days > 1 ? 's' : ''}</strong>`;
+  } else {
+    info.style.display = 'block';
+    info.innerHTML = `<i class="fa-solid fa-triangle-exclamation" style="margin-right:6px; color:var(--danger);"></i><span style="color:var(--danger);">Return date must be on or after delivery date!</span>`;
+  }
+
+  clearTimeout(debounceTimer);
+  debounceTimer = setTimeout(fetchAvailability, 400);
+}
+
+function fetchAvailability() {
+  const dd = document.getElementById('deliveryDate').value;
+  const rd = document.getElementById('returnDate').value;
+
+  if (!dd || !rd) return;
+
+  document.getElementById('freeItemsLoading').style.display = 'block';
+  document.getElementById('freeItemsEmpty').style.display = 'none';
+  document.getElementById('freeItemsList').style.display = 'none';
+
+  let url = `/api/booking/available-items?delivery_date=${dd}&return_date=${rd}`;
+  if (window.EDIT_BOOKING_ID) url += `&exclude_booking=${window.EDIT_BOOKING_ID}`;
+  fetch(url)
+    .then(r => r.json())
+    .then(data => {
+      document.getElementById('freeItemsLoading').style.display = 'none';
+      allFreeItems = data.free_items || [];
+      filterItems();
+    })
+    .catch(err => {
+      document.getElementById('freeItemsLoading').style.display = 'none';
+      document.getElementById('freeItemsEmpty').style.display = 'block';
+    });
+}
+
+const mensCategories = {{ mens_categories | tojson }};
+
+function onCategoryFilterChange() {
+  const cat = document.getElementById('categoryFilter').value;
+  const sizeGroup = document.getElementById('sizeFilterGroup');
+  const sizeSelect = document.getElementById('sizeFilter');
+  if (mensCategories.includes(cat)) {
+    sizeGroup.style.display = '';
+    sizeSelect.required = true;
+  } else {
+    sizeGroup.style.display = 'none';
+    sizeSelect.value = '';
+    sizeSelect.required = false;
+  }
+  filterItems();
+}
+
+function filterItems() {
+  const category = document.getElementById('categoryFilter').value.toLowerCase();
+  const nameSearch = document.getElementById('dressNameSearch').value.toLowerCase().trim();
+  const sizeFilter = document.getElementById('sizeFilter').value;
+
+  let filtered = allFreeItems;
+  if (category) filtered = filtered.filter(item => item.category.toLowerCase() === category);
+  if (nameSearch) {
+    filtered = filtered.filter(function(item) {
+      return window.dressNameMatches(item.name, nameSearch)
+        || window.dressNameMatches(item.display_name || '', nameSearch);
+    });
+  }
+  if (sizeFilter) filtered = filtered.filter(item => item.size && item.size.includes(sizeFilter));
+
+  // Sort men's items by size (numeric)
+  const cat = document.getElementById('categoryFilter').value;
+  if (mensCategories.includes(cat)) {
+    filtered.sort((a, b) => {
+      const sA = parseInt(a.size) || 999;
+      const sB = parseInt(b.size) || 999;
+      return sA - sB;
+    });
+  }
+
+  renderFreeItems(filtered);
+}
+
+function renderFreeItems(items) {
+  const container = document.getElementById('freeItemsList');
+  const countBadge = document.getElementById('freeCount');
+
+  if (!items || items.length === 0) {
+    document.getElementById('freeItemsEmpty').style.display = 'block';
+    container.style.display = 'none';
+    countBadge.textContent = `${items ? items.length : 0} available`;
+    return;
+  }
+
+  countBadge.textContent = `${items.length} available`;
+  container.style.display = 'block';
+  document.getElementById('freeItemsEmpty').style.display = 'none';
+
+  let html = '';
+  items.forEach(item => {
+    const isSelected = selectedDresses.some(d => d.id == item.id);
+    const photoSrc = item.photo ? `/static/uploads/${item.photo}` : '';
+    const photoHtml = photoSrc
+      ? `<img src="${photoSrc}" style="width:44px; height:44px; border-radius:8px; object-fit:cover;">`
+      : `<div style="width:44px; height:44px; border-radius:8px; background:linear-gradient(135deg, var(--cream-dark), var(--cream)); display:flex; align-items:center; justify-content:center; font-size:20px;">👗</div>`;
+
+    let warningHtml = '';
+    let rowBg = isSelected ? 'background:rgba(123,31,69,0.06);' : '';
+
+    if (item.returning_warning) {
+      rowBg = isSelected ? 'background:rgba(123,31,69,0.06);' : 'background:#FFF8E1;';
+      const w = item.returning_warning;
+      warningHtml += `<div style="font-size:10px; color:#E65100; margin-top:2px; line-height:1.3;">
+        <i class="fa-solid fa-triangle-exclamation"></i> <strong>Returning on delivery date</strong> · ${w.customer} · Serial #${String(w.serial_no || 0).padStart(2,'0')} · by ${w.return_time} · ₹${Number(w.total_rent).toLocaleString('en-IN')}${w.venue ? ' · ' + w.venue : ''}
+      </div>`;
+    }
+    if (item.booked_warning) {
+      rowBg = isSelected ? 'background:rgba(123,31,69,0.06);' : (item.returning_warning ? 'background:#FFF3E0;' : 'background:#FFF0F0;');
+      const w = item.booked_warning;
+      warningHtml += `<div style="font-size:10px; color:var(--danger); margin-top:2px; line-height:1.3;">
+        <i class="fa-solid fa-circle-exclamation"></i> <strong>Booked on return date</strong> · ${w.customer} · Serial #${String(w.serial_no || 0).padStart(2,'0')} · Pickup ${w.delivery_time} · ₹${Number(w.total_rent).toLocaleString('en-IN')}${w.venue ? ' · ' + w.venue : ''}
+      </div>`;
+    }
+
+    html += `
+      <div class="free-item-row" data-id="${item.id}" data-name="${item.name}"
+           data-sku="${item.sku}" data-category="${item.category}"
+           data-color="${item.color || ''}" data-size="${item.size || ''}"
+           data-photo="${item.photo || ''}"
+           onclick="toggleDress(this)" style="
+             display:flex; align-items:center; gap:12px; padding:10px 20px;
+             border-bottom:1px solid var(--border); cursor:pointer;
+             transition:all 0.15s ease; ${rowBg}">
+        ${photoHtml}
+        <div style="flex:1;">
+          <div style="font-weight:600; font-size:13px;">${item.display_name || item.name}</div>
+          <div style="font-size:11px; color:var(--text-muted);">
+            ${item.category}${item.size ? ' · ' + item.size : ''}${item.color ? ' · ' + item.color : ''}
+          </div>
+          ${warningHtml}
+        </div>
+        <div class="select-indicator" style="width:28px; height:28px; border-radius:50%;
+             border:2px solid ${isSelected ? 'var(--primary)' : 'var(--border)'}; display:flex; align-items:center;
+             justify-content:center; flex-shrink:0;
+             background:${isSelected ? 'var(--primary)' : 'transparent'};">
+          ${isSelected ? '<i class="fa-solid fa-check" style="color:white; font-size:12px;"></i>' : ''}
+        </div>
+      </div>`;
+  });
+  container.innerHTML = html;
+}
+
+
+function syncSelectedFromDOM() {
+  const priceInputs = document.querySelectorAll('.dress-price');
+  const advanceInputs = document.querySelectorAll('.dress-advance');
+  const noteInputs = document.querySelectorAll('textarea[name="dress_notes[]"]');
+  selectedDresses.forEach((d, i) => {
+    if (priceInputs[i] && priceInputs[i].value !== '') d.price = parseFloat(priceInputs[i].value) || 0;
+    if (advanceInputs[i]) d.advance = parseFloat(advanceInputs[i].value) || 0;
+    if (noteInputs[i]) d.notes = noteInputs[i].value;
+  });
+}
+
+function toggleDress(el) {
+  const id = el.dataset.id;
+  const idx = selectedDresses.findIndex(d => d.id == id);
+
+  syncSelectedFromDOM();
+  if (idx >= 0) {
+    selectedDresses.splice(idx, 1);
+  } else {
+    selectedDresses.push({
+      id: el.dataset.id,
+      name: el.dataset.name,
+      sku: el.dataset.sku,
+      category: el.dataset.category,
+      color: el.dataset.color,
+      size: el.dataset.size,
+      photo: el.dataset.photo,
+    });
+  }
+
+  filterItems();
+  renderSelectedDresses();
+  updateGrandTotals();
+  const noItems = selectedDresses.length === 0;
+  document.getElementById('submitBtn').disabled = noItems;
+  document.getElementById('submitPrintBtn').disabled = noItems;
+  document.getElementById('selectedCount').textContent = `${selectedDresses.length} selected`;
+}
+
+function renderSelectedDresses() {
+  const container = document.getElementById('selectedDressesList');
+  const noMsg = document.getElementById('noDressesMsg');
+
+  if (selectedDresses.length === 0) {
+    container.innerHTML = '';
+    noMsg.style.display = 'block';
+    return;
+  }
+
+  noMsg.style.display = 'none';
+  let html = '';
+  selectedDresses.forEach((dress, i) => {
+    const photoSrc = dress.photo ? `/static/uploads/${dress.photo}` : '';
+    const photoHtml = photoSrc
+      ? `<img src="${photoSrc}" style="width:56px; height:56px; border-radius:10px; object-fit:cover; border:2px solid var(--border);">`
+      : `<div style="width:56px; height:56px; border-radius:10px; background:linear-gradient(135deg, var(--cream-dark), var(--cream)); display:flex; align-items:center; justify-content:center; font-size:24px; border:2px solid var(--border);">👗</div>`;
+
+    html += `
+      <div style="border:1.5px solid var(--border); border-radius:12px; padding:16px; margin-bottom:14px;
+                  background:linear-gradient(135deg, rgba(123,31,69,0.02), rgba(201,168,70,0.02));">
+        <!-- Dress Header -->
+        <div style="display:flex; align-items:center; gap:14px; margin-bottom:14px; padding-bottom:12px; border-bottom:1px solid var(--border);">
+          ${photoHtml}
+          <div style="flex:1;">
+            <div style="font-size:15px; font-weight:700; color:var(--primary);">${dress.name}</div>
+            <div style="font-size:12px; color:var(--text-muted);">${dress.category}${dress.size ? ' · ' + dress.size : ''}${dress.color ? ' · ' + dress.color : ''}</div>
+          </div>
+          <button type="button" onclick="removeDress(${i})" style="width:30px; height:30px; border-radius:50%; border:none;
+                  background:var(--danger-bg); color:var(--danger); cursor:pointer; font-size:14px;">
+            <i class="fa-solid fa-xmark"></i>
+          </button>
+        </div>
+
+        <!-- Hidden fields -->
+        <input type="hidden" name="item_ids[]" value="${dress.id}">
+        <input type="hidden" name="dress_names[]" value="${dress.name}">
+
+        <!-- Price, Advance, Remaining -->
+        <div class="payment-grid-3" style="margin-bottom:12px;">
+          <div>
+            <label style="font-size:10px; font-weight:700; color:var(--text-muted); text-transform:uppercase;">Rental Price (₹)</label>
+            <input type="number" name="prices[]" class="form-control dress-price" data-idx="${i}"
+                   placeholder="Enter price" min="0" step="1" required value="${dress.price != null ? dress.price : ''}"
+                   oninput="updateDressRemaining(${i})" style="font-size:14px; font-weight:600;">
+          </div>
+          <div>
+            <label style="font-size:10px; font-weight:700; color:var(--text-muted); text-transform:uppercase;">Advance Paid (₹)</label>
+            <input type="number" name="advances[]" class="form-control dress-advance" data-idx="${i}"
+                   placeholder="0" value="${dress.advance != null ? dress.advance : 0}" min="0" step="1"
+                   oninput="updateDressRemaining(${i})" style="font-size:14px; font-weight:600;">
+          </div>
+          <div>
+            <label style="font-size:10px; font-weight:700; color:var(--text-muted); text-transform:uppercase;">Remaining</label>
+            <div class="dress-remaining" id="dressRemaining_${i}" style="padding:8px 12px; background:var(--danger-bg);
+                 border-radius:8px; text-align:center; font-size:16px; font-weight:800; color:var(--danger);">₹0</div>
+          </div>
+        </div>
+
+        <!-- Notes for this dress -->
+        <div>
+          <label style="font-size:10px; font-weight:700; color:var(--text-muted); text-transform:uppercase;">
+            <i class="fa-solid fa-note-sticky" style="margin-right:4px;"></i>Notes for ${dress.name}
+          </label>
+          <textarea name="dress_notes[]" class="form-control" rows="1"
+                    placeholder="Special notes for this dress…" style="font-size:12px;">${dress.notes || ''}</textarea>
+        </div>
+      </div>`;
+  });
+  container.innerHTML = html;
+}
+
+function removeDress(idx) {
+  syncSelectedFromDOM();
+  selectedDresses.splice(idx, 1);
+  filterItems();
+  renderSelectedDresses();
+  updateGrandTotals();
+  document.getElementById('submitBtn').disabled = selectedDresses.length === 0;
+  document.getElementById('selectedCount').textContent = `${selectedDresses.length} selected`;
+}
+
+function updateDressRemaining(idx) {
+  const priceInputs = document.querySelectorAll('.dress-price');
+  const advanceInputs = document.querySelectorAll('.dress-advance');
+
+  if (priceInputs[idx] && advanceInputs[idx]) {
+    const price = parseFloat(priceInputs[idx].value) || 0;
+    const advance = parseFloat(advanceInputs[idx].value) || 0;
+    const remaining = Math.max(0, price - advance);
+    const el = document.getElementById(`dressRemaining_${idx}`);
+    if (el) el.textContent = `₹${remaining.toLocaleString('en-IN')}`;
+  }
+  updateGrandTotals();
+}
+
+function updateGrandTotals() {
+  const priceInputs = document.querySelectorAll('.dress-price');
+  const advanceInputs = document.querySelectorAll('.dress-advance');
+
+  let totalPrice = 0, totalAdvance = 0;
+  priceInputs.forEach(inp => totalPrice += parseFloat(inp.value) || 0);
+  advanceInputs.forEach(inp => totalAdvance += parseFloat(inp.value) || 0);
+  const totalRemaining = Math.max(0, totalPrice - totalAdvance);
+
+  document.getElementById('grandTotalPrice').textContent = `₹${totalPrice.toLocaleString('en-IN')}`;
+  document.getElementById('grandTotalAdvance').textContent = `₹${totalAdvance.toLocaleString('en-IN')}`;
+  document.getElementById('grandTotalRemaining').textContent = `₹${totalRemaining.toLocaleString('en-IN')}`;
+}
+
+document.getElementById('bookingForm').addEventListener('submit', function(e) {
+  if (selectedDresses.length === 0) {
+    e.preventDefault();
+    alert('Please select at least one dress.');
+  }
+});
+
+// ══════════ EDIT MODE INITIALIZATION ══════════
+{% if edit_booking %}
+window.EDIT_BOOKING_ID = {{ edit_booking.id }};
+const EDIT_DATA = {
+  delivery_time: {{ edit_booking.delivery_time|tojson }},
+  return_time: {{ edit_booking.return_time|tojson }},
+  dresses: [
+    {% for bi in edit_booking.booking_items %}
+    {
+      id: "{{ bi.item_id }}",
+      name: {{ bi.dress_name|tojson }},
+      sku: "",
+      category: {{ bi.category|tojson }},
+      color: "",
+      size: {{ (bi.size or '')|tojson }},
+      photo: "{{ bi.item.photo if bi.item and bi.item.photo else '' }}",
+      price: {{ bi.price|int }},
+      advance: {{ bi.advance|int }},
+      notes: {{ (bi.notes or '')|tojson }}
+    }{% if not loop.last %},{% endif %}
+    {% endfor %}
+  ]
+};
+
+function initEditMode() {
+  // Set time selects
+  if (EDIT_DATA.delivery_time) document.getElementById('deliveryTime').value = EDIT_DATA.delivery_time;
+  if (EDIT_DATA.return_time) document.getElementById('returnTime').value = EDIT_DATA.return_time;
+
+  // Pre-select dresses
+  selectedDresses = EDIT_DATA.dresses.map(d => ({
+    id: d.id, name: d.name, sku: d.sku, category: d.category,
+    color: d.color, size: d.size, photo: d.photo,
+    price: d.price, advance: d.advance, notes: d.notes
+  }));
+
+  renderSelectedDresses();
+  // Recompute remaining for each prefilled dress
+  selectedDresses.forEach((d, i) => updateDressRemaining(i));
+  updateGrandTotals();
+
+  const hasItems = selectedDresses.length > 0;
+  document.getElementById('submitBtn').disabled = !hasItems;
+  document.getElementById('submitPrintBtn').disabled = !hasItems;
+  document.getElementById('selectedCount').textContent = `${selectedDresses.length} selected`;
+
+  // Load availability (excludes this booking) so dates can be changed safely
+  onDatesChanged();
+}
+initEditMode();
+{% endif %}
+
+// Initialize serial display on page load
+updateSerialDisplay();
+</script>
+
+<style>
+.free-item-row:hover { background: rgba(123,31,69,0.04) !important; }
+</style>
+{% endblock %}

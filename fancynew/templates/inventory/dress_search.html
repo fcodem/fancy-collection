@@ -1,0 +1,404 @@
+{% extends "base.html" %}
+{% block title %}Dress Search{% endblock %}
+{% block page_title %}Dress Search{% endblock %}
+{% block breadcrumb %}Find any dress or jewellery from your inventory{% endblock %}
+
+{% block content %}
+
+<!-- ── Category Filter (shared for name + photo search) ─────────── -->
+<div class="card" style="margin-bottom:20px;">
+  <div class="card-body" style="padding:14px 20px;">
+    <div style="display:flex;align-items:center;gap:14px;flex-wrap:wrap;">
+      <div style="display:flex;align-items:center;gap:8px;">
+        <i class="fa-solid fa-tags" style="color:var(--gold);font-size:18px;"></i>
+        <label style="font-size:13px;font-weight:700;white-space:nowrap;">Search Category</label>
+      </div>
+      <select id="searchCategory" class="form-control" style="max-width:100%; width:100%; flex:1;" onchange="onCategoryChange()">
+        <option value="">All Categories</option>
+        <optgroup label="Men's Clothing">
+          {% for cat in mens_categories %}
+          <option value="{{ cat }}">{{ cat }}</option>
+          {% endfor %}
+        </optgroup>
+        <optgroup label="Women's Clothing">
+          {% for cat in womens_categories %}
+          <option value="{{ cat }}">{{ cat }}</option>
+          {% endfor %}
+        </optgroup>
+        <optgroup label="Jewellery">
+          {% for cat in jewellery_categories %}
+          <option value="{{ cat }}">{{ cat }}</option>
+          {% endfor %}
+        </optgroup>
+        <optgroup label="Accessories">
+          {% for cat in accessory_categories %}
+          <option value="{{ cat }}">{{ cat }}</option>
+          {% endfor %}
+        </optgroup>
+        {% if all_categories %}
+        <optgroup label="Other">
+          {% for cat in all_categories %}
+          {% if cat not in mens_categories and cat not in womens_categories and cat not in jewellery_categories and cat not in accessory_categories %}
+          <option value="{{ cat }}">{{ cat }}</option>
+          {% endif %}
+          {% endfor %}
+        </optgroup>
+        {% endif %}
+      </select>
+      <span id="categoryHint" style="font-size:12px;color:var(--text-muted);">
+        Select a category to search within it first; if no match, results from other categories are shown.
+      </span>
+    </div>
+  </div>
+</div>
+
+<div class="dress-search-layout dress-search-grid">
+
+  <!-- ── Left: Text Search ─────────────────────────────────────── -->
+  <div class="card">
+    <div class="card-header">
+      <h3 class="card-title">
+        <i class="fa-solid fa-keyboard" style="margin-right:8px; color:var(--gold);"></i>Search by Name
+      </h3>
+    </div>
+    <div class="card-body">
+      <div style="font-size:12px; color:var(--text-muted); margin-bottom:14px;">
+        Type a dress name or SKU. Words can be in <strong>any order</strong> (e.g. golden ct → CT Golden). Suggestions appear as you type.
+      </div>
+      <div style="position:relative; margin-bottom:12px;">
+        <i class="fa-solid fa-magnifying-glass" style="position:absolute; left:13px; top:50%; transform:translateY(-50%); color:var(--text-muted);"></i>
+        <input type="text" id="textSearchInput" class="form-control dress-name-suggest"
+               data-category-select="#searchCategory"
+               placeholder="e.g. golden ct, Sherwani, Lehenga..."
+               style="padding-left:40px; font-size:15px; height:48px;"
+               autocomplete="off" autofocus oninput="doTextSearch(this.value)">
+      </div>
+      <div id="textSearchResults" style="border:1px solid var(--border); border-radius:10px; overflow:hidden; display:none; max-height:480px; overflow-y:auto;"></div>
+      <div id="textSearchEmpty" style="text-align:center; padding:40px 20px; color:var(--text-muted); display:none;">
+        <i class="fa-solid fa-circle-info" style="font-size:32px; margin-bottom:10px; display:block; opacity:0.4;"></i>
+        No matching dresses found
+      </div>
+      <div id="textSearchHint" style="text-align:center; padding:40px 20px; color:var(--text-muted);">
+        <i class="fa-solid fa-magnifying-glass" style="font-size:36px; margin-bottom:12px; display:block; opacity:0.25;"></i>
+        Start typing to search...
+      </div>
+    </div>
+  </div>
+
+  <!-- ── Right: Photo Search ───────────────────────────────────── -->
+  <div class="card">
+    <div class="card-header">
+      <h3 class="card-title">
+        <i class="fa-solid fa-camera" style="margin-right:8px; color:var(--gold);"></i>Search by Photo
+      </h3>
+    </div>
+    <div class="card-body">
+      <div style="font-size:12px; color:var(--text-muted); margin-bottom:14px;">
+        Upload or capture a photo. Visual match is searched in the selected category first; if no match, shows similar dresses from other categories.
+      </div>
+
+      <!-- Upload / Camera buttons -->
+      <div style="display:flex; gap:10px; margin-bottom:14px;">
+        <label for="photoFileInput" class="btn btn-primary" style="flex:1; text-align:center; cursor:pointer; display:flex; align-items:center; justify-content:center; gap:8px;">
+          <i class="fa-solid fa-upload"></i> Upload Photo
+          <input type="file" id="photoFileInput" accept="image/*" style="display:none;" onchange="doPhotoSearch(this.files[0])">
+        </label>
+        <button class="btn btn-gold" style="flex:1;" onclick="openCamera()">
+          <i class="fa-solid fa-camera"></i> Use Camera
+        </button>
+      </div>
+
+      <!-- Drop zone -->
+      <div id="photoDropZone"
+           style="border:2px dashed var(--border); border-radius:12px; padding:28px; text-align:center; cursor:pointer; transition:all 0.2s; margin-bottom:14px;"
+           onclick="document.getElementById('photoFileInput').click()"
+           ondragover="event.preventDefault(); this.style.borderColor='var(--primary)'; this.style.background='var(--primary)11';"
+           ondragleave="this.style.borderColor='var(--border)'; this.style.background='';"
+           ondrop="handleDrop(event)">
+        <i class="fa-solid fa-cloud-arrow-up" style="font-size:32px; color:var(--primary); margin-bottom:8px; display:block;"></i>
+        <div style="font-size:13px; font-weight:600; color:var(--text-primary);">Drag & Drop a photo here</div>
+        <div style="font-size:11px; color:var(--text-muted); margin-top:4px;">or click to browse · JPG, PNG, WebP</div>
+      </div>
+
+      <!-- Camera modal trigger area -->
+      <div id="cameraArea" style="display:none; margin-bottom:14px;">
+        <div style="position:relative; border-radius:12px; overflow:hidden; background:#000;">
+          <video id="cameraStream" autoplay playsinline style="width:100%; border-radius:12px; display:block; max-height:260px; object-fit:cover;"></video>
+        </div>
+        <div style="display:flex; gap:10px; margin-top:10px;">
+          <button onclick="capturePhoto()" class="btn btn-primary" style="flex:1;">
+            <i class="fa-solid fa-circle-dot" style="color:#fc8181;"></i> Capture Photo
+          </button>
+          <button onclick="stopCamera()" class="btn btn-outline" style="flex:1;">
+            <i class="fa-solid fa-xmark"></i> Cancel
+          </button>
+        </div>
+      </div>
+
+      <!-- Preview + result -->
+      <div id="photoPreviewArea" style="display:none; margin-bottom:14px;">
+        <div style="display:flex; align-items:center; gap:14px; padding:12px; background:var(--bg); border-radius:10px; border:1px solid var(--border);">
+          <img id="photoPreviewImg" style="width:64px; height:64px; object-fit:cover; border-radius:8px; border:1px solid var(--border);">
+          <div>
+            <div id="photoSearchStatus" style="font-weight:600; font-size:13px;">Searching...</div>
+            <div style="font-size:11px; color:var(--text-muted); margin-top:2px;">Visual similarity matching</div>
+          </div>
+          <button onclick="clearPhotoSearch()" class="btn btn-outline btn-sm" style="margin-left:auto;">
+            <i class="fa-solid fa-xmark"></i> Clear
+          </button>
+        </div>
+      </div>
+
+      <!-- Photo search results -->
+      <div id="photoSearchResults" style="border:1px solid var(--border); border-radius:10px; overflow:hidden; display:none; max-height:400px; overflow-y:auto;"></div>
+      <div id="photoSearchHint" style="text-align:center; padding:40px 20px; color:var(--text-muted);">
+        <i class="fa-solid fa-camera" style="font-size:36px; margin-bottom:12px; display:block; opacity:0.25;"></i>
+        Upload or capture a photo to search
+      </div>
+
+      <!-- Hidden canvas for camera capture -->
+      <canvas id="captureCanvas" style="display:none;"></canvas>
+    </div>
+  </div>
+
+</div>
+
+{% endblock %}
+
+{% block scripts %}
+<script>
+var _textTimer = null;
+var _lastPhotoFile = null;
+
+function getSelectedCategory() {
+  return document.getElementById('searchCategory').value;
+}
+
+function onCategoryChange() {
+  var cat = getSelectedCategory();
+  var hint = document.getElementById('categoryHint');
+  if (cat) {
+    hint.innerHTML = 'Searching in <strong style="color:var(--primary);">' + cat + '</strong> first — other categories shown only if no match.';
+  } else {
+    hint.textContent = 'All categories — no filter applied.';
+  }
+  var q = document.getElementById('textSearchInput').value;
+  if (q && q.trim().length >= 2) doTextSearch(q);
+  if (_lastPhotoFile) doPhotoSearch(_lastPhotoFile);
+}
+
+function statusColor(status) {
+  return status === 'available' ? '#68d391' : status === 'rented' ? '#90cdf4' : '#fbd38d';
+}
+
+function renderTextItem(item) {
+  var sColor = statusColor(item.status);
+  var photoHtml = item.photo
+    ? '<img src="/static/uploads/' + item.photo + '" style="width:52px;height:52px;object-fit:cover;border-radius:10px;border:1px solid var(--border);" onerror="this.style.display=\'none\'">'
+    : '<div style="width:52px;height:52px;border-radius:10px;background:var(--bg);display:flex;align-items:center;justify-content:center;font-size:24px;border:1px solid var(--border);">&#x1F454;</div>';
+  return '<a href="/inventory/' + item.id + '/edit" style="display:flex;align-items:center;gap:14px;padding:12px 16px;border-bottom:1px solid var(--border);text-decoration:none;color:inherit;" onmouseover="this.style.background=\'var(--bg)\'" onmouseout="this.style.background=\'\'">'
+    + photoHtml
+    + '<div style="flex:1;"><div style="font-weight:700;font-size:14px;">' + (item.display_name || item.name) + '</div>'
+    + '<div style="font-size:12px;color:var(--text-muted);margin-top:3px;">' + item.category
+    + (item.size ? ' &bull; Size ' + item.size : '') + (item.sku ? ' &bull; ' + item.sku : '') + '</div></div>'
+    + '<span style="font-size:12px;font-weight:700;color:' + sColor + ';padding:2px 10px;border-radius:10px;background:' + sColor + '22;">' + item.status + '</span>'
+    + '<i class="fa-solid fa-arrow-right" style="color:var(--text-muted);font-size:12px;"></i></a>';
+}
+
+function renderPhotoItem(item) {
+  var simPct = item.similarity;
+  var simColor = simPct >= 80 ? '#68d391' : simPct >= 60 ? '#fbd38d' : '#fc8181';
+  var sColor = statusColor(item.status);
+  var photoHtml = item.photo
+    ? '<img src="/static/uploads/' + item.photo + '" style="width:56px;height:56px;object-fit:cover;border-radius:10px;border:1px solid var(--border);">'
+    : '<div style="width:56px;height:56px;border-radius:10px;background:var(--bg);display:flex;align-items:center;justify-content:center;font-size:24px;border:1px solid var(--border);">&#x1F454;</div>';
+  return '<a href="/inventory/' + item.id + '/edit" style="display:flex;align-items:center;gap:14px;padding:12px 16px;border-bottom:1px solid var(--border);text-decoration:none;color:inherit;" onmouseover="this.style.background=\'var(--bg)\'" onmouseout="this.style.background=\'\'">'
+    + photoHtml
+    + '<div style="flex:1;"><div style="font-weight:700;font-size:14px;">' + (item.display_name || item.name) + '</div>'
+    + '<div style="font-size:12px;color:var(--text-muted);margin-top:3px;">' + item.category + (item.sku ? ' &bull; ' + item.sku : '') + '</div></div>'
+    + '<div style="text-align:center;min-width:54px;"><span style="font-size:18px;font-weight:800;color:' + simColor + ';">' + simPct + '%</span>'
+    + '<div style="font-size:9px;color:var(--text-muted);">match</div></div>'
+    + '<span style="font-size:11px;font-weight:700;color:' + sColor + ';padding:2px 10px;border-radius:10px;background:' + sColor + '22;">' + item.status + '</span></a>';
+}
+
+function sectionHeader(label, bg, color) {
+  return '<div style="padding:8px 14px;font-size:11px;font-weight:700;text-transform:uppercase;letter-spacing:0.5px;background:' + bg + ';color:' + color + ';border-bottom:1px solid var(--border);">'
+    + label + '</div>';
+}
+
+function buildResultsHtml(catResults, otherResults, usedFallback, category, renderFn) {
+  var html = '';
+  if (!catResults.length && !otherResults.length) return '';
+  if (category && catResults.length) {
+    html += sectionHeader('In ' + category + ' (' + catResults.length + ')', 'var(--primary)11', 'var(--primary)');
+    html += catResults.map(renderFn).join('');
+  } else if (!category && catResults.length) {
+    html += catResults.map(renderFn).join('');
+  }
+  if (usedFallback && otherResults.length) {
+    html += sectionHeader('From Other Categories (' + otherResults.length + ')', '#7b4a0033', '#fbd38d');
+    html += otherResults.map(renderFn).join('');
+  }
+  return html;
+}
+
+// ── TEXT SEARCH ──────────────────────────────────────────────
+function doTextSearch(val) {
+  clearTimeout(_textTimer);
+  var results = document.getElementById('textSearchResults');
+  var empty   = document.getElementById('textSearchEmpty');
+  var hint    = document.getElementById('textSearchHint');
+
+  if (!val || val.trim().length < 1) {
+    results.style.display = 'none';
+    empty.style.display   = 'none';
+    hint.style.display    = 'block';
+    return;
+  }
+  hint.style.display = 'none';
+
+  _textTimer = setTimeout(function() {
+    var cat = getSelectedCategory();
+    var url = '/api/inventory/search?q=' + encodeURIComponent(val.trim());
+    if (cat) url += '&category=' + encodeURIComponent(cat);
+
+    fetch(url)
+      .then(function(r) { return r.json(); })
+      .then(function(data) {
+        var catResults  = data.category_results || [];
+        var otherResults = data.other_results || [];
+        if (!catResults.length && !otherResults.length) {
+          results.style.display = 'none';
+          empty.innerHTML = cat
+            ? '<i class="fa-solid fa-circle-info" style="font-size:32px;margin-bottom:10px;display:block;opacity:0.4;"></i>No matches in <strong>' + cat + '</strong> or other categories'
+            : '<i class="fa-solid fa-circle-info" style="font-size:32px;margin-bottom:10px;display:block;opacity:0.4;"></i>No matching dresses found';
+          empty.style.display = 'block';
+          return;
+        }
+        empty.style.display = 'none';
+        results.innerHTML = buildResultsHtml(catResults, otherResults, data.used_fallback, data.category, renderTextItem);
+        results.style.display = 'block';
+      });
+  }, 280);
+}
+
+// ── PHOTO SEARCH ─────────────────────────────────────────────
+function handleDrop(e) {
+  e.preventDefault();
+  document.getElementById('photoDropZone').style.borderColor = 'var(--border)';
+  document.getElementById('photoDropZone').style.background  = '';
+  var file = e.dataTransfer.files[0];
+  if (file && file.type.startsWith('image/')) doPhotoSearch(file);
+}
+
+function doPhotoSearch(file) {
+  if (!file) return;
+  _lastPhotoFile = file;
+  stopCamera();
+
+  var previewArea = document.getElementById('photoPreviewArea');
+  var previewImg  = document.getElementById('photoPreviewImg');
+  var statusEl    = document.getElementById('photoSearchStatus');
+  var resultsBox  = document.getElementById('photoSearchResults');
+  var hint        = document.getElementById('photoSearchHint');
+
+  var reader = new FileReader();
+  reader.onload = function(e) {
+    previewImg.src = e.target.result;
+    previewArea.style.display = 'block';
+    statusEl.textContent = 'Searching...';
+    statusEl.style.color = 'var(--text-primary)';
+  };
+  reader.readAsDataURL(file);
+
+  resultsBox.style.display = 'none';
+  hint.style.display = 'none';
+
+  var formData = new FormData();
+  formData.append('photo', file);
+  var cat = getSelectedCategory();
+  if (cat) formData.append('category', cat);
+
+  fetch('/api/inventory/photo-search', { method: 'POST', body: formData })
+    .then(function(r) { return r.json(); })
+    .then(function(data) {
+      if (data.error) {
+        statusEl.textContent = 'Error: ' + data.error;
+        statusEl.style.color = '#fc8181';
+        return;
+      }
+      var catResults  = data.category_results || [];
+      var otherResults = data.other_results || [];
+      if (!catResults.length && !otherResults.length) {
+        statusEl.textContent = data.category
+          ? 'No visual match in ' + data.category + ' or other categories'
+          : 'No visually similar dresses found';
+        statusEl.style.color = '#fbd38d';
+        resultsBox.innerHTML = '<div style="padding:20px;text-align:center;color:var(--text-muted);font-size:13px;">Try a clearer photo or select a different category</div>';
+        resultsBox.style.display = 'block';
+        return;
+      }
+      if (data.used_fallback) {
+        statusEl.textContent = 'No match in ' + data.category + ' — showing ' + otherResults.length + ' from other categories';
+        statusEl.style.color = '#fbd38d';
+      } else {
+        var total = catResults.length + otherResults.length;
+        statusEl.textContent = total + ' visual match' + (total > 1 ? 'es' : '') + ' found' + (data.category ? ' in ' + data.category : '');
+        statusEl.style.color = '#68d391';
+      }
+      resultsBox.innerHTML = buildResultsHtml(catResults, otherResults, data.used_fallback, data.category, renderPhotoItem);
+      resultsBox.style.display = 'block';
+    })
+    .catch(function() {
+      statusEl.textContent = 'Search failed. Please try again.';
+      statusEl.style.color = '#fc8181';
+    });
+}
+
+function clearPhotoSearch() {
+  _lastPhotoFile = null;
+  document.getElementById('photoPreviewArea').style.display  = 'none';
+  document.getElementById('photoSearchResults').style.display = 'none';
+  document.getElementById('photoSearchHint').style.display   = 'block';
+  document.getElementById('photoFileInput').value = '';
+}
+
+// ── CAMERA ───────────────────────────────────────────────────
+var _stream = null;
+
+function openCamera() {
+  if (!navigator.mediaDevices || !navigator.mediaDevices.getUserMedia) {
+    alert('Camera not supported. Please use Upload Photo instead.');
+    return;
+  }
+  navigator.mediaDevices.getUserMedia({ video: { facingMode: 'environment' }, audio: false })
+    .then(function(stream) {
+      _stream = stream;
+      document.getElementById('cameraStream').srcObject = stream;
+      document.getElementById('cameraArea').style.display = 'block';
+      document.getElementById('photoDropZone').style.display = 'none';
+    })
+    .catch(function(err) {
+      alert('Camera access denied: ' + err.message);
+    });
+}
+
+function stopCamera() {
+  if (_stream) { _stream.getTracks().forEach(function(t) { t.stop(); }); _stream = null; }
+  document.getElementById('cameraArea').style.display  = 'none';
+  document.getElementById('photoDropZone').style.display = 'block';
+}
+
+function capturePhoto() {
+  var video  = document.getElementById('cameraStream');
+  var canvas = document.getElementById('captureCanvas');
+  canvas.width  = video.videoWidth;
+  canvas.height = video.videoHeight;
+  canvas.getContext('2d').drawImage(video, 0, 0);
+  stopCamera();
+  canvas.toBlob(function(blob) {
+    doPhotoSearch(new File([blob], 'camera_capture.jpg', { type: 'image/jpeg' }));
+  }, 'image/jpeg', 0.92);
+}
+</script>
+{% endblock %}

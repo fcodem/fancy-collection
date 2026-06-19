@@ -1,0 +1,195 @@
+{% extends "base.html" %}
+
+{% block title %}Free Item List{% endblock %}
+{% block page_title %}Free Item List{% endblock %}
+{% block breadcrumb %}Search available dresses by date{% endblock %}
+
+{% block content %}
+
+<div class="card" style="margin-bottom:24px;">
+  <div class="card-header">
+    <h3 class="card-title"><i class="fa-solid fa-magnifying-glass" style="margin-right:8px;"></i>Search Free Items</h3>
+    <button onclick="window.print()" class="btn btn-outline btn-sm no-print"><i class="fa-solid fa-print"></i> Print</button>
+  </div>
+  <div class="card-body">
+    <div class="filter-grid-5" style="margin-bottom:20px;">
+      <div>
+        <label style="font-size:11px; font-weight:700; color:var(--text-muted); text-transform:uppercase; margin-bottom:4px; display:block;">Date of Pickup</label>
+        <input type="date" id="freeDeliveryDate" class="form-control" value="{{ today.isoformat() }}" onchange="searchFreeItems()">
+      </div>
+      <div>
+        <label style="font-size:11px; font-weight:700; color:var(--text-muted); text-transform:uppercase; margin-bottom:4px; display:block;">Date of Return</label>
+        <input type="date" id="freeReturnDate" class="form-control" value="{{ today.isoformat() }}" onchange="searchFreeItems()">
+      </div>
+      <div>
+        <label style="font-size:11px; font-weight:700; color:var(--text-muted); text-transform:uppercase; margin-bottom:4px; display:block;">Category</label>
+        <select id="freeCategoryFilter" class="form-control" onchange="onCategoryChange()">
+          <option value="">All Categories</option>
+          <optgroup label="🤵 Men's">{% for cat in mens_categories %}<option value="{{ cat }}">{{ cat }}</option>{% endfor %}</optgroup>
+          <optgroup label="👗 Women's">{% for cat in womens_categories %}<option value="{{ cat }}">{{ cat }}</option>{% endfor %}</optgroup>
+          <optgroup label="💎 Jewellery">{% for cat in jewellery_categories %}<option value="{{ cat }}">{{ cat }}</option>{% endfor %}</optgroup>
+          <optgroup label="👒 Accessories">{% for cat in accessory_categories %}<option value="{{ cat }}">{{ cat }}</option>{% endfor %}</optgroup>
+        </select>
+      </div>
+      <div id="sizeFilterDiv" style="display:none;">
+        <label style="font-size:11px; font-weight:700; color:var(--text-muted); text-transform:uppercase; margin-bottom:4px; display:block;">Size</label>
+        <select id="freeSizeFilter" class="form-control" onchange="searchFreeItems()">
+          <option value="">All Sizes</option>
+          {% for s in all_sizes %}
+          <option value="{{ s }}">{{ s }}</option>
+          {% endfor %}
+        </select>
+      </div>
+      <div>
+        <label style="font-size:11px; font-weight:700; color:var(--text-muted); text-transform:uppercase; margin-bottom:4px; display:block;">Sub-Category</label>
+        <select id="freeSubCatFilter" class="form-control" onchange="searchFreeItems()">
+          <option value="">All</option>
+          <option value="Premium">Premium</option>
+          <option value="Normal">Normal</option>
+          <option value="Cheap">Cheap</option>
+        </select>
+      </div>
+    </div>
+  </div>
+</div>
+
+<!-- Results divided into sections -->
+<div id="freeSection" style="display:none;">
+  <div class="card" style="margin-bottom:16px;">
+    <div class="card-header" style="background:rgba(46,125,50,0.05);">
+      <h3 class="card-title" style="color:var(--success);"><i class="fa-solid fa-circle-check" style="margin-right:8px;"></i>Totally Free Items</h3>
+      <span class="badge badge-available" id="freeCount">0</span>
+    </div>
+    <div class="table-wrapper" id="freeTable"></div>
+  </div>
+</div>
+
+<div id="returningSection" style="display:none;">
+  <div class="card" style="margin-bottom:16px;">
+    <div class="card-header" style="background:rgba(230,81,0,0.05);">
+      <h3 class="card-title" style="color:#E65100;"><i class="fa-solid fa-triangle-exclamation" style="margin-right:8px;"></i>Returning on Delivery Date</h3>
+      <span class="badge" style="background:#FFF3E0;color:#E65100;" id="returningCount">0</span>
+    </div>
+    <div class="table-wrapper" id="returningTable"></div>
+  </div>
+</div>
+
+<div id="bookedSection" style="display:none;">
+  <div class="card" style="margin-bottom:16px;">
+    <div class="card-header" style="background:rgba(211,47,47,0.05);">
+      <h3 class="card-title" style="color:var(--danger);"><i class="fa-solid fa-circle-exclamation" style="margin-right:8px;"></i>Booked for Delivery on Return Date</h3>
+      <span class="badge" style="background:#FFEBEE;color:var(--danger);" id="bookedCount">0</span>
+    </div>
+    <div class="table-wrapper" id="bookedTable"></div>
+  </div>
+</div>
+
+<div id="bothSection" style="display:none;">
+  <div class="card" style="margin-bottom:16px;">
+    <div class="card-header" style="background:rgba(123,31,69,0.05);">
+      <h3 class="card-title" style="color:var(--primary);"><i class="fa-solid fa-exclamation-circle" style="margin-right:8px;"></i>Both: Returning on Delivery + Booked on Return</h3>
+      <span class="badge" style="background:var(--cream);color:var(--primary);" id="bothCount">0</span>
+    </div>
+    <div class="table-wrapper" id="bothTable"></div>
+  </div>
+</div>
+
+<div id="freeEmpty" style="text-align:center; padding:40px; color:var(--text-muted);">
+  <i class="fa-solid fa-magnifying-glass" style="font-size:36px; margin-bottom:10px; opacity:0.4;"></i>
+  <p>Enter dates to search for available dresses.</p>
+</div>
+
+{% endblock %}
+
+{% block scripts %}
+<script>
+const mensCategories = {{ mens_categories | tojson }};
+
+function onCategoryChange() {
+  const cat = document.getElementById('freeCategoryFilter').value;
+  document.getElementById('sizeFilterDiv').style.display = mensCategories.includes(cat) ? '' : 'none';
+  if (!mensCategories.includes(cat)) document.getElementById('freeSizeFilter').value = '';
+  searchFreeItems();
+}
+
+function searchFreeItems() {
+  const dd = document.getElementById('freeDeliveryDate').value;
+  const rd = document.getElementById('freeReturnDate').value;
+  const cat = document.getElementById('freeCategoryFilter').value;
+  const size = document.getElementById('freeSizeFilter').value;
+  const subCat = document.getElementById('freeSubCatFilter').value;
+  if (!dd || !rd) return;
+
+  fetch('/api/booking/available-items?delivery_date=' + dd + '&return_date=' + rd + '&category=' + encodeURIComponent(cat))
+    .then(r => r.json())
+    .then(data => {
+      let items = data.free_items || [];
+
+      if (size) items = items.filter(i => i.size && i.size.indexOf(size) !== -1);
+      if (subCat) items = items.filter(i => i.sub_category === subCat);
+
+      // Sort men's by size
+      if (mensCategories.includes(cat)) {
+        items.sort((a, b) => (parseInt(a.size) || 999) - (parseInt(b.size) || 999));
+      }
+
+      const totallyFree = items.filter(i => !i.returning_warning && !i.booked_warning);
+      const returningOnly = items.filter(i => i.returning_warning && !i.booked_warning);
+      const bookedOnly = items.filter(i => !i.returning_warning && i.booked_warning);
+      const both = items.filter(i => i.returning_warning && i.booked_warning);
+
+      document.getElementById('freeEmpty').style.display = items.length === 0 ? 'block' : 'none';
+
+      renderSection('freeSection', 'freeTable', 'freeCount', totallyFree, 'free');
+      renderSection('returningSection', 'returningTable', 'returningCount', returningOnly, 'returning');
+      renderSection('bookedSection', 'bookedTable', 'bookedCount', bookedOnly, 'booked');
+      renderSection('bothSection', 'bothTable', 'bothCount', both, 'both');
+    });
+}
+
+function renderSection(sectionId, tableId, countId, items, type) {
+  const section = document.getElementById(sectionId);
+  const table = document.getElementById(tableId);
+  const count = document.getElementById(countId);
+
+  if (!items.length) { section.style.display = 'none'; return; }
+  section.style.display = 'block';
+  count.textContent = items.length;
+
+  // Group by category
+  const grouped = {};
+  items.forEach(item => {
+    const cat = item.category || 'Other';
+    if (!grouped[cat]) grouped[cat] = [];
+    grouped[cat].push(item);
+  });
+
+  let html = '';
+  let idx = 0;
+  for (const cat of Object.keys(grouped).sort()) {
+    html += `<div style="padding:8px 16px; background:#f8f9fa; font-weight:700; font-size:13px; border-bottom:1px solid var(--border);">${cat} (${grouped[cat].length})</div>`;
+    html += '<table class="data-table" style="margin-bottom:0;"><thead><tr><th>#</th><th>Name</th><th>Size</th><th>Sub-Cat</th><th>Details</th></tr></thead><tbody>';
+    grouped[cat].forEach(item => {
+      idx++;
+      html += '<tr><td>' + idx + '</td><td><strong>' + (item.display_name || item.name) + '</strong></td><td>' + (item.size || '—') + '</td><td>' + (item.sub_category || '-') + '</td><td>';
+      if (item.returning_warning) {
+        const w = item.returning_warning;
+        html += '<div style="font-size:10px;color:#E65100;"><i class="fa-solid fa-triangle-exclamation"></i> Returning: ' + w.customer + ' · Serial #' + String(w.serial_no || 0).padStart(2, '0') + ' · by ' + w.return_time + ' · ₹' + Number(w.total_rent).toLocaleString() + (w.venue ? ' · ' + w.venue : '') + '</div>';
+      }
+      if (item.booked_warning) {
+        const w = item.booked_warning;
+        html += '<div style="font-size:10px;color:var(--danger);"><i class="fa-solid fa-circle-exclamation"></i> Booked: ' + w.customer + ' · Serial #' + String(w.serial_no || 0).padStart(2, '0') + ' · Pickup ' + w.delivery_time + ' · ₹' + Number(w.total_rent).toLocaleString() + (w.venue ? ' · ' + w.venue : '') + '</div>';
+      }
+      if (!item.returning_warning && !item.booked_warning) {
+        html += '<span class="badge badge-available" style="font-size:10px;">Free</span>';
+      }
+      html += '</td></tr>';
+    });
+    html += '</tbody></table>';
+  }
+  table.innerHTML = html;
+}
+
+document.addEventListener('DOMContentLoaded', searchFreeItems);
+</script>
+{% endblock %}

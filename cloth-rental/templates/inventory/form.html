@@ -1,0 +1,192 @@
+{% extends "base.html" %}
+
+{% block title %}{{ 'Edit Item' if item else 'Add Item' }}{% endblock %}
+{% block page_title %}{{ 'Edit Item' if item else 'Add New Item' }}{% endblock %}
+{% block breadcrumb %}
+  <a href="{{ url_for('inventory_list') }}" style="color:var(--primary); text-decoration:none;">Inventory</a>
+  &rsaquo; {{ 'Edit' if item else 'Add Item' }}
+{% endblock %}
+
+{% block content %}
+
+<div class="card" style="max-width: 880px;">
+  <div class="card-header">
+    <h3 class="card-title">
+      <i class="fa-solid fa-{% if item %}pen{% else %}plus-circle{% endif %}" style="margin-right:8px;"></i>
+      {{ 'Edit Item Details' if item else 'Add Dress / Jewellery to Stock' }}
+    </h3>
+    {% if item %}
+    <span class="badge badge-{{ item.status }}">{{ item.status }}</span>
+    {% endif %}
+  </div>
+
+  <div class="card-body">
+    <form method="post" enctype="multipart/form-data">
+
+      <div class="form-grid">
+
+        <!-- 1. Category (FIRST) -->
+        <div class="form-group">
+          <label class="form-label">Category *</label>
+          <select name="category" class="form-control" required>
+            <option value="">-- Select Category --</option>
+            <optgroup label="👗 Clothing">
+              {% for cat in ["Saree", "Lehenga", "Sherwani", "Indowestern", "Jodhpuri", "Coat Suit", "Suit", "Gown", "Kurta", "Blazer"] %}
+              <option value="{{ cat }}" {% if item and item.category == cat %}selected{% endif %}>{{ cat }}</option>
+              {% endfor %}
+            </optgroup>
+            <optgroup label="💎 Jewellery">
+              {% for cat in ["Jewellery", "Necklace", "Bangles", "Earrings", "Maang Tikka", "Haath Phool", "Anklet", "Nose Ring", "Matha Patti"] %}
+              <option value="{{ cat }}" {% if item and item.category == cat %}selected{% endif %}>{{ cat }}</option>
+              {% endfor %}
+            </optgroup>
+            <optgroup label="👒 Accessories">
+              {% for cat in ["Accessory", "Dupatta", "Belt", "Clutch", "Crown/Tiara", "Other"] %}
+              <option value="{{ cat }}" {% if item and item.category == cat %}selected{% endif %}>{{ cat }}</option>
+              {% endfor %}
+            </optgroup>
+          </select>
+        </div>
+
+        <!-- 2. Item Name (SECOND) -->
+        <div class="form-group">
+          <label class="form-label">Dress / Item Name *</label>
+          <input type="text" name="name" class="form-control"
+                 placeholder="e.g. Red Bridal Lehenga, Kundan Necklace Set"
+                 value="{{ item.name if item else '' }}" required>
+        </div>
+
+        <!-- 3. Photo Upload (THIRD) -->
+        <div class="form-group full-width">
+          <label class="form-label">Product Photograph</label>
+          <div style="display:flex; align-items:center; gap:20px; flex-wrap:wrap;">
+            <!-- Upload area -->
+            <label for="photoInput" style="
+              display:flex; flex-direction:column; align-items:center; justify-content:center;
+              width:180px; height:160px; border:2px dashed var(--border); border-radius:12px;
+              cursor:pointer; transition:all 0.2s; background:var(--cream-dark);"
+              onmouseover="this.style.borderColor='var(--primary)'" onmouseout="this.style.borderColor='var(--border)'">
+              <i class="fa-solid fa-camera" style="font-size:28px; color:var(--text-muted); margin-bottom:8px;"></i>
+              <span style="font-size:12px; color:var(--text-muted); font-weight:600;">Click to upload photo</span>
+              <span style="font-size:10px; color:var(--text-muted); margin-top:4px;">JPG, PNG, WebP</span>
+              <input type="file" name="photo" id="photoInput" accept="image/*"
+                     style="display:none;" onchange="previewPhoto(this)">
+            </label>
+            <!-- Preview -->
+            <div id="photoPreview" style="display:{% if item and item.photo %}flex{% else %}none{% endif %}; flex-direction:column; align-items:center; gap:8px;">
+              {% if item and item.photo %}
+              <img src="{{ url_for('static', filename='uploads/' + item.photo) }}"
+                   id="previewImg" style="width:160px; height:160px; object-fit:cover; border-radius:12px; border:2px solid var(--border);">
+              <span style="font-size:11px; color:var(--success); font-weight:600;">
+                <i class="fa-solid fa-check-circle"></i> Current photo
+              </span>
+              {% else %}
+              <img id="previewImg" style="width:160px; height:160px; object-fit:cover; border-radius:12px; border:2px solid var(--border); display:none;">
+              <span id="previewText" style="font-size:11px; color:var(--success); font-weight:600; display:none;">
+                <i class="fa-solid fa-check-circle"></i> Photo selected
+              </span>
+              {% endif %}
+            </div>
+          </div>
+        </div>
+
+        <!-- Color (only for Sherwani, Indowestern, Jodhpuri, Coat Suit) -->
+        <div class="form-group" id="colorGroup" style="display:none;">
+          <label class="form-label">Color / Shade</label>
+          <input type="text" name="color" class="form-control"
+                 placeholder="e.g. Red, Golden, Navy Blue"
+                 value="{{ item.color if item else '' }}">
+        </div>
+
+        <!-- Size (only for Sherwani, Indowestern, Jodhpuri, Coat Suit) -->
+        <div class="form-group" id="sizeGroup" style="display:none;">
+          <label class="form-label">Size</label>
+          <select name="size" class="form-control">
+            <option value="">-- Select Size --</option>
+            {% for s in sizes %}
+            <option value="{{ s }}" {% if item and item.size == s %}selected{% endif %}>{{ s }}</option>
+            {% endfor %}
+          </select>
+        </div>
+
+        <input type="hidden" name="daily_rate" value="{{ item.daily_rate|int if item else '0' }}">
+        <input type="hidden" name="deposit" value="{{ item.deposit|int if item else '0' }}">
+
+        {% if item %}
+        <!-- Status (edit only) -->
+        <div class="form-group">
+          <label class="form-label">Status</label>
+          <select name="status" class="form-control">
+            <option value="available"   {% if item.status == 'available' %}selected{% endif %}>✅ Available</option>
+            <option value="maintenance" {% if item.status == 'maintenance' %}selected{% endif %}>🔧 Maintenance</option>
+            <option value="rented"      {% if item.status == 'rented' %}selected{% endif %} disabled>🔄 Rented</option>
+          </select>
+        </div>
+        {% endif %}
+
+        <!-- Condition Notes -->
+        <div class="form-group full-width">
+          <label class="form-label">Notes (Optional)</label>
+          <textarea name="condition_notes" class="form-control" rows="2"
+                    placeholder="Any notes about the item…">{{ item.condition_notes if item else '' }}</textarea>
+        </div>
+      </div>
+
+      <div class="form-actions">
+        <button type="submit" class="btn btn-primary">
+          <i class="fa-solid fa-save"></i>
+          {{ 'Save Changes' if item else 'Add to Stock' }}
+        </button>
+        <a href="{{ url_for('inventory_list') }}" class="btn btn-outline">
+          <i class="fa-solid fa-xmark"></i> Cancel
+        </a>
+        {% if item %}
+        <div style="margin-left:auto;">
+          <span class="text-muted" style="font-size:12px;">
+            SKU: <strong class="font-mono">{{ item.sku }}</strong> &bull;
+            Added {{ item.created_at.strftime('%d %b %Y') }}
+          </span>
+        </div>
+        {% endif %}
+      </div>
+
+    </form>
+  </div>
+</div>
+
+{% endblock %}
+
+{% block scripts %}
+<script>
+const sizeColorCategories = ['Sherwani', 'Indowestern', 'Jodhpuri', 'Coat Suit'];
+
+function toggleSizeColor() {
+  const cat = document.querySelector('select[name="category"]').value;
+  const show = sizeColorCategories.includes(cat);
+  document.getElementById('colorGroup').style.display = show ? '' : 'none';
+  document.getElementById('sizeGroup').style.display = show ? '' : 'none';
+}
+
+document.addEventListener('DOMContentLoaded', function() {
+  const catSelect = document.querySelector('select[name="category"]');
+  catSelect.addEventListener('change', toggleSizeColor);
+  toggleSizeColor();
+});
+
+function previewPhoto(input) {
+  if (input.files && input.files[0]) {
+    const reader = new FileReader();
+    reader.onload = function(e) {
+      const container = document.getElementById('photoPreview');
+      container.style.display = 'flex';
+      const img = document.getElementById('previewImg');
+      img.src = e.target.result;
+      img.style.display = 'block';
+      const txt = document.getElementById('previewText');
+      if (txt) txt.style.display = 'block';
+    }
+    reader.readAsDataURL(input.files[0]);
+  }
+}
+</script>
+{% endblock %}

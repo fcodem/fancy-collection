@@ -1,0 +1,119 @@
+{% extends "base.html" %}
+
+{% block title %}Rentals{% endblock %}
+{% block page_title %}Rentals{% endblock %}
+{% block breadcrumb %}Track all active, returned, and overdue rentals{% endblock %}
+
+{% block header_actions %}
+<a href="{{ url_for('rentals_add') }}" class="btn btn-primary">
+  <i class="fa-solid fa-plus"></i> New Rental
+</a>
+{% endblock %}
+
+{% block content %}
+
+<!-- ── Status Filter Tabs ──────────────────────────────────── -->
+<div style="display:flex; gap:8px; flex-wrap:wrap; margin-bottom:22px;">
+  {% for label, val, icon in [
+    ('All', '', 'fa-list'),
+    ('Active', 'active', 'fa-rotate'),
+    ('Overdue', 'overdue', 'fa-triangle-exclamation'),
+    ('Returned', 'returned', 'fa-circle-check'),
+    ('Cancelled', 'cancelled', 'fa-ban'),
+  ] %}
+  <a href="{{ url_for('rentals_list', status=val) }}"
+     class="btn btn-sm {% if current_status == val %}btn-primary{% else %}btn-outline{% endif %}"
+     style="{% if val == 'overdue' and current_status == val %}background:var(--danger); border-color:var(--danger);{% endif %}">
+    <i class="fa-solid {{ icon }}"></i> {{ label }}
+  </a>
+  {% endfor %}
+</div>
+
+<!-- ── Rentals Table ──────────────────────────────────────── -->
+<div class="card">
+  <div class="card-header">
+    <h3 class="card-title">
+      <i class="fa-solid fa-calendar-check" style="margin-right:8px;"></i>
+      {% if current_status %}{{ current_status|capitalize }} Rentals{% else %}All Rentals{% endif %}
+      <span style="font-size:13px; font-weight:500; color:var(--text-muted); margin-left:8px;">
+        ({{ rentals|length }})
+      </span>
+    </h3>
+  </div>
+
+  {% if rentals %}
+  <div class="table-wrapper">
+    <table class="data-table">
+      <thead>
+        <tr>
+          <th>Rental #</th>
+          <th>Customer</th>
+          <th>Items</th>
+          <th>Period</th>
+          <th>Amount</th>
+          <th>Status</th>
+          <th>Action</th>
+        </tr>
+      </thead>
+      <tbody>
+        {% for rental in rentals %}
+        <tr {% if rental.status == 'overdue' %}style="background:rgba(192,57,43,0.03);"{% endif %}>
+          <td>
+            <span class="font-mono fw-semibold" style="font-size:13px;">{{ rental.rental_number }}</span>
+          </td>
+          <td>
+            <div style="display:flex; align-items:center; gap:9px;">
+              <div class="rental-avatar" style="width:32px; height:32px; font-size:12px; flex-shrink:0;">
+                {{ rental.customer.name[0].upper() }}
+              </div>
+              <div>
+                <div style="font-weight:600; font-size:13px;">{{ rental.customer.name }}</div>
+                <div style="font-size:11px; color:var(--text-muted);">{{ rental.customer.phone }}</div>
+              </div>
+            </div>
+          </td>
+          <td>
+            {% for ri in rental.items %}
+            <div style="font-size:12px;">
+              <i class="fa-solid fa-{% if ri.item.category in ['Jewellery','Necklace','Accessory'] %}gem{% else %}shirt{% endif %}"
+                 style="color:var(--text-muted); margin-right:4px; font-size:10px;"></i>
+              {{ ri.item.name }}
+            </div>
+            {% endfor %}
+          </td>
+          <td>
+            <div style="font-size:13px; font-weight:500;">{{ rental.start_date.strftime('%d %b') }} – {{ rental.end_date.strftime('%d %b %Y') }}</div>
+            <div style="font-size:11px; color:var(--text-muted);">{{ rental.rental_days }} day{{ 's' if rental.rental_days != 1 }}</div>
+          </td>
+          <td>
+            <div style="font-weight:700; color:var(--primary);">₹{{ "{:,.0f}".format(rental.total_amount) }}</div>
+          </td>
+          <td>
+            <span class="badge badge-{{ rental.status }}">
+              {% if rental.status == 'overdue' %}<i class="fa-solid fa-exclamation" style="margin-right:3px;"></i>{% endif %}
+              {{ rental.status }}
+            </span>
+          </td>
+          <td>
+            <a href="{{ url_for('rentals_view', id=rental.id) }}" class="btn btn-outline btn-sm">
+              <i class="fa-solid fa-eye"></i> View
+            </a>
+          </td>
+        </tr>
+        {% endfor %}
+      </tbody>
+    </table>
+  </div>
+  {% else %}
+  <div class="empty-state">
+    <div class="empty-icon"><i class="fa-solid fa-calendar-xmark"></i></div>
+    <h3>No rentals found</h3>
+    <p>{% if current_status %}No {{ current_status }} rentals at the moment.{% else %}Start by creating your first rental.{% endif %}</p>
+    <a href="{{ url_for('rentals_add') }}" class="btn btn-primary mt-16">
+      <i class="fa-solid fa-plus"></i> Create Rental
+    </a>
+  </div>
+  {% endif %}
+</div>
+
+{% endblock %}

@@ -1,0 +1,505 @@
+{% extends "base.html" %}
+
+{% block title %}New Booking{% endblock %}
+{% block page_title %}New Booking{% endblock %}
+{% block breadcrumb %}
+  <a href="{{ url_for('booking_panel') }}" style="color:var(--primary); text-decoration:none;">Bookings</a>
+  &rsaquo; New Booking
+{% endblock %}
+
+{% block content %}
+
+<form method="post" id="bookingForm">
+
+  <!-- ══════════ ROW 1: Customer + Schedule ══════════ -->
+  <div class="two-col" style="margin-bottom:20px;">
+
+    <!-- ── Customer Details ──────────────────────────────── -->
+    <div class="card">
+      <div class="card-header">
+        <h3 class="card-title"><i class="fa-solid fa-user-circle" style="margin-right:8px;"></i>Customer Details</h3>
+      </div>
+      <div class="card-body">
+        <div class="form-grid">
+          <div class="form-group full-width">
+            <label class="form-label">Customer Name *</label>
+            <input type="text" name="customer_name" class="form-control"
+                   placeholder="Full name of the customer" required>
+          </div>
+          <div class="form-group full-width">
+            <label class="form-label">Address *</label>
+            <textarea name="customer_address" class="form-control" rows="2"
+                      placeholder="Full address…" required></textarea>
+          </div>
+          <div class="form-group">
+            <label class="form-label">Contact Number 1 *</label>
+            <div class="input-group">
+              <span class="input-group-text"><i class="fa-solid fa-phone"></i></span>
+              <input type="tel" name="contact_1" class="form-control"
+                     placeholder="Primary phone" required>
+            </div>
+          </div>
+          <div class="form-group">
+            <label class="form-label">Contact Number 2</label>
+            <div class="input-group">
+              <span class="input-group-text"><i class="fa-solid fa-phone"></i></span>
+              <input type="tel" name="contact_2" class="form-control"
+                     placeholder="Alternate phone (optional)">
+            </div>
+          </div>
+        </div>
+      </div>
+    </div>
+
+    <!-- ── Delivery & Return Dates ──────────────────────── -->
+    <div class="card">
+      <div class="card-header">
+        <h3 class="card-title"><i class="fa-solid fa-truck-fast" style="margin-right:8px;"></i>Delivery & Return Schedule</h3>
+      </div>
+      <div class="card-body">
+        <div class="form-grid" style="grid-template-columns:1fr 1fr;">
+          <div class="form-group">
+            <label class="form-label">Delivery Date *</label>
+            <input type="date" name="delivery_date" id="deliveryDate"
+                   class="form-control" value="{{ today }}" required
+                   onchange="onDatesChanged()">
+          </div>
+          <div class="form-group">
+            <label class="form-label">Delivery Time *</label>
+            <select name="delivery_time" id="deliveryTime" class="form-control" required>
+              <option value="9:00 AM" selected>9:00 AM</option>
+              <option value="10:00 AM">10:00 AM</option>
+              <option value="11:00 AM">11:00 AM</option>
+              <option value="12:00 PM">12:00 PM</option>
+              <option value="1:00 PM">1:00 PM</option>
+              <option value="2:00 PM">2:00 PM</option>
+              <option value="3:00 PM">3:00 PM</option>
+              <option value="4:00 PM">4:00 PM</option>
+              <option value="5:00 PM">5:00 PM</option>
+              <option value="6:00 PM">6:00 PM</option>
+              <option value="7:00 PM">7:00 PM</option>
+              <option value="8:00 PM">8:00 PM</option>
+              <option value="9:00 PM">9:00 PM</option>
+              <option value="10:00 PM">10:00 PM</option>
+            </select>
+          </div>
+          <div class="form-group">
+            <label class="form-label">Return Date *</label>
+            <input type="date" name="return_date" id="returnDate"
+                   class="form-control" value="{{ today }}" required
+                   onchange="onDatesChanged()">
+          </div>
+          <div class="form-group">
+            <label class="form-label">Return Time *</label>
+            <select name="return_time" id="returnTime" class="form-control" required>
+              <option value="9:00 AM">9:00 AM</option>
+              <option value="10:00 AM">10:00 AM</option>
+              <option value="11:00 AM">11:00 AM</option>
+              <option value="12:00 PM">12:00 PM</option>
+              <option value="1:00 PM">1:00 PM</option>
+              <option value="2:00 PM">2:00 PM</option>
+              <option value="3:00 PM">3:00 PM</option>
+              <option value="4:00 PM">4:00 PM</option>
+              <option value="5:00 PM">5:00 PM</option>
+              <option value="6:00 PM" selected>6:00 PM</option>
+              <option value="7:00 PM">7:00 PM</option>
+              <option value="8:00 PM">8:00 PM</option>
+              <option value="9:00 PM">9:00 PM</option>
+              <option value="10:00 PM">10:00 PM</option>
+            </select>
+          </div>
+        </div>
+        <div id="durationInfo" style="margin-top:12px; padding:10px 14px;
+             background:var(--cream-dark); border-radius:8px; font-size:13px;
+             color:var(--primary); font-weight:600; display:none;">
+        </div>
+      </div>
+    </div>
+
+  </div>
+
+  <!-- ══════════ ROW 2: Available Dresses + Returning ══════════ -->
+  <div class="two-col" style="margin-bottom:20px;">
+
+    <!-- ── Available Dresses (AJAX + Category Filter + Name Input) ── -->
+    <div class="card">
+      <div class="card-header">
+        <h3 class="card-title"><i class="fa-solid fa-shirt" style="margin-right:8px; color:var(--success);"></i>Available Dresses</h3>
+        <span class="badge badge-available" id="freeCount">Select dates first</span>
+      </div>
+      <div class="card-body" style="padding-bottom:0;">
+
+        <!-- Category Filter + Dress Name Search -->
+        <div style="display:flex; gap:12px; margin-bottom:14px; flex-wrap:wrap;">
+          <div style="flex:1; min-width:160px;">
+            <label style="font-size:11px; font-weight:600; color:var(--text-muted); text-transform:uppercase; letter-spacing:0.5px; margin-bottom:5px; display:block;">Category</label>
+            <select id="categoryFilter" class="form-control" onchange="filterItems()" style="padding:8px 12px;">
+              <option value="">All Categories</option>
+              <option value="Saree">Saree</option>
+              <option value="Lehenga">Lehenga</option>
+              <option value="Sherwani">Sherwani</option>
+              <option value="Indowestern">Indowestern</option>
+              <option value="Jodhpuri">Jodhpuri</option>
+              <option value="Coat Suit">Coat Suit</option>
+              <option value="Suit">Suit</option>
+              <option value="Gown">Gown</option>
+              <option value="Kurta">Kurta</option>
+              <option value="Blazer">Blazer</option>
+              <option value="Jewellery">Jewellery</option>
+              <option value="Necklace">Necklace</option>
+              <option value="Bangles">Bangles</option>
+              <option value="Earrings">Earrings</option>
+              <option value="Maang Tikka">Maang Tikka</option>
+              <option value="Accessory">Accessory</option>
+              <option value="Dupatta">Dupatta</option>
+              <option value="Crown/Tiara">Crown/Tiara</option>
+              <option value="Other">Other</option>
+            </select>
+          </div>
+          <div style="flex:2; min-width:200px;">
+            <label style="font-size:11px; font-weight:600; color:var(--text-muted); text-transform:uppercase; letter-spacing:0.5px; margin-bottom:5px; display:block;">Search Dress Name</label>
+            <div class="search-input" style="border:1.5px solid var(--border); padding:7px 12px;">
+              <i class="fa-solid fa-magnifying-glass"></i>
+              <input type="text" id="dressNameSearch" placeholder="Type dress name to search…" oninput="filterItems()">
+            </div>
+          </div>
+        </div>
+
+      </div>
+
+      <!-- Dress List -->
+      <div style="border-top:1px solid var(--border);">
+        <div id="freeItemsLoading" style="display:none; padding:30px; text-align:center; color:var(--text-muted);">
+          <i class="fa-solid fa-spinner fa-spin" style="font-size:20px;"></i>
+          <p style="margin-top:8px;">Checking availability…</p>
+        </div>
+        <div id="freeItemsEmpty" style="padding:40px; text-align:center; color:var(--text-muted);">
+          <i class="fa-solid fa-calendar-day" style="font-size:36px; margin-bottom:12px; opacity:0.4;"></i>
+          <p>Select delivery & return dates to see available dresses.</p>
+        </div>
+        <div id="freeItemsList" style="display:none; max-height:320px; overflow-y:auto;"></div>
+      </div>
+    </div>
+
+    <!-- ── Right side: Returning + Selected Dress ──────────── -->
+    <div style="display:flex; flex-direction:column; gap:20px;">
+
+      <!-- Returning on Delivery Date -->
+      <div class="card">
+        <div class="card-header">
+          <h3 class="card-title"><i class="fa-solid fa-clock-rotate-left" style="margin-right:8px; color:var(--warning);"></i>Returning on Delivery Day</h3>
+          <span class="badge badge-gold" id="returningCount">—</span>
+        </div>
+        <div class="card-body" style="padding:0;">
+          <div id="returningEmpty" style="padding:30px; text-align:center; color:var(--text-muted); font-size:13px;">
+            <p>Dresses returning on your delivery date will appear here.</p>
+          </div>
+          <div id="returningList" style="display:none; max-height:220px; overflow-y:auto;"></div>
+        </div>
+      </div>
+
+      <!-- Selected Dress (hidden fields populated by JS) -->
+      <div class="card" id="selectedDressCard" style="display:none;">
+        <div class="card-header" style="background:linear-gradient(135deg, rgba(123,31,69,0.08), rgba(201,168,70,0.08));">
+          <h3 class="card-title"><i class="fa-solid fa-check-circle" style="margin-right:8px; color:var(--success);"></i>Selected Dress</h3>
+        </div>
+        <div class="card-body">
+          <input type="hidden" name="item_id" id="selectedItemId" value="">
+          <input type="hidden" name="dress_name" id="selectedDressName" value="">
+          <div id="selectedDressInfo" style="display:flex; align-items:center; gap:14px;">
+            <div style="width:52px; height:52px; background:linear-gradient(135deg, var(--primary-light), var(--primary));
+                        border-radius:12px; display:flex; align-items:center; justify-content:center;
+                        font-size:24px; color:white;">👗</div>
+            <div>
+              <div id="selectedDressTitle" style="font-weight:700; font-size:15px; color:var(--primary);"></div>
+              <div id="selectedDressMeta" style="font-size:12px; color:var(--text-muted);"></div>
+            </div>
+          </div>
+        </div>
+      </div>
+
+    </div>
+
+  </div>
+
+  <!-- ══════════ ROW 3: Pricing ══════════ -->
+  <div class="card" style="margin-bottom:20px;">
+    <div class="card-header">
+      <h3 class="card-title"><i class="fa-solid fa-indian-rupee-sign" style="margin-right:8px;"></i>Pricing & Payment</h3>
+    </div>
+    <div class="card-body">
+      <div class="form-grid" style="grid-template-columns:1fr 1fr 1fr;">
+        <div class="form-group">
+          <label class="form-label">Rental Price (₹) *</label>
+          <div class="input-group">
+            <span class="input-group-text">₹</span>
+            <input type="number" name="price" id="priceInput"
+                   class="form-control" placeholder="Enter price"
+                   min="0" step="1" required onchange="calcRemaining()" oninput="calcRemaining()">
+          </div>
+          <span class="form-hint">Enter the agreed rental price</span>
+        </div>
+        <div class="form-group">
+          <label class="form-label">Advance Paid (₹)</label>
+          <div class="input-group">
+            <span class="input-group-text">₹</span>
+            <input type="number" name="advance" id="advanceInput"
+                   class="form-control" placeholder="0" value="0"
+                   min="0" step="1" onchange="calcRemaining()" oninput="calcRemaining()">
+          </div>
+        </div>
+        <div class="form-group">
+          <label class="form-label">Remaining Amount</label>
+          <div style="background: linear-gradient(135deg, var(--danger-bg), #fff);
+                      border: 2px solid var(--danger); border-radius:9px;
+                      padding:10px 14px; text-align:center;">
+            <div style="font-size:22px; font-weight:800; color:var(--danger);" id="remainingDisplay">₹0</div>
+            <div style="font-size:11px; color:var(--text-muted);">To be collected</div>
+          </div>
+        </div>
+      </div>
+      <!-- Notes -->
+      <div class="form-group" style="margin-top:16px;">
+        <label class="form-label">Notes (Optional)</label>
+        <textarea name="notes" class="form-control" rows="2"
+                  placeholder="Any special instructions…"></textarea>
+      </div>
+    </div>
+  </div>
+
+  <!-- ── Submit Bar ──────────────────────────────────────────── -->
+  <div class="card">
+    <div class="card-body" style="padding:18px 24px;">
+      <div style="display:flex; align-items:center; gap:14px; flex-wrap:wrap;">
+        <button type="submit" class="btn btn-primary btn-lg" id="submitBtn" disabled>
+          <i class="fa-solid fa-calendar-plus"></i> Confirm Booking
+        </button>
+        <a href="{{ url_for('booking_panel') }}" class="btn btn-outline">
+          <i class="fa-solid fa-xmark"></i> Cancel
+        </a>
+        <div style="margin-left:auto; font-size:13px; color:var(--text-muted);">
+          <i class="fa-solid fa-circle-info" style="margin-right:5px;"></i>
+          The dress will be marked as rented once booking is confirmed.
+        </div>
+      </div>
+    </div>
+  </div>
+
+</form>
+
+{% endblock %}
+
+{% block scripts %}
+<script>
+let debounceTimer = null;
+let allFreeItems = [];
+
+function onDatesChanged() {
+  const dd = document.getElementById('deliveryDate').value;
+  const rd = document.getElementById('returnDate').value;
+
+  if (!dd || !rd) return;
+
+  const dDate = new Date(dd);
+  const rDate = new Date(rd);
+  const days = Math.ceil((rDate - dDate) / 86400000) + 1;
+
+  const info = document.getElementById('durationInfo');
+  if (days >= 1) {
+    info.style.display = 'block';
+    info.innerHTML = `<i class="fa-solid fa-calendar-range" style="margin-right:6px;"></i> Duration: <strong>${days} day${days > 1 ? 's' : ''}</strong>`;
+  } else {
+    info.style.display = 'block';
+    info.innerHTML = `<i class="fa-solid fa-triangle-exclamation" style="margin-right:6px; color:var(--danger);"></i><span style="color:var(--danger);">Return date must be on or after delivery date!</span>`;
+  }
+
+  clearTimeout(debounceTimer);
+  debounceTimer = setTimeout(fetchAvailability, 400);
+}
+
+function fetchAvailability() {
+  const dd = document.getElementById('deliveryDate').value;
+  const rd = document.getElementById('returnDate').value;
+
+  if (!dd || !rd) return;
+
+  document.getElementById('freeItemsLoading').style.display = 'block';
+  document.getElementById('freeItemsEmpty').style.display = 'none';
+  document.getElementById('freeItemsList').style.display = 'none';
+  document.getElementById('returningList').style.display = 'none';
+  document.getElementById('returningEmpty').style.display = 'block';
+
+  fetch(`/api/booking/available-items?delivery_date=${dd}&return_date=${rd}`)
+    .then(r => r.json())
+    .then(data => {
+      document.getElementById('freeItemsLoading').style.display = 'none';
+      allFreeItems = data.free_items || [];
+      filterItems();
+      renderReturningItems(data.returning_items);
+    })
+    .catch(err => {
+      document.getElementById('freeItemsLoading').style.display = 'none';
+      document.getElementById('freeItemsEmpty').style.display = 'block';
+      document.getElementById('freeItemsEmpty').innerHTML = '<p style="color:var(--danger);">Error loading items.</p>';
+    });
+}
+
+function filterItems() {
+  const category = document.getElementById('categoryFilter').value.toLowerCase();
+  const nameSearch = document.getElementById('dressNameSearch').value.toLowerCase().trim();
+
+  let filtered = allFreeItems;
+
+  if (category) {
+    filtered = filtered.filter(item => item.category.toLowerCase() === category);
+  }
+
+  if (nameSearch) {
+    filtered = filtered.filter(item => item.name.toLowerCase().includes(nameSearch));
+  }
+
+  renderFreeItems(filtered);
+}
+
+function renderFreeItems(items) {
+  const container = document.getElementById('freeItemsList');
+  const countBadge = document.getElementById('freeCount');
+
+  if (!items || items.length === 0) {
+    document.getElementById('freeItemsEmpty').style.display = 'block';
+    if (allFreeItems.length === 0) {
+      document.getElementById('freeItemsEmpty').innerHTML = `
+        <i class="fa-solid fa-calendar-day" style="font-size:36px; margin-bottom:12px; opacity:0.4;"></i>
+        <p>Select delivery & return dates to see available dresses.</p>`;
+    } else {
+      document.getElementById('freeItemsEmpty').innerHTML = `
+        <i class="fa-solid fa-filter-circle-xmark" style="font-size:36px; margin-bottom:12px; opacity:0.4;"></i>
+        <p>No dresses match your filter. Try another category or name.</p>`;
+    }
+    container.style.display = 'none';
+    countBadge.textContent = `${items ? items.length : 0} of ${allFreeItems.length}`;
+    return;
+  }
+
+  countBadge.textContent = `${items.length} of ${allFreeItems.length}`;
+  container.style.display = 'block';
+  document.getElementById('freeItemsEmpty').style.display = 'none';
+
+  let html = '';
+  items.forEach(item => {
+    const icon = item.item_type === 'jewellery' ? '💎' : (item.item_type === 'accessory' ? '👒' : '👗');
+    html += `
+      <div class="free-item-row" data-id="${item.id}" data-name="${item.name}"
+           data-sku="${item.sku}" data-category="${item.category}"
+           data-color="${item.color || ''}" data-size="${item.size || ''}"
+           onclick="selectDress(this)" style="
+             display:flex; align-items:center; gap:12px; padding:12px 20px;
+             border-bottom:1px solid var(--border); cursor:pointer;
+             transition:all 0.15s ease;">
+        <div style="font-size:22px;">${icon}</div>
+        <div style="flex:1;">
+          <div style="font-weight:600; font-size:13px;">${item.name}</div>
+          <div style="font-size:11px; color:var(--text-muted);">
+            ${item.sku} · ${item.category}${item.size ? ' · ' + item.size : ''}${item.color ? ' · ' + item.color : ''}
+          </div>
+        </div>
+        <div class="select-indicator" style="width:28px; height:28px; border-radius:50%;
+             border:2px solid var(--border); display:flex; align-items:center;
+             justify-content:center; flex-shrink:0; transition:all 0.15s;">
+        </div>
+      </div>`;
+  });
+  container.innerHTML = html;
+}
+
+function renderReturningItems(items) {
+  const container = document.getElementById('returningList');
+  const countBadge = document.getElementById('returningCount');
+
+  if (!items || items.length === 0) {
+    document.getElementById('returningEmpty').style.display = 'block';
+    container.style.display = 'none';
+    countBadge.textContent = '0';
+    return;
+  }
+
+  countBadge.textContent = `${items.length} returning`;
+  container.style.display = 'block';
+  document.getElementById('returningEmpty').style.display = 'none';
+
+  let html = '';
+  items.forEach(item => {
+    html += `
+      <div style="display:flex; align-items:center; gap:12px; padding:11px 20px;
+                  border-bottom:1px solid var(--border);">
+        <div style="width:32px; height:32px; border-radius:8px;
+                    background:var(--warning-bg); display:flex; align-items:center;
+                    justify-content:center; color:var(--warning); font-size:14px;">
+          <i class="fa-solid fa-clock-rotate-left"></i>
+        </div>
+        <div style="flex:1;">
+          <div style="font-weight:600; font-size:12.5px;">${item.name}</div>
+          <div style="font-size:11px; color:var(--text-muted);">
+            Customer: ${item.customer}${item.return_time !== '—' ? ' · Returns by ' + item.return_time : ''}
+          </div>
+        </div>
+        <span class="badge badge-gold" style="font-size:10px;">Returning</span>
+      </div>`;
+  });
+  container.innerHTML = html;
+}
+
+function selectDress(el) {
+  document.querySelectorAll('.free-item-row').forEach(row => {
+    row.style.background = '';
+    row.querySelector('.select-indicator').innerHTML = '';
+    row.querySelector('.select-indicator').style.borderColor = 'var(--border)';
+    row.querySelector('.select-indicator').style.background = '';
+  });
+
+  el.style.background = 'rgba(123,31,69,0.06)';
+  const indicator = el.querySelector('.select-indicator');
+  indicator.innerHTML = '<i class="fa-solid fa-check" style="color:white; font-size:12px;"></i>';
+  indicator.style.borderColor = 'var(--primary)';
+  indicator.style.background = 'var(--primary)';
+
+  const id = el.dataset.id;
+  const name = el.dataset.name;
+  const sku = el.dataset.sku;
+  const category = el.dataset.category;
+  const color = el.dataset.color;
+  const size = el.dataset.size;
+
+  document.getElementById('selectedItemId').value = id;
+  document.getElementById('selectedDressName').value = name;
+
+  const card = document.getElementById('selectedDressCard');
+  card.style.display = 'block';
+  document.getElementById('selectedDressTitle').textContent = name;
+  document.getElementById('selectedDressMeta').textContent =
+    `${sku} · ${category}${size ? ' · ' + size : ''}${color ? ' · ' + color : ''}`;
+
+  document.getElementById('submitBtn').disabled = false;
+}
+
+function calcRemaining() {
+  const price = parseFloat(document.getElementById('priceInput').value) || 0;
+  const advance = parseFloat(document.getElementById('advanceInput').value) || 0;
+  const remaining = Math.max(0, price - advance);
+  document.getElementById('remainingDisplay').textContent = `₹${remaining.toLocaleString('en-IN')}`;
+}
+
+document.getElementById('bookingForm').addEventListener('submit', function(e) {
+  if (!document.getElementById('selectedItemId').value) {
+    e.preventDefault();
+    alert('Please select a dress from the available list.');
+  }
+});
+</script>
+
+<style>
+.free-item-row:hover {
+  background: rgba(123,31,69,0.04) !important;
+}
+</style>
+{% endblock %}

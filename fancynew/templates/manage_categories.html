@@ -1,0 +1,147 @@
+{% extends "base.html" %}
+{% block title %}Manage Categories{% endblock %}
+{% block page_title %}Manage Categories{% endblock %}
+{% block breadcrumb %}Other &rsaquo; Manage Categories{% endblock %}
+
+{% block content %}
+<div style="display:grid; grid-template-columns:340px 1fr; gap:24px; align-items:start;">
+
+  <!-- Left: Add New Category -->
+  <div>
+    <div class="card">
+      <div class="card-header">
+        <h3 class="card-title"><i class="fa-solid fa-plus-circle" style="margin-right:8px; color:var(--gold);"></i>Add New Category</h3>
+      </div>
+      <div class="card-body">
+        <form method="post" action="{{ url_for('add_category') }}">
+          <div class="form-group">
+            <label class="form-label">Category Name *</label>
+            <input type="text" name="name" class="form-control" placeholder="e.g. Sharara, Ghagra..." required autofocus>
+          </div>
+          <div class="form-group">
+            <label class="form-label">Group *</label>
+            <select name="group" class="form-control">
+              <option value="mens">🤵 Men's Clothing</option>
+              <option value="womens" selected>👗 Women's Clothing</option>
+              <option value="jewellery">💎 Jewellery</option>
+              <option value="accessory">👒 Accessory</option>
+              <option value="other">🏷️ Other</option>
+            </select>
+          </div>
+          <button type="submit" class="btn btn-primary" style="width:100%;">
+            <i class="fa-solid fa-plus"></i> Add Category
+          </button>
+        </form>
+      </div>
+    </div>
+
+    <!-- Built-in categories reference -->
+    <div class="card" style="margin-top:16px;">
+      <div class="card-header">
+        <h3 class="card-title"><i class="fa-solid fa-lock" style="margin-right:8px; color:var(--text-muted);"></i>Built-in Categories</h3>
+      </div>
+      <div class="card-body" style="padding:12px 16px;">
+        <div style="margin-bottom:10px;">
+          <div style="font-size:11px; font-weight:700; color:var(--text-muted); text-transform:uppercase; margin-bottom:4px;">🤵 Men's</div>
+          <div style="display:flex; flex-wrap:wrap; gap:4px;">
+            {% for c in base.mens %}<span style="background:var(--bg); color:var(--text-muted); padding:2px 8px; border-radius:12px; font-size:11px;">{{ c }}</span>{% endfor %}
+          </div>
+        </div>
+        <div style="margin-bottom:10px;">
+          <div style="font-size:11px; font-weight:700; color:var(--text-muted); text-transform:uppercase; margin-bottom:4px;">👗 Women's</div>
+          <div style="display:flex; flex-wrap:wrap; gap:4px;">
+            {% for c in base.womens %}<span style="background:var(--bg); color:var(--text-muted); padding:2px 8px; border-radius:12px; font-size:11px;">{{ c }}</span>{% endfor %}
+          </div>
+        </div>
+        <div style="margin-bottom:10px;">
+          <div style="font-size:11px; font-weight:700; color:var(--text-muted); text-transform:uppercase; margin-bottom:4px;">💎 Jewellery</div>
+          <div style="display:flex; flex-wrap:wrap; gap:4px;">
+            {% for c in base.jewellery %}<span style="background:var(--bg); color:var(--text-muted); padding:2px 8px; border-radius:12px; font-size:11px;">{{ c }}</span>{% endfor %}
+          </div>
+        </div>
+        <div>
+          <div style="font-size:11px; font-weight:700; color:var(--text-muted); text-transform:uppercase; margin-bottom:4px;">👒 Accessories</div>
+          <div style="display:flex; flex-wrap:wrap; gap:4px;">
+            {% for c in base.accessory %}<span style="background:var(--bg); color:var(--text-muted); padding:2px 8px; border-radius:12px; font-size:11px;">{{ c }}</span>{% endfor %}
+          </div>
+        </div>
+      </div>
+    </div>
+  </div>
+
+  <!-- Right: Custom Categories List -->
+  <div>
+    <div class="card">
+      <div class="card-header">
+        <h3 class="card-title"><i class="fa-solid fa-tags" style="margin-right:8px;"></i>Custom Categories</h3>
+        <span style="font-size:12px; color:var(--text-muted);">{{ custom_cats | selectattr('active') | list | length }} active</span>
+      </div>
+
+      {% set group_labels = {'mens': '🤵 Men\'s', 'womens': '👗 Women\'s', 'jewellery': '💎 Jewellery', 'accessory': '👒 Accessory', 'other': '🏷️ Other'} %}
+      {% set ns = namespace(prev_group=None) %}
+
+      {% if custom_cats %}
+      <div class="card-body" style="padding:0;">
+        <table style="width:100%; border-collapse:collapse; font-size:13px;">
+          <thead>
+            <tr style="background:var(--bg); border-bottom:2px solid var(--border);">
+              <th style="padding:10px 16px; text-align:left; color:var(--text-muted);">Category Name</th>
+              <th style="padding:10px 16px; text-align:left; color:var(--text-muted);">Group</th>
+              <th style="padding:10px 16px; text-align:left; color:var(--text-muted);">Status</th>
+              {% if is_owner %}
+              <th style="padding:10px 16px; text-align:right; color:var(--text-muted);">Action</th>
+              {% endif %}
+            </tr>
+          </thead>
+          <tbody>
+            {% for cat in custom_cats %}
+            <tr style="border-bottom:1px solid var(--border); {% if not cat.active %}opacity:0.5;{% endif %}">
+              <td style="padding:12px 16px; font-weight:600;">{{ cat.name }}</td>
+              <td style="padding:12px 16px;">
+                <span style="background:var(--surface2,#252538); color:var(--text-muted); padding:3px 10px; border-radius:12px; font-size:11px;">
+                  {{ group_labels.get(cat.group, cat.group) }}
+                </span>
+              </td>
+              <td style="padding:12px 16px;">
+                {% if cat.active %}
+                  <span style="color:#68d391; font-size:12px;"><i class="fa-solid fa-circle-check"></i> Active</span>
+                {% else %}
+                  <span style="color:#fc8181; font-size:12px;"><i class="fa-solid fa-circle-xmark"></i> Removed</span>
+                {% endif %}
+              </td>
+              {% if is_owner %}
+              <td style="padding:12px 16px; text-align:right;">
+                {% if cat.active %}
+                <form method="post" action="{{ url_for('remove_category', id=cat.id) }}" onsubmit="return confirm('Remove category \'{{ cat.name }}\'?')">
+                  <button type="submit" class="btn btn-danger btn-sm" style="font-size:11px; padding:4px 12px;">
+                    <i class="fa-solid fa-trash"></i> Remove
+                  </button>
+                </form>
+                {% else %}
+                <form method="post" action="{{ url_for('add_category') }}">
+                  <input type="hidden" name="name" value="{{ cat.name }}">
+                  <input type="hidden" name="group" value="{{ cat.group }}">
+                  <button type="submit" class="btn btn-outline btn-sm" style="font-size:11px; padding:4px 12px;">
+                    <i class="fa-solid fa-rotate-right"></i> Re-enable
+                  </button>
+                </form>
+                {% endif %}
+              </td>
+              {% endif %}
+            </tr>
+            {% endfor %}
+          </tbody>
+        </table>
+      </div>
+      {% else %}
+      <div class="card-body" style="text-align:center; padding:40px; color:var(--text-muted);">
+        <i class="fa-solid fa-tags" style="font-size:32px; margin-bottom:12px; opacity:0.3;"></i>
+        <p>No custom categories yet.</p>
+        <p style="font-size:12px;">Use the form on the left to add new categories to any group.</p>
+      </div>
+      {% endif %}
+    </div>
+  </div>
+
+</div>
+{% endblock %}

@@ -1,0 +1,241 @@
+{% extends "base.html" %}
+
+{% block title %}Reports{% endblock %}
+{% block page_title %}Reports & Analytics{% endblock %}
+{% block breadcrumb %}Business insights for {{ month_name }}{% endblock %}
+
+{% block content %}
+
+<!-- ── Overview Cards ──────────────────────────────────────── -->
+<div class="stats-grid mb-24">
+  <div class="stat-card success">
+    <div class="stat-icon"><i class="fa-solid fa-indian-rupee-sign"></i></div>
+    <div class="stat-value">₹{{ "{:,.0f}".format(monthly_revenue) }}</div>
+    <div class="stat-label">Revenue – {{ month_name }}</div>
+  </div>
+  <div class="stat-card primary">
+    <div class="stat-icon"><i class="fa-solid fa-calendar-check"></i></div>
+    <div class="stat-value">{{ total_rentals }}</div>
+    <div class="stat-label">Total Rentals (All Time)</div>
+  </div>
+  <div class="stat-card gold">
+    <div class="stat-icon"><i class="fa-solid fa-circle-check"></i></div>
+    <div class="stat-value">{{ completed_rentals }}</div>
+    <div class="stat-label">Completed Rentals</div>
+  </div>
+  <div class="stat-card info">
+    <div class="stat-icon"><i class="fa-solid fa-percent"></i></div>
+    <div class="stat-value">
+      {% if total_rentals > 0 %}{{ ((completed_rentals / total_rentals) * 100)|round(1) }}%{% else %}0%{% endif %}
+    </div>
+    <div class="stat-label">Completion Rate</div>
+  </div>
+</div>
+
+<!-- ── Charts Row ──────────────────────────────────────────── -->
+<div class="two-col mb-24">
+
+  <!-- Revenue by Payment Method -->
+  <div class="card">
+    <div class="card-header">
+      <h3 class="card-title">
+        <i class="fa-solid fa-chart-pie" style="margin-right:8px;"></i>
+        Revenue by Payment Method – {{ month_name }}
+      </h3>
+    </div>
+    <div class="card-body">
+      {% if revenue_by_method %}
+      <canvas id="paymentChart" height="250"></canvas>
+      {% else %}
+      <div class="empty-state" style="padding:40px;">
+        <div class="empty-icon"><i class="fa-solid fa-chart-pie"></i></div>
+        <p>No payment data for this month</p>
+      </div>
+      {% endif %}
+    </div>
+  </div>
+
+  <!-- Popular Items -->
+  <div class="card">
+    <div class="card-header">
+      <h3 class="card-title">
+        <i class="fa-solid fa-fire" style="margin-right:8px; color:var(--gold-dark);"></i>
+        Most Rented Items
+      </h3>
+    </div>
+    <div class="card-body p-0">
+      {% if popular %}
+        {% for item_name, times in popular %}
+        <div style="display:flex; align-items:center; gap:14px; padding:13px 20px; border-bottom:1px solid var(--border);">
+          <div style="width:30px; height:30px; background:linear-gradient(135deg,var(--primary),var(--primary-light));
+                      border-radius:8px; display:flex; align-items:center; justify-content:center;
+                      font-weight:800; font-size:13px; color:white; flex-shrink:0;">
+            {{ loop.index }}
+          </div>
+          <div style="flex:1;">
+            <div style="font-weight:600; font-size:13.5px;">{{ item_name }}</div>
+            <div style="margin-top:4px;">
+              <div style="height:6px; background:var(--cream-dark); border-radius:3px; overflow:hidden;">
+                <div style="height:100%; background:linear-gradient(90deg,var(--primary),var(--primary-light));
+                            border-radius:3px; width:{{ (times / popular[0][1] * 100)|round }}%;
+                            transition:width 0.5s ease;"></div>
+              </div>
+            </div>
+          </div>
+          <div style="font-weight:800; color:var(--primary); font-size:15px;">{{ times }}</div>
+          <div style="font-size:11px; color:var(--text-muted);">rental{{ 's' if times != 1 }}</div>
+        </div>
+        {% endfor %}
+      {% else %}
+      <div class="empty-state" style="padding:40px;">
+        <div class="empty-icon"><i class="fa-solid fa-star"></i></div>
+        <p>No rental data yet</p>
+      </div>
+      {% endif %}
+    </div>
+  </div>
+
+</div>
+
+<!-- ── Popular Items Bar Chart ──────────────────────────────── -->
+{% if popular %}
+<div class="card mb-24">
+  <div class="card-header">
+    <h3 class="card-title">
+      <i class="fa-solid fa-chart-bar" style="margin-right:8px;"></i>
+      Top Items Performance
+    </h3>
+  </div>
+  <div class="card-body">
+    <canvas id="itemsChart" height="120"></canvas>
+  </div>
+</div>
+{% endif %}
+
+<!-- ── Revenue by Method Table ──────────────────────────────── -->
+{% if revenue_by_method %}
+<div class="card">
+  <div class="card-header">
+    <h3 class="card-title">
+      <i class="fa-solid fa-table" style="margin-right:8px;"></i>
+      Payment Breakdown – {{ month_name }}
+    </h3>
+  </div>
+  <div class="table-wrapper">
+    <table class="data-table">
+      <thead>
+        <tr>
+          <th>Payment Method</th>
+          <th>Amount Collected</th>
+          <th>Share</th>
+        </tr>
+      </thead>
+      <tbody>
+        {% set total_rev = revenue_by_method | sum(attribute=1) %}
+        {% for method, amount in revenue_by_method %}
+        <tr>
+          <td>
+            <span class="method-pill method-{{ method }}">
+              {% if method == 'cash' %}💵 Cash
+              {% elif method == 'card' %}💳 Card
+              {% elif method == 'upi' %}📱 UPI
+              {% elif method == 'bank' %}🏦 Bank Transfer
+              {% else %}{{ method|capitalize }}{% endif %}
+            </span>
+          </td>
+          <td style="font-weight:700; font-size:15px; color:var(--primary);">₹{{ "{:,.0f}".format(amount) }}</td>
+          <td>
+            <div style="display:flex; align-items:center; gap:10px;">
+              <div style="flex:1; max-width:140px; height:8px; background:var(--cream-dark); border-radius:4px; overflow:hidden;">
+                <div style="height:100%; background:linear-gradient(90deg,var(--primary),var(--primary-light)); border-radius:4px;
+                            width:{{ (amount / total_rev * 100)|round }}%;"></div>
+              </div>
+              <span style="font-weight:700; font-size:13px;">{{ (amount / total_rev * 100)|round(1) }}%</span>
+            </div>
+          </td>
+        </tr>
+        {% endfor %}
+      </tbody>
+    </table>
+  </div>
+</div>
+{% endif %}
+
+{% endblock %}
+
+{% block scripts %}
+<script src="https://cdn.jsdelivr.net/npm/chart.js@4.4.0/dist/chart.umd.min.js"></script>
+<script>
+const chartDefaults = {
+  font: { family: 'Poppins, sans-serif' },
+};
+
+{% if revenue_by_method %}
+// ── Payment Method Pie Chart ──
+const payCtx = document.getElementById('paymentChart');
+if (payCtx) {
+  new Chart(payCtx, {
+    type: 'doughnut',
+    data: {
+      labels: [{% for m, a in revenue_by_method %}'{{ m|capitalize }}'{% if not loop.last %},{% endif %}{% endfor %}],
+      datasets: [{
+        data: [{% for m, a in revenue_by_method %}{{ a }}{% if not loop.last %},{% endif %}{% endfor %}],
+        backgroundColor: ['#7B1F45','#C9A846','#1A7A4A','#1565C0','#B8860B'],
+        borderWidth: 3,
+        borderColor: '#fff',
+      }]
+    },
+    options: {
+      responsive: true,
+      plugins: {
+        legend: { position: 'bottom', labels: { font: { family: 'Poppins', size: 12 } } },
+        tooltip: {
+          callbacks: {
+            label: ctx => ` ₹${ctx.raw.toLocaleString('en-IN')} (${ctx.label})`
+          }
+        }
+      },
+      cutout: '60%',
+    }
+  });
+}
+{% endif %}
+
+{% if popular %}
+// ── Popular Items Bar Chart ──
+const itemCtx = document.getElementById('itemsChart');
+if (itemCtx) {
+  new Chart(itemCtx, {
+    type: 'bar',
+    data: {
+      labels: [{% for n, t in popular %}'{{ n[:25] }}'{% if not loop.last %},{% endif %}{% endfor %}],
+      datasets: [{
+        label: 'Times Rented',
+        data: [{% for n, t in popular %}{{ t }}{% if not loop.last %},{% endif %}{% endfor %}],
+        backgroundColor: ['#7B1F45','#A8426A','#C9A846','#9E7F28','#1A7A4A'],
+        borderRadius: 8,
+        borderSkipped: false,
+      }]
+    },
+    options: {
+      responsive: true,
+      plugins: {
+        legend: { display: false },
+      },
+      scales: {
+        y: {
+          beginAtZero: true,
+          ticks: { stepSize: 1, font: { family: 'Poppins', size: 11 } },
+          grid: { color: 'rgba(0,0,0,0.05)' },
+        },
+        x: {
+          ticks: { font: { family: 'Poppins', size: 11 } },
+          grid: { display: false },
+        }
+      }
+    }
+  });
+}
+{% endif %}
+</script>
+{% endblock %}

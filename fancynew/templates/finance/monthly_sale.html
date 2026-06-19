@@ -1,0 +1,75 @@
+{% extends "base.html" %}
+{% block title %}Monthly Sale{% endblock %}
+{% block page_title %}Monthly Sale{% endblock %}
+{% block breadcrumb %}Finance → Monthly Sale{% endblock %}
+
+{% block content %}
+<div class="card">
+  <div class="card-header">
+    <h3 class="card-title"><i class="fa-solid fa-calendar-days" style="margin-right:8px;"></i>Monthly Sale</h3>
+    <button onclick="window.print()" class="btn btn-outline btn-sm no-print"><i class="fa-solid fa-print"></i> Print</button>
+  </div>
+  <div class="card-body">
+    <div style="display:flex; gap:12px; margin-bottom:20px; align-items:end;">
+      <div>
+        <label style="font-size:11px; font-weight:700; text-transform:uppercase; color:var(--text-muted);">Select Month</label>
+        <input type="month" id="saleMonth" class="form-control" value="{{ today.strftime('%Y-%m') }}" onchange="loadData()">
+      </div>
+    </div>
+
+    <div style="display:grid; grid-template-columns:repeat(4, 1fr); gap:16px; margin-bottom:24px;">
+      <div style="background:linear-gradient(135deg,#E8F5E9,#C8E6C9); padding:20px; border-radius:12px; text-align:center;">
+        <div style="font-size:12px; font-weight:700; color:#2E7D32; text-transform:uppercase;">Total Advance</div>
+        <div id="mAdvance" style="font-size:24px; font-weight:800; color:#1B5E20;">₹0</div>
+      </div>
+      <div style="background:linear-gradient(135deg,#E3F2FD,#BBDEFB); padding:20px; border-radius:12px; text-align:center;">
+        <div style="font-size:12px; font-weight:700; color:#1565C0; text-transform:uppercase;">Total Remaining</div>
+        <div id="mRemaining" style="font-size:24px; font-weight:800; color:#0D47A1;">₹0</div>
+      </div>
+      <div style="background:linear-gradient(135deg,#FFF3E0,#FFE0B2); padding:20px; border-radius:12px; text-align:center;">
+        <div style="font-size:12px; font-weight:700; color:#E65100; text-transform:uppercase;">Total Sale</div>
+        <div id="mSale" style="font-size:24px; font-weight:800; color:#BF360C;">₹0</div>
+      </div>
+      <div style="background:linear-gradient(135deg,var(--cream),var(--cream-dark)); padding:20px; border-radius:12px; text-align:center;">
+        <div style="font-size:12px; font-weight:700; color:var(--primary); text-transform:uppercase;">Bookings</div>
+        <div id="mCount" style="font-size:24px; font-weight:800; color:var(--primary);">0</div>
+      </div>
+    </div>
+
+    <div style="display:grid; grid-template-columns:repeat(3, 1fr); gap:16px; margin-bottom:24px;">
+      <div style="padding:14px; border:1px solid var(--border); border-radius:10px; text-align:center;">
+        <div style="font-size:11px; font-weight:700; text-transform:uppercase; color:var(--text-muted);">Men's</div>
+        <div id="mMens" style="font-size:20px; font-weight:700;">₹0</div>
+      </div>
+      <div style="padding:14px; border:1px solid var(--border); border-radius:10px; text-align:center;">
+        <div style="font-size:11px; font-weight:700; text-transform:uppercase; color:var(--text-muted);">Women's</div>
+        <div id="mWomens" style="font-size:20px; font-weight:700;">₹0</div>
+      </div>
+      <div style="padding:14px; border:1px solid var(--border); border-radius:10px; text-align:center;">
+        <div style="font-size:11px; font-weight:700; text-transform:uppercase; color:var(--text-muted);">Jewellery</div>
+        <div id="mJewellery" style="font-size:20px; font-weight:700;">₹0</div>
+      </div>
+    </div>
+  </div>
+</div>
+{% endblock %}
+
+{% block scripts %}
+<script>
+function loadData() {
+  const m = document.getElementById('saleMonth').value;
+  fetch('/api/finance/monthly-sale?month=' + m)
+    .then(r => r.json())
+    .then(data => {
+      document.getElementById('mAdvance').textContent = '₹' + Number(data.total_advance).toLocaleString('en-IN');
+      document.getElementById('mRemaining').textContent = '₹' + Number(data.total_remaining).toLocaleString('en-IN');
+      document.getElementById('mSale').textContent = '₹' + Number(data.total_sale).toLocaleString('en-IN');
+      document.getElementById('mCount').textContent = data.booking_count;
+      document.getElementById('mMens').textContent = '₹' + Number(data.mens_total || 0).toLocaleString('en-IN');
+      document.getElementById('mWomens').textContent = '₹' + Number(data.womens_total || 0).toLocaleString('en-IN');
+      document.getElementById('mJewellery').textContent = '₹' + Number(data.jewellery_total || 0).toLocaleString('en-IN');
+    });
+}
+document.addEventListener('DOMContentLoaded', loadData);
+</script>
+{% endblock %}

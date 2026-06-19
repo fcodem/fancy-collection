@@ -1,0 +1,12 @@
+﻿This project was moved from OneDrive for faster Next.js performance.
+
+Old location: C:\Users\asus\OneDrive\Desktop\ssdn soft
+New location: C:\Projects\ssdn-soft
+
+Open this folder in Cursor:
+  File -> Open Folder -> C:\Projects\ssdn-soft
+
+Start the app:
+  Double-click start-web.bat
+
+You can delete the old OneDrive copy after confirming everything works.

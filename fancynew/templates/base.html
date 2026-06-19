@@ -1,0 +1,464 @@
+<!DOCTYPE html>
+<html lang="en">
+<head>
+  <meta charset="UTF-8">
+  <meta name="viewport" content="width=device-width, initial-scale=1.0, viewport-fit=cover">
+  <title>{% block title %}Fancy Collection{% endblock %} – Rental Management</title>
+  <link rel="stylesheet" href="{{ url_for('static', filename='css/style.css') }}">
+  <link rel="stylesheet" href="https://cdnjs.cloudflare.com/ajax/libs/font-awesome/6.5.0/css/all.min.css">
+  <script src="https://cdn.jsdelivr.net/npm/chart.js@4.4.0/dist/chart.umd.min.js"></script>
+  <script src="{{ url_for('static', filename='js/dress-suggest.js') }}"></script>
+</head>
+<body>
+<div class="app-layout">
+
+  <!-- ── Sidebar ─────────────────────────────────────────────── -->
+  <aside class="sidebar no-print" id="appSidebar">
+    <div class="sidebar-toggle-row">
+      <button type="button" class="sidebar-toggle" id="sidebarToggle" title="Collapse sidebar" aria-label="Toggle sidebar">
+        <i class="fa-solid fa-bars"></i>
+      </button>
+    </div>
+    <div class="sidebar-brand">
+      <div class="brand-icon">👑</div>
+      <h1 class="sidebar-brand-text">Fancy Collection</h1>
+      <span class="sidebar-brand-text">Rental Management System</span>
+    </div>
+
+    <nav class="sidebar-nav">
+      <div class="nav-section-label">Main Menu</div>
+
+      <a href="{{ url_for('dashboard') }}"
+         class="nav-item {% if request.endpoint == 'dashboard' %}active{% endif %}">
+        <i class="fa-solid fa-house-chimney"></i> Dashboard
+      </a>
+
+      <a href="{{ url_for('booking_panel') }}"
+         class="nav-item {% if request.endpoint == 'booking_panel' %}active{% endif %}">
+        <i class="fa-solid fa-calendar-plus"></i> Booking Panel
+      </a>
+
+      <a href="{{ url_for('search_booking_page') }}"
+         class="nav-item {% if request.endpoint == 'search_booking_page' %}active{% endif %}">
+        <i class="fa-solid fa-magnifying-glass-plus"></i> Search Booking
+      </a>
+
+      <a href="{{ url_for('booking_delivery_page') }}"
+         class="nav-item {% if request.endpoint == 'booking_delivery_page' %}active{% endif %}">
+        <i class="fa-solid fa-truck-fast"></i> Booking Delivery
+      </a>
+
+      <a href="{{ url_for('remaining_to_deliver_page') }}"
+         class="nav-item nav-item-badge {% if request.endpoint == 'remaining_to_deliver_page' %}active{% endif %}">
+        <i class="fa-solid fa-clock"></i>
+        <span class="nav-label">Remaining to Deliver</span>
+        {% if overdue_delivery_count > 0 %}
+        <span class="nav-badge">{{ overdue_delivery_count }}</span>
+        {% endif %}
+      </a>
+
+      <a href="{{ url_for('booking_return_page') }}"
+         class="nav-item {% if request.endpoint == 'booking_return_page' %}active{% endif %}">
+        <i class="fa-solid fa-rotate-left"></i> Return
+      </a>
+
+      <a href="{{ url_for('booking_list_page') }}"
+         class="nav-item {% if request.endpoint == 'booking_list_page' %}active{% endif %}">
+        <i class="fa-solid fa-list-check"></i> Booked Items
+      </a>
+
+      <a href="{{ url_for('packing_list_page') }}"
+         class="nav-item {% if request.endpoint == 'packing_list_page' %}active{% endif %}">
+        <i class="fa-solid fa-boxes-packing"></i> Packing List
+      </a>
+
+      <a href="{{ url_for('free_items_page') }}"
+         class="nav-item {% if request.endpoint == 'free_items_page' %}active{% endif %}">
+        <i class="fa-solid fa-magnifying-glass"></i> Free Item List
+      </a>
+
+      <a href="{{ url_for('returning_today_page') }}"
+         class="nav-item {% if request.endpoint == 'returning_today_page' %}active{% endif %}">
+        <i class="fa-solid fa-arrows-rotate"></i> Alternate Booking
+      </a>
+
+      <a href="{{ url_for('inventory_list') }}"
+         class="nav-item {% if request.endpoint == 'inventory_list' or request.endpoint == 'inventory_add' %}active{% endif %}">
+        <i class="fa-solid fa-layer-group"></i> Manage Inventory
+      </a>
+
+      <a href="{{ url_for('inventory_search_page') }}"
+         class="nav-item {% if request.endpoint == 'inventory_search_page' %}active{% endif %}">
+        <i class="fa-solid fa-shirt"></i> Dress Search
+      </a>
+
+      <a href="{{ url_for('all_record_search_page') }}"
+         class="nav-item {% if request.endpoint == 'all_record_search_page' %}active{% endif %}">
+        <i class="fa-solid fa-database"></i> All Record Search
+      </a>
+
+      <a href="{{ url_for('incomplete_return_page') }}"
+         class="nav-item {% if request.endpoint == 'incomplete_return_page' %}active{% endif %}">
+        <i class="fa-solid fa-circle-exclamation"></i> Incomplete Return
+      </a>
+
+      {% if is_owner %}
+      <div class="nav-section-label" style="margin-top:8px;">Finance</div>
+
+      <a href="{{ url_for('finance_daily_sale') }}"
+         class="nav-item {% if request.endpoint == 'finance_daily_sale' %}active{% endif %}">
+        <i class="fa-solid fa-coins"></i> Daily Sale
+      </a>
+
+      <a href="{{ url_for('finance_daily_booking') }}"
+         class="nav-item {% if request.endpoint == 'finance_daily_booking' %}active{% endif %}">
+        <i class="fa-solid fa-receipt"></i> Daily Booking Amount
+      </a>
+
+      <a href="{{ url_for('finance_monthly_sale') }}"
+         class="nav-item {% if request.endpoint == 'finance_monthly_sale' %}active{% endif %}">
+        <i class="fa-solid fa-calendar-days"></i> Monthly Sale
+      </a>
+
+      <a href="{{ url_for('finance_yearly_sale') }}"
+         class="nav-item {% if request.endpoint == 'finance_yearly_sale' %}active{% endif %}">
+        <i class="fa-solid fa-chart-line"></i> Yearly Sale
+      </a>
+
+      <a href="{{ url_for('finance_top_performer') }}"
+         class="nav-item {% if request.endpoint == 'finance_top_performer' %}active{% endif %}">
+        <i class="fa-solid fa-trophy"></i> Top Performer
+      </a>
+
+      <a href="{{ url_for('finance_category_analysis') }}"
+         class="nav-item {% if request.endpoint == 'finance_category_analysis' %}active{% endif %}">
+        <i class="fa-solid fa-chart-pie"></i> Category Analysis
+      </a>
+
+      <a href="{{ url_for('finance_security_deposit') }}"
+         class="nav-item {% if request.endpoint == 'finance_security_deposit' %}active{% endif %}">
+        <i class="fa-solid fa-shield-halved"></i> Security Deposit
+      </a>
+
+      <a href="{{ url_for('finance_suppliers') }}"
+         class="nav-item {% if request.endpoint == 'finance_suppliers' %}active{% endif %}">
+        <i class="fa-solid fa-truck-field"></i> Suppliers
+      </a>
+      {% endif %}
+
+      <div class="nav-section-label" style="margin-top:8px;">Other</div>
+
+      {% if is_owner %}
+      <a href="{{ url_for('customers_list') }}"
+         class="nav-item {% if 'customers' in request.endpoint %}active{% endif %}">
+        <i class="fa-solid fa-users"></i> Customers
+      </a>
+
+      <a href="{{ url_for('staff_work_page') }}"
+         class="nav-item {% if request.endpoint == 'staff_work_page' %}active{% endif %}">
+        <i class="fa-solid fa-user-tie"></i> Staff Work
+      </a>
+      {% endif %}
+
+      <a href="{{ url_for('staff_attendance_page') }}"
+         class="nav-item {% if request.endpoint == 'staff_attendance_page' %}active{% endif %}">
+        <i class="fa-solid fa-clipboard-check"></i> Staff Attendance
+      </a>
+
+      <a href="{{ url_for('manage_categories') }}"
+         class="nav-item {% if request.endpoint == 'manage_categories' %}active{% endif %}">
+        <i class="fa-solid fa-tags"></i> Manage Categories
+      </a>
+
+      {% if is_owner %}
+      <a href="{{ url_for('recycle_bin') }}"
+         class="nav-item {% if request.endpoint == 'recycle_bin' %}active{% endif %}">
+        <i class="fa-solid fa-trash-can"></i> Recycle Bin
+      </a>
+
+      <a href="{{ url_for('users_page') }}"
+         class="nav-item {% if 'users' in request.endpoint %}active{% endif %}">
+        <i class="fa-solid fa-user-shield"></i> Manage Users
+      </a>
+
+      <a href="{{ url_for('export_bookings_csv') }}" class="nav-item" target="_blank">
+        <i class="fa-solid fa-file-csv"></i> Export Bookings CSV
+      </a>
+
+      <a href="{{ url_for('export_inventory_csv') }}" class="nav-item" target="_blank">
+        <i class="fa-solid fa-file-csv"></i> Export Inventory CSV
+      </a>
+
+      <a href="{{ url_for('reset_all_data') }}"
+         class="nav-item {% if request.endpoint == 'reset_all_data' %}active{% endif %}"
+         style="color:#fc8181 !important;">
+        <i class="fa-solid fa-trash-can"></i> Reset All Data
+      </a>
+      {% endif %}
+
+      <div class="nav-section-label" style="margin-top:8px;">Quick Actions</div>
+
+      <a href="{{ url_for('booking_new') }}" class="nav-item">
+        <i class="fa-solid fa-plus-circle"></i> New Booking
+      </a>
+
+      {% if is_owner %}
+      <a href="{{ url_for('inventory_add') }}" class="nav-item">
+        <i class="fa-solid fa-shirt"></i> Add Item
+      </a>
+      {% endif %}
+    </nav>
+
+    {% if current_user %}
+    <div class="sidebar-footer" style="display:flex; flex-direction:column; gap:6px;">
+      <div class="sidebar-footer-detail" style="display:flex; align-items:center; gap:8px;">
+        <i class="fa-solid fa-circle-user" style="color:var(--gold);"></i>
+        <div>
+          <div style="font-weight:600; font-size:12px;">{{ current_user.username }}</div>
+          <div style="font-size:10px; opacity:0.7; text-transform:uppercase; letter-spacing:1px;">
+            {% if current_user.role == 'owner' %}
+              <i class="fa-solid fa-crown" style="color:var(--gold);"></i> Owner
+            {% else %}
+              <i class="fa-solid fa-user"></i> Staff
+            {% endif %}
+          </div>
+        </div>
+      </div>
+      <div style="display:flex; gap:6px;">
+        <a href="{{ url_for('change_own_password') }}" class="btn btn-outline btn-sm" style="flex:1; text-align:center; font-size:10px; padding:4px 6px;">
+          <i class="fa-solid fa-key"></i> Password
+        </a>
+        <a href="{{ url_for('logout') }}" class="btn btn-sm" style="flex:1; text-align:center; font-size:10px; padding:4px 6px; background:var(--danger, #e53e3e); color:#fff; border:none;">
+          <i class="fa-solid fa-right-from-bracket"></i> Logout
+        </a>
+      </div>
+    </div>
+    {% else %}
+    <div class="sidebar-footer">
+      <i class="fa-solid fa-gem" style="color:var(--gold); margin-right:4px;"></i>
+      Fancy Collection &copy; {{ now.year if now else '2026' }}
+    </div>
+    {% endif %}
+  </aside>
+
+  <!-- ── Main Area ──────────────────────────────────────────── -->
+  <div class="main-content">
+
+    <!-- Top Header -->
+    <header class="top-header no-print">
+      <button type="button" class="sidebar-toggle sidebar-mobile-toggle" id="sidebarMobileToggle" title="Open menu" aria-label="Open menu">
+        <i class="fa-solid fa-bars"></i>
+      </button>
+      <div class="top-header-main">
+        <h1 class="page-title">{% block page_title %}Dashboard{% endblock %}</h1>
+        <div class="breadcrumb-trail">{% block breadcrumb %}Home{% endblock %}</div>
+      </div>
+      <div class="header-actions">
+        {% block header_actions %}{% endblock %}
+        {% if request.endpoint != 'dashboard' %}
+        <a href="{{ url_for('dashboard') }}" class="btn btn-outline" style="margin-left:8px;">
+          <i class="fa-solid fa-house"></i> Home
+        </a>
+        {% endif %}
+      </div>
+    </header>
+
+    <!-- Flash Messages -->
+    {% with messages = get_flashed_messages(with_categories=true) %}
+      {% if messages %}
+      <div class="flash-messages no-print" style="padding: 16px 32px 0;">
+        {% for category, message in messages %}
+        <div class="alert alert-{{ category }}">
+          {% if category == 'success' %}<i class="fa-solid fa-circle-check"></i>
+          {% elif category == 'error' or category == 'danger' %}<i class="fa-solid fa-circle-xmark"></i>
+          {% elif category == 'warning' %}<i class="fa-solid fa-triangle-exclamation"></i>
+          {% else %}<i class="fa-solid fa-circle-info"></i>{% endif %}
+          {{ message }}
+        </div>
+        {% endfor %}
+      </div>
+      {% endif %}
+    {% endwith %}
+
+    <!-- Page Body -->
+    <div class="page-body">
+      {% block content %}{% endblock %}
+    </div>
+
+  </div>
+</div>
+
+{% block scripts %}{% endblock %}
+
+{% if current_user and not is_owner %}
+<script>
+setInterval(function() {
+  fetch('/api/session/check')
+    .then(function(r) {
+      if (r.status === 401) {
+        window.location.href = '{{ url_for("login") }}';
+      }
+    })
+    .catch(function() {});
+}, 10000);
+</script>
+{% endif %}
+
+<!-- ── Sidebar toggle ─────────────────────────────────────────── -->
+<script>
+(function() {
+  var STORAGE_KEY = 'fc_sidebar_collapsed';
+  var layout = document.querySelector('.app-layout');
+  var sidebar = document.getElementById('appSidebar');
+  var toggleBtn = document.getElementById('sidebarToggle');
+  var mobileToggle = document.getElementById('sidebarMobileToggle');
+  var overlay = null;
+
+  function isMobile() {
+    return window.matchMedia('(max-width: 1024px)').matches;
+  }
+
+  function setCollapsed(collapsed) {
+    if (!layout) return;
+    layout.classList.toggle('sidebar-collapsed', collapsed && !isMobile());
+    if (toggleBtn) {
+      toggleBtn.title = collapsed ? 'Expand sidebar' : 'Collapse sidebar';
+      toggleBtn.setAttribute('aria-label', collapsed ? 'Expand sidebar' : 'Collapse sidebar');
+    }
+    document.querySelectorAll('.sidebar-nav .nav-item').forEach(function(item) {
+      if (collapsed && !isMobile()) {
+        var label = item.querySelector('.nav-label');
+        item.setAttribute('title', label ? label.textContent.trim() : item.textContent.replace(/\s+/g, ' ').trim());
+      } else {
+        item.removeAttribute('title');
+      }
+    });
+    if (!isMobile()) {
+      try { localStorage.setItem(STORAGE_KEY, collapsed ? '1' : '0'); } catch (e) {}
+    }
+  }
+
+  function closeMobileSidebar() {
+    if (sidebar) sidebar.classList.remove('sidebar-open');
+    if (overlay) overlay.classList.remove('active');
+    document.body.classList.remove('sidebar-mobile-open');
+  }
+
+  function openMobileSidebar() {
+    if (!sidebar) return;
+    if (!overlay) {
+      overlay = document.createElement('div');
+      overlay.className = 'sidebar-overlay';
+      overlay.addEventListener('click', closeMobileSidebar);
+      document.body.appendChild(overlay);
+    }
+    sidebar.classList.add('sidebar-open');
+    overlay.classList.add('active');
+    document.body.classList.add('sidebar-mobile-open');
+  }
+
+  function toggleSidebar() {
+    if (isMobile()) {
+      if (sidebar && sidebar.classList.contains('sidebar-open')) {
+        closeMobileSidebar();
+      } else {
+        openMobileSidebar();
+      }
+      return;
+    }
+    setCollapsed(!layout.classList.contains('sidebar-collapsed'));
+  }
+
+  if (toggleBtn) toggleBtn.addEventListener('click', toggleSidebar);
+  if (mobileToggle) mobileToggle.addEventListener('click', toggleSidebar);
+
+  document.querySelectorAll('.sidebar-nav .nav-item').forEach(function(link) {
+    link.addEventListener('click', function() {
+      if (isMobile()) closeMobileSidebar();
+    });
+  });
+
+  document.addEventListener('keydown', function(e) {
+    if (e.key === 'Escape') closeMobileSidebar();
+  });
+
+  window.addEventListener('resize', function() {
+    if (!isMobile()) {
+      closeMobileSidebar();
+      try {
+        setCollapsed(localStorage.getItem(STORAGE_KEY) === '1');
+      } catch (e) {}
+    } else {
+      layout.classList.remove('sidebar-collapsed');
+    }
+  });
+
+  try {
+    if (!isMobile() && localStorage.getItem(STORAGE_KEY) === '1') {
+      setCollapsed(true);
+    }
+  } catch (e) {}
+})();
+</script>
+
+<!-- ── Global Utility JS ─────────────────────────────────────── -->
+<script>
+/**
+ * sendWhatsApp(phone, message)
+ * Opens WhatsApp Web / mobile app with a pre-filled message.
+ * Strip non-digits; assume India (+91) if 10 digits and doesn't start with +.
+ */
+function sendWhatsApp(phone, message) {
+  var clean = (phone || '').replace(/\D/g, '');
+  if (clean.length === 10) clean = '91' + clean;
+  var url = 'https://wa.me/' + clean + '?text=' + encodeURIComponent(message || '');
+  window.open(url, '_blank');
+}
+
+/**
+ * whatsAppBookingConfirm(customerName, serial, deliveryDate, deliveryTime, venue, phone)
+ * Sends a ready-made booking confirmation message.
+ */
+function whatsAppBookingConfirm(customerName, serial, deliveryDate, deliveryTime, venue, phone) {
+  var msg = 'Namaste ' + customerName + '!\n\n'
+    + 'Your booking with *Fancy Collection* has been confirmed.\n'
+    + '📋 Serial #: *' + serial + '*\n'
+    + '📅 Delivery Date: *' + deliveryDate + '*\n'
+    + '🕐 Delivery Time: *' + deliveryTime + '*\n'
+    + (venue ? '📍 Venue: *' + venue + '*\n' : '')
+    + '\nFor any queries, please contact us.\n'
+    + '✨ *Fancy Collection* – Premium Rental Service';
+  sendWhatsApp(phone, msg);
+}
+
+/**
+ * whatsAppDeliveryReminder(customerName, serial, deliveryDate, deliveryTime, remaining, phone)
+ */
+function whatsAppDeliveryReminder(customerName, serial, deliveryDate, deliveryTime, remaining, phone) {
+  var msg = 'Namaste ' + customerName + '!\n\n'
+    + 'Reminder: Your order from *Fancy Collection* is ready for delivery.\n'
+    + '📋 Serial #: *' + serial + '*\n'
+    + '📅 Delivery Date: *' + deliveryDate + '*\n'
+    + '🕐 Time: *' + deliveryTime + '*\n'
+    + (remaining > 0 ? '💰 Balance Due: *₹' + Number(remaining).toLocaleString('en-IN') + '*\n' : '')
+    + '\n✨ *Fancy Collection*';
+  sendWhatsApp(phone, msg);
+}
+
+/**
+ * whatsAppReturnReminder(customerName, serial, returnDate, returnTime, phone)
+ */
+function whatsAppReturnReminder(customerName, serial, returnDate, returnTime, phone) {
+  var msg = 'Namaste ' + customerName + '!\n\n'
+    + 'Friendly reminder from *Fancy Collection*:\n'
+    + 'Please return the rented items by:\n'
+    + '📅 Date: *' + returnDate + '*\n'
+    + '🕐 Time: *' + returnTime + '*\n'
+    + '📋 Booking Serial #: *' + serial + '*\n\n'
+    + 'Thank you for choosing us! ✨\n'
+    + '*Fancy Collection*';
+  sendWhatsApp(phone, msg);
+}
+</script>
+</body>
+</html>

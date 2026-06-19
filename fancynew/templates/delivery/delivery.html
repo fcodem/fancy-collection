@@ -1,0 +1,100 @@
+{% extends "base.html" %}
+{% block title %}Booking Delivery{% endblock %}
+{% block page_title %}Booking Delivery{% endblock %}
+{% block breadcrumb %}Search and deliver bookings{% endblock %}
+
+{% block content %}
+<div class="card" style="margin-bottom:24px;">
+  <div class="card-header">
+    <h3 class="card-title"><i class="fa-solid fa-truck-fast" style="margin-right:8px;"></i>Find Booking to Deliver</h3>
+  </div>
+  <div class="card-body">
+    <div style="display:grid; grid-template-columns:1fr 2fr auto; gap:16px; align-items:end;">
+      <div>
+        <label style="font-weight:600; font-size:13px;">Date of Delivery</label>
+        <input type="date" id="searchDate" class="form-input" value="{{ today_iso }}">
+      </div>
+      <div>
+        <label style="font-weight:600; font-size:13px;">Search (Serial No / Name / Phone / Dress)</label>
+        <input type="text" id="searchQuery" class="form-input dress-name-suggest" placeholder="Type serial no, customer name, phone, or dress name..." autocomplete="off">
+      </div>
+      <div>
+        <button onclick="searchBookings()" class="btn btn-primary"><i class="fa-solid fa-search"></i> Search</button>
+      </div>
+    </div>
+    <div id="suggestions" style="margin-top:12px; display:none;" class="card">
+      <div class="card-body p-0" id="suggestionList"></div>
+    </div>
+  </div>
+</div>
+
+<div id="searchResults" style="display:none;">
+  <div class="card">
+    <div class="card-header">
+      <h3 class="card-title"><i class="fa-solid fa-list"></i> Results</h3>
+    </div>
+    <div class="card-body p-0">
+      <table class="data-table" id="resultsTable">
+        <thead>
+          <tr>
+            <th>S.No</th>
+            <th>Customer</th>
+            <th>Phone</th>
+            <th>Delivery Date</th>
+            <th>Time</th>
+            <th>Items</th>
+            <th>Venue</th>
+            <th>Total</th>
+            <th>Action</th>
+          </tr>
+        </thead>
+        <tbody id="resultsBody"></tbody>
+      </table>
+    </div>
+  </div>
+</div>
+
+<script>
+const searchDate = document.getElementById('searchDate');
+const searchQuery = document.getElementById('searchQuery');
+let debounceTimer;
+
+searchQuery.addEventListener('input', function() {
+  clearTimeout(debounceTimer);
+  debounceTimer = setTimeout(() => searchBookings(), 400);
+});
+searchDate.addEventListener('change', () => searchBookings());
+
+function searchBookings() {
+  const dateVal = searchDate.value;
+  const q = searchQuery.value.trim();
+  fetch(`/api/delivery/search?date=${dateVal}&q=${encodeURIComponent(q)}`)
+    .then(r => r.json())
+    .then(data => {
+      if (data.length > 0) {
+        document.getElementById('searchResults').style.display = 'block';
+        const tbody = document.getElementById('resultsBody');
+        tbody.innerHTML = data.map(b => `
+          <tr onclick="window.location='/booking-delivery/${b.id}'" style="cursor:pointer;">
+            <td><strong>${String(b.serial).padStart(2,'0')}</strong></td>
+            <td>${b.customer_name}</td>
+            <td>${b.contact_1}</td>
+            <td>${b.delivery_date}</td>
+            <td>${b.delivery_time}</td>
+            <td>${b.items.map(i => i.display_name || i.name).join(', ')}</td>
+            <td>${b.venue || '-'}</td>
+            <td>₹${Number(b.total_price).toLocaleString()}</td>
+            <td><a href="/booking-delivery/${b.id}" class="btn btn-sm btn-primary">Open</a></td>
+          </tr>
+        `).join('');
+      } else {
+        document.getElementById('searchResults').style.display = 'block';
+        document.getElementById('resultsBody').innerHTML = '<tr><td colspan="9" style="text-align:center; padding:20px;">No bookings found for this period.</td></tr>';
+      }
+    });
+}
+
+// Auto-search on load
+searchBookings();
+</script>
+{% endblock %}

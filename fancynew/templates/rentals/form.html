@@ -1,0 +1,232 @@
+{% extends "base.html" %}
+
+{% block title %}New Rental{% endblock %}
+{% block page_title %}New Rental{% endblock %}
+{% block breadcrumb %}
+  <a href="{{ url_for('rentals_list') }}" style="color:var(--primary); text-decoration:none;">Rentals</a>
+  &rsaquo; Create New
+{% endblock %}
+
+{% block content %}
+
+<form method="post" id="rentalForm">
+  <div class="two-col">
+
+    <!-- ── Left Column ──────────────────────────────────────── -->
+    <div style="display:flex; flex-direction:column; gap:20px;">
+
+      <!-- Customer Selection -->
+      <div class="card">
+        <div class="card-header">
+          <h3 class="card-title"><i class="fa-solid fa-user" style="margin-right:8px;"></i>Customer</h3>
+        </div>
+        <div class="card-body">
+          <div class="form-group">
+            <label class="form-label">Select Customer *</label>
+            <select name="customer_id" class="form-control" required>
+              <option value="">-- Choose a customer --</option>
+              {% for c in customers %}
+              <option value="{{ c.id }}">{{ c.name }} — {{ c.phone }}</option>
+              {% endfor %}
+            </select>
+          </div>
+          <div style="margin-top:12px; font-size:12px; color:var(--text-muted);">
+            Customer not in list?
+            <a href="{{ url_for('customers_add') }}" target="_blank" style="color:var(--primary);">Add customer</a>
+          </div>
+        </div>
+      </div>
+
+      <!-- Rental Period -->
+      <div class="card">
+        <div class="card-header">
+          <h3 class="card-title"><i class="fa-solid fa-calendar-days" style="margin-right:8px;"></i>Rental Period</h3>
+        </div>
+        <div class="card-body">
+          <div class="form-grid" style="grid-template-columns:1fr 1fr;">
+            <div class="form-group">
+              <label class="form-label">Start Date *</label>
+              <input type="date" name="start_date" id="startDate"
+                     class="form-control" value="{{ today }}" required
+                     onchange="calcTotal()">
+            </div>
+            <div class="form-group">
+              <label class="form-label">Return Date *</label>
+              <input type="date" name="end_date" id="endDate"
+                     class="form-control" value="{{ today }}" required
+                     onchange="calcTotal()">
+            </div>
+          </div>
+          <div id="dayInfo" style="margin-top:10px; font-size:13px; color:var(--primary); font-weight:600;"></div>
+        </div>
+      </div>
+
+      <!-- Discount & Notes -->
+      <div class="card">
+        <div class="card-header">
+          <h3 class="card-title"><i class="fa-solid fa-tag" style="margin-right:8px;"></i>Discount & Notes</h3>
+        </div>
+        <div class="card-body">
+          <div class="form-group" style="margin-bottom:16px;">
+            <label class="form-label">Discount (₹)</label>
+            <div class="input-group">
+              <span class="input-group-text">₹</span>
+              <input type="number" name="discount" id="discount"
+                     class="form-control" value="0" min="0" step="0.01"
+                     onchange="calcTotal()">
+            </div>
+          </div>
+          <div class="form-group">
+            <label class="form-label">Notes</label>
+            <textarea name="notes" class="form-control"
+                      placeholder="Any special instructions or notes…"></textarea>
+          </div>
+        </div>
+      </div>
+
+    </div>
+
+    <!-- ── Right Column ──────────────────────────────────────── -->
+    <div style="display:flex; flex-direction:column; gap:20px;">
+
+      <!-- Item Selection -->
+      <div class="card" style="flex:1;">
+        <div class="card-header">
+          <h3 class="card-title"><i class="fa-solid fa-layer-group" style="margin-right:8px;"></i>Select Items</h3>
+          <span class="badge badge-available" id="selectedCount">0 selected</span>
+        </div>
+        <div class="card-body" style="padding:16px;">
+          {% if available_items %}
+          <div class="item-selector">
+            {% for item in available_items %}
+            <label class="item-checkbox-card" id="card_{{ item.id }}" onclick="updateSelected()">
+              <input type="checkbox" name="item_ids" value="{{ item.id }}"
+                     data-rate="{{ item.daily_rate }}"
+                     data-deposit="{{ item.deposit }}"
+                     onchange="calcTotal()">
+              <div class="item-name">{{ item.name }}</div>
+              <div class="item-meta">
+                {{ item.sku }}
+                {% if item.size %} · {{ item.size }}{% endif %}
+                {% if item.color %} · {{ item.color }}{% endif %}
+              </div>
+              <div class="d-flex" style="justify-content:space-between; align-items:center; margin-top:6px;">
+                <span class="badge {% if item.category in ['Jewellery','Necklace','Accessory'] %}badge-jewellery{% else %}badge-clothing{% endif %}" style="font-size:10px;">{{ item.category }}</span>
+                <div class="item-rate">₹{{ "{:,.0f}".format(item.daily_rate) }}<span>/day</span></div>
+              </div>
+              <div class="item-meta" style="margin-top:3px;">Deposit: ₹{{ "{:,.0f}".format(item.deposit) }}</div>
+            </label>
+            {% endfor %}
+          </div>
+          {% else %}
+          <div class="empty-state" style="padding:30px;">
+            <div class="empty-icon"><i class="fa-solid fa-box-open"></i></div>
+            <h3>No available items</h3>
+            <p>All items are currently rented or in maintenance.</p>
+            <a href="{{ url_for('inventory_add') }}" class="btn btn-primary mt-16">Add Items</a>
+          </div>
+          {% endif %}
+        </div>
+      </div>
+
+      <!-- Cost Summary -->
+      <div class="card">
+        <div class="card-header">
+          <h3 class="card-title"><i class="fa-solid fa-calculator" style="margin-right:8px;"></i>Cost Summary</h3>
+        </div>
+        <div class="card-body">
+          <div class="totals-box" style="max-width:100%; margin:0;">
+            <div class="totals-row">
+              <span>Rental Days</span>
+              <span id="summDays">0 days</span>
+            </div>
+            <div class="totals-row">
+              <span>Daily Rate Total</span>
+              <span id="summRate">₹0</span>
+            </div>
+            <div class="totals-row">
+              <span>Subtotal (Rental)</span>
+              <span id="summSubtotal">₹0</span>
+            </div>
+            <div class="totals-row">
+              <span>Discount</span>
+              <span id="summDiscount" style="color:var(--success);">- ₹0</span>
+            </div>
+            <div class="totals-row">
+              <span>Security Deposit</span>
+              <span id="summDeposit">₹0</span>
+            </div>
+            <div class="totals-row grand">
+              <span>Total Payable</span>
+              <span id="summTotal">₹0</span>
+            </div>
+          </div>
+        </div>
+      </div>
+
+    </div>
+  </div>
+
+  <!-- ── Submit ──────────────────────────────────────────────── -->
+  <div class="card mt-16">
+    <div class="card-body" style="padding:18px 24px;">
+      <div class="form-actions" style="margin:0; border:none; padding:0;">
+        <button type="submit" class="btn btn-primary btn-lg">
+          <i class="fa-solid fa-calendar-plus"></i> Confirm & Create Rental
+        </button>
+        <a href="{{ url_for('rentals_list') }}" class="btn btn-outline">
+          <i class="fa-solid fa-xmark"></i> Cancel
+        </a>
+        <div style="margin-left:auto; font-size:12px; color:var(--text-muted);">
+          An invoice will be automatically generated.
+        </div>
+      </div>
+    </div>
+  </div>
+
+</form>
+
+{% endblock %}
+
+{% block scripts %}
+<script>
+function calcTotal() {
+  const start = document.getElementById('startDate').value;
+  const end   = document.getElementById('endDate').value;
+  const discount = parseFloat(document.getElementById('discount').value) || 0;
+
+  if (!start || !end) return;
+  const days = Math.max(1, Math.ceil((new Date(end) - new Date(start)) / 86400000) + 1);
+  document.getElementById('dayInfo').textContent = `${days} day${days !== 1 ? 's' : ''} selected`;
+
+  const checkboxes = document.querySelectorAll('input[name="item_ids"]:checked');
+  let rate = 0, deposit = 0;
+  checkboxes.forEach(cb => {
+    rate    += parseFloat(cb.dataset.rate) || 0;
+    deposit += parseFloat(cb.dataset.deposit) || 0;
+  });
+
+  const subtotal = rate * days;
+  const total    = subtotal - discount;
+
+  document.getElementById('summDays').textContent     = `${days} day${days !== 1 ? 's' : ''}`;
+  document.getElementById('summRate').textContent     = `₹${rate.toLocaleString('en-IN')}`;
+  document.getElementById('summSubtotal').textContent = `₹${subtotal.toLocaleString('en-IN')}`;
+  document.getElementById('summDiscount').textContent = `- ₹${discount.toLocaleString('en-IN')}`;
+  document.getElementById('summDeposit').textContent  = `₹${deposit.toLocaleString('en-IN')}`;
+  document.getElementById('summTotal').textContent    = `₹${Math.max(0,total).toLocaleString('en-IN')}`;
+}
+
+function updateSelected() {
+  const count = document.querySelectorAll('input[name="item_ids"]:checked').length;
+  document.getElementById('selectedCount').textContent = `${count} selected`;
+  document.querySelectorAll('.item-checkbox-card').forEach(card => {
+    const cb = card.querySelector('input[type="checkbox"]');
+    card.classList.toggle('selected', cb && cb.checked);
+  });
+  calcTotal();
+}
+
+window.addEventListener('DOMContentLoaded', calcTotal);
+</script>
+{% endblock %}

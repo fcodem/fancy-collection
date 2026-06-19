@@ -1,0 +1,279 @@
+{% extends "base.html" %}
+{% block title %}Category Analysis{% endblock %}
+{% block page_title %}Category Analysis{% endblock %}
+{% block breadcrumb %}Finance &rsaquo; Category-wise Purchase &amp; Sale{% endblock %}
+
+{% block header_actions %}
+<button onclick="window.print()" class="btn btn-outline btn-sm no-print"><i class="fa-solid fa-print"></i> Print</button>
+{% endblock %}
+
+{% block content %}
+
+<!-- Date Range Filter -->
+<div class="card" style="margin-bottom:20px;">
+  <div class="card-header">
+    <h3 class="card-title"><i class="fa-solid fa-chart-pie" style="margin-right:8px;color:var(--gold);"></i>Category Analysis</h3>
+  </div>
+  <div class="card-body">
+    <div style="display:flex;gap:14px;align-items:flex-end;flex-wrap:wrap;">
+      <div>
+        <label style="font-size:11px;font-weight:700;text-transform:uppercase;color:var(--text-muted);">From Date</label>
+        <input type="date" id="fromDate" class="form-control" value="{{ month_start.isoformat() }}" onchange="loadData()">
+      </div>
+      <div>
+        <label style="font-size:11px;font-weight:700;text-transform:uppercase;color:var(--text-muted);">To Date</label>
+        <input type="date" id="toDate" class="form-control" value="{{ today.isoformat() }}" onchange="loadData()">
+      </div>
+      <button class="btn btn-primary btn-sm" onclick="loadData()"><i class="fa-solid fa-rotate"></i> Refresh</button>
+      <div id="dateRangeLabel" style="font-size:13px;color:var(--text-muted);margin-left:8px;"></div>
+    </div>
+
+    <!-- Summary chips -->
+    <div style="display:flex;gap:12px;flex-wrap:wrap;margin-top:20px;" id="summaryChips"></div>
+  </div>
+</div>
+
+<!-- Charts Row 1: Purchase Pie + Sale Pie -->
+<div class="grid-2" style="margin-bottom:20px;">
+  <div class="card">
+    <div class="card-header">
+      <h3 class="card-title" style="font-size:14px;"><i class="fa-solid fa-cart-shopping" style="margin-right:6px;color:var(--primary);"></i>Purchase by Category</h3>
+    </div>
+    <div class="card-body">
+      <canvas id="purchasePieChart" height="260"></canvas>
+      <div id="purchasePieLegend" style="margin-top:12px;font-size:12px;"></div>
+    </div>
+  </div>
+  <div class="card">
+    <div class="card-header">
+      <h3 class="card-title" style="font-size:14px;"><i class="fa-solid fa-coins" style="margin-right:6px;color:#68d391;"></i>Sale by Category</h3>
+    </div>
+    <div class="card-body">
+      <canvas id="salePieChart" height="260"></canvas>
+      <div id="salePieLegend" style="margin-top:12px;font-size:12px;"></div>
+    </div>
+  </div>
+</div>
+
+<!-- Chart Row 2: Purchase vs Sale Comparison -->
+<div class="card" style="margin-bottom:20px;">
+  <div class="card-header">
+    <h3 class="card-title" style="font-size:14px;">
+      <i class="fa-solid fa-scale-balanced" style="margin-right:6px;color:var(--gold);"></i>
+      Purchase vs Sale — Category Comparison
+    </h3>
+  </div>
+  <div class="card-body">
+    <canvas id="compareChart" height="120"></canvas>
+  </div>
+</div>
+
+<!-- Detail Table -->
+<div class="card">
+  <div class="card-header">
+    <h3 class="card-title" style="font-size:14px;"><i class="fa-solid fa-table" style="margin-right:6px;"></i>Category-wise Detail</h3>
+  </div>
+  <div class="card-body" style="padding:0;overflow-x:auto;">
+    <table class="data-table" id="detailTable" style="font-size:12px;">
+      <thead>
+        <tr>
+          <th>Category</th>
+          <th>Purchase (₹)</th>
+          <th>Returns (₹)</th>
+          <th>GST Paid (₹)</th>
+          <th>Net Purchase (₹)</th>
+          <th>Stock (items)</th>
+          <th>Advance (₹)</th>
+          <th>Remaining (₹)</th>
+          <th>Total Sale (₹)</th>
+          <th>Profit (₹)</th>
+        </tr>
+      </thead>
+      <tbody id="detailBody"></tbody>
+      <tfoot id="detailFoot"></tfoot>
+    </table>
+  </div>
+</div>
+
+{% endblock %}
+
+{% block scripts %}
+<script>
+var purchasePieChart, salePieChart, compareChart;
+var CHART_COLORS = [
+  '#7B1F45','#C9A846','#4F46E5','#38A169','#E53E3E','#DD6B20',
+  '#3182CE','#805AD5','#D69E2E','#319795','#E53E8C','#667EEA'
+];
+
+function fmt(n) { return '₹' + Number(n || 0).toLocaleString('en-IN'); }
+
+function renderPieLegend(containerId, pieData, totalLabel) {
+  var el = document.getElementById(containerId);
+  if (!pieData.length) {
+    el.innerHTML = '<span style="color:var(--text-muted);">No data for selected period</span>';
+    return;
+  }
+  el.innerHTML = pieData.map(function(item, i) {
+    var color = CHART_COLORS[i % CHART_COLORS.length];
+    return '<div style="display:flex;align-items:center;gap:8px;padding:4px 0;border-bottom:1px solid var(--border);">'
+      + '<span style="width:12px;height:12px;border-radius:3px;background:' + color + ';flex-shrink:0;"></span>'
+      + '<span style="flex:1;font-weight:600;">' + item.category + '</span>'
+      + '<span style="color:var(--text-muted);">' + item.percent + '%</span>'
+      + '<span style="font-weight:700;min-width:90px;text-align:right;">' + fmt(item.amount) + '</span>'
+      + '</div>';
+  }).join('');
+}
+
+function loadData() {
+  var from = document.getElementById('fromDate').value;
+  var to   = document.getElementById('toDate').value;
+  fetch('/api/finance/category-analysis?from=' + from + '&to=' + to)
+    .then(function(r) { return r.json(); })
+    .then(function(data) {
+      if (data.error) { alert(data.error); return; }
+
+      document.getElementById('dateRangeLabel').textContent =
+        data.from + ' → ' + data.to;
+
+      document.getElementById('summaryChips').innerHTML =
+        '<div style="background:var(--surface);border:1.5px solid var(--border);border-radius:12px;padding:12px 20px;">'
+          + '<div style="font-size:10px;font-weight:700;color:var(--text-muted);text-transform:uppercase;">Net Purchase</div>'
+          + '<div style="font-size:20px;font-weight:800;color:var(--primary);">' + fmt(data.total_purchase) + '</div></div>'
+        + '<div style="background:#1a4731;border:1.5px solid #38a16955;border-radius:12px;padding:12px 20px;">'
+          + '<div style="font-size:10px;font-weight:700;color:#68d391;text-transform:uppercase;">Total Sale</div>'
+          + '<div style="font-size:20px;font-weight:800;color:#68d391;">' + fmt(data.total_sale) + '</div></div>'
+        + '<div style="background:#3d2a0055;border:1.5px solid var(--gold)55;border-radius:12px;padding:12px 20px;">'
+          + '<div style="font-size:10px;font-weight:700;color:var(--gold);text-transform:uppercase;">GST Paid</div>'
+          + '<div style="font-size:20px;font-weight:800;color:var(--gold);">' + fmt(data.total_gst) + '</div></div>'
+        + '<div style="background:var(--surface);border:1.5px solid var(--border);border-radius:12px;padding:12px 20px;">'
+          + '<div style="font-size:10px;font-weight:700;color:var(--text-muted);text-transform:uppercase;">Total Stock</div>'
+          + '<div style="font-size:20px;font-weight:800;color:var(--info,#3182CE);">' + data.total_stock + ' items</div></div>';
+
+      // Purchase pie
+      if (purchasePieChart) purchasePieChart.destroy();
+      if (data.purchase_pie.length) {
+        var pLabels = data.purchase_pie.map(function(x) { return x.category + ' (' + x.percent + '%)'; });
+        var pValues = data.purchase_pie.map(function(x) { return x.amount; });
+        purchasePieChart = new Chart(document.getElementById('purchasePieChart'), {
+        type: 'pie',
+        data: {
+          labels: pLabels,
+          datasets: [{ data: pValues, backgroundColor: CHART_COLORS.slice(0, pValues.length) }]
+        },
+        options: {
+          plugins: {
+            legend: { display: false },
+            tooltip: {
+              callbacks: {
+                label: function(ctx) {
+                  var item = data.purchase_pie[ctx.dataIndex];
+                  return item.category + ': ' + fmt(item.amount) + ' (' + item.percent + '%)';
+                }
+              }
+            }
+          }
+        }
+      });
+      } else {
+        document.getElementById('purchasePieChart').getContext('2d').clearRect(0,0,400,260);
+      }
+      renderPieLegend('purchasePieLegend', data.purchase_pie);
+
+      // Sale pie
+      if (salePieChart) salePieChart.destroy();
+      if (data.sale_pie.length) {
+        var sLabels = data.sale_pie.map(function(x) { return x.category + ' (' + x.percent + '%)'; });
+        var sValues = data.sale_pie.map(function(x) { return x.amount; });
+        salePieChart = new Chart(document.getElementById('salePieChart'), {
+        type: 'pie',
+        data: {
+          labels: sLabels,
+          datasets: [{ data: sValues, backgroundColor: CHART_COLORS.slice(0, sValues.length) }]
+        },
+        options: {
+          plugins: {
+            legend: { display: false },
+            tooltip: {
+              callbacks: {
+                label: function(ctx) {
+                  var item = data.sale_pie[ctx.dataIndex];
+                  return item.category + ': ' + fmt(item.amount) + ' (' + item.percent + '%)';
+                }
+              }
+            }
+          }
+        }
+      });
+      } else {
+        document.getElementById('salePieChart').getContext('2d').clearRect(0,0,400,260);
+      }
+      renderPieLegend('salePieLegend', data.sale_pie);
+
+      // Compare bar chart
+      if (compareChart) compareChart.destroy();
+      if (data.compare.length) {
+      var cmpLabels = data.compare.map(function(x) { return x.category; });
+      compareChart = new Chart(document.getElementById('compareChart'), {
+        type: 'bar',
+        data: {
+          labels: cmpLabels,
+          datasets: [
+            { label: 'Purchase (₹)', data: data.compare.map(function(x) { return x.purchase; }), backgroundColor: '#7B1F45' },
+            { label: 'Sale (₹)',     data: data.compare.map(function(x) { return x.sale; }),     backgroundColor: '#38A169' },
+            { label: 'Profit (₹)',   data: data.compare.map(function(x) { return x.profit; }),   backgroundColor: '#C9A846' }
+          ]
+        },
+        options: {
+          responsive: true,
+          plugins: { legend: { position: 'top' } },
+          scales: { y: { beginAtZero: true, ticks: { callback: function(v) { return '₹' + v.toLocaleString('en-IN'); } } } }
+        }
+      });
+      }
+
+      // Detail table
+      var tbody = document.getElementById('detailBody');
+      var tfoot = document.getElementById('detailFoot');
+      if (!data.rows.length) {
+        tbody.innerHTML = '<tr><td colspan="10" style="text-align:center;padding:30px;color:var(--text-muted);">No data for selected period</td></tr>';
+        tfoot.innerHTML = '';
+        return;
+      }
+      var totPur = 0, totRet = 0, totGst = 0, totStock = 0, totAdv = 0, totRem = 0, totSale = 0;
+      tbody.innerHTML = data.rows.map(function(r) {
+        var profit = r.sale - r.purchase;
+        totPur += r.purchase_gross; totRet += r.returns; totGst += r.gst;
+        totStock += r.stock; totAdv += r.advance; totRem += r.remaining; totSale += r.sale;
+        var profitColor = profit >= 0 ? '#68d391' : '#fc8181';
+        return '<tr>'
+          + '<td><strong>' + r.category + '</strong></td>'
+          + '<td>' + fmt(r.purchase_gross) + '</td>'
+          + '<td style="color:#fc8181;">' + (r.returns > 0 ? '− ' + fmt(r.returns) : '—') + '</td>'
+          + '<td style="color:var(--gold);">' + (r.gst > 0 ? fmt(r.gst) : '—') + '</td>'
+          + '<td style="font-weight:700;color:var(--primary);">' + fmt(r.purchase) + '</td>'
+          + '<td style="text-align:center;font-weight:700;">' + r.stock + '</td>'
+          + '<td>' + fmt(r.advance) + '</td>'
+          + '<td>' + fmt(r.remaining) + '</td>'
+          + '<td style="font-weight:700;color:#68d391;">' + fmt(r.sale) + '</td>'
+          + '<td style="font-weight:700;color:' + profitColor + ';">' + fmt(profit) + '</td>'
+          + '</tr>';
+      }).join('');
+      tfoot.innerHTML = '<tr style="background:var(--cream-dark);font-weight:700;font-size:13px;">'
+        + '<td>TOTAL</td>'
+        + '<td>' + fmt(totPur) + '</td>'
+        + '<td style="color:#fc8181;">− ' + fmt(totRet) + '</td>'
+        + '<td style="color:var(--gold);">' + fmt(totGst) + '</td>'
+        + '<td style="color:var(--primary);">' + fmt(data.total_purchase) + '</td>'
+        + '<td style="text-align:center;">' + totStock + '</td>'
+        + '<td>' + fmt(totAdv) + '</td>'
+        + '<td>' + fmt(totRem) + '</td>'
+        + '<td style="color:#68d391;">' + fmt(data.total_sale) + '</td>'
+        + '<td>' + fmt(data.total_sale - data.total_purchase) + '</td>'
+        + '</tr>';
+    })
+    .catch(function() { alert('Failed to load category analysis data.'); });
+}
+
+document.addEventListener('DOMContentLoaded', loadData);
+</script>
+{% endblock %}

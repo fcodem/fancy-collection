@@ -1,0 +1,124 @@
+{% extends "base.html" %}
+{% block title %}Daily Sale{% endblock %}
+{% block page_title %}Daily Sale{% endblock %}
+{% block breadcrumb %}Finance → Daily Sale{% endblock %}
+
+{% block content %}
+<div class="card" style="margin-bottom:20px;">
+  <div class="card-header">
+    <h3 class="card-title"><i class="fa-solid fa-coins" style="margin-right:8px;"></i>Daily Sale</h3>
+    <button onclick="window.print()" class="btn btn-outline btn-sm no-print"><i class="fa-solid fa-print"></i> Print</button>
+  </div>
+  <div class="card-body">
+    <div style="display:flex; gap:12px; margin-bottom:20px; align-items:end;">
+      <div>
+        <label style="font-size:11px; font-weight:700; text-transform:uppercase; color:var(--text-muted);">Select Date</label>
+        <input type="date" id="saleDate" class="form-control" value="{{ today.isoformat() }}" onchange="loadData()">
+      </div>
+    </div>
+
+    <div style="display:grid; grid-template-columns:repeat(3, 1fr); gap:16px; margin-bottom:24px;">
+      <div style="background:linear-gradient(135deg,#E8F5E9,#C8E6C9); padding:20px; border-radius:12px; text-align:center;">
+        <div style="font-size:12px; font-weight:700; color:#2E7D32; text-transform:uppercase;">Total Advance</div>
+        <div id="totalAdvance" style="font-size:28px; font-weight:800; color:#1B5E20;">₹0</div>
+      </div>
+      <div style="background:linear-gradient(135deg,#E3F2FD,#BBDEFB); padding:20px; border-radius:12px; text-align:center;">
+        <div style="font-size:12px; font-weight:700; color:#1565C0; text-transform:uppercase;">Remaining Collected</div>
+        <div id="totalRemaining" style="font-size:28px; font-weight:800; color:#0D47A1;">₹0</div>
+      </div>
+      <div style="background:linear-gradient(135deg,#FFF3E0,#FFE0B2); padding:20px; border-radius:12px; text-align:center;">
+        <div style="font-size:12px; font-weight:700; color:#E65100; text-transform:uppercase;">Total Sale</div>
+        <div id="totalSale" style="font-size:28px; font-weight:800; color:#BF360C;">₹0</div>
+      </div>
+    </div>
+
+    <div style="display:grid; grid-template-columns:repeat(3, 1fr); gap:16px; margin-bottom:24px;">
+      <div style="padding:14px; border:1px solid var(--border); border-radius:10px;">
+        <h4 style="font-size:13px; margin-bottom:4px;">Men's</h4>
+        <div style="display:flex; gap:16px;">
+          <span style="font-size:12px;">Advance: <strong id="advMens">₹0</strong></span>
+          <span style="font-size:12px;">Remaining: <strong id="remMens">₹0</strong></span>
+        </div>
+      </div>
+      <div style="padding:14px; border:1px solid var(--border); border-radius:10px;">
+        <h4 style="font-size:13px; margin-bottom:4px;">Women's</h4>
+        <div style="display:flex; gap:16px;">
+          <span style="font-size:12px;">Advance: <strong id="advWomens">₹0</strong></span>
+          <span style="font-size:12px;">Remaining: <strong id="remWomens">₹0</strong></span>
+        </div>
+      </div>
+      <div style="padding:14px; border:1px solid var(--border); border-radius:10px;">
+        <h4 style="font-size:13px; margin-bottom:4px;">Jewellery</h4>
+        <div style="display:flex; gap:16px;">
+          <span style="font-size:12px;">Advance: <strong id="advJewellery">₹0</strong></span>
+          <span style="font-size:12px;">Remaining: <strong id="remJewellery">₹0</strong></span>
+        </div>
+      </div>
+    </div>
+
+    <div style="display:grid; grid-template-columns:1fr 1fr; gap:24px;">
+      <div>
+        <h4 style="font-size:14px; margin-bottom:12px;">Advance - Category Wise</h4>
+        <canvas id="advanceChart" height="220"></canvas>
+      </div>
+      <div>
+        <h4 style="font-size:14px; margin-bottom:12px;">Remaining - Category Wise</h4>
+        <canvas id="remainingChart" height="220"></canvas>
+      </div>
+    </div>
+
+    <div id="categoryTable" style="margin-top:24px;"></div>
+  </div>
+</div>
+{% endblock %}
+
+{% block scripts %}
+<script>
+let advChart, remChart;
+function loadData() {
+  const dt = document.getElementById('saleDate').value;
+  fetch('/api/finance/daily-sale?date=' + dt)
+    .then(r => r.json())
+    .then(data => {
+      document.getElementById('totalAdvance').textContent = '₹' + Number(data.total_advance).toLocaleString('en-IN');
+      document.getElementById('totalRemaining').textContent = '₹' + Number(data.total_remaining_collected).toLocaleString('en-IN');
+      document.getElementById('totalSale').textContent = '₹' + Number(data.total_sale).toLocaleString('en-IN');
+      document.getElementById('advMens').textContent = '₹' + Number(data.advance_mens || 0).toLocaleString('en-IN');
+      document.getElementById('advWomens').textContent = '₹' + Number(data.advance_womens || 0).toLocaleString('en-IN');
+      document.getElementById('remMens').textContent = '₹' + Number(data.remaining_mens || 0).toLocaleString('en-IN');
+      document.getElementById('remWomens').textContent = '₹' + Number(data.remaining_womens || 0).toLocaleString('en-IN');
+      document.getElementById('advJewellery').textContent = '₹' + Number(data.advance_jewellery || 0).toLocaleString('en-IN');
+      document.getElementById('remJewellery').textContent = '₹' + Number(data.remaining_jewellery || 0).toLocaleString('en-IN');
+
+      const advLabels = Object.keys(data.advance_by_category);
+      const advValues = Object.values(data.advance_by_category);
+      const remLabels = Object.keys(data.remaining_by_category);
+      const remValues = Object.values(data.remaining_by_category);
+
+      if (advChart) advChart.destroy();
+      if (remChart) remChart.destroy();
+
+      const colors = ['#7B1F45','#C9A846','#2E7D32','#1565C0','#E65100','#6A1B9A','#00838F','#BF360C','#4E342E','#1A237E'];
+      advChart = new Chart(document.getElementById('advanceChart'), {
+        type: 'pie', data: { labels: advLabels, datasets: [{ data: advValues, backgroundColor: colors }] },
+        options: { plugins: { legend: { position: 'bottom', labels: { font: { size: 10 } } } } }
+      });
+      remChart = new Chart(document.getElementById('remainingChart'), {
+        type: 'pie', data: { labels: remLabels, datasets: [{ data: remValues, backgroundColor: colors }] },
+        options: { plugins: { legend: { position: 'bottom', labels: { font: { size: 10 } } } } }
+      });
+
+      let html = '<table class="data-table"><thead><tr><th>Category</th><th>Advance</th><th>Remaining</th><th>Total</th></tr></thead><tbody>';
+      const allCats = new Set([...advLabels, ...remLabels]);
+      allCats.forEach(cat => {
+        const a = data.advance_by_category[cat] || 0;
+        const r = data.remaining_by_category[cat] || 0;
+        html += `<tr><td>${cat}</td><td>₹${a.toLocaleString('en-IN')}</td><td>₹${r.toLocaleString('en-IN')}</td><td><strong>₹${(a+r).toLocaleString('en-IN')}</strong></td></tr>`;
+      });
+      html += '</tbody></table>';
+      document.getElementById('categoryTable').innerHTML = html;
+    });
+}
+document.addEventListener('DOMContentLoaded', loadData);
+</script>
+{% endblock %}

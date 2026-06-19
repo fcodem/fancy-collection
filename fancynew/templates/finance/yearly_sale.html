@@ -1,0 +1,129 @@
+{% extends "base.html" %}
+{% block title %}Yearly Sale{% endblock %}
+{% block page_title %}Yearly Sale{% endblock %}
+{% block breadcrumb %}Finance → Yearly Sale (Financial Year){% endblock %}
+
+{% block content %}
+<div class="card">
+  <div class="card-header">
+    <h3 class="card-title"><i class="fa-solid fa-chart-line" style="margin-right:8px;"></i>Yearly Sale</h3>
+    <button onclick="window.print()" class="btn btn-outline btn-sm no-print"><i class="fa-solid fa-print"></i> Print</button>
+  </div>
+  <div class="card-body">
+    <div style="display:flex; gap:12px; margin-bottom:20px; align-items:end; flex-wrap:wrap;">
+      <div>
+        <label style="font-size:11px; font-weight:700; text-transform:uppercase; color:var(--text-muted);">From Date</label>
+        <input type="date" id="fromDate" class="form-control" onchange="loadData()">
+      </div>
+      <div>
+        <label style="font-size:11px; font-weight:700; text-transform:uppercase; color:var(--text-muted);">To Date</label>
+        <input type="date" id="toDate" class="form-control" onchange="loadData()">
+      </div>
+      <button class="btn btn-primary btn-sm" onclick="setFinancialYear()" style="height:38px;">Current FY (Apr-Mar)</button>
+    </div>
+
+    <div style="display:grid; grid-template-columns:repeat(4, 1fr); gap:16px; margin-bottom:24px;">
+      <div style="background:linear-gradient(135deg,#E8F5E9,#C8E6C9); padding:18px; border-radius:12px; text-align:center;">
+        <div style="font-size:11px; font-weight:700; color:#2E7D32; text-transform:uppercase;">Total Advance</div>
+        <div id="yAdvance" style="font-size:22px; font-weight:800; color:#1B5E20;">₹0</div>
+      </div>
+      <div style="background:linear-gradient(135deg,#E3F2FD,#BBDEFB); padding:18px; border-radius:12px; text-align:center;">
+        <div style="font-size:11px; font-weight:700; color:#1565C0; text-transform:uppercase;">Total Remaining</div>
+        <div id="yRemaining" style="font-size:22px; font-weight:800; color:#0D47A1;">₹0</div>
+      </div>
+      <div style="background:linear-gradient(135deg,#FFF3E0,#FFE0B2); padding:18px; border-radius:12px; text-align:center;">
+        <div style="font-size:11px; font-weight:700; color:#E65100; text-transform:uppercase;">Total Sale</div>
+        <div id="ySale" style="font-size:22px; font-weight:800; color:#BF360C;">₹0</div>
+      </div>
+      <div style="background:linear-gradient(135deg,var(--cream),var(--cream-dark)); padding:18px; border-radius:12px; text-align:center;">
+        <div style="font-size:11px; font-weight:700; color:var(--primary); text-transform:uppercase;">Bookings</div>
+        <div id="yCount" style="font-size:22px; font-weight:800; color:var(--primary);">0</div>
+      </div>
+    </div>
+
+    <div style="display:grid; grid-template-columns:1fr 1fr 1fr; gap:16px; margin-bottom:24px;">
+      <div style="padding:14px; border:1px solid var(--border); border-radius:10px;">
+        <h4 style="font-size:13px; margin-bottom:4px;">Men's Total</h4>
+        <div id="yMens" style="font-size:18px; font-weight:700;">₹0</div>
+      </div>
+      <div style="padding:14px; border:1px solid var(--border); border-radius:10px;">
+        <h4 style="font-size:13px; margin-bottom:4px;">Women's Total</h4>
+        <div id="yWomens" style="font-size:18px; font-weight:700;">₹0</div>
+      </div>
+      <div style="padding:14px; border:1px solid var(--border); border-radius:10px;">
+        <h4 style="font-size:13px; margin-bottom:4px;">Jewellery Total</h4>
+        <div id="yJewellery" style="font-size:18px; font-weight:700;">₹0</div>
+      </div>
+    </div>
+
+    <div style="display:grid; grid-template-columns:1fr 1fr; gap:24px; margin-bottom:24px;">
+      <div>
+        <h4 style="font-size:14px; margin-bottom:12px;">Category Wise Revenue</h4>
+        <canvas id="catPie" height="220"></canvas>
+      </div>
+      <div>
+        <h4 style="font-size:14px; margin-bottom:12px;">Monthly Revenue Bar Chart</h4>
+        <canvas id="monthlyBar" height="220"></canvas>
+      </div>
+    </div>
+  </div>
+</div>
+{% endblock %}
+
+{% block scripts %}
+<script>
+let catPie, monthlyBar;
+
+function setFinancialYear() {
+  const now = new Date();
+  let from, to;
+  if (now.getMonth() >= 3) {
+    from = now.getFullYear() + '-04-01';
+    to = (now.getFullYear() + 1) + '-03-31';
+  } else {
+    from = (now.getFullYear() - 1) + '-04-01';
+    to = now.getFullYear() + '-03-31';
+  }
+  document.getElementById('fromDate').value = from;
+  document.getElementById('toDate').value = to;
+  loadData();
+}
+
+function loadData() {
+  const from = document.getElementById('fromDate').value;
+  const to = document.getElementById('toDate').value;
+  let url = '/api/finance/yearly-sale';
+  if (from && to) url += '?from=' + from + '&to=' + to;
+  fetch(url)
+    .then(r => r.json())
+    .then(data => {
+      document.getElementById('yAdvance').textContent = '₹' + Number(data.total_advance).toLocaleString('en-IN');
+      document.getElementById('yRemaining').textContent = '₹' + Number(data.total_remaining).toLocaleString('en-IN');
+      document.getElementById('ySale').textContent = '₹' + Number(data.total_sale).toLocaleString('en-IN');
+      document.getElementById('yCount').textContent = data.booking_count;
+      document.getElementById('yMens').textContent = '₹' + Number(data.mens_total).toLocaleString('en-IN');
+      document.getElementById('yWomens').textContent = '₹' + Number(data.womens_total).toLocaleString('en-IN');
+      document.getElementById('yJewellery').textContent = '₹' + Number(data.jewellery_total || 0).toLocaleString('en-IN');
+
+      const colors = ['#7B1F45','#C9A846','#2E7D32','#1565C0','#E65100','#6A1B9A','#00838F','#BF360C','#4E342E','#1A237E'];
+      if (catPie) catPie.destroy();
+      const catLabels = Object.keys(data.category_totals);
+      const catValues = Object.values(data.category_totals);
+      catPie = new Chart(document.getElementById('catPie'), {
+        type: 'pie', data: { labels: catLabels, datasets: [{ data: catValues, backgroundColor: colors }] },
+        options: { plugins: { legend: { position: 'bottom', labels: { font: { size: 10 } } } } }
+      });
+
+      if (monthlyBar) monthlyBar.destroy();
+      const mLabels = Object.keys(data.monthly_breakdown).sort();
+      const mValues = mLabels.map(k => data.monthly_breakdown[k]);
+      monthlyBar = new Chart(document.getElementById('monthlyBar'), {
+        type: 'bar', data: { labels: mLabels, datasets: [{ label: 'Revenue', data: mValues, backgroundColor: '#7B1F45' }] },
+        options: { scales: { y: { beginAtZero: true } }, plugins: { legend: { display: false } } }
+      });
+    });
+}
+
+document.addEventListener('DOMContentLoaded', setFinancialYear);
+</script>
+{% endblock %}

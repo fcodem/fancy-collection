@@ -1,0 +1,286 @@
+{% extends "base.html" %}
+
+{% block title %}{{ 'Edit Item' if item else 'Add Item' }}{% endblock %}
+{% block page_title %}{{ 'Edit Item' if item else 'Add New Item' }}{% endblock %}
+{% block breadcrumb %}
+  <a href="{{ url_for('inventory_list') }}" style="color:var(--primary); text-decoration:none;">Inventory</a>
+  &rsaquo; {{ 'Edit' if item else 'Add Item' }}
+{% endblock %}
+
+{% block content %}
+
+<div class="card" style="max-width: 880px;">
+  <div class="card-header">
+    <h3 class="card-title">
+      <i class="fa-solid fa-{% if item %}pen{% else %}plus-circle{% endif %}" style="margin-right:8px;"></i>
+      {{ 'Edit Item Details' if item else 'Add Dress / Jewellery to Stock' }}
+    </h3>
+    {% if item %}
+    <span class="badge badge-{{ item.status }}">{{ item.status }}</span>
+    {% endif %}
+  </div>
+
+  <div class="card-body">
+    <form method="post" enctype="multipart/form-data">
+
+      <div class="form-grid">
+
+        <!-- 1. Category -->
+        <div class="form-group">
+          <label class="form-label">Category *</label>
+          <select name="category" id="categorySelect" class="form-control" required onchange="toggleSizeColor()">
+            <option value="">-- Select Category --</option>
+            <optgroup label="🤵 Men's Clothing">
+              {% for cat in mens_categories %}
+              <option value="{{ cat }}" {% if item and item.category == cat %}selected{% endif %}>{{ cat }}</option>
+              {% endfor %}
+            </optgroup>
+            <optgroup label="👗 Women's Clothing">
+              {% for cat in womens_categories %}
+              <option value="{{ cat }}" {% if item and item.category == cat %}selected{% endif %}>{{ cat }}</option>
+              {% endfor %}
+            </optgroup>
+            <optgroup label="💎 Jewellery">
+              {% for cat in jewellery_categories %}
+              <option value="{{ cat }}" {% if item and item.category == cat %}selected{% endif %}>{{ cat }}</option>
+              {% endfor %}
+            </optgroup>
+            <optgroup label="👒 Accessories">
+              {% for cat in accessory_categories %}
+              <option value="{{ cat }}" {% if item and item.category == cat %}selected{% endif %}>{{ cat }}</option>
+              <option value="Other" {% if item and item.category == 'Other' %}selected{% endif %}>Other</option>
+              {% endfor %}
+            </optgroup>
+          </select>
+        </div>
+
+        <!-- 2. Sub-Category -->
+        <div class="form-group">
+          <label class="form-label">Sub-Category (Cost Type) *</label>
+          <select name="sub_category" class="form-control" required>
+            <option value="Normal" {% if item and item.sub_category == 'Normal' %}selected{% endif %}>Normal</option>
+            <option value="Premium" {% if item and item.sub_category == 'Premium' %}selected{% endif %}>Premium</option>
+            <option value="Cheap" {% if item and item.sub_category == 'Cheap' %}selected{% endif %}>Cheap</option>
+          </select>
+        </div>
+
+        <!-- 3. Item Name -->
+        <div class="form-group">
+          <label class="form-label">Dress / Item Name *</label>
+          <input type="text" name="name" class="form-control"
+                 placeholder="e.g. Red Bridal Lehenga, Kundan Necklace Set"
+                 value="{{ item.name if item else '' }}" required>
+        </div>
+
+        <!-- 4. Photo Upload / Camera Capture -->
+        <div class="form-group full-width">
+          <label class="form-label">Product Photograph</label>
+
+          <div style="display:flex; align-items:flex-start; gap:20px; flex-wrap:wrap;">
+
+            <!-- Action buttons -->
+            <div style="display:flex; flex-direction:column; gap:10px;">
+              <!-- Upload from file -->
+              <label for="photoInput" class="btn btn-outline" style="cursor:pointer; display:flex; align-items:center; gap:8px; width:180px; justify-content:center;">
+                <i class="fa-solid fa-upload"></i> Upload Photo
+                <input type="file" name="photo" id="photoInput" accept="image/*"
+                       style="display:none;" onchange="previewPhoto(this)">
+              </label>
+              <!-- Capture from camera -->
+              <button type="button" class="btn btn-primary" onclick="openInvCamera()" style="width:180px; display:flex; align-items:center; gap:8px; justify-content:center;">
+                <i class="fa-solid fa-camera"></i> Use Camera
+              </button>
+            </div>
+
+            <!-- Live camera stream -->
+            <div id="invCameraArea" style="display:none; flex-direction:column; gap:10px;">
+              <div style="position:relative; border-radius:12px; overflow:hidden; background:#000; width:280px;">
+                <video id="invCameraStream" autoplay playsinline style="width:280px; height:210px; object-fit:cover; display:block; border-radius:12px;"></video>
+              </div>
+              <div style="display:flex; gap:8px;">
+                <button type="button" onclick="captureInvPhoto()" class="btn btn-primary" style="flex:1; display:flex; align-items:center; gap:6px; justify-content:center;">
+                  <i class="fa-solid fa-circle-dot" style="color:#fc8181;"></i> Capture
+                </button>
+                <button type="button" onclick="stopInvCamera()" class="btn btn-outline" style="flex:1; display:flex; align-items:center; gap:6px; justify-content:center;">
+                  <i class="fa-solid fa-xmark"></i> Cancel
+                </button>
+              </div>
+            </div>
+
+            <!-- Preview panel -->
+            <div id="photoPreview" style="display:{% if item and item.photo %}flex{% else %}none{% endif %}; flex-direction:column; align-items:center; gap:8px;">
+              {% if item and item.photo %}
+              <img src="{{ url_for('static', filename='uploads/' + item.photo) }}"
+                   id="previewImg" style="width:180px; height:180px; object-fit:cover; border-radius:12px; border:2px solid var(--border);">
+              <span style="font-size:11px; color:var(--success); font-weight:600;" id="previewText">
+                <i class="fa-solid fa-check-circle"></i> Current photo
+              </span>
+              {% else %}
+              <img id="previewImg" style="width:180px; height:180px; object-fit:cover; border-radius:12px; border:2px solid var(--border); display:none;">
+              <span id="previewText" style="font-size:11px; color:var(--success); font-weight:600; display:none;">
+                <i class="fa-solid fa-check-circle"></i> Photo selected
+              </span>
+              {% endif %}
+            </div>
+
+          </div>
+
+          <!-- Hidden canvas for camera capture -->
+          <canvas id="invCaptureCanvas" style="display:none;"></canvas>
+          <!-- Hidden file input wired to captured photo -->
+          <input type="file" name="photo_captured" id="photoCapturedInput" style="display:none;" accept="image/*">
+        </div>
+
+        <!-- Color (only for Women's clothing) -->
+        <div class="form-group" id="colorGroup" style="display:none;">
+          <label class="form-label">Color / Shade</label>
+          <input type="text" name="color" class="form-control"
+                 placeholder="e.g. Red, Golden, Navy Blue"
+                 value="{{ item.color if item else '' }}">
+        </div>
+
+        <!-- Size (for Men's clothing - multiple checkboxes, each = separate product) -->
+        <div class="form-group full-width" id="sizeGroup" style="display:none;">
+          <label class="form-label">Sizes * (Each size creates a separate product entry)</label>
+          <div style="display:flex; flex-wrap:wrap; gap:8px;" id="sizeCheckboxes">
+            {% for s in all_sizes %}
+            <label style="display:flex; align-items:center; gap:6px; padding:6px 12px;
+                         border:1.5px solid var(--border); border-radius:8px; cursor:pointer; font-size:13px; font-weight:600;
+                         transition:all 0.15s ease;" class="size-label">
+              <input type="checkbox" name="sizes[]" value="{{ s }}"
+                     {% if item and item.size and s in item.size %}checked{% endif %}
+                     style="width:16px; height:16px;">
+              {{ s }}
+            </label>
+            {% endfor %}
+          </div>
+          <span class="form-hint">Select sizes - each size will be treated as a separate product</span>
+        </div>
+
+        <input type="hidden" name="daily_rate" value="{{ item.daily_rate|int if item else '0' }}">
+        <input type="hidden" name="deposit" value="{{ item.deposit|int if item else '0' }}">
+
+        {% if item %}
+        <div class="form-group">
+          <label class="form-label">Status</label>
+          <select name="status" class="form-control">
+            <option value="available"   {% if item.status == 'available' %}selected{% endif %}>Available</option>
+            <option value="maintenance" {% if item.status == 'maintenance' %}selected{% endif %}>Maintenance</option>
+            <option value="rented"      {% if item.status == 'rented' %}selected{% endif %} disabled>Rented</option>
+          </select>
+        </div>
+        {% endif %}
+
+        <!-- Condition Notes -->
+        <div class="form-group full-width">
+          <label class="form-label">Notes (Optional)</label>
+          <textarea name="condition_notes" class="form-control" rows="2"
+                    placeholder="Any notes about the item…">{{ item.condition_notes if item else '' }}</textarea>
+        </div>
+      </div>
+
+      <div class="form-actions">
+        <button type="submit" class="btn btn-primary">
+          <i class="fa-solid fa-save"></i>
+          {{ 'Save Changes' if item else 'Add to Stock' }}
+        </button>
+        <a href="{{ url_for('inventory_list') }}" class="btn btn-outline">
+          <i class="fa-solid fa-xmark"></i> Cancel
+        </a>
+        {% if item %}
+        <div style="margin-left:auto;">
+          <span class="text-muted" style="font-size:12px;">
+            SKU: <strong class="font-mono">{{ item.sku }}</strong> &bull;
+            Added {{ item.created_at.strftime('%d %b %Y') }}
+          </span>
+        </div>
+        {% endif %}
+      </div>
+
+    </form>
+  </div>
+</div>
+
+{% endblock %}
+
+{% block scripts %}
+<script>
+const mensCategories = {{ mens_categories | tojson }};
+const womensCategories = {{ womens_categories | tojson }};
+
+function toggleSizeColor() {
+  const cat = document.getElementById('categorySelect').value;
+  const isMens = mensCategories.includes(cat);
+  const isWomens = womensCategories.includes(cat);
+
+  document.getElementById('colorGroup').style.display = isWomens ? '' : 'none';
+  document.getElementById('sizeGroup').style.display = isMens ? '' : 'none';
+}
+
+document.addEventListener('DOMContentLoaded', toggleSizeColor);
+
+function previewPhoto(input) {
+  if (input.files && input.files[0]) {
+    const reader = new FileReader();
+    reader.onload = function(e) {
+      showPreview(e.target.result, 'Photo selected');
+    };
+    reader.readAsDataURL(input.files[0]);
+  }
+}
+
+function showPreview(src, label) {
+  const container = document.getElementById('photoPreview');
+  const img       = document.getElementById('previewImg');
+  const txt       = document.getElementById('previewText');
+  container.style.display = 'flex';
+  img.src = src;
+  img.style.display = 'block';
+  if (txt) { txt.innerHTML = '<i class="fa-solid fa-check-circle"></i> ' + label; txt.style.display = 'block'; }
+}
+
+// ── Camera for inventory form ────────────────────────────────────
+var _invStream = null;
+
+function openInvCamera() {
+  if (!navigator.mediaDevices || !navigator.mediaDevices.getUserMedia) {
+    alert('Camera not available on this browser.\nPlease use Upload Photo instead.');
+    return;
+  }
+  navigator.mediaDevices.getUserMedia({ video: { facingMode: 'environment' }, audio: false })
+    .then(function(stream) {
+      _invStream = stream;
+      var video = document.getElementById('invCameraStream');
+      video.srcObject = stream;
+      document.getElementById('invCameraArea').style.display = 'flex';
+    })
+    .catch(function(err) {
+      alert('Camera access denied: ' + err.message + '\nPlease use Upload Photo instead.');
+    });
+}
+
+function stopInvCamera() {
+  if (_invStream) { _invStream.getTracks().forEach(function(t) { t.stop(); }); _invStream = null; }
+  document.getElementById('invCameraArea').style.display = 'none';
+}
+
+function captureInvPhoto() {
+  var video  = document.getElementById('invCameraStream');
+  var canvas = document.getElementById('invCaptureCanvas');
+  canvas.width  = video.videoWidth;
+  canvas.height = video.videoHeight;
+  canvas.getContext('2d').drawImage(video, 0, 0);
+  stopInvCamera();
+  canvas.toBlob(function(blob) {
+    // Show preview
+    var url = URL.createObjectURL(blob);
+    showPreview(url, 'Camera photo captured');
+    // Wire blob into the file input so the form submits it
+    var dt = new DataTransfer();
+    var file = new File([blob], 'camera_capture.jpg', { type: 'image/jpeg' });
+    dt.items.add(file);
+    document.getElementById('photoInput').files = dt.files;
+  }, 'image/jpeg', 0.92);
+}
+</script>
+{% endblock %}

@@ -1,0 +1,296 @@
+{% extends "base.html" %}
+
+{% block title %}Rental {{ rental.rental_number }}{% endblock %}
+{% block page_title %}Rental #{{ rental.rental_number }}{% endblock %}
+{% block breadcrumb %}
+  <a href="{{ url_for('rentals_list') }}" style="color:var(--primary); text-decoration:none;">Rentals</a>
+  &rsaquo; {{ rental.rental_number }}
+{% endblock %}
+
+{% block header_actions %}
+{% if invoice %}
+<a href="{{ url_for('billing_view', id=invoice.id) }}" class="btn btn-outline-gold">
+  <i class="fa-solid fa-file-invoice"></i> Invoice
+</a>
+<a href="{{ url_for('billing_print', id=invoice.id) }}" class="btn btn-outline" target="_blank">
+  <i class="fa-solid fa-print"></i> Print
+</a>
+{% endif %}
+{% endblock %}
+
+{% block content %}
+
+<!-- ── Status Banner ──────────────────────────────────────────── -->
+{% if rental.status == 'overdue' %}
+<div class="alert alert-error mb-24" style="font-size:14px;">
+  <i class="fa-solid fa-triangle-exclamation"></i>
+  <strong>Overdue!</strong> This rental was due on {{ rental.end_date.strftime('%d %B %Y') }}.
+  <strong>{{ (today - rental.end_date).days }} day(s) overdue.</strong>
+</div>
+{% endif %}
+
+<!-- ── Timeline ──────────────────────────────────────────────── -->
+<div class="card mb-24">
+  <div class="card-body" style="padding: 20px 28px;">
+    <div class="rental-timeline">
+      <div class="timeline-step done">
+        <div class="step-dot"><i class="fa-solid fa-check"></i></div>
+        <div class="step-label">Created</div>
+        <div class="step-date">{{ rental.created_at.strftime('%d %b') }}</div>
+      </div>
+      <div class="timeline-step done">
+        <div class="step-dot"><i class="fa-solid fa-hand-holding"></i></div>
+        <div class="step-label">Start Date</div>
+        <div class="step-date">{{ rental.start_date.strftime('%d %b') }}</div>
+      </div>
+      <div class="timeline-step {% if rental.status == 'returned' %}done{% elif rental.status == 'overdue' %}overdue{% else %}active{% endif %}">
+        <div class="step-dot">
+          {% if rental.status == 'returned' %}<i class="fa-solid fa-check"></i>
+          {% elif rental.status == 'overdue' %}<i class="fa-solid fa-exclamation"></i>
+          {% else %}<i class="fa-solid fa-clock"></i>{% endif %}
+        </div>
+        <div class="step-label">Return Due</div>
+        <div class="step-date">{{ rental.end_date.strftime('%d %b') }}</div>
+      </div>
+      {% if rental.actual_return_date %}
+      <div class="timeline-step done">
+        <div class="step-dot"><i class="fa-solid fa-check-double"></i></div>
+        <div class="step-label">Returned</div>
+        <div class="step-date">{{ rental.actual_return_date.strftime('%d %b') }}</div>
+      </div>
+      {% endif %}
+    </div>
+  </div>
+</div>
+
+<div class="two-col mb-24">
+
+  <!-- ── Rental Details ──────────────────────────────────────── -->
+  <div class="card">
+    <div class="card-header">
+      <h3 class="card-title"><i class="fa-solid fa-circle-info" style="margin-right:8px;"></i>Rental Details</h3>
+      <span class="badge badge-{{ rental.status }}">{{ rental.status }}</span>
+    </div>
+    <div class="card-body">
+      <div class="detail-grid">
+        <div class="detail-item">
+          <label>Rental Number</label>
+          <div class="value font-mono">{{ rental.rental_number }}</div>
+        </div>
+        <div class="detail-item">
+          <label>Customer</label>
+          <div class="value">
+            <a href="{{ url_for('customers_view', id=rental.customer.id) }}" style="color:var(--primary); text-decoration:none;">
+              {{ rental.customer.name }}
+            </a>
+          </div>
+        </div>
+        <div class="detail-item">
+          <label>Phone</label>
+          <div class="value">{{ rental.customer.phone }}</div>
+        </div>
+        <div class="detail-item">
+          <label>Start Date</label>
+          <div class="value">{{ rental.start_date.strftime('%d %B %Y') }}</div>
+        </div>
+        <div class="detail-item">
+          <label>Return Date</label>
+          <div class="value">{{ rental.end_date.strftime('%d %B %Y') }}</div>
+        </div>
+        <div class="detail-item">
+          <label>Duration</label>
+          <div class="value">{{ rental.rental_days }} day{{ 's' if rental.rental_days != 1 }}</div>
+        </div>
+        {% if rental.actual_return_date %}
+        <div class="detail-item">
+          <label>Actual Return</label>
+          <div class="value">{{ rental.actual_return_date.strftime('%d %B %Y') }}</div>
+        </div>
+        {% endif %}
+        {% if rental.notes %}
+        <div class="detail-item" style="grid-column:1/-1;">
+          <label>Notes</label>
+          <div class="value" style="font-style:italic;">{{ rental.notes }}</div>
+        </div>
+        {% endif %}
+      </div>
+    </div>
+  </div>
+
+  <!-- ── Financial Summary ──────────────────────────────────── -->
+  <div class="card">
+    <div class="card-header">
+      <h3 class="card-title"><i class="fa-solid fa-indian-rupee-sign" style="margin-right:8px;"></i>Financial Summary</h3>
+      {% if invoice %}
+      <span class="badge badge-{{ invoice.status }}">{{ invoice.status }}</span>
+      {% endif %}
+    </div>
+    <div class="card-body">
+      <div class="totals-box" style="max-width:100%; margin:0;">
+        <div class="totals-row">
+          <span>Subtotal (Rental)</span>
+          <span>₹{{ "{:,.0f}".format(rental.subtotal) }}</span>
+        </div>
+        {% if rental.late_fee > 0 %}
+        <div class="totals-row" style="color:var(--warning);">
+          <span><i class="fa-solid fa-clock" style="margin-right:4px;"></i>Late Fee</span>
+          <span>₹{{ "{:,.0f}".format(rental.late_fee) }}</span>
+        </div>
+        {% endif %}
+        {% if rental.damage_fee > 0 %}
+        <div class="totals-row" style="color:var(--danger);">
+          <span><i class="fa-solid fa-triangle-exclamation" style="margin-right:4px;"></i>Damage Fee</span>
+          <span>₹{{ "{:,.0f}".format(rental.damage_fee) }}</span>
+        </div>
+        {% endif %}
+        {% if rental.discount > 0 %}
+        <div class="totals-row" style="color:var(--success);">
+          <span>Discount</span>
+          <span>- ₹{{ "{:,.0f}".format(rental.discount) }}</span>
+        </div>
+        {% endif %}
+        <div class="totals-row">
+          <span>Security Deposit</span>
+          <span>₹{{ "{:,.0f}".format(rental.deposit_total) }}</span>
+        </div>
+        <div class="totals-row grand">
+          <span>Total Amount</span>
+          <span>₹{{ "{:,.0f}".format(rental.total_amount) }}</span>
+        </div>
+        {% if invoice %}
+        <div class="totals-row" style="color:var(--success);">
+          <span>Amount Paid</span>
+          <span>₹{{ "{:,.0f}".format(invoice.amount_paid) }}</span>
+        </div>
+        <div class="totals-row" style="color:var(--danger); font-weight:700;">
+          <span>Balance Due</span>
+          <span>₹{{ "{:,.0f}".format(invoice.balance_due) }}</span>
+        </div>
+        {% endif %}
+      </div>
+      {% if invoice and invoice.balance_due > 0 %}
+      <div style="margin-top:16px;">
+        <a href="{{ url_for('billing_view', id=invoice.id) }}" class="btn btn-gold" style="width:100%; justify-content:center;">
+          <i class="fa-solid fa-indian-rupee-sign"></i> Record Payment
+        </a>
+      </div>
+      {% endif %}
+    </div>
+  </div>
+
+</div>
+
+<!-- ── Items Rented ──────────────────────────────────────────── -->
+<div class="card mb-24">
+  <div class="card-header">
+    <h3 class="card-title"><i class="fa-solid fa-layer-group" style="margin-right:8px;"></i>Items Rented</h3>
+  </div>
+  <div class="table-wrapper">
+    <table class="data-table">
+      <thead>
+        <tr>
+          <th>Item</th>
+          <th>SKU</th>
+          <th>Category</th>
+          <th>Size / Color</th>
+          <th>Daily Rate</th>
+          <th>{{ rental.rental_days }} Days Total</th>
+          <th>Deposit</th>
+        </tr>
+      </thead>
+      <tbody>
+        {% for ri in rental.items %}
+        <tr>
+          <td>
+            <div style="font-weight:600;">{{ ri.item.name }}</div>
+          </td>
+          <td><span class="font-mono" style="font-size:12px;">{{ ri.item.sku }}</span></td>
+          <td>
+            <span class="badge {% if ri.item.category in ['Jewellery','Necklace','Accessory'] %}badge-jewellery{% else %}badge-clothing{% endif %}">
+              {{ ri.item.category }}
+            </span>
+          </td>
+          <td style="font-size:12.5px; color:var(--text-muted);">
+            {{ ri.item.size or '—' }} / {{ ri.item.color or '—' }}
+          </td>
+          <td>₹{{ "{:,.0f}".format(ri.daily_rate) }}</td>
+          <td style="font-weight:700; color:var(--primary);">
+            ₹{{ "{:,.0f}".format(ri.daily_rate * rental.rental_days) }}
+          </td>
+          <td>₹{{ "{:,.0f}".format(ri.deposit) }}</td>
+        </tr>
+        {% endfor %}
+      </tbody>
+    </table>
+  </div>
+</div>
+
+<!-- ── Actions ──────────────────────────────────────────────── -->
+{% if rental.status in ('active', 'overdue') %}
+<div class="card">
+  <div class="card-header">
+    <h3 class="card-title"><i class="fa-solid fa-bolt" style="margin-right:8px;"></i>Actions</h3>
+  </div>
+  <div class="card-body">
+
+    <div class="two-col">
+      <!-- Return Form -->
+      <div>
+        <h4 style="font-size:14px; font-weight:700; margin-bottom:14px;">
+          <i class="fa-solid fa-rotate-left" style="margin-right:6px; color:var(--success);"></i>
+          Process Return
+        </h4>
+        <form method="post" action="{{ url_for('rentals_return', id=rental.id) }}">
+          <div class="form-grid" style="grid-template-columns:1fr; gap:14px;">
+            <div class="form-group">
+              <label class="form-label">Actual Return Date</label>
+              <input type="date" name="return_date" class="form-control"
+                     value="{{ today.isoformat() }}">
+            </div>
+            <div class="form-group">
+              <label class="form-label">Late Fee (₹)</label>
+              <div class="input-group">
+                <span class="input-group-text">₹</span>
+                <input type="number" name="late_fee" class="form-control"
+                       value="{{ rental.late_fee }}" min="0" step="0.01">
+              </div>
+            </div>
+            <div class="form-group">
+              <label class="form-label">Damage Fee (₹)</label>
+              <div class="input-group">
+                <span class="input-group-text">₹</span>
+                <input type="number" name="damage_fee" class="form-control"
+                       value="{{ rental.damage_fee }}" min="0" step="0.01">
+              </div>
+            </div>
+            <button type="submit" class="btn btn-success"
+                    onclick="return confirm('Mark as returned?');">
+              <i class="fa-solid fa-circle-check"></i> Mark as Returned
+            </button>
+          </div>
+        </form>
+      </div>
+
+      <!-- Cancel -->
+      <div>
+        <h4 style="font-size:14px; font-weight:700; margin-bottom:14px;">
+          <i class="fa-solid fa-ban" style="margin-right:6px; color:var(--danger);"></i>
+          Cancel Rental
+        </h4>
+        <p style="font-size:13px; color:var(--text-muted); margin-bottom:16px;">
+          Cancelling will release all items back to inventory. This action cannot be undone.
+        </p>
+        <form method="post" action="{{ url_for('rentals_cancel', id=rental.id) }}">
+          <button type="submit" class="btn btn-danger"
+                  onclick="return confirm('Cancel this rental? This cannot be undone.');">
+            <i class="fa-solid fa-ban"></i> Cancel Rental
+          </button>
+        </form>
+      </div>
+    </div>
+
+  </div>
+</div>
+{% endif %}
+
+{% endblock %}

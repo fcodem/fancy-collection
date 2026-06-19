@@ -1,0 +1,101 @@
+{% extends "base.html" %}
+{% block title %}All Record Search{% endblock %}
+{% block page_title %}All Record Search{% endblock %}
+{% block breadcrumb %}Universal search across all months and years{% endblock %}
+
+{% block content %}
+<div class="card" style="margin-bottom:24px;">
+  <div class="card-header">
+    <h3 class="card-title"><i class="fa-solid fa-database" style="margin-right:8px;"></i>All Record Search</h3>
+  </div>
+  <div class="card-body">
+    <div style="display:grid; grid-template-columns:1fr 2fr auto; gap:16px; align-items:end;">
+      <div>
+        <label style="font-weight:600; font-size:13px;">Date (Optional - exact delivery date)</label>
+        <input type="date" id="searchDate" class="form-input" value="">
+      </div>
+      <div>
+        <label style="font-weight:600; font-size:13px;">Search (Serial / Name / Phone / WhatsApp / Dress)</label>
+        <input type="text" id="searchQuery" class="form-input dress-name-suggest" placeholder="Search any record from any month, any year..." autocomplete="off">
+      </div>
+      <div>
+        <button onclick="doSearch()" class="btn btn-primary"><i class="fa-solid fa-search"></i> Search</button>
+      </div>
+    </div>
+    <p style="font-size:11px; color:var(--text-muted); margin-top:8px;">
+      This searches ALL records across the entire database - booked, delivered, and returned. Leave date empty for universal text search.
+    </p>
+  </div>
+</div>
+
+<div id="searchResults" style="display:none;">
+  <div class="card">
+    <div class="card-header">
+      <h3 class="card-title"><i class="fa-solid fa-list"></i> Results</h3>
+      <span id="resultCount" class="badge badge-info">0</span>
+    </div>
+    <div class="card-body p-0">
+      <table class="data-table">
+        <thead>
+          <tr>
+            <th>S.No</th>
+            <th>Customer</th>
+            <th>Phone</th>
+            <th>Delivery</th>
+            <th>Return</th>
+            <th>Items</th>
+            <th>Venue</th>
+            <th>Total</th>
+            <th>Status</th>
+            <th>Action</th>
+          </tr>
+        </thead>
+        <tbody id="resultsBody"></tbody>
+      </table>
+    </div>
+  </div>
+</div>
+
+<script>
+const searchDate = document.getElementById('searchDate');
+const searchQuery = document.getElementById('searchQuery');
+let debounceTimer;
+
+searchQuery.addEventListener('input', () => { clearTimeout(debounceTimer); debounceTimer = setTimeout(doSearch, 400); });
+searchDate.addEventListener('change', doSearch);
+
+function doSearch() {
+  const dateVal = searchDate.value;
+  const q = searchQuery.value.trim();
+  if (!q && !dateVal) {
+    document.getElementById('searchResults').style.display = 'none';
+    return;
+  }
+  fetch(`/api/all-record-search?date=${dateVal}&q=${encodeURIComponent(q)}`)
+    .then(r => r.json())
+    .then(data => {
+      document.getElementById('searchResults').style.display = 'block';
+      document.getElementById('resultCount').textContent = data.length + (data.length >= 100 ? '+' : '');
+      const tbody = document.getElementById('resultsBody');
+      if (data.length > 0) {
+        tbody.innerHTML = data.map(b => `
+          <tr onclick="window.location='/booking/${b.id}/edit'" style="cursor:pointer;">
+            <td><strong>${String(b.serial).padStart(2,'0')}</strong></td>
+            <td>${b.customer_name}</td>
+            <td>${b.contact_1}</td>
+            <td>${b.delivery_date}<br><small>${b.delivery_time}</small></td>
+            <td>${b.return_date}</td>
+            <td>${b.items.map(i => i.display_name || i.name).join(', ')}</td>
+            <td>${b.venue || '-'}</td>
+            <td>₹${Number(b.total_price).toLocaleString()}</td>
+            <td><span class="badge badge-${b.status}">${b.status}</span></td>
+            <td><a href="/booking/${b.id}/edit" class="btn btn-sm btn-primary"><i class="fa-solid fa-pen"></i> Edit</a></td>
+          </tr>
+        `).join('');
+      } else {
+        tbody.innerHTML = '<tr><td colspan="10" style="text-align:center; padding:20px;">No records found.</td></tr>';
+      }
+    });
+}
+</script>
+{% endblock %}

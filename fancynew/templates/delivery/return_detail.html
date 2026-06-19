@@ -1,0 +1,159 @@
+{% extends "base.html" %}
+{% block title %}Return - Serial #{{ '%02d'|format(booking.monthly_serial or 0) }}{% endblock %}
+{% block page_title %}Return Panel{% endblock %}
+{% block breadcrumb %}{{ booking.customer_name }} - Serial #{{ '%02d'|format(booking.monthly_serial) }}{% endblock %}
+
+{% block content %}
+<div style="display:grid; grid-template-columns:1fr 1fr; gap:20px; margin-bottom:24px;">
+  <!-- Booking Details Card -->
+  <div class="card">
+    <div class="card-header">
+      <h3 class="card-title"><i class="fa-solid fa-file-invoice"></i> Booking Details</h3>
+      <span class="badge badge-{{ 'success' if booking.status == 'returned' else 'warning' if booking.status == 'incomplete_return' else 'info' }}">{{ booking.status|upper }}</span>
+    </div>
+    <div class="card-body">
+      <table style="width:100%; font-size:14px;">
+        <tr><td style="padding:6px 0; font-weight:600; width:40%;">Serial No:</td><td>{{ '%02d'|format(booking.monthly_serial) }}</td></tr>
+        <tr><td style="padding:6px 0; font-weight:600;">Customer:</td><td>{{ booking.customer_name }}</td></tr>
+        <tr><td style="padding:6px 0; font-weight:600;">Phone:</td><td>{{ booking.contact_1 }}</td></tr>
+        <tr><td style="padding:6px 0; font-weight:600;">WhatsApp:</td><td>{{ booking.whatsapp_no }}</td></tr>
+        <tr><td style="padding:6px 0; font-weight:600;">Address:</td><td>{{ booking.customer_address }}</td></tr>
+        <tr><td style="padding:6px 0; font-weight:600;">Venue:</td><td>{{ booking.venue or '-' }}</td></tr>
+        <tr><td style="padding:6px 0; font-weight:600;">Delivery:</td><td>{{ booking.delivery_date.strftime('%d-%b-%Y') }} at {{ booking.delivery_time }}</td></tr>
+        <tr><td style="padding:6px 0; font-weight:600;">Return:</td><td>{{ booking.return_date.strftime('%d-%b-%Y') }} at {{ booking.return_time }}</td></tr>
+        {% if booking.delivered_at %}
+        <tr><td style="padding:6px 0; font-weight:600;">Delivered On:</td><td>{{ booking.delivered_at.strftime('%d-%b-%Y %I:%M %p') }}</td></tr>
+        {% endif %}
+      </table>
+    </div>
+  </div>
+
+  <!-- Financial Summary -->
+  <div class="card">
+    <div class="card-header">
+      <h3 class="card-title"><i class="fa-solid fa-indian-rupee-sign"></i> Financial Summary</h3>
+    </div>
+    <div class="card-body">
+      <table style="width:100%; font-size:14px;">
+        <tr><td style="padding:8px 0; font-weight:600;">Total Rent:</td><td>₹{{ '{:,.0f}'.format(booking.total_price or 0) }}</td></tr>
+        <tr><td style="padding:8px 0; font-weight:600;">Advance Paid:</td><td>₹{{ '{:,.0f}'.format(booking.total_advance or 0) }}</td></tr>
+        <tr><td style="padding:8px 0; font-weight:600;">Total Remaining:</td><td>₹{{ '{:,.0f}'.format(booking.total_remaining or 0) }}</td></tr>
+        <tr><td style="padding:8px 0; font-weight:600;">Remaining Collected:</td><td style="color:#28a745;">₹{{ '{:,.0f}'.format(booking.remaining_collected or 0) }}</td></tr>
+        <tr style="border-top:2px solid #333;"><td style="padding:8px 0; font-weight:700;">Balance Due:</td><td style="font-weight:700; color:#dc3545;">₹{{ '{:,.0f}'.format((booking.total_remaining or 0) - (booking.remaining_collected or 0)) }}</td></tr>
+        <tr><td style="padding:8px 0; font-weight:600;">Security Collected:</td><td>₹{{ '{:,.0f}'.format(booking.security_collected or 0) }}</td></tr>
+      </table>
+      {% if booking.delivery_notes %}
+      <div style="margin-top:12px; padding:10px; background:#f8f9fa; border-radius:8px;">
+        <strong>Delivery Notes:</strong> {{ booking.delivery_notes }}
+      </div>
+      {% endif %}
+    </div>
+  </div>
+</div>
+
+<!-- Items -->
+<div class="card" style="margin-bottom:24px;">
+  <div class="card-header">
+    <h3 class="card-title"><i class="fa-solid fa-shirt"></i> Items</h3>
+  </div>
+  <div class="card-body p-0">
+    <table class="data-table">
+      <thead>
+        <tr><th>Item</th><th>Category</th><th>Size</th><th>Price</th><th>Notes</th><th>Prepared by</th><th>Checked by</th></tr>
+      </thead>
+      <tbody>
+        {% for bi in booking.booking_items %}
+        <tr>
+          <td>{{ bi.dress_name|dress_label(bi.category, bi.size) }}</td>
+          <td>{{ bi.category }}</td>
+          <td>{{ bi.size or '-' }}</td>
+          <td>₹{{ '{:,.0f}'.format(bi.price or 0) }}</td>
+          <td>{{ bi.notes or '-' }}</td>
+          <td>
+            {% if bi.prepared_by %}
+              <span style="display:inline-flex;align-items:center;gap:4px;color:#68d391;font-size:12px;">
+                <i class="fa-solid fa-person-digging"></i> {{ bi.prepared_by }}
+              </span>
+            {% else %}
+              <span style="color:var(--text-muted);font-size:11px;">—</span>
+            {% endif %}
+          </td>
+          <td>
+            {% if bi.checked_by %}
+              <span style="display:inline-flex;align-items:center;gap:4px;color:#63b3ed;font-size:12px;">
+                <i class="fa-solid fa-eye"></i> {{ bi.checked_by }}
+              </span>
+            {% else %}
+              <span style="color:var(--text-muted);font-size:11px;">—</span>
+            {% endif %}
+          </td>
+        </tr>
+        {% endfor %}
+      </tbody>
+    </table>
+  </div>
+</div>
+
+<!-- Return Actions -->
+{% if booking.status == 'delivered' %}
+<div class="card">
+  <div class="card-header">
+    <h3 class="card-title"><i class="fa-solid fa-check-circle"></i> Mark Return</h3>
+  </div>
+  <div class="card-body">
+    <div style="display:flex; gap:16px; align-items:start; flex-wrap:wrap;">
+      <!-- Mark Returned -->
+      <form action="{{ url_for('booking_return_save', booking_id=booking.id) }}" method="POST" style="flex:1;">
+        <input type="hidden" name="action" value="mark_returned">
+        <button type="submit" class="btn btn-success" style="width:100%; padding:14px;"
+                onclick="return confirm('Mark this booking as RETURNED? Items will become available.')">
+          <i class="fa-solid fa-check-double"></i> Mark Returned
+        </button>
+      </form>
+
+      <!-- Incomplete Return -->
+      <div style="flex:2;">
+        <form action="{{ url_for('booking_return_save', booking_id=booking.id) }}" method="POST">
+          <input type="hidden" name="action" value="incomplete_return">
+          <div style="display:grid; grid-template-columns:1fr 1fr; gap:12px; margin-bottom:12px;">
+            <div>
+              <label style="font-weight:600; font-size:13px;">Missing Items / Notes</label>
+              <textarea name="incomplete_notes" class="form-input" rows="2" placeholder="What items are missing?"></textarea>
+            </div>
+            <div>
+              <label style="font-weight:600; font-size:13px;">Security Amount to Hold (₹)</label>
+              <input type="number" name="security_held" class="form-input" step="0.01" min="0" placeholder="Amount held from security">
+            </div>
+          </div>
+          <button type="submit" class="btn" style="background:#f39c12; color:white; width:100%; padding:12px;"
+                  onclick="return confirm('Mark as INCOMPLETE RETURN? Security will be held.')">
+            <i class="fa-solid fa-circle-exclamation"></i> Incomplete Return
+          </button>
+        </form>
+      </div>
+    </div>
+  </div>
+</div>
+{% elif booking.status == 'returned' %}
+<div class="card" style="border-left:4px solid #28a745;">
+  <div class="card-body" style="text-align:center; padding:20px;">
+    <i class="fa-solid fa-check-circle" style="font-size:36px; color:#28a745;"></i>
+    <h3 style="color:#28a745; margin-top:8px;">Booking Returned Successfully</h3>
+    {% if booking.returned_at %}<p style="color:#666;">Returned on {{ booking.returned_at.strftime('%d-%b-%Y %I:%M %p') }}</p>{% endif %}
+  </div>
+</div>
+{% elif booking.status == 'incomplete_return' %}
+<div class="card" style="border-left:4px solid #f39c12;">
+  <div class="card-body" style="padding:20px;">
+    <h3 style="color:#f39c12;"><i class="fa-solid fa-circle-exclamation"></i> Incomplete Return</h3>
+    <p><strong>Missing Items:</strong> {{ booking.incomplete_notes }}</p>
+    <p><strong>Security Held:</strong> ₹{{ '{:,.0f}'.format(booking.security_held or 0) }}</p>
+    <a href="{{ url_for('incomplete_return_page') }}" class="btn btn-outline">View in Incomplete Returns</a>
+  </div>
+</div>
+{% endif %}
+
+<div style="margin-top:16px;">
+  <a href="{{ url_for('booking_return_page') }}" class="btn btn-outline"><i class="fa-solid fa-arrow-left"></i> Back to Search</a>
+</div>
+{% endblock %}

@@ -1,0 +1,188 @@
+{% extends "base.html" %}
+{% block title %}Reset All Data{% endblock %}
+{% block page_title %}Reset All Data{% endblock %}
+{% block breadcrumb %}Owner Panel &rsaquo; Reset All Data{% endblock %}
+
+{% block content %}
+
+<div style="max-width:640px; margin:0 auto;">
+
+  <!-- ── Warning Banner ─────────────────────────────────────────── -->
+  <div style="background:#7b2d2d; border:2px solid #e53e3e; border-radius:14px; padding:24px 28px; margin-bottom:28px; text-align:center;">
+    <i class="fa-solid fa-skull" style="font-size:42px; color:#fc8181; margin-bottom:12px; display:block;"></i>
+    <h2 style="color:#fc8181; margin:0 0 8px; font-size:22px;">DANGER ZONE</h2>
+    <p style="color:#feb2b2; margin:0; font-size:14px;">
+      This action is <strong>permanent and irreversible.</strong><br>
+      Deleted data <strong>cannot be recovered.</strong>
+    </p>
+  </div>
+
+  <!-- ── Option Cards ───────────────────────────────────────────── -->
+  <div style="display:flex; flex-direction:column; gap:16px; margin-bottom:28px;">
+
+    <!-- Option 1 -->
+    <div id="card-bookings" style="border:2px solid var(--border); border-radius:12px; overflow:hidden; cursor:pointer; transition:border-color 0.2s;"
+         onclick="selectOption('bookings_only', this)">
+      <div style="padding:16px 20px; display:flex; align-items:flex-start; gap:14px;">
+        <div style="width:22px; height:22px; border-radius:50%; border:2px solid var(--border); margin-top:2px; flex-shrink:0; display:flex; align-items:center; justify-content:center;" id="radio-bookings">
+        </div>
+        <div>
+          <div style="font-weight:700; font-size:15px; color:#fbd38d;">
+            <i class="fa-solid fa-calendar-xmark" style="margin-right:8px;"></i>Delete All Bookings &amp; Customers
+          </div>
+          <div style="font-size:12px; color:var(--text-muted); margin-top:4px;">
+            Removes: All bookings, booking items, customer records.<br>
+            <span style="color:#68d391;">Keeps: Inventory, users, staff, categories, finance.</span>
+          </div>
+        </div>
+      </div>
+    </div>
+
+    <!-- Option 2 -->
+    <div id="card-everything" style="border:2px solid var(--border); border-radius:12px; overflow:hidden; cursor:pointer; transition:border-color 0.2s;"
+         onclick="selectOption('everything', this)">
+      <div style="padding:16px 20px; display:flex; align-items:flex-start; gap:14px;">
+        <div style="width:22px; height:22px; border-radius:50%; border:2px solid var(--border); margin-top:2px; flex-shrink:0; display:flex; align-items:center; justify-content:center;" id="radio-everything">
+        </div>
+        <div>
+          <div style="font-weight:700; font-size:15px; color:#fc8181;">
+            <i class="fa-solid fa-trash-can" style="margin-right:8px;"></i>Erase All Operational Data
+          </div>
+          <div style="font-size:12px; color:var(--text-muted); margin-top:4px;">
+            Removes: All bookings, customers, rentals, payments, invoices, attendance records, supplier purchases.<br>
+            Inventory items reset to "available" status.<br>
+            <span style="color:#68d391;">Keeps: Inventory items, user accounts, staff profiles, categories.</span>
+          </div>
+        </div>
+      </div>
+    </div>
+
+    <!-- Option 3 -->
+    <div id="card-full" style="border:2px solid var(--border); border-radius:12px; overflow:hidden; cursor:pointer; transition:border-color 0.2s;"
+         onclick="selectOption('full_wipe', this)">
+      <div style="padding:16px 20px; display:flex; align-items:flex-start; gap:14px;">
+        <div style="width:22px; height:22px; border-radius:50%; border:2px solid var(--border); margin-top:2px; flex-shrink:0; display:flex; align-items:center; justify-content:center;" id="radio-full">
+        </div>
+        <div>
+          <div style="font-weight:700; font-size:15px; color:#e53e3e;">
+            <i class="fa-solid fa-bomb" style="margin-right:8px;"></i>Complete Full Wipe
+          </div>
+          <div style="font-size:12px; color:var(--text-muted); margin-top:4px;">
+            Removes: <strong>EVERYTHING</strong> — bookings, customers, inventory, staff, categories, all users.<br>
+            <span style="color:#68d391;">Keeps: Only your current owner login account.</span>
+          </div>
+        </div>
+      </div>
+    </div>
+
+  </div>
+
+  <!-- ── Confirm Form ────────────────────────────────────────────── -->
+  <div id="confirmSection" style="display:none;">
+    <form method="post" onsubmit="return validateForm()">
+      <input type="hidden" name="what" id="whatInput" value="">
+
+      <div class="card" style="border:2px solid #e53e3e;">
+        <div class="card-header">
+          <h3 class="card-title" style="color:#fc8181;">
+            <i class="fa-solid fa-keyboard" style="margin-right:8px;"></i>Type to Confirm
+          </h3>
+        </div>
+        <div class="card-body">
+          <div style="font-size:13px; color:var(--text-muted); margin-bottom:12px;">
+            To confirm, type exactly: <code style="background:#7b2d2d; color:#fc8181; padding:3px 8px; border-radius:6px; font-size:14px; font-weight:700;">DELETE ALL DATA</code>
+          </div>
+          <input type="text" name="confirm_text" id="confirmInput" class="form-control"
+                 placeholder="Type: DELETE ALL DATA"
+                 style="font-size:15px; font-weight:600; letter-spacing:1px; border:2px solid var(--border);"
+                 oninput="checkConfirm(this.value)" autocomplete="off">
+          <div style="margin-top:16px; display:flex; gap:12px;">
+            <button type="submit" id="deleteBtn" class="btn" disabled
+                    style="background:#7b2d2d; color:#fc8181; border:2px solid #e53e3e; opacity:0.5; cursor:not-allowed; flex:1; font-weight:700; font-size:14px;">
+              <i class="fa-solid fa-trash-can"></i> CONFIRM DELETE
+            </button>
+            <a href="{{ url_for('dashboard') }}" class="btn btn-outline" style="flex:1; text-align:center;">
+              <i class="fa-solid fa-xmark"></i> Cancel
+            </a>
+          </div>
+        </div>
+      </div>
+
+    </form>
+  </div>
+
+  {% if not request.method == 'POST' %}
+  <div id="selectHint" style="text-align:center; padding:20px; color:var(--text-muted); font-size:13px;">
+    <i class="fa-solid fa-arrow-up" style="margin-right:6px;"></i>Select one of the options above to proceed
+  </div>
+  {% endif %}
+
+</div>
+
+{% endblock %}
+
+{% block scripts %}
+<script>
+var _selected = null;
+
+function selectOption(val, card) {
+  // Reset all cards
+  ['card-bookings','card-everything','card-full'].forEach(function(id) {
+    var c = document.getElementById(id);
+    c.style.borderColor = 'var(--border)';
+    c.style.background  = '';
+  });
+  ['radio-bookings','radio-everything','radio-full'].forEach(function(id) {
+    var r = document.getElementById(id);
+    r.innerHTML = '';
+    r.style.borderColor = 'var(--border)';
+    r.style.background  = '';
+  });
+
+  // Highlight selected
+  card.style.borderColor = '#e53e3e';
+  card.style.background  = '#7b2d2d22';
+  var radioId = 'radio-' + (val === 'bookings_only' ? 'bookings' : val === 'everything' ? 'everything' : 'full');
+  var radio = document.getElementById(radioId);
+  radio.innerHTML = '<i class="fa-solid fa-check" style="color:#fc8181;font-size:12px;"></i>';
+  radio.style.borderColor = '#e53e3e';
+  radio.style.background  = '#7b2d2d';
+
+  _selected = val;
+  document.getElementById('whatInput').value = val;
+  document.getElementById('confirmSection').style.display = 'block';
+  document.getElementById('selectHint').style.display     = 'none';
+  document.getElementById('confirmInput').value = '';
+  document.getElementById('deleteBtn').disabled = true;
+  document.getElementById('deleteBtn').style.opacity  = '0.5';
+  document.getElementById('deleteBtn').style.cursor   = 'not-allowed';
+
+  document.getElementById('confirmSection').scrollIntoView({ behavior: 'smooth' });
+}
+
+function checkConfirm(val) {
+  var btn = document.getElementById('deleteBtn');
+  if (val.trim() === 'DELETE ALL DATA') {
+    btn.disabled = false;
+    btn.style.opacity = '1';
+    btn.style.cursor  = 'pointer';
+    btn.style.background = '#e53e3e';
+    btn.style.color  = 'white';
+  } else {
+    btn.disabled = true;
+    btn.style.opacity = '0.5';
+    btn.style.cursor  = 'not-allowed';
+    btn.style.background = '#7b2d2d';
+    btn.style.color  = '#fc8181';
+  }
+}
+
+function validateForm() {
+  if (!_selected) { alert('Please select a reset option.'); return false; }
+  if (document.getElementById('confirmInput').value.trim() !== 'DELETE ALL DATA') {
+    alert('Confirmation text does not match.'); return false;
+  }
+  return confirm('Are you absolutely sure? This CANNOT be undone!');
+}
+</script>
+{% endblock %}

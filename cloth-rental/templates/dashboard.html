@@ -1,0 +1,272 @@
+{% extends "base.html" %}
+
+{% block title %}Dashboard{% endblock %}
+{% block page_title %}Dashboard{% endblock %}
+{% block breadcrumb %}Welcome back! Here's your business overview.{% endblock %}
+
+{% block header_actions %}
+<a href="{{ url_for('booking_new') }}" class="btn btn-primary">
+  <i class="fa-solid fa-plus"></i> New Booking
+</a>
+{% endblock %}
+
+{% block content %}
+
+<!-- ── Stats Cards ──────────────────────────────────────────── -->
+<div class="stats-grid">
+  <div class="stat-card primary">
+    <div class="stat-icon"><i class="fa-solid fa-layer-group"></i></div>
+    <div class="stat-value">{{ stats.total_items }}</div>
+    <div class="stat-label">Total Items</div>
+  </div>
+  <div class="stat-card success">
+    <div class="stat-icon"><i class="fa-solid fa-circle-check"></i></div>
+    <div class="stat-value">{{ stats.available_items }}</div>
+    <div class="stat-label">Available</div>
+  </div>
+  <div class="stat-card info">
+    <div class="stat-icon"><i class="fa-solid fa-rotate"></i></div>
+    <div class="stat-value">{{ stats.rented_items }}</div>
+    <div class="stat-label">Currently Rented</div>
+  </div>
+  <div class="stat-card gold">
+    <div class="stat-icon"><i class="fa-solid fa-users"></i></div>
+    <div class="stat-value">{{ stats.total_customers }}</div>
+    <div class="stat-label">Customers</div>
+  </div>
+  <div class="stat-card warning">
+    <div class="stat-icon"><i class="fa-solid fa-calendar-check"></i></div>
+    <div class="stat-value">{{ stats.active_rentals }}</div>
+    <div class="stat-label">Active Rentals</div>
+  </div>
+  <div class="stat-card danger">
+    <div class="stat-icon"><i class="fa-solid fa-clock-rotate-left"></i></div>
+    <div class="stat-value">{{ stats.overdue_rentals }}</div>
+    <div class="stat-label">Overdue</div>
+  </div>
+</div>
+
+<!-- ══════════════════════════════════════════════════════════════
+     MANAGE INVENTORY SECTION
+     ══════════════════════════════════════════════════════════════ -->
+<div class="card mb-24" style="margin-top:8px; margin-bottom:24px;">
+  <div class="card-header" style="background:linear-gradient(135deg, rgba(123,31,69,0.05), rgba(201,168,70,0.05));">
+    <h3 class="card-title">
+      <i class="fa-solid fa-layer-group" style="margin-right:8px; color:var(--primary);"></i>
+      Manage Inventory
+    </h3>
+    <div style="display:flex; gap:10px; align-items:center;">
+      <!-- Category Filter -->
+      <select id="homeCatFilter" class="filter-select" onchange="filterHomeInventory()" style="font-size:12px; padding:6px 12px;">
+        <option value="">All Categories</option>
+        {% for cat in categories %}
+        <option value="{{ cat }}">{{ cat }}</option>
+        {% endfor %}
+      </select>
+      <a href="{{ url_for('inventory_add') }}" class="btn btn-primary btn-sm">
+        <i class="fa-solid fa-plus"></i> Add Item
+      </a>
+    </div>
+  </div>
+
+  <!-- Inventory Grid -->
+  <div style="padding:16px;">
+    {% if inventory_items %}
+    <div class="items-grid" id="homeInventoryGrid">
+      {% for item in inventory_items %}
+      <div class="item-card home-inv-card" data-category="{{ item.category }}">
+        <div class="item-card-image" style="height:140px; {% if item.photo %}padding:0;{% endif %}">
+          {% if item.photo %}
+          <img src="{{ url_for('static', filename='uploads/' + item.photo) }}"
+               style="width:100%; height:100%; object-fit:cover;">
+          {% else %}
+            {% if item.category in ['Jewellery','Necklace','Bangles','Earrings','Maang Tikka','Haath Phool'] %}💎
+            {% elif item.category == 'Lehenga' %}🥻
+            {% elif item.category == 'Saree' %}👘
+            {% elif item.category == 'Sherwani' or item.category == 'Indowestern' or item.category == 'Jodhpuri' or item.category == 'Coat Suit' %}🧥
+            {% elif item.category == 'Suit' %}👔
+            {% elif item.category == 'Gown' %}👗
+            {% elif item.category == 'Kurta' %}👕
+            {% else %}👒{% endif %}
+          {% endif %}
+          <span class="badge badge-{{ item.status }}" style="position:absolute; top:8px; right:8px; font-size:9px;">
+            {{ item.status }}
+          </span>
+        </div>
+        <div class="item-card-body" style="padding:12px;">
+          <div class="item-card-name" style="font-size:13px;">{{ item.name }}</div>
+          <div style="font-size:11px; color:var(--text-muted); margin-top:3px;">
+            <span class="badge {% if item.item_type == 'jewellery' %}badge-jewellery{% elif item.item_type == 'accessory' %}badge-gold{% else %}badge-clothing{% endif %}" style="font-size:9px;">
+              {{ item.category }}
+            </span>
+            <span class="font-mono" style="margin-left:6px;">{{ item.sku }}</span>
+          </div>
+        </div>
+        <div class="item-card-footer" style="padding:10px 12px;">
+          <a href="{{ url_for('inventory_edit', id=item.id) }}" class="btn btn-outline btn-sm" style="font-size:11px; padding:4px 10px;">
+            <i class="fa-solid fa-pen"></i> Edit
+          </a>
+          {% if item.status != 'rented' %}
+          <form method="post" action="{{ url_for('inventory_delete', id=item.id) }}"
+                onsubmit="return confirm('Delete {{ item.name }}?');" style="display:inline;">
+            <button type="submit" class="btn btn-danger btn-sm" style="font-size:11px; padding:4px 10px;">
+              <i class="fa-solid fa-trash"></i> Delete
+            </button>
+          </form>
+          {% endif %}
+        </div>
+      </div>
+      {% endfor %}
+    </div>
+    {% else %}
+    <div class="empty-state" style="padding:40px;">
+      <div class="empty-icon"><i class="fa-solid fa-box-open"></i></div>
+      <h3>No items in stock yet</h3>
+      <p>Start adding dresses and jewellery to your collection.</p>
+      <a href="{{ url_for('inventory_add') }}" class="btn btn-primary mt-16">
+        <i class="fa-solid fa-plus"></i> Add First Item
+      </a>
+    </div>
+    {% endif %}
+  </div>
+</div>
+
+<!-- ── Middle Row ──────────────────────────────────────────── -->
+<div class="two-col mb-24" style="margin-bottom:24px;">
+
+  <!-- Recent Rentals -->
+  <div class="card">
+    <div class="card-header">
+      <h3 class="card-title"><i class="fa-solid fa-clock-rotate-left" style="margin-right:8px; color:var(--primary);"></i>Recent Rentals</h3>
+      <a href="{{ url_for('rentals_list') }}" class="btn btn-outline btn-sm">View All</a>
+    </div>
+    <div class="card-body p-0">
+      {% if recent_rentals %}
+        {% for rental in recent_rentals %}
+        <div class="rental-row-item" style="padding: 12px 20px;">
+          <div class="rental-avatar">{{ rental.customer.name[0].upper() }}</div>
+          <div class="rental-info">
+            <div class="rental-name">{{ rental.customer.name }}</div>
+            <div class="rental-meta">
+              {{ rental.rental_number }} &bull;
+              {{ rental.start_date.strftime('%d %b') }} – {{ rental.end_date.strftime('%d %b %Y') }}
+            </div>
+          </div>
+          <div>
+            <span class="badge badge-{{ rental.status }}">{{ rental.status }}</span>
+          </div>
+        </div>
+        {% endfor %}
+      {% else %}
+        <div class="empty-state" style="padding: 40px;">
+          <div class="empty-icon"><i class="fa-solid fa-calendar-xmark"></i></div>
+          <p>No rentals yet</p>
+        </div>
+      {% endif %}
+    </div>
+  </div>
+
+  <!-- Upcoming Returns -->
+  <div class="card">
+    <div class="card-header">
+      <h3 class="card-title"><i class="fa-solid fa-calendar-arrow-down" style="margin-right:8px; color:var(--gold-dark);"></i>Upcoming Returns</h3>
+      <span class="badge badge-gold">Next 3 Days</span>
+    </div>
+    <div class="card-body p-0">
+      {% if upcoming_returns %}
+        {% for rental in upcoming_returns %}
+        <div class="rental-row-item" style="padding: 12px 20px;">
+          <div class="rental-avatar" style="background: linear-gradient(135deg, var(--gold-dark), var(--gold));">
+            {{ rental.customer.name[0].upper() }}
+          </div>
+          <div class="rental-info">
+            <div class="rental-name">{{ rental.customer.name }}</div>
+            <div class="rental-meta">{{ rental.rental_number }}</div>
+          </div>
+          <div style="text-align:right;">
+            <div style="font-weight:700; font-size:13px; color:var(--gold-dark);">
+              {{ rental.end_date.strftime('%d %b') }}
+            </div>
+            <div style="font-size:11px; color:var(--text-muted);">
+              {% set days = (rental.end_date - today).days %}
+              {% if days == 0 %}Today{% elif days == 1 %}Tomorrow{% else %}{{ days }} days{% endif %}
+            </div>
+          </div>
+        </div>
+        {% endfor %}
+      {% else %}
+        <div class="empty-state" style="padding: 40px;">
+          <div class="empty-icon"><i class="fa-solid fa-calendar-check"></i></div>
+          <p>No upcoming returns</p>
+        </div>
+      {% endif %}
+    </div>
+  </div>
+
+</div>
+
+<!-- ── Overdue ──────────────────────────────────────────── -->
+{% if overdue_list %}
+<div class="card mb-24" style="margin-bottom:24px;">
+  <div class="card-header">
+    <h3 class="card-title" style="color:var(--danger);">
+      <i class="fa-solid fa-triangle-exclamation" style="margin-right:8px;"></i>Overdue Rentals
+    </h3>
+    <a href="{{ url_for('rentals_list', status='overdue') }}" class="btn btn-danger btn-sm">View All</a>
+  </div>
+  <div class="card-body p-0">
+    <div class="table-wrapper">
+      <table class="data-table">
+        <thead>
+          <tr>
+            <th>Rental #</th>
+            <th>Customer</th>
+            <th>Due Date</th>
+            <th>Days Overdue</th>
+            <th>Amount</th>
+            <th>Action</th>
+          </tr>
+        </thead>
+        <tbody>
+          {% for rental in overdue_list %}
+          <tr>
+            <td><span class="font-mono fw-semibold">{{ rental.rental_number }}</span></td>
+            <td>{{ rental.customer.name }}</td>
+            <td style="color:var(--danger); font-weight:600;">{{ rental.end_date.strftime('%d %b %Y') }}</td>
+            <td>
+              <span class="badge badge-overdue">
+                {{ (today - rental.end_date).days }} days
+              </span>
+            </td>
+            <td>₹{{ "{:,.0f}".format(rental.total_amount) }}</td>
+            <td>
+              <a href="{{ url_for('rentals_view', id=rental.id) }}" class="btn btn-outline btn-sm">
+                <i class="fa-solid fa-eye"></i> View
+              </a>
+            </td>
+          </tr>
+          {% endfor %}
+        </tbody>
+      </table>
+    </div>
+  </div>
+</div>
+{% endif %}
+
+{% endblock %}
+
+{% block scripts %}
+<script>
+function filterHomeInventory() {
+  const cat = document.getElementById('homeCatFilter').value;
+  const cards = document.querySelectorAll('.home-inv-card');
+  cards.forEach(card => {
+    if (!cat || card.dataset.category === cat) {
+      card.style.display = '';
+    } else {
+      card.style.display = 'none';
+    }
+  });
+}
+</script>
+{% endblock %}

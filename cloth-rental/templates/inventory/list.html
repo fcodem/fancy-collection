@@ -1,0 +1,179 @@
+{% extends "base.html" %}
+
+{% block title %}Inventory{% endblock %}
+{% block page_title %}Inventory{% endblock %}
+{% block breadcrumb %}Manage your clothing, jewellery & accessories stock{% endblock %}
+
+{% block header_actions %}
+<a href="{{ url_for('inventory_add') }}" class="btn btn-primary">
+  <i class="fa-solid fa-plus"></i> Add Item
+</a>
+{% endblock %}
+
+{% block content %}
+
+<!-- ── Summary Chips ──────────────────────────────────────────── -->
+<div style="display:flex; gap:10px; flex-wrap:wrap; margin-bottom:22px;">
+  {% set total = items|length %}
+  {% set avail = items|selectattr('status','equalto','available')|list|length %}
+  {% set rented = items|selectattr('status','equalto','rented')|list|length %}
+  {% set maint  = items|selectattr('status','equalto','maintenance')|list|length %}
+
+  <div style="background:var(--white); border:1.5px solid var(--border); border-radius:10px; padding:8px 16px; font-size:13px;">
+    <strong>{{ total }}</strong> <span style="color:var(--text-muted);">Total Items</span>
+  </div>
+  <div style="background:var(--success-bg); border:1.5px solid #b2dfdb; border-radius:10px; padding:8px 16px; font-size:13px; color:var(--success);">
+    <strong>{{ avail }}</strong> Available
+  </div>
+  <div style="background:#EEF2FF; border:1.5px solid #c7d2fe; border-radius:10px; padding:8px 16px; font-size:13px; color:#4F46E5;">
+    <strong>{{ rented }}</strong> Rented
+  </div>
+  {% if maint > 0 %}
+  <div style="background:var(--warning-bg); border:1.5px solid #ffc107; border-radius:10px; padding:8px 16px; font-size:13px; color:var(--warning);">
+    <strong>{{ maint }}</strong> Maintenance
+  </div>
+  {% endif %}
+</div>
+
+<!-- ── Filter Bar ──────────────────────────────────────────── -->
+<form method="get" style="margin-bottom:22px;">
+  <div class="filter-bar">
+    <div class="search-input">
+      <i class="fa-solid fa-magnifying-glass"></i>
+      <input type="text" name="q" value="{{ search }}" placeholder="Search by name or SKU…">
+    </div>
+    <select name="category" class="filter-select" onchange="this.form.submit()">
+      <option value="">All Categories</option>
+      {% for cat in categories %}
+      <option value="{{ cat }}" {% if current_category == cat %}selected{% endif %}>{{ cat }}</option>
+      {% endfor %}
+    </select>
+    <select name="status" class="filter-select" onchange="this.form.submit()">
+      <option value="">All Status</option>
+      <option value="available"    {% if current_status == 'available' %}selected{% endif %}>Available</option>
+      <option value="rented"       {% if current_status == 'rented' %}selected{% endif %}>Rented</option>
+      <option value="maintenance"  {% if current_status == 'maintenance' %}selected{% endif %}>Maintenance</option>
+    </select>
+    <button type="submit" class="btn btn-outline btn-sm">
+      <i class="fa-solid fa-filter"></i> Filter
+    </button>
+    {% if search or current_category or current_status %}
+    <a href="{{ url_for('inventory_list') }}" class="btn btn-sm" style="background:var(--cream-dark); color:var(--text-muted);">
+      <i class="fa-solid fa-xmark"></i> Clear
+    </a>
+    {% endif %}
+  </div>
+</form>
+
+<!-- ── Items Grouped by Category ──────────────────────────── -->
+{% if items %}
+
+  {# Group items by category #}
+  {% set ns = namespace(categories_seen=[]) %}
+  {% for item in items %}
+    {% if item.category not in ns.categories_seen %}
+      {% set ns.categories_seen = ns.categories_seen + [item.category] %}
+    {% endif %}
+  {% endfor %}
+
+  {% for cat in ns.categories_seen %}
+  {% set cat_items = items|selectattr('category','equalto', cat)|list %}
+
+  <div class="card" style="margin-bottom:22px;">
+    <div class="card-header">
+      <h3 class="card-title" style="display:flex; align-items:center; gap:10px;">
+        {% if cat in ['Jewellery','Necklace','Bangles','Earrings','Maang Tikka','Haath Phool','Anklet','Nose Ring','Matha Patti'] %}
+          <span style="font-size:20px;">💎</span>
+        {% elif cat in ['Accessory','Dupatta','Belt','Clutch','Crown/Tiara'] %}
+          <span style="font-size:20px;">👒</span>
+        {% else %}
+          <span style="font-size:20px;">👗</span>
+        {% endif %}
+        {{ cat }}
+        <span style="font-size:12px; font-weight:500; color:var(--text-muted); margin-left:6px;">
+          ({{ cat_items|length }} item{{ 's' if cat_items|length != 1 }})
+        </span>
+      </h3>
+    </div>
+    <div style="padding:16px;">
+      <div class="items-grid">
+        {% for item in cat_items %}
+        <div class="item-card">
+          <!-- Photo / Placeholder -->
+          <div class="item-card-image" style="{% if item.photo %}padding:0;{% endif %}">
+            {% if item.photo %}
+            <img src="{{ url_for('static', filename='uploads/' + item.photo) }}"
+                 style="width:100%; height:100%; object-fit:cover;">
+            {% else %}
+              {% if item.category in ['Jewellery','Necklace','Bangles','Earrings','Maang Tikka','Haath Phool'] %}💎
+              {% elif item.category == 'Lehenga' %}🥻
+              {% elif item.category == 'Saree' %}👘
+              {% elif item.category == 'Sherwani' %}🧥
+              {% elif item.category == 'Suit' %}👔
+              {% elif item.category == 'Gown' %}👗
+              {% elif item.category == 'Kurta' %}👕
+              {% elif item.category == 'Blazer' %}🧣
+              {% elif item.category == 'Accessory' %}💍
+              {% else %}👒{% endif %}
+            {% endif %}
+            <span class="badge badge-{{ item.status }}" style="position:absolute; top:10px; right:10px; font-size:10px;">
+              {{ item.status }}
+            </span>
+          </div>
+          <div class="item-card-body">
+            <div class="item-card-name">{{ item.name }}</div>
+            <div class="item-card-sku">
+              <span class="font-mono">{{ item.sku }}</span>
+            </div>
+            <div class="d-flex gap-8 mt-8" style="font-size:12px; color:var(--text-muted);">
+              {% if item.size %}<span><i class="fa-solid fa-ruler"></i> {{ item.size }}</span>{% endif %}
+              {% if item.color %}<span><i class="fa-solid fa-palette"></i> {{ item.color }}</span>{% endif %}
+            </div>
+            {% if item.daily_rate > 0 %}
+            <div class="item-card-rate">
+              ₹{{ "{:,.0f}".format(item.daily_rate) }} <span>/day</span>
+            </div>
+            {% endif %}
+          </div>
+          <div class="item-card-footer">
+            <a href="{{ url_for('inventory_edit', id=item.id) }}" class="btn btn-outline btn-sm">
+              <i class="fa-solid fa-pen"></i> Edit
+            </a>
+            {% if item.status != 'rented' %}
+            <form method="post" action="{{ url_for('inventory_delete', id=item.id) }}"
+                  onsubmit="return confirm('Delete {{ item.name }}? This cannot be undone.');" style="display:inline;">
+              <button type="submit" class="btn btn-danger btn-sm">
+                <i class="fa-solid fa-trash"></i> Delete
+              </button>
+            </form>
+            {% endif %}
+          </div>
+        </div>
+        {% endfor %}
+      </div>
+    </div>
+  </div>
+
+  {% endfor %}
+
+{% else %}
+<div class="card">
+  <div class="empty-state">
+    <div class="empty-icon"><i class="fa-solid fa-shirt"></i></div>
+    <h3>No items found</h3>
+    <p>
+      {% if search or current_category or current_status %}
+        Try adjusting your filters or
+        <a href="{{ url_for('inventory_list') }}" style="color:var(--primary);">clear them</a>.
+      {% else %}
+        Start building your collection!
+      {% endif %}
+    </p>
+    <a href="{{ url_for('inventory_add') }}" class="btn btn-primary mt-16">
+      <i class="fa-solid fa-plus"></i> Add First Item
+    </a>
+  </div>
+</div>
+{% endif %}
+
+{% endblock %}

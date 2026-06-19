@@ -1,0 +1,104 @@
+{% extends "base.html" %}
+
+{% block title %}{{ 'Edit Customer' if customer else 'Add Customer' }}{% endblock %}
+{% block page_title %}{{ 'Edit Customer' if customer else 'New Customer' }}{% endblock %}
+{% block breadcrumb %}
+  <a href="{{ url_for('customers_list') }}" style="color:var(--primary); text-decoration:none;">Customers</a>
+  &rsaquo; {{ 'Edit' if customer else 'Add' }}
+{% endblock %}
+
+{% block content %}
+
+<div class="card" style="max-width: 780px;">
+  <div class="card-header">
+    <h3 class="card-title">
+      <i class="fa-solid fa-user-{% if customer %}pen{% else %}plus{% endif %}" style="margin-right:8px;"></i>
+      {{ 'Edit Customer Details' if customer else 'Register New Customer' }}
+    </h3>
+  </div>
+
+  <div class="card-body">
+    <form method="post">
+      <div class="form-grid">
+
+        <!-- Full Name -->
+        <div class="form-group full-width">
+          <label class="form-label">Full Name *</label>
+          <input type="text" name="name" class="form-control"
+                 placeholder="Customer's full name"
+                 value="{{ customer.name if customer else '' }}" required>
+        </div>
+
+        <!-- Phone -->
+        <div class="form-group">
+          <label class="form-label">Phone Number *</label>
+          <div class="input-group">
+            <span class="input-group-text"><i class="fa-solid fa-phone"></i></span>
+            <input type="tel" name="phone" class="form-control"
+                   placeholder="10-digit mobile number"
+                   value="{{ customer.phone if customer else '' }}" required>
+          </div>
+        </div>
+
+        <!-- Email -->
+        <div class="form-group">
+          <label class="form-label">Email Address</label>
+          <div class="input-group">
+            <span class="input-group-text"><i class="fa-solid fa-envelope"></i></span>
+            <input type="email" name="email" class="form-control"
+                   placeholder="customer@email.com"
+                   value="{{ customer.email if customer else '' }}">
+          </div>
+        </div>
+
+        <!-- ID Proof -->
+        <div class="form-group">
+          <label class="form-label">ID Proof Type</label>
+          <select name="id_proof" class="form-control">
+            <option value="">-- Select ID Type --</option>
+            {% set id_options = ['Aadhaar Card', 'PAN Card', 'Voter ID', 'Passport', 'Driving License'] %}
+            {% for opt in id_options %}
+            <option value="{{ opt }}" {% if customer and customer.id_proof == opt %}selected{% endif %}>{{ opt }}</option>
+            {% endfor %}
+            <option value="Other" {% if customer and customer.id_proof == 'Other' %}selected{% endif %}>Other</option>
+          </select>
+        </div>
+
+        <!-- Address -->
+        <div class="form-group full-width">
+          <label class="form-label">Address</label>
+          <textarea name="address" class="form-control"
+                    placeholder="Full address of the customer…">{{ customer.address if customer else '' }}</textarea>
+        </div>
+
+        <!-- Notes -->
+        <div class="form-group full-width">
+          <label class="form-label">Notes</label>
+          <textarea name="notes" class="form-control"
+                    placeholder="Any special notes, preferences, or remarks…">{{ customer.notes if customer else '' }}</textarea>
+        </div>
+
+      </div>
+
+      <div class="form-actions">
+        <button type="submit" class="btn btn-primary">
+          <i class="fa-solid fa-save"></i>
+          {{ 'Save Changes' if customer else 'Register Customer' }}
+        </button>
+        <a href="{{ url_for('customers_list') }}" class="btn btn-outline">
+          <i class="fa-solid fa-xmark"></i> Cancel
+        </a>
+        {% if customer %}
+        <div style="margin-left:auto;">
+          <a href="{{ url_for('customers_view', id=customer.id) }}" class="btn btn-outline-gold btn-sm">
+            <i class="fa-solid fa-eye"></i> View Profile
+          </a>
+        </div>
+        {% endif %}
+      </div>
+
+    </form>
+  </div>
+</div>
+
+{% endblock %}

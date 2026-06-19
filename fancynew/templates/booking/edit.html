@@ -1,0 +1,413 @@
+{% extends "base.html" %}
+{% block title %}Edit Booking - Serial #{{ '%02d'|format(booking.monthly_serial or 0) }}{% endblock %}
+{% block page_title %}Edit Booking{% endblock %}
+{% block breadcrumb %}Serial #{{ '%02d'|format(booking.monthly_serial) }} – {{ booking.customer_name }}{% endblock %}
+
+{% block content %}
+
+<!-- Hidden item ids for JS to read -->
+<script>
+window._editBookingId = {{ booking.id }};
+window._editItemIds   = [{% for bi in booking.booking_items %}{{ bi.item_id }}{% if not loop.last %},{% endif %}{% endfor %}];
+window._origDelivery  = "{{ booking.delivery_date.isoformat() }}";
+window._origReturn    = "{{ booking.return_date.isoformat() }}";
+</script>
+
+<!-- ── Conflict Alert Panel (shown/hidden by JS) ───────────────────── -->
+<div id="conflictPanel" style="display:none; margin-bottom:20px;"></div>
+
+<form method="post" id="editForm">
+
+  <div style="display:grid; grid-template-columns:1fr 1fr; gap:20px; margin-bottom:20px;">
+
+    <!-- ── Customer Details ───────────────────────────────────────── -->
+    <div class="card">
+      <div class="card-header">
+        <h3 class="card-title"><i class="fa-solid fa-user-circle" style="margin-right:8px;"></i>Customer Details</h3>
+        <span class="badge badge-{{ booking.status }}">{{ booking.status }}</span>
+      </div>
+      <div class="card-body">
+        <div class="form-group">
+          <label class="form-label">Customer Name *</label>
+          <input type="text" name="customer_name" class="form-control" value="{{ booking.customer_name }}" required>
+        </div>
+        <div class="form-group">
+          <label class="form-label">Address *</label>
+          <textarea name="customer_address" class="form-control" rows="2" required>{{ booking.customer_address }}</textarea>
+        </div>
+        <div style="display:grid; grid-template-columns:1fr 1fr; gap:12px;">
+          <div class="form-group">
+            <label class="form-label">Contact *</label>
+            <input type="tel" name="contact_1" class="form-control" value="{{ booking.contact_1 }}" required>
+          </div>
+          <div class="form-group">
+            <label class="form-label">WhatsApp *</label>
+            <input type="tel" name="whatsapp_no" class="form-control" value="{{ booking.whatsapp_no or '' }}" required>
+          </div>
+        </div>
+        <div class="form-group">
+          <label class="form-label">Venue</label>
+          <input type="text" name="venue" class="form-control" value="{{ booking.venue or '' }}">
+        </div>
+      </div>
+    </div>
+
+    <!-- ── Schedule ───────────────────────────────────────────────── -->
+    <div class="card">
+      <div class="card-header">
+        <h3 class="card-title"><i class="fa-solid fa-calendar" style="margin-right:8px;"></i>Schedule</h3>
+        <div id="dateCheckSpinner" style="display:none;">
+          <i class="fa-solid fa-spinner fa-spin" style="color:var(--primary); font-size:16px;"></i>
+          <span style="font-size:12px; color:var(--text-muted); margin-left:6px;">Checking availability…</span>
+        </div>
+      </div>
+      <div class="card-body">
+        <div style="display:grid; grid-template-columns:1fr 1fr; gap:12px;">
+          <div class="form-group">
+            <label class="form-label">Delivery Date</label>
+            <input type="date" name="delivery_date" id="deliveryDateInput" class="form-control"
+                   value="{{ booking.delivery_date.isoformat() }}" onchange="onDatesChange()">
+          </div>
+          <div class="form-group">
+            <label class="form-label">Delivery Time</label>
+            <select name="delivery_time" class="form-control">
+              {% for t in ["9:00 AM","10:00 AM","11:00 AM","12:00 Noon","1:00 PM","2:00 PM","3:00 PM","4:00 PM","5:00 PM","6:00 PM","7:00 PM","8:00 PM","9:00 PM","10:00 PM"] %}
+              <option value="{{ t }}" {{ 'selected' if booking.delivery_time == t else '' }}>{{ t }}</option>
+              {% endfor %}
+            </select>
+          </div>
+          <div class="form-group">
+            <label class="form-label">Return Date</label>
+            <input type="date" name="return_date" id="returnDateInput" class="form-control"
+                   value="{{ booking.return_date.isoformat() }}" onchange="onDatesChange()">
+          </div>
+          <div class="form-group">
+            <label class="form-label">Return Time</label>
+            <select name="return_time" class="form-control">
+              {% for t in ["9:00 AM","10:00 AM","11:00 AM","12:00 Noon","1:00 PM","2:00 PM","3:00 PM","4:00 PM","5:00 PM","6:00 PM","7:00 PM","8:00 PM","9:00 PM","10:00 PM"] %}
+              <option value="{{ t }}" {{ 'selected' if booking.return_time == t else '' }}>{{ t }}</option>
+              {% endfor %}
+            </select>
+          </div>
+        </div>
+        <div class="form-group" style="margin-top:12px;">
+          <label class="form-label">Common Notes</label>
+          <textarea name="common_notes" class="form-control" rows="3">{{ booking.common_notes or '' }}</textarea>
+        </div>
+        <div style="margin-top:16px; padding:12px; background:#f8f9fa; border-radius:8px;">
+          <div style="font-size:12px; color:var(--text-muted);">Serial No: <strong>#{{ '%02d'|format(booking.monthly_serial or 0) }}</strong></div>
+          <div style="font-size:12px; color:var(--text-muted);">Created: {{ booking.created_at.strftime('%d %b %Y, %I:%M %p') }}</div>
+        </div>
+      </div>
+    </div>
+
+  </div><!-- /2-col grid -->
+
+  <!-- ── Booked Items with per-item conflict warnings ───────────────── -->
+  <div class="card" style="margin-bottom:20px;">
+    <div class="card-header">
+      <h3 class="card-title"><i class="fa-solid fa-shirt" style="margin-right:8px;"></i>Booked Items</h3>
+    </div>
+    <div class="card-body p-0">
+
+      <!-- Hidden inputs carry item/dress data for server-side save -->
+      {% for bi in booking.booking_items %}
+      <input type="hidden" name="item_ids[]"   value="{{ bi.item_id }}">
+      <input type="hidden" name="dress_names[]" value="{{ bi.dress_name }}">
+      {% endfor %}
+
+      <table class="data-table" id="itemsTable">
+        <thead>
+          <tr>
+            <th>Dress / Item</th>
+            <th>Category</th>
+            <th>Size</th>
+            <th>Price (₹)</th>
+            <th>Advance (₹)</th>
+            <th>Remaining</th>
+            <th>Notes</th>
+          </tr>
+        </thead>
+        <tbody>
+          {% for bi in booking.booking_items %}
+          <tr id="item-row-{{ bi.item_id }}" data-item-id="{{ bi.item_id }}">
+            <td>
+              <div style="font-weight:700;">{{ bi.dress_name|dress_label(bi.category, bi.size) }}</div>
+              <!-- Per-item conflict badge (populated by JS) -->
+              <div id="item-badge-{{ bi.item_id }}" style="margin-top:4px;"></div>
+            </td>
+            <td>{{ bi.category }}</td>
+            <td>{{ bi.size or '-' }}</td>
+            <td>
+              <input type="number" name="prices[]" class="form-control item-price"
+                     data-item-id="{{ bi.item_id }}" value="{{ bi.price|int }}"
+                     style="width:100px;" step="1" min="0" oninput="recalcTotal()">
+            </td>
+            <td>
+              <input type="number" name="advances[]" class="form-control item-advance"
+                     data-item-id="{{ bi.item_id }}" value="{{ bi.advance|int }}"
+                     style="width:100px;" step="1" min="0" oninput="recalcTotal()">
+            </td>
+            <td id="remaining-{{ bi.item_id }}" style="font-weight:700; color:var(--danger);">
+              ₹{{ '{:,.0f}'.format(bi.remaining or 0) }}
+            </td>
+            <td>
+              <input type="text" name="dress_notes[]" class="form-control"
+                     value="{{ bi.notes or '' }}" style="width:150px;" placeholder="Notes…">
+            </td>
+          </tr>
+          {% endfor %}
+        </tbody>
+        <tfoot>
+          <tr style="font-weight:700; background:#f8f9fa;">
+            <td colspan="3">TOTAL</td>
+            <td id="totalPrice">₹{{ '{:,.0f}'.format(booking.total_price or 0) }}</td>
+            <td id="totalAdvance">₹{{ '{:,.0f}'.format(booking.total_advance or 0) }}</td>
+            <td id="totalRemaining">₹{{ '{:,.0f}'.format(booking.total_remaining or 0) }}</td>
+            <td></td>
+          </tr>
+        </tfoot>
+      </table>
+
+    </div>
+  </div>
+
+  <!-- ── Action Buttons ──────────────────────────────────────────── -->
+  <div style="display:flex; gap:12px; align-items:center; flex-wrap:wrap;">
+    <button type="submit" id="saveBtn" class="btn btn-primary">
+      <i class="fa-solid fa-save"></i> Save Changes
+    </button>
+    <a href="{{ url_for('booking_view', id=booking.id) }}" class="btn btn-outline">
+      <i class="fa-solid fa-eye"></i> View Record
+    </a>
+    {% if booking.status == 'booked' %}
+    <a href="{{ url_for('booking_delivery_detail', booking_id=booking.id) }}" class="btn" style="background:var(--info); color:white;">
+      <i class="fa-solid fa-truck"></i> Go to Delivery Panel
+    </a>
+    {% elif booking.status == 'delivered' %}
+    <a href="{{ url_for('booking_return_detail', booking_id=booking.id) }}" class="btn btn-success">
+      <i class="fa-solid fa-rotate-left"></i> Go to Return Panel
+    </a>
+    {% endif %}
+    <a href="{{ url_for('booking_print', id=booking.id) }}" class="btn btn-outline" target="_blank">
+      <i class="fa-solid fa-print"></i> Print Bill
+    </a>
+  </div>
+
+</form>
+
+{% endblock %}
+
+{% block scripts %}
+<script>
+// ──────────────────────────────────────────────────────────────────
+// LIVE DATE CONFLICT CHECK
+// ──────────────────────────────────────────────────────────────────
+var _checkTimer    = null;
+var _hasHardBlock  = false;
+
+function onDatesChange() {
+  clearTimeout(_checkTimer);
+  _checkTimer = setTimeout(runConflictCheck, 400);
+}
+
+function runConflictCheck() {
+  var dDate = document.getElementById('deliveryDateInput').value;
+  var rDate = document.getElementById('returnDateInput').value;
+
+  if (!dDate || !rDate) return;
+  if (dDate === window._origDelivery && rDate === window._origReturn) {
+    // Dates unchanged — clear any previous warnings
+    clearConflictUI();
+    return;
+  }
+
+  document.getElementById('dateCheckSpinner').style.display = 'flex';
+
+  // Build URL
+  var params = new URLSearchParams({
+    booking_id:    window._editBookingId,
+    delivery_date: dDate,
+    return_date:   rDate,
+  });
+  window._editItemIds.forEach(function(id) { params.append('item_ids[]', id); });
+
+  fetch('/api/booking/date-check?' + params.toString())
+    .then(function(r) { return r.json(); })
+    .then(function(data) {
+      document.getElementById('dateCheckSpinner').style.display = 'none';
+      renderConflictUI(data, dDate, rDate);
+    })
+    .catch(function() {
+      document.getElementById('dateCheckSpinner').style.display = 'none';
+    });
+}
+
+function clearConflictUI() {
+  document.getElementById('conflictPanel').style.display = 'none';
+  document.getElementById('conflictPanel').innerHTML = '';
+  _hasHardBlock = false;
+  updateSaveBtn();
+  // Clear all per-item badges
+  window._editItemIds.forEach(function(id) {
+    var badge = document.getElementById('item-badge-' + id);
+    if (badge) badge.innerHTML = '';
+    var row = document.getElementById('item-row-' + id);
+    if (row) row.style.borderLeft = '';
+  });
+}
+
+function renderConflictUI(items, dDate, rDate) {
+  var panel = document.getElementById('conflictPanel');
+  _hasHardBlock = false;
+
+  // Per-item badges & row highlights
+  items.forEach(function(item) {
+    var badge = document.getElementById('item-badge-' + item.item_id);
+    var row   = document.getElementById('item-row-' + item.item_id);
+    if (!badge) return;
+
+    if (item.status === 'ok') {
+      badge.innerHTML = '';
+      if (row) row.style.borderLeft = '';
+      return;
+    }
+
+    var c = item.conflict;
+    var isHard = (item.status === 'hard_conflict');
+    if (isHard) _hasHardBlock = true;
+
+    var bgColor   = isHard ? '#7b2d2d' : '#7b4a00';
+    var textColor = isHard ? '#feb2b2' : '#fbd38d';
+    var borderCol = isHard ? '#e53e3e' : '#ed8936';
+    var icon      = isHard ? 'fa-ban' : 'fa-triangle-exclamation';
+
+    var msg = '';
+    if (item.status === 'hard_conflict') {
+      msg = '<strong>ALREADY BOOKED</strong> &mdash; '
+          + c.customer + ' (Serial #' + (c.serial ? (c.serial < 10 ? '0' + c.serial : c.serial) : '--') + ')'
+          + ' &bull; ' + c.delivery_date + ' → ' + c.return_date
+          + (c.venue ? ' &bull; ' + c.venue : '')
+          + (c.contact ? ' &bull; ' + c.contact : '');
+    } else if (item.status === 'returning_warning') {
+      msg = '<strong>RETURNING ON DELIVERY DATE</strong> &mdash; '
+          + c.customer + ' (Serial #' + (c.serial ? (c.serial < 10 ? '0' + c.serial : c.serial) : '--') + ')'
+          + ' returning ' + c.return_date + ' at ' + c.return_time
+          + (c.venue ? ' &bull; Venue: ' + c.venue : '')
+          + (c.contact ? ' &bull; ' + c.contact : '');
+    } else {
+      msg = '<strong>TO BE DELIVERED ON YOUR RETURN DATE</strong> &mdash; '
+          + c.customer + ' (Serial #' + (c.serial ? (c.serial < 10 ? '0' + c.serial : c.serial) : '--') + ')'
+          + ' to be delivered ' + c.delivery_date + ' at ' + c.delivery_time
+          + (c.venue ? ' &bull; Venue: ' + c.venue : '')
+          + (c.contact ? ' &bull; ' + c.contact : '');
+    }
+
+    badge.innerHTML = '<div style="font-size:11px;padding:5px 10px;border-radius:7px;background:' + bgColor + ';color:' + textColor + ';margin-top:3px;">'
+      + '<i class="fa-solid ' + icon + '" style="margin-right:5px;"></i>' + msg + '</div>';
+
+    if (row) row.style.borderLeft = '4px solid ' + borderCol;
+  });
+
+  // Top summary panel
+  var hardItems = items.filter(function(i) { return i.status === 'hard_conflict'; });
+  var warnItems = items.filter(function(i) { return i.status === 'returning_warning' || i.status === 'booked_on_return_warning'; });
+  var okItems   = items.filter(function(i) { return i.status === 'ok'; });
+
+  var html = '';
+
+  if (hardItems.length) {
+    html += '<div style="background:#7b2d2d44;border:1.5px solid #e53e3e;border-radius:12px;padding:16px 20px;margin-bottom:12px;">'
+          + '<div style="font-size:14px;font-weight:800;color:#fc8181;margin-bottom:8px;">'
+          + '<i class="fa-solid fa-ban" style="margin-right:8px;"></i>BOOKING BLOCKED — ' + hardItems.length + ' dress' + (hardItems.length > 1 ? 'es' : '') + ' already booked during these dates</div>'
+          + '<div style="font-size:12px;color:#feb2b2;">';
+    hardItems.forEach(function(item) {
+      var c = item.conflict;
+      html += '<div style="padding:6px 0;border-bottom:1px solid #e53e3e33;">'
+            + '<i class="fa-solid fa-shirt" style="margin-right:6px;"></i><strong>' + item.item_name + '</strong>'
+            + ' — ' + c.customer + ' · Serial #' + (c.serial ? (c.serial < 10 ? '0'+c.serial : c.serial) : '--')
+            + ' · ' + c.delivery_date + ' → ' + c.return_date
+            + (c.venue ? ' · ' + c.venue : '') + (c.contact ? ' · ' + c.contact : '')
+            + '</div>';
+    });
+    html += '</div><div style="font-size:12px;color:#fc8181;margin-top:8px;font-weight:700;">'
+          + '<i class="fa-solid fa-circle-info" style="margin-right:6px;"></i>'
+          + 'Please choose different dates or a different dress to proceed.</div></div>';
+  }
+
+  if (warnItems.length) {
+    html += '<div style="background:#7b4a0044;border:1.5px solid #ed8936;border-radius:12px;padding:16px 20px;margin-bottom:12px;">'
+          + '<div style="font-size:14px;font-weight:800;color:#fbd38d;margin-bottom:8px;">'
+          + '<i class="fa-solid fa-triangle-exclamation" style="margin-right:8px;"></i>WARNING — ' + warnItems.length + ' scheduling alert' + (warnItems.length > 1 ? 's' : '') + ' (saving is allowed)</div>'
+          + '<div style="font-size:12px;color:#fbd38d;">';
+    warnItems.forEach(function(item) {
+      var c = item.conflict;
+      var label = item.status === 'returning_warning'
+        ? 'Returning on delivery date ' + c.return_date + ' at ' + c.return_time
+        : 'Booked for delivery on return date ' + c.delivery_date + ' at ' + c.delivery_time;
+      html += '<div style="padding:6px 0;border-bottom:1px solid #ed893633;">'
+            + '<i class="fa-solid fa-shirt" style="margin-right:6px;"></i><strong>' + item.item_name + '</strong>'
+            + ' — ' + c.customer + ' · Serial #' + (c.serial ? (c.serial < 10 ? '0'+c.serial : c.serial) : '--')
+            + ' · ' + label
+            + (c.venue ? ' · Venue: ' + c.venue : '') + (c.contact ? ' · ' + c.contact : '')
+            + '</div>';
+    });
+    html += '</div></div>';
+  }
+
+  if (okItems.length && !hardItems.length && !warnItems.length) {
+    html += '<div style="background:#1a4731;border:1.5px solid #38a169;border-radius:12px;padding:12px 20px;">'
+          + '<i class="fa-solid fa-circle-check" style="color:#68d391;margin-right:8px;"></i>'
+          + '<span style="font-size:13px;color:#68d391;font-weight:700;">All dresses are available for the new dates.</span></div>';
+  }
+
+  if (html) {
+    panel.innerHTML = html;
+    panel.style.display = 'block';
+    panel.scrollIntoView({ behavior: 'smooth', block: 'nearest' });
+  } else {
+    panel.style.display = 'none';
+  }
+
+  updateSaveBtn();
+}
+
+function updateSaveBtn() {
+  var btn = document.getElementById('saveBtn');
+  if (_hasHardBlock) {
+    btn.disabled = true;
+    btn.style.opacity = '0.5';
+    btn.style.cursor  = 'not-allowed';
+    btn.innerHTML = '<i class="fa-solid fa-ban"></i> Cannot Save — Dress Already Booked';
+  } else {
+    btn.disabled = false;
+    btn.style.opacity = '';
+    btn.style.cursor  = '';
+    btn.innerHTML = '<i class="fa-solid fa-save"></i> Save Changes';
+  }
+}
+
+// ──────────────────────────────────────────────────────────────────
+// LIVE TOTAL RECALCULATION
+// ──────────────────────────────────────────────────────────────────
+function recalcTotal() {
+  var prices   = document.querySelectorAll('.item-price');
+  var advances = document.querySelectorAll('.item-advance');
+  var totalP = 0, totalA = 0;
+  prices.forEach(function(el) { totalP += parseFloat(el.value) || 0; });
+  advances.forEach(function(el) { totalA += parseFloat(el.value) || 0; });
+  document.getElementById('totalPrice').textContent    = '₹' + totalP.toLocaleString('en-IN');
+  document.getElementById('totalAdvance').textContent  = '₹' + totalA.toLocaleString('en-IN');
+  document.getElementById('totalRemaining').textContent = '₹' + (totalP - totalA).toLocaleString('en-IN');
+
+  // Update per-row remaining
+  prices.forEach(function(priceEl, idx) {
+    var itemId = priceEl.dataset.itemId;
+    var advEl  = document.querySelector('.item-advance[data-item-id="' + itemId + '"]');
+    var rem    = (parseFloat(priceEl.value) || 0) - (parseFloat(advEl ? advEl.value : 0) || 0);
+    var remCell = document.getElementById('remaining-' + itemId);
+    if (remCell) remCell.textContent = '₹' + rem.toLocaleString('en-IN');
+  });
+}
+</script>
+{% endblock %}

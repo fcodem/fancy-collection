@@ -1,0 +1,479 @@
+{% extends "base.html" %}
+{% block title %}Packing List{% endblock %}
+{% block page_title %}Packing List{% endblock %}
+{% block breadcrumb %}Items to pack for upcoming deliveries{% endblock %}
+
+{% block header_actions %}
+<button onclick="window.print()" class="btn btn-outline btn-sm no-print">
+  <i class="fa-solid fa-print"></i> Print
+</button>
+{% endblock %}
+
+{% block content %}
+
+<!-- Filter Bar -->
+<div class="card no-print" style="margin-bottom:24px;">
+  <div class="card-header">
+    <h3 class="card-title"><i class="fa-solid fa-boxes-packing" style="margin-right:8px;"></i>Filter Packing List</h3>
+  </div>
+  <div class="card-body">
+    <div class="packing-filter-grid">
+      <div>
+        <label style="font-size:11px;font-weight:700;color:var(--text-muted);text-transform:uppercase;margin-bottom:4px;display:block;">Delivery From</label>
+        <input type="date" id="plFrom" class="form-control" value="{{ today.isoformat() }}" onchange="loadPackingList()">
+      </div>
+      <div>
+        <label style="font-size:11px;font-weight:700;color:var(--text-muted);text-transform:uppercase;margin-bottom:4px;display:block;">Delivery To</label>
+        <input type="date" id="plTo" class="form-control" value="{{ today.isoformat() }}" onchange="loadPackingList()">
+      </div>
+      <div>
+        <label style="font-size:11px;font-weight:700;color:var(--text-muted);text-transform:uppercase;margin-bottom:4px;display:block;">Category</label>
+        <select id="plCategory" class="form-control" onchange="loadPackingList()">
+          <option value="">All Categories</option>
+          <optgroup label="🤵 Men's">{% for cat in mens_categories %}<option value="{{ cat }}">{{ cat }}</option>{% endfor %}</optgroup>
+          <optgroup label="👗 Women's">{% for cat in womens_categories %}<option value="{{ cat }}">{{ cat }}</option>{% endfor %}</optgroup>
+          <optgroup label="💎 Jewellery">{% for cat in jewellery_categories %}<option value="{{ cat }}">{{ cat }}</option>{% endfor %}</optgroup>
+          <optgroup label="👒 Accessories">{% for cat in accessory_categories %}<option value="{{ cat }}">{{ cat }}</option>{% endfor %}</optgroup>
+        </select>
+      </div>
+      <button onclick="loadPackingList()" class="btn btn-primary btn-sm"><i class="fa-solid fa-magnifying-glass"></i> Load</button>
+    </div>
+    <p style="font-size:11px;color:var(--text-muted);margin:10px 0 0;">
+      <i class="fa-solid fa-circle-info"></i>
+      Shows <strong>booked</strong> items only. Tick <strong>Ready</strong> checkbox to mark a dress prepared — saved automatically.
+      Enter staff names and packing comments — they appear in the Delivery panel.
+    </p>
+  </div>
+</div>
+
+<!-- Print Header -->
+<div class="print-only" style="display:none;margin-bottom:20px;padding-bottom:12px;border-bottom:2px solid #000;">
+  <div style="display:flex;justify-content:space-between;align-items:center;">
+    <div><h1 style="margin:0;font-size:22px;">👑 Fancy Collection</h1><div style="font-size:13px;">Packing List</div></div>
+    <div style="text-align:right;font-size:12px;"><div id="printDateRange"></div><div>Printed: {{ today.strftime('%d %b %Y') }}</div></div>
+  </div>
+</div>
+
+<!-- Save toast -->
+<div id="saveToast" style="display:none;position:fixed;bottom:24px;right:24px;background:#2d6a4f;color:#fff;padding:12px 20px;border-radius:10px;font-size:13px;font-weight:600;z-index:9999;box-shadow:0 4px 20px rgba(0,0,0,0.4);">
+  <i class="fa-solid fa-circle-check" style="margin-right:8px;"></i>Saved
+</div>
+
+<!-- Summary panels (rendered by JS) -->
+<div id="summarySection" style="display:none;">
+  <!-- Stats -->
+  <div id="statsBar" style="display:flex;gap:12px;margin-bottom:16px;flex-wrap:wrap;"></div>
+
+  <!-- Packed / Not-Packed side panels -->
+  <div style="display:grid;grid-template-columns:1fr 1fr;gap:16px;margin-bottom:28px;">
+
+    <!-- Not Packed -->
+    <div class="card" style="border-left:4px solid #e53e3e;">
+      <div class="card-header" style="padding:12px 16px;background:#7b2d2d22;cursor:pointer;" onclick="togglePanel('notPackedPanel', this)">
+        <h3 class="card-title" style="color:#fc8181;font-size:14px;">
+          <i class="fa-solid fa-circle-xmark" style="margin-right:8px;"></i>
+          <span id="notPackedHeader">Not Packed</span>
+        </h3>
+        <i class="fa-solid fa-chevron-down" style="color:#fc8181;font-size:12px;" id="notPackedChevron"></i>
+      </div>
+      <div id="notPackedPanel"></div>
+    </div>
+
+    <!-- Packed -->
+    <div class="card" style="border-left:4px solid #38a169;">
+      <div class="card-header" style="padding:12px 16px;background:#2d6a4f22;cursor:pointer;" onclick="togglePanel('packedPanel', this)">
+        <h3 class="card-title" style="color:#68d391;font-size:14px;">
+          <i class="fa-solid fa-circle-check" style="margin-right:8px;"></i>
+          <span id="packedHeader">Packed</span>
+        </h3>
+        <i class="fa-solid fa-chevron-down" style="color:#68d391;font-size:12px;" id="packedChevron"></i>
+      </div>
+      <div id="packedPanel"></div>
+    </div>
+  </div>
+
+  <!-- Divider -->
+  <div style="display:flex;align-items:center;gap:12px;margin-bottom:20px;" class="no-print">
+    <div style="flex:1;height:1px;background:var(--border);"></div>
+    <span style="font-size:12px;font-weight:700;color:var(--text-muted);text-transform:uppercase;letter-spacing:1px;">Full Packing Details</span>
+    <div style="flex:1;height:1px;background:var(--border);"></div>
+  </div>
+</div>
+
+<div id="packingResults"></div>
+<div id="packingEmpty" style="text-align:center;padding:48px;color:var(--text-muted);">
+  <i class="fa-solid fa-boxes-packing" style="font-size:48px;opacity:0.2;margin-bottom:16px;display:block;"></i>
+  <p style="font-size:15px;">Select delivery dates to see packing list.</p>
+</div>
+
+{% endblock %}
+
+{% block scripts %}
+<script>
+/* ─── global state ─── */
+window._packingData = [];
+var _toastTimer;
+
+function showToast() {
+  var t = document.getElementById('saveToast');
+  t.style.display = 'block';
+  clearTimeout(_toastTimer);
+  _toastTimer = setTimeout(function(){ t.style.display = 'none'; }, 2000);
+}
+
+/* ─── persist any field ─── */
+function saveField(biId, field, value) {
+  if (!biId) return;
+  var payload = { bi_id: biId };
+  payload[field] = value;
+  fetch('/api/packing-list/save-item', {
+    method: 'POST',
+    headers: {'Content-Type': 'application/json'},
+    body: JSON.stringify(payload)
+  }).then(function(r){ return r.json(); }).then(function(d){
+    if (!d.ok) return;
+    showToast();
+    /* update in-memory cache */
+    window._packingData.forEach(function(b){
+      b.items.forEach(function(item){
+        if (item.bi_id === biId) {
+          if ('prepared_by'    in d) item.prepared_by    = d.prepared_by;
+          if ('checked_by'     in d) item.checked_by     = d.checked_by;
+          if ('is_packed_ready'in d) item.is_packed_ready = d.is_packed_ready;
+          if ('packing_note'   in d) item.packing_note   = d.packing_note;
+        }
+      });
+    });
+    renderSummary();
+  });
+}
+
+/* save all fields of a dress card at once */
+function saveAllFields(biId) {
+  if (!biId) return;
+  var el = document.querySelector('[data-bi-id="' + biId + '"]');
+  if (!el) return;
+  var pb  = el.querySelector('.inp-prepared');
+  var cb  = el.querySelector('.inp-checked');
+  var pn  = el.querySelector('.inp-packing-note');
+  var rdy = el.querySelector('.inp-ready');
+  var payload = {
+    bi_id: biId,
+    prepared_by: pb  ? pb.value.trim()  : '',
+    checked_by:  cb  ? cb.value.trim()  : '',
+    packing_note:pn  ? pn.value.trim()  : '',
+    is_packed_ready: rdy ? rdy.checked : false,
+  };
+  fetch('/api/packing-list/save-item', {
+    method: 'POST',
+    headers: {'Content-Type': 'application/json'},
+    body: JSON.stringify(payload)
+  }).then(function(r){ return r.json(); }).then(function(d){
+    if (!d.ok) return;
+    showToast();
+    window._packingData.forEach(function(b){
+      b.items.forEach(function(item){
+        if (item.bi_id === biId) {
+          item.prepared_by     = d.prepared_by;
+          item.checked_by      = d.checked_by;
+          item.is_packed_ready = d.is_packed_ready;
+          item.packing_note    = d.packing_note;
+        }
+      });
+    });
+    renderSummary();
+    /* update ready badge in detail card */
+    var badge = document.getElementById('readyBadge_' + biId);
+    if (badge) {
+      badge.style.display = d.is_packed_ready ? 'inline-flex' : 'none';
+    }
+  });
+}
+
+/* ─── summary panel toggle ─── */
+function togglePanel(panelId, headerEl) {
+  var p = document.getElementById(panelId);
+  var chevronId = panelId === 'notPackedPanel' ? 'notPackedChevron' : 'packedChevron';
+  var ch = document.getElementById(chevronId);
+  if (p.style.display === 'none') {
+    p.style.display = 'block';
+    if (ch) ch.style.transform = 'rotate(180deg)';
+  } else {
+    p.style.display = 'none';
+    if (ch) ch.style.transform = 'rotate(0deg)';
+  }
+}
+
+/* ─── render summary panels ─── */
+function renderSummary() {
+  var data = window._packingData;
+  var packed = [], notPacked = [];
+  data.forEach(function(b){
+    b.items.forEach(function(item){
+      var e = {
+        bi_id: item.bi_id,
+        dress_name: item.dress_name,
+        size: item.size || '',
+        customer_name: b.customer_name,
+        serial_no: b.serial_no,
+        delivery_date: b.delivery_date,
+        delivery_time: b.delivery_time,
+        venue: b.venue || '',
+        prepared_by: item.prepared_by || '',
+        checked_by:  item.checked_by  || '',
+        is_packed_ready: item.is_packed_ready,
+        packing_note: item.packing_note || '',
+      };
+      (item.is_packed_ready ? packed : notPacked).push(e);
+    });
+  });
+
+  var total = packed.length + notPacked.length;
+
+  /* stats bar */
+  document.getElementById('statsBar').innerHTML =
+    '<div style="background:var(--primary);color:white;padding:10px 20px;border-radius:10px;font-size:13px;font-weight:600;"><i class="fa-solid fa-boxes-packing" style="margin-right:6px;"></i>' + total + ' Total</div>'
+    + '<div style="background:#2d6a4f;color:#95f5c8;padding:10px 20px;border-radius:10px;font-size:13px;font-weight:600;cursor:pointer;" onclick="togglePanel(\'packedPanel\')"><i class="fa-solid fa-circle-check" style="margin-right:6px;"></i>' + packed.length + ' Ready</div>'
+    + '<div style="background:#7b2d2d;color:#feb2b2;padding:10px 20px;border-radius:10px;font-size:13px;font-weight:600;cursor:pointer;" onclick="togglePanel(\'notPackedPanel\')"><i class="fa-solid fa-circle-xmark" style="margin-right:6px;"></i>' + notPacked.length + ' Pending</div>';
+
+  document.getElementById('notPackedHeader').textContent = 'Not Packed / Pending (' + notPacked.length + ')';
+  document.getElementById('packedHeader').textContent = 'Packed / Ready (' + packed.length + ')';
+
+  function panelRow(item) {
+    var h = '<div style="padding:12px 16px;border-bottom:1px solid var(--border);">';
+    /* top row */
+    h += '<div style="display:flex;align-items:center;gap:10px;">';
+    /* Ready toggle */
+    h += '<input type="checkbox" class="sum-ready" data-biid="' + item.bi_id + '"'
+       + (item.is_packed_ready ? ' checked' : '')
+       + ' onchange="saveField(' + item.bi_id + ',\'is_packed_ready\',this.checked);renderDetailReady(' + item.bi_id + ',this.checked);"'
+       + ' style="width:18px;height:18px;cursor:pointer;accent-color:#38a169;flex-shrink:0;" title="Mark as Ready">';
+    h += '<div style="flex:1;">';
+    h += '<div style="font-weight:700;font-size:13px;">' + (item.display_name || item.dress_name);
+    if (item.size) h += ' <span style="font-size:10px;background:var(--bg);padding:1px 6px;border-radius:8px;">' + item.size + '</span>';
+    h += '</div>';
+    h += '<div style="font-size:11px;color:var(--text-muted);">'
+       + item.customer_name
+       + ' · <span style="color:var(--gold);">S#' + String(item.serial_no||0).padStart(2,'0') + '</span>'
+       + ' · ' + item.delivery_date
+       + (item.venue ? ' · ' + item.venue : '')
+       + '</div>';
+    h += '</div>';
+    if (item.is_packed_ready) {
+      h += '<span style="font-size:10px;background:#2d6a4f44;color:#68d391;padding:3px 10px;border-radius:12px;font-weight:700;">✓ Ready</span>';
+    } else {
+      h += '<span style="font-size:10px;background:#7b2d2d44;color:#fc8181;padding:3px 10px;border-radius:12px;font-weight:700;">Pending</span>';
+    }
+    h += '</div>';
+
+    /* Prepared / Checked inputs */
+    if (item.bi_id) {
+      h += '<div style="display:grid;grid-template-columns:1fr 1fr;gap:8px;margin-top:8px;">';
+      h += '<input type="text" placeholder="Prepared by" class="form-control" value="' + item.prepared_by.replace(/"/g,'&quot;') + '"'
+         + ' onchange="saveField(' + item.bi_id + ',\'prepared_by\',this.value)"'
+         + ' style="font-size:11px;padding:5px 8px;">';
+      h += '<input type="text" placeholder="Checked by" class="form-control" value="' + item.checked_by.replace(/"/g,'&quot;') + '"'
+         + ' onchange="saveField(' + item.bi_id + ',\'checked_by\',this.value)"'
+         + ' style="font-size:11px;padding:5px 8px;">';
+      h += '</div>';
+    }
+    h += '</div>';
+    return h;
+  }
+
+  var npEl = document.getElementById('notPackedPanel');
+  npEl.innerHTML = notPacked.length === 0
+    ? '<div style="padding:20px;text-align:center;color:#68d391;font-size:13px;"><i class="fa-solid fa-circle-check" style="margin-right:6px;"></i>All items are ready!</div>'
+    : notPacked.map(panelRow).join('');
+
+  var pkEl = document.getElementById('packedPanel');
+  pkEl.innerHTML = packed.length === 0
+    ? '<div style="padding:20px;text-align:center;color:var(--text-muted);font-size:13px;">No items marked ready yet.</div>'
+    : packed.map(panelRow).join('');
+}
+
+/* sync ready badge in detail card */
+function renderDetailReady(biId, isReady) {
+  var badge = document.getElementById('readyBadge_' + biId);
+  if (badge) badge.style.display = isReady ? 'inline-flex' : 'none';
+}
+
+/* ─── main load ─── */
+function loadPackingList() {
+  var dd  = document.getElementById('plFrom').value;
+  var rd  = document.getElementById('plTo').value;
+  var cat = document.getElementById('plCategory').value;
+  if (!dd) return;
+
+  var rangeEl = document.getElementById('printDateRange');
+  if (rangeEl) rangeEl.textContent = 'Delivery: ' + dd + (rd && rd !== dd ? ' to ' + rd : '');
+
+  var url = '/api/packing-list?delivery_date=' + dd;
+  if (rd) url += '&return_date=' + rd;
+  if (cat) url += '&category=' + encodeURIComponent(cat);
+
+  fetch(url).then(function(r){ return r.json(); }).then(function(data) {
+    window._packingData = data;
+    var container = document.getElementById('packingResults');
+    var empty     = document.getElementById('packingEmpty');
+    var summary   = document.getElementById('summarySection');
+
+    if (!data.length) {
+      container.innerHTML = '';
+      summary.style.display = 'none';
+      empty.style.display = 'block';
+      empty.innerHTML = '<i class="fa-solid fa-boxes-packing" style="font-size:48px;opacity:0.2;margin-bottom:16px;display:block;"></i>'
+        + '<p style="font-size:15px;">No items to pack for the selected date range.</p>';
+      return;
+    }
+
+    empty.style.display = 'none';
+    summary.style.display = 'block';
+    renderSummary();
+
+    /* ─── Full detail cards ─── */
+    var html = '';
+    data.forEach(function(b) {
+      html += '<div class="card" style="margin-bottom:24px;border-left:4px solid var(--primary);">';
+
+      /* card header: customer info */
+      html += '<div class="card-header" style="padding:14px 20px;">';
+      html += '<div style="display:flex;align-items:center;gap:12px;flex:1;">';
+      html += '<div style="width:34px;height:34px;border-radius:50%;background:linear-gradient(135deg,var(--primary),var(--primary-light));color:white;display:flex;align-items:center;justify-content:center;font-weight:700;font-size:13px;">'
+            + String(b.serial_no||0).padStart(2,'0') + '</div>';
+      html += '<div>';
+      html += '<div style="font-weight:700;font-size:14px;">' + b.customer_name + '</div>';
+      html += '<div style="font-size:11px;color:var(--text-muted);margin-top:2px;">';
+      html += '<i class="fa-solid fa-phone" style="margin-right:3px;"></i>' + b.contact_1;
+      if (b.whatsapp_no) html += ' &nbsp;<i class="fa-brands fa-whatsapp" style="color:#25d366;margin-right:3px;"></i>' + b.whatsapp_no;
+      html += '</div>';
+      if (b.customer_address) html += '<div style="font-size:11px;color:var(--text-muted);"><i class="fa-solid fa-map-marker-alt" style="margin-right:3px;"></i>' + b.customer_address + '</div>';
+      html += '</div></div>';
+      /* right: dates */
+      html += '<div style="text-align:right;font-size:12px;">';
+      html += '<div style="font-weight:700;color:var(--gold);"><i class="fa-solid fa-truck-fast" style="margin-right:4px;"></i>' + b.delivery_date + ' · ' + b.delivery_time + '</div>';
+      html += '<div style="color:var(--text-muted);"><i class="fa-solid fa-rotate-left" style="margin-right:4px;"></i>' + b.return_date + ' · ' + b.return_time + '</div>';
+      if (b.venue) html += '<div style="color:var(--text-muted);"><i class="fa-solid fa-location-dot" style="margin-right:4px;"></i>' + b.venue + '</div>';
+      html += '<div style="margin-top:4px;"><strong>Total: ₹' + Number(b.total_price).toLocaleString() + '</strong>';
+      if (b.total_remaining > 0) html += ' <span style="color:#fc8181;">· Bal: ₹' + Number(b.total_remaining).toLocaleString() + '</span>';
+      html += '</div>';
+      if (b.staff_names) html += '<div style="font-size:11px;color:var(--text-muted);"><i class="fa-solid fa-user-tie" style="margin-right:3px;"></i>' + b.staff_names + '</div>';
+      html += '</div></div>'; /* end card-header */
+
+      /* Common notes */
+      if (b.common_notes) {
+        html += '<div style="padding:8px 20px;background:#1a1a30;border-top:1px solid var(--border);font-size:12px;font-style:italic;">'
+              + '<i class="fa-solid fa-note-sticky" style="margin-right:6px;color:#d4af37;"></i>'
+              + '<strong style="color:#d4af37;">Common Note:</strong> <span style="color:#e2e8f0;">' + b.common_notes + '</span></div>';
+      }
+
+      /* Items */
+      html += '<div class="card-body" style="padding:0;">';
+      b.items.forEach(function(item) {
+        var biId = item.bi_id;
+        html += '<div style="padding:16px 20px;border-top:1px solid var(--border);" data-bi-id="' + biId + '">';
+
+        /* returning warning */
+        if (item.returning_warning) {
+          var rw = item.returning_warning;
+          html += '<div style="margin-bottom:10px;padding:8px 12px;background:#7b2d0022;border:1px solid #e53e3e55;border-radius:8px;font-size:11px;color:#fc8181;">'
+                + '<i class="fa-solid fa-triangle-exclamation" style="margin-right:6px;"></i>'
+                + '<strong>Returning on delivery date</strong> from '
+                + rw.customer + ' · S#' + String(rw.serial_no||0).padStart(2,'0')
+                + ' · Return time: ' + rw.return_time
+                + (rw.venue ? ' · ' + rw.venue : '')
+                + ' · ' + rw.contact
+                + '</div>';
+        }
+
+        /* item top row */
+        html += '<div style="display:flex;gap:14px;align-items:flex-start;">';
+        /* Ready checkbox */
+        html += '<div style="display:flex;flex-direction:column;align-items:center;gap:4px;padding-top:4px;">';
+        html += '<input type="checkbox" class="inp-ready" onchange="saveAllFields(' + biId + ')"'
+              + (item.is_packed_ready ? ' checked' : '')
+              + ' style="width:20px;height:20px;cursor:pointer;accent-color:#38a169;" title="Mark as Ready">';
+        html += '<span style="font-size:9px;color:var(--text-muted);text-transform:uppercase;">Ready</span>';
+        html += '</div>';
+        /* photo */
+        if (item.photo) {
+          html += '<img src="/static/uploads/' + item.photo + '" style="width:58px;height:58px;border-radius:8px;object-fit:cover;border:1px solid var(--border);">';
+        } else {
+          html += '<div style="width:58px;height:58px;border-radius:8px;background:var(--surface2,#252538);display:flex;align-items:center;justify-content:center;font-size:26px;">👗</div>';
+        }
+        /* name + details */
+        html += '<div style="flex:1;">';
+        html += '<div style="display:flex;align-items:center;gap:8px;flex-wrap:wrap;">';
+        html += '<span style="font-weight:700;font-size:14px;">' + (item.display_name || item.dress_name) + '</span>';
+        if (item.size) html += '<span style="font-size:11px;background:var(--surface2,#252538);padding:2px 8px;border-radius:8px;">' + item.size + '</span>';
+        html += '<span id="readyBadge_' + biId + '" style="display:' + (item.is_packed_ready ? 'inline-flex' : 'none') + ';align-items:center;gap:4px;font-size:11px;background:#2d6a4f44;color:#68d391;padding:2px 10px;border-radius:12px;font-weight:700;">'
+              + '<i class="fa-solid fa-circle-check"></i> Ready</span>';
+        html += '</div>';
+        html += '<div style="font-size:11px;color:var(--text-muted);margin-top:2px;">' + (item.category||'') + '</div>';
+        /* booking note */
+        if (item.notes) {
+          html += '<div style="margin-top:6px;padding:6px 10px;background:#2a2a10;border:1px solid #6b6b0066;border-radius:6px;font-size:11px;">'
+                + '<span style="color:#f6e05e;font-weight:600;"><i class="fa-solid fa-note-sticky" style="margin-right:4px;"></i>Booking Note:</span>'
+                + ' <span style="color:#fefce8;">' + item.notes + '</span></div>';
+        }
+        html += '</div>';
+        /* price */
+        html += '<div style="text-align:right;min-width:85px;">';
+        html += '<div style="font-weight:700;font-size:13px;">₹' + Number(item.price).toLocaleString() + '</div>';
+        if (item.remaining > 0) html += '<div style="font-size:11px;color:#fc8181;">Bal: ₹' + Number(item.remaining).toLocaleString() + '</div>';
+        html += '</div>';
+        html += '</div>'; /* end top row */
+
+        /* ── Prepared / Checked / Packing Note ── */
+        if (biId) {
+          html += '<div style="margin-top:12px;display:grid;grid-template-columns:1fr 1fr;gap:10px;" class="no-print">';
+          html += '<div>'
+                + '<label style="font-size:10px;font-weight:700;text-transform:uppercase;letter-spacing:0.5px;color:#68d391;display:block;margin-bottom:4px;">'
+                + '<i class="fa-solid fa-person-digging" style="margin-right:4px;"></i>Prepared by</label>'
+                + '<input type="text" class="form-control inp-prepared" placeholder="Name of person who prepared..." value="' + item.prepared_by.replace(/"/g,'&quot;') + '"'
+                + ' onchange="saveAllFields(' + biId + ')" style="font-size:12px;padding:7px 10px;"></div>';
+          html += '<div>'
+                + '<label style="font-size:10px;font-weight:700;text-transform:uppercase;letter-spacing:0.5px;color:#63b3ed;display:block;margin-bottom:4px;">'
+                + '<i class="fa-solid fa-eye" style="margin-right:4px;"></i>Checked by</label>'
+                + '<input type="text" class="form-control inp-checked" placeholder="Name of person who checked..." value="' + item.checked_by.replace(/"/g,'&quot;') + '"'
+                + ' onchange="saveAllFields(' + biId + ')" style="font-size:12px;padding:7px 10px;"></div>';
+          html += '</div>';
+          /* Packing note */
+          html += '<div style="margin-top:8px;" class="no-print">';
+          html += '<label style="font-size:10px;font-weight:700;text-transform:uppercase;letter-spacing:0.5px;color:#d4af37;display:block;margin-bottom:4px;">'
+                + '<i class="fa-solid fa-comment" style="margin-right:4px;"></i>Staff Packing Note (shown in Delivery panel)</label>';
+          html += '<textarea class="form-control inp-packing-note" rows="2" placeholder="Write comment for owner about this dress packing..."'
+                + ' onchange="saveAllFields(' + biId + ')" style="font-size:12px;padding:7px 10px;resize:vertical;">'
+                + item.packing_note.replace(/</g,'&lt;').replace(/>/g,'&gt;') + '</textarea>';
+          html += '</div>';
+          /* print-only packing info */
+          if (item.prepared_by || item.checked_by || item.packing_note) {
+            html += '<div class="print-only" style="display:none;margin-top:6px;font-size:11px;">';
+            if (item.prepared_by) html += '<span style="margin-right:14px;"><strong>Prepared:</strong> ' + item.prepared_by + '</span>';
+            if (item.checked_by)  html += '<span style="margin-right:14px;"><strong>Checked:</strong> '  + item.checked_by  + '</span>';
+            if (item.packing_note)html += '<div><strong>Comment:</strong> ' + item.packing_note + '</div>';
+            html += '</div>';
+          }
+        }
+        html += '</div>'; /* end item block */
+      }); /* end items */
+
+      html += '</div></div>'; /* end card-body + card */
+    }); /* end bookings */
+
+    container.innerHTML = html;
+  });
+}
+
+document.addEventListener('DOMContentLoaded', loadPackingList);
+</script>
+
+<style>
+@media print {
+  .print-only { display:block !important; }
+  .no-print   { display:none  !important; }
+  .card { border:1px solid #ddd !important; break-inside:avoid; margin-bottom:12px !important; }
+  #summarySection { display:none !important; }
+}
+</style>
+{% endblock %}

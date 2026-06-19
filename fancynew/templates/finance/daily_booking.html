@@ -1,0 +1,83 @@
+{% extends "base.html" %}
+{% block title %}Daily Booking Amount{% endblock %}
+{% block page_title %}Daily Booking Amount{% endblock %}
+{% block breadcrumb %}Finance → Daily Booking Amount{% endblock %}
+
+{% block content %}
+<div class="card">
+  <div class="card-header">
+    <h3 class="card-title"><i class="fa-solid fa-receipt" style="margin-right:8px;"></i>Daily Booking Amount</h3>
+    <button onclick="window.print()" class="btn btn-outline btn-sm no-print"><i class="fa-solid fa-print"></i> Print</button>
+  </div>
+  <div class="card-body">
+    <div style="display:flex; gap:12px; margin-bottom:20px; align-items:end;">
+      <div>
+        <label style="font-size:11px; font-weight:700; text-transform:uppercase; color:var(--text-muted);">Select Date</label>
+        <input type="date" id="bookDate" class="form-control" value="{{ today.isoformat() }}" onchange="loadData()">
+      </div>
+    </div>
+
+    <div style="display:grid; grid-template-columns:repeat(4, 1fr); gap:16px; margin-bottom:24px;">
+      <div style="background:linear-gradient(135deg,var(--primary-dark),var(--primary)); padding:20px; border-radius:12px; text-align:center; color:white;">
+        <div style="font-size:12px; font-weight:700; text-transform:uppercase; opacity:0.8;">Total Booking Amount</div>
+        <div id="grandTotal" style="font-size:28px; font-weight:800;">₹0</div>
+      </div>
+      <div style="background:linear-gradient(135deg,#E8F5E9,#C8E6C9); padding:20px; border-radius:12px; text-align:center;">
+        <div style="font-size:12px; font-weight:700; color:#2E7D32; text-transform:uppercase;">Men's Total</div>
+        <div id="mensTotal" style="font-size:28px; font-weight:800; color:#1B5E20;">₹0</div>
+      </div>
+      <div style="background:linear-gradient(135deg,#FCE4EC,#F8BBD0); padding:20px; border-radius:12px; text-align:center;">
+        <div style="font-size:12px; font-weight:700; color:#880E4F; text-transform:uppercase;">Women's Total</div>
+        <div id="womensTotal" style="font-size:28px; font-weight:800; color:#880E4F;">₹0</div>
+      </div>
+      <div style="background:linear-gradient(135deg,#FFF8E1,#FFE082); padding:20px; border-radius:12px; text-align:center;">
+        <div style="font-size:12px; font-weight:700; color:#F57F17; text-transform:uppercase;">Jewellery Total</div>
+        <div id="jewelleryTotal" style="font-size:28px; font-weight:800; color:#F57F17;">₹0</div>
+      </div>
+    </div>
+
+    <div style="display:grid; grid-template-columns:1fr 1fr; gap:24px;">
+      <div>
+        <h4 style="font-size:14px; margin-bottom:12px;">Category Wise Breakdown</h4>
+        <canvas id="catChart" height="250"></canvas>
+      </div>
+      <div id="catTable"></div>
+    </div>
+  </div>
+</div>
+{% endblock %}
+
+{% block scripts %}
+<script>
+let catChart;
+function loadData() {
+  const dt = document.getElementById('bookDate').value;
+  fetch('/api/finance/daily-booking?date=' + dt)
+    .then(r => r.json())
+    .then(data => {
+      document.getElementById('grandTotal').textContent = '₹' + Number(data.grand_total).toLocaleString('en-IN');
+      document.getElementById('mensTotal').textContent = '₹' + Number(data.mens_total).toLocaleString('en-IN');
+      document.getElementById('womensTotal').textContent = '₹' + Number(data.womens_total).toLocaleString('en-IN');
+      document.getElementById('jewelleryTotal').textContent = '₹' + Number(data.jewellery_total || 0).toLocaleString('en-IN');
+
+      const labels = Object.keys(data.total_by_category);
+      const values = Object.values(data.total_by_category);
+      const colors = ['#7B1F45','#C9A846','#2E7D32','#1565C0','#E65100','#6A1B9A','#00838F','#BF360C','#4E342E','#1A237E'];
+
+      if (catChart) catChart.destroy();
+      catChart = new Chart(document.getElementById('catChart'), {
+        type: 'pie', data: { labels, datasets: [{ data: values, backgroundColor: colors }] },
+        options: { plugins: { legend: { position: 'bottom', labels: { font: { size: 10 } } } } }
+      });
+
+      let html = '<table class="data-table"><thead><tr><th>Category</th><th>Amount</th></tr></thead><tbody>';
+      labels.forEach((cat, i) => {
+        html += `<tr><td>${cat}</td><td><strong>₹${values[i].toLocaleString('en-IN')}</strong></td></tr>`;
+      });
+      html += '</tbody></table>';
+      document.getElementById('catTable').innerHTML = html;
+    });
+}
+document.addEventListener('DOMContentLoaded', loadData);
+</script>
+{% endblock %}

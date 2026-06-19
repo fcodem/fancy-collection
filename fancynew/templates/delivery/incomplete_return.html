@@ -1,0 +1,62 @@
+{% extends "base.html" %}
+{% block title %}Incomplete Returns{% endblock %}
+{% block page_title %}Incomplete Returns{% endblock %}
+{% block breadcrumb %}Bookings with missing items{% endblock %}
+
+{% block content %}
+<div class="card">
+  <div class="card-header">
+    <h3 class="card-title"><i class="fa-solid fa-circle-exclamation" style="margin-right:8px; color:#f39c12;"></i>Incomplete Return Records</h3>
+    <button onclick="window.print()" class="btn btn-outline btn-sm no-print"><i class="fa-solid fa-print"></i> Print</button>
+  </div>
+  <div class="card-body p-0">
+    {% if bookings %}
+    <table class="data-table">
+      <thead>
+        <tr>
+          <th>S.No</th>
+          <th>Customer</th>
+          <th>Phone</th>
+          <th>Items</th>
+          <th>Missing Notes</th>
+          <th>Security Held</th>
+          <th>Returned On</th>
+          <th>Action</th>
+        </tr>
+      </thead>
+      <tbody>
+        {% for b in bookings %}
+        <tr>
+          <td>{{ '%02d'|format(b.monthly_serial) }}</td>
+          <td>{{ b.customer_name }}</td>
+          <td>{{ b.contact_1 }}</td>
+          <td>
+            {% for bi in b.booking_items %}
+            <span class="badge badge-info" style="margin:2px;">{{ bi.dress_name|dress_label(bi.category, bi.size) }}</span>
+            {% endfor %}
+          </td>
+          <td>{{ b.incomplete_notes or '-' }}</td>
+          <td style="font-weight:700; color:#dc3545;">₹{{ '{:,.0f}'.format(b.security_held or 0) }}</td>
+          <td>{{ b.returned_at.strftime('%d-%b-%Y') if b.returned_at else '-' }}</td>
+          <td>
+            <form action="{{ url_for('incomplete_return_resolve', booking_id=b.id) }}" method="POST" style="display:inline;">
+              <button type="submit" class="btn btn-sm btn-success"
+                      onclick="return confirm('Mark as fully returned? Security ₹{{ '{:,.0f}'.format(b.security_held or 0) }} will be deducted from total.')">
+                <i class="fa-solid fa-check"></i> Resolve
+              </button>
+            </form>
+            <a href="{{ url_for('booking_return_detail', booking_id=b.id) }}" class="btn btn-sm btn-outline">View</a>
+          </td>
+        </tr>
+        {% endfor %}
+      </tbody>
+    </table>
+    {% else %}
+    <div style="text-align:center; padding:40px; color:#999;">
+      <i class="fa-solid fa-check-circle" style="font-size:48px; margin-bottom:12px; color:#28a745;"></i>
+      <p>No incomplete returns! All items accounted for.</p>
+    </div>
+    {% endif %}
+  </div>
+</div>
+{% endblock %}

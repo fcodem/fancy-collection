@@ -1,0 +1,177 @@
+<!DOCTYPE html>
+<html lang="en">
+<head>
+  <meta charset="UTF-8">
+  <meta name="viewport" content="width=device-width, initial-scale=1.0, viewport-fit=cover">
+  <title>Awaiting Approval – Fancy Collection</title>
+  <link rel="stylesheet" href="{{ url_for('static', filename='css/style.css') }}">
+  <link rel="stylesheet" href="https://cdnjs.cloudflare.com/ajax/libs/font-awesome/6.5.0/css/all.min.css">
+  <style>
+    body {
+      background: var(--cream);
+      display: flex;
+      align-items: center;
+      justify-content: center;
+      min-height: 100vh;
+      margin: 0;
+      padding: 16px;
+    }
+    .pending-box {
+      background: var(--white);
+      border: 1.5px solid var(--border);
+      border-radius: 16px;
+      padding: 40px 32px;
+      width: 100%;
+      max-width: 440px;
+      box-shadow: var(--shadow-lg);
+      text-align: center;
+    }
+    .pending-icon {
+      width: 72px;
+      height: 72px;
+      margin: 0 auto 20px;
+      border-radius: 50%;
+      background: linear-gradient(135deg, var(--warning-bg), #fff8e0);
+      display: flex;
+      align-items: center;
+      justify-content: center;
+      font-size: 32px;
+      color: var(--warning);
+      animation: pulse 2s ease-in-out infinite;
+    }
+    @keyframes pulse {
+      0%, 100% { transform: scale(1); opacity: 1; }
+      50% { transform: scale(1.05); opacity: 0.85; }
+    }
+    .pending-title {
+      font-family: 'Playfair Display', serif;
+      font-size: 22px;
+      color: var(--primary);
+      margin-bottom: 8px;
+    }
+    .pending-user {
+      font-size: 16px;
+      font-weight: 700;
+      color: var(--text-dark);
+      margin-bottom: 12px;
+    }
+    .pending-msg {
+      font-size: 13px;
+      color: var(--text-muted);
+      line-height: 1.6;
+      margin-bottom: 24px;
+    }
+    .pending-status {
+      display: inline-flex;
+      align-items: center;
+      gap: 8px;
+      padding: 10px 18px;
+      border-radius: 30px;
+      background: var(--warning-bg);
+      color: var(--warning);
+      font-size: 13px;
+      font-weight: 600;
+      margin-bottom: 24px;
+    }
+    .spinner {
+      width: 16px;
+      height: 16px;
+      border: 2px solid rgba(184,134,11,0.3);
+      border-top-color: var(--warning);
+      border-radius: 50%;
+      animation: spin 0.8s linear infinite;
+    }
+    @keyframes spin { to { transform: rotate(360deg); } }
+    .pending-actions { display: flex; gap: 10px; justify-content: center; flex-wrap: wrap; }
+    .alert-box {
+      display: none;
+      padding: 12px 16px;
+      border-radius: 10px;
+      font-size: 13px;
+      margin-bottom: 16px;
+      text-align: left;
+    }
+    .alert-box.error { background: var(--danger-bg); color: var(--danger); border: 1px solid #f5c6cb; }
+    .alert-box.warning { background: var(--warning-bg); color: var(--warning); border: 1px solid #ffc107; }
+  </style>
+</head>
+<body>
+  <div class="pending-box">
+    <div class="pending-icon"><i class="fa-solid fa-user-clock"></i></div>
+    <h1 class="pending-title">Awaiting Owner Approval</h1>
+    <div class="pending-user">{{ username }}</div>
+    <p class="pending-msg">
+      Your login request has been sent to the <strong>owner</strong>.
+      Please wait here — you will be logged in automatically once approved.
+    </p>
+
+    <div id="statusAlert" class="alert-box"></div>
+
+    <div class="pending-status" id="pendingStatus">
+      <span class="spinner"></span>
+      Waiting for owner to allow login…
+    </div>
+
+    <div class="pending-actions">
+      <a href="{{ url_for('login') }}" class="btn btn-outline" id="backBtn" style="display:none;">
+        <i class="fa-solid fa-arrow-left"></i> Back to Login
+      </a>
+      <button type="button" class="btn btn-outline" onclick="location.reload()">
+        <i class="fa-solid fa-rotate"></i> Refresh
+      </button>
+    </div>
+  </div>
+
+  <script>
+  (function() {
+    var alertBox = document.getElementById('statusAlert');
+    var statusEl = document.getElementById('pendingStatus');
+    var backBtn = document.getElementById('backBtn');
+    var polling = true;
+
+    function showAlert(msg, type) {
+      alertBox.className = 'alert-box ' + type;
+      alertBox.innerHTML = '<i class="fa-solid fa-circle-' + (type === 'error' ? 'xmark' : 'exclamation') + '" style="margin-right:6px;"></i>' + msg;
+      alertBox.style.display = 'block';
+    }
+
+    function checkStatus() {
+      if (!polling) return;
+      fetch('/api/login-request/status')
+        .then(function(r) { return r.json(); })
+        .then(function(data) {
+          if (data.status === 'approved') {
+            polling = false;
+            statusEl.innerHTML = '<i class="fa-solid fa-circle-check" style="color:var(--success);"></i> Approved! Redirecting…';
+            statusEl.style.background = 'var(--success-bg)';
+            statusEl.style.color = 'var(--success)';
+            window.location.href = data.redirect || '/';
+            return;
+          }
+          if (data.status === 'rejected') {
+            polling = false;
+            statusEl.style.display = 'none';
+            showAlert(data.message || 'Owner denied your login request.', 'error');
+            backBtn.style.display = 'inline-flex';
+            return;
+          }
+          if (data.status === 'expired') {
+            polling = false;
+            statusEl.style.display = 'none';
+            showAlert(data.message || 'Request expired.', 'warning');
+            backBtn.style.display = 'inline-flex';
+            return;
+          }
+          if (data.status === 'pending') {
+            statusEl.innerHTML = '<span class="spinner"></span> Waiting for owner to allow login…';
+          }
+        })
+        .catch(function() {});
+    }
+
+    checkStatus();
+    setInterval(checkStatus, 2500);
+  })();
+  </script>
+</body>
+</html>

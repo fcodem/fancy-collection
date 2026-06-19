@@ -1,0 +1,1013 @@
+{% extends "base.html" %}
+
+{% block title %}Dashboard{% endblock %}
+{% block page_title %}Dashboard{% endblock %}
+{% block breadcrumb %}Welcome back! Here's your business overview.{% endblock %}
+
+{% block header_actions %}
+<a href="{{ url_for('booking_new') }}" class="btn btn-primary">
+  <i class="fa-solid fa-plus"></i> New Booking
+</a>
+{% endblock %}
+
+{% block content %}
+
+{% if is_owner %}
+<!-- ── Active Staff Sessions (Owner only) ─────────────────────── -->
+<div id="activeStaffPanel" class="card" style="margin-bottom:20px;{% if not active_staff_sessions %}display:none;{% endif %} border:2px solid var(--success);">
+  <div class="card-header" style="background:linear-gradient(135deg, rgba(26,122,74,0.12), rgba(26,122,74,0.04));">
+    <h3 class="card-title" style="color:var(--success);">
+      <i class="fa-solid fa-users-gear" style="margin-right:8px;"></i>Staff Currently Logged In
+      <span id="activeStaffBadge" class="nav-badge" style="margin-left:8px;background:var(--success);">{{ active_staff_sessions|length }}</span>
+    </h3>
+    <span style="font-size:11px;color:var(--text-muted);">Shows which staff ID is in use · one-click logout</span>
+  </div>
+  <div class="card-body p-0" id="activeStaffList">
+    {% for s in active_staff_sessions %}
+    <div class="active-staff-row" data-session-id="{{ s.id }}" style="display:flex;align-items:center;gap:14px;padding:14px 20px;border-bottom:1px solid var(--border);flex-wrap:wrap;">
+      <div style="width:42px;height:42px;border-radius:50%;background:linear-gradient(135deg,#1A7A4A,#48BB78);color:#fff;display:flex;align-items:center;justify-content:center;font-weight:700;flex-shrink:0;">
+        <i class="fa-solid fa-user-check"></i>
+      </div>
+      <div style="flex:1;min-width:180px;">
+        <div style="font-weight:700;font-size:14px;">
+          Login ID: <span style="color:var(--primary);">{{ s.user.username }}</span>
+        </div>
+        <div style="font-size:12px;color:var(--text-muted);margin-top:2px;">
+          {% if s.user.staff %}
+          Using account for <strong>{{ s.user.staff.name }}</strong>
+          {% if s.user.staff_id %} · Staff #{{ s.user.staff_id }}{% endif %}
+          {% else %}
+          Staff user account
+          {% endif %}
+        </div>
+        <div style="font-size:11px;color:var(--text-muted);margin-top:4px;">
+          <i class="fa-solid fa-right-to-bracket" style="margin-right:4px;"></i>Logged in {{ s.login_at.strftime('%d %b %Y, %I:%M %p') }}
+          · Active {{ s.last_seen.strftime('%I:%M %p') }}
+        </div>
+      </div>
+      <button type="button" class="btn btn-danger btn-sm" data-username="{{ s.user.username }}" onclick="forceLogoutStaff({{ s.id }}, this.dataset.username)">
+        <i class="fa-solid fa-right-from-bracket"></i> Log Out Staff
+      </button>
+    </div>
+    {% endfor %}
+  </div>
+  <div id="activeStaffEmpty" style="padding:20px;text-align:center;color:var(--text-muted);font-size:13px;{% if active_staff_sessions %}display:none;{% endif %}">
+    <i class="fa-solid fa-user-slash" style="margin-right:6px;"></i>No staff currently logged in
+  </div>
+</div>
+
+<!-- ── Staff Login Approval (Owner only) ─────────────────────── -->
+<div id="staffLoginApprovalPanel" class="card staff-approval-panel" style="margin-bottom:20px;{% if not pending_staff_logins %}display:none;{% endif %} border:2px solid var(--gold);">
+  <div class="card-header" style="background:linear-gradient(135deg, rgba(201,168,70,0.15), rgba(201,168,70,0.05));">
+    <h3 class="card-title" style="color:var(--gold-dark);">
+      <i class="fa-solid fa-user-shield" style="margin-right:8px;"></i>Staff Login Requests
+      <span id="staffLoginBadge" class="nav-badge" style="margin-left:8px;">{{ pending_staff_logins|length }}</span>
+    </h3>
+    <span style="font-size:11px;color:var(--text-muted);">Approve or deny staff trying to sign in</span>
+  </div>
+  <div class="card-body p-0" id="staffLoginRequestList">
+    {% for req in pending_staff_logins %}
+    <div class="staff-login-request-row" data-request-id="{{ req.id }}" style="display:flex;align-items:center;gap:14px;padding:14px 20px;border-bottom:1px solid var(--border);flex-wrap:wrap;">
+      <div style="width:42px;height:42px;border-radius:50%;background:linear-gradient(135deg,var(--primary),var(--primary-light));color:#fff;display:flex;align-items:center;justify-content:center;font-weight:700;flex-shrink:0;">
+        {{ req.user.username[0]|upper }}
+      </div>
+      <div style="flex:1;min-width:160px;">
+        <div style="font-weight:700;font-size:14px;">{{ req.user.username }}</div>
+        <div style="font-size:12px;color:var(--text-muted);">
+          {% if req.user.staff %}{{ req.user.staff.name }} · {% endif %}
+          Requested {{ req.requested_at.strftime('%d %b %Y, %I:%M %p') }}
+        </div>
+      </div>
+      <div style="display:flex;gap:8px;flex-wrap:wrap;">
+        <button type="button" class="btn btn-success btn-sm" onclick="handleStaffLoginRequest({{ req.id }}, 'approve')">
+          <i class="fa-solid fa-check"></i> Allow Login
+        </button>
+        <button type="button" class="btn btn-danger btn-sm" onclick="handleStaffLoginRequest({{ req.id }}, 'reject')">
+          <i class="fa-solid fa-xmark"></i> Deny
+        </button>
+      </div>
+    </div>
+    {% endfor %}
+  </div>
+  <div id="staffLoginEmpty" style="padding:20px;text-align:center;color:var(--text-muted);font-size:13px;{% if pending_staff_logins %}display:none;{% endif %}">
+    <i class="fa-solid fa-circle-check" style="color:var(--success);margin-right:6px;"></i>No pending staff login requests
+  </div>
+</div>
+{% endif %}
+
+<!-- ── Quick Search Bar ──────────────────────────────────── -->
+<div class="card" style="margin-bottom:20px;">
+  <div class="card-body" style="padding:14px 20px;">
+    <div class="dashboard-search-row">
+      <i class="fa-solid fa-magnifying-glass" style="color:var(--primary); font-size:18px;"></i>
+      <input type="text" id="dashSearchQuery" class="form-control dress-name-suggest" placeholder="Quick search: Customer name, serial no, phone, dress name..." autocomplete="off">
+      <a href="{{ url_for('search_booking_page') }}" class="btn btn-outline btn-sm">Advanced Search</a>
+    </div>
+    <div id="dashSearchResults" style="display:none; margin-top:12px; max-height:300px; overflow-y:auto;"></div>
+  </div>
+</div>
+<script>
+(function(){
+  const input = document.getElementById('dashSearchQuery');
+  const results = document.getElementById('dashSearchResults');
+  let timer;
+  input.addEventListener('input', function(){
+    clearTimeout(timer);
+    const q = this.value.trim();
+    if (q.length < 2) { results.style.display='none'; return; }
+    timer = setTimeout(() => {
+      fetch('/api/search-booking?date={{ today_iso }}&q=' + encodeURIComponent(q))
+        .then(r => r.json())
+        .then(data => {
+          if (!data.length) { results.innerHTML='<div style="padding:12px; color:#999;">No results</div>'; results.style.display='block'; return; }
+          results.style.display='block';
+          results.innerHTML = data.slice(0,8).map(b => `
+            <a href="/booking/${b.id}/edit" style="display:flex; align-items:center; gap:12px; padding:10px; border-bottom:1px solid #eee; text-decoration:none; color:inherit;">
+              <span style="width:28px;height:28px;border-radius:50%;background:var(--primary);color:white;display:flex;align-items:center;justify-content:center;font-size:11px;font-weight:700;">${String(b.serial).padStart(2,'0')}</span>
+              <div style="flex:1;"><strong style="font-size:13px;">${b.customer_name}</strong><br><span style="font-size:11px;color:#888;">${b.items.map(i=>i.display_name||i.name).join(', ')} · ${b.delivery_date}</span></div>
+              <span class="badge badge-${b.status}" style="font-size:10px;">${b.status}</span>
+            </a>`).join('');
+        });
+    }, 350);
+  });
+  input.addEventListener('blur', () => { setTimeout(() => results.style.display='none', 200); });
+  input.addEventListener('focus', () => { if(results.innerHTML && input.value.trim().length >= 2) results.style.display='block'; });
+})();
+</script>
+
+<!-- ── Today's Date Banner ──────────────────────────────────── -->
+<div class="page-banner" style="margin-bottom:22px;
+            background: linear-gradient(135deg, var(--primary-dark), var(--primary));
+            border-radius: var(--radius); padding:18px 26px; color:white;">
+  <div style="display:flex; align-items:center; gap:14px;">
+    <div style="width:52px; height:52px; background:rgba(255,255,255,0.15); border-radius:12px;
+                display:flex; align-items:center; justify-content:center; font-size:24px; flex-shrink:0;">
+      <i class="fa-solid fa-calendar-day"></i>
+    </div>
+    <div>
+      <div style="font-size:22px; font-weight:700; font-family:'Playfair Display',serif;">
+        {{ today.strftime('%A, %d %B %Y') }}
+      </div>
+      <div style="font-size:12px; opacity:0.75;">Today's Schedule</div>
+    </div>
+  </div>
+  <div class="page-banner-actions no-print">
+    <button onclick="window.print()" class="btn" style="background:rgba(255,255,255,0.15); color:white; border:none;">
+      <i class="fa-solid fa-print"></i> Print
+    </button>
+    <a href="{{ url_for('booking_new') }}" class="btn btn-gold">
+      <i class="fa-solid fa-plus"></i> New Booking
+    </a>
+    <a href="{{ url_for('booking_panel') }}" class="btn" style="background:rgba(255,255,255,0.15); color:white; border:1.5px solid rgba(255,255,255,0.4);">
+      <i class="fa-solid fa-list"></i> All Bookings
+    </a>
+  </div>
+</div>
+
+<!-- ── Today's Stats (Clickable Buttons) ──────────────────────── -->
+<div class="stats-grid" style="margin-bottom:24px;">
+  <div class="stat-card primary" onclick="toggleStatList('totalOrders')" style="cursor:pointer;">
+    <div class="stat-icon"><i class="fa-solid fa-clipboard-list"></i></div>
+    <div class="stat-value">{{ today_stats.total_orders }}</div>
+    <div class="stat-label">Today's Total Orders</div>
+    <div style="font-size:10px; opacity:0.7; margin-top:4px;">Click to view list</div>
+  </div>
+  <div class="stat-card success" onclick="toggleStatList('delivered')" style="cursor:pointer;">
+    <div class="stat-icon"><i class="fa-solid fa-truck-fast"></i></div>
+    <div class="stat-value">{{ today_stats.delivered }}</div>
+    <div class="stat-label">Delivered Today</div>
+    <div style="font-size:10px; opacity:0.7; margin-top:4px;">Click to view list</div>
+  </div>
+  <div class="stat-card warning" onclick="toggleStatList('remaining')" style="cursor:pointer;">
+    <div class="stat-icon"><i class="fa-solid fa-clock"></i></div>
+    <div class="stat-value">{{ today_stats.all_undelivered }}</div>
+    <div class="stat-label">Remaining to Deliver</div>
+    <div style="font-size:10px; opacity:0.7; margin-top:4px;">
+      Today: {{ today_stats.remaining_delivery }} · Click to view all
+    </div>
+  </div>
+  <div class="stat-card info" onclick="toggleStatList('returning')" style="cursor:pointer;">
+    <div class="stat-icon"><i class="fa-solid fa-rotate-left"></i></div>
+    <div class="stat-value">{{ today_stats.returning }}</div>
+    <div class="stat-label">Returning Today</div>
+    <div style="font-size:10px; opacity:0.7; margin-top:4px;">Click to view list</div>
+  </div>
+  <a href="{{ url_for('late_return_page') }}" class="stat-card" style="cursor:pointer; background:linear-gradient(135deg,#dc3545,#c0392b); color:white; text-decoration:none;">
+    <div class="stat-icon" style="background:rgba(255,255,255,0.15);"><i class="fa-solid fa-triangle-exclamation"></i></div>
+    <div class="stat-value">{{ late_return_count }}</div>
+    <div class="stat-label">Late Returns</div>
+    <div style="font-size:10px; opacity:0.7; margin-top:4px;">Click to view</div>
+  </a>
+</div>
+
+<!-- ── Stat Lists (Hidden by default, toggled on click) ────── -->
+<div id="statList_totalOrders" style="display:none; margin-bottom:20px;" class="card">
+  <div class="card-header">
+    <h3 class="card-title"><i class="fa-solid fa-clipboard-list" style="margin-right:8px;"></i>All Orders for Today (Delivery)</h3>
+    <button onclick="toggleStatList('totalOrders')" class="btn btn-outline btn-sm"><i class="fa-solid fa-xmark"></i> Close</button>
+  </div>
+  <div class="card-body p-0">
+    {% if today_deliveries_list %}
+    {% for b in today_deliveries_list %}
+    <div style="display:flex; align-items:center; gap:12px; padding:10px 20px; border-bottom:1px solid var(--border);">
+      <span style="width:24px; height:24px; border-radius:50%; background:var(--primary); color:white; display:flex; align-items:center; justify-content:center; font-size:11px; font-weight:700;">{{ loop.index }}</span>
+      <div style="flex:1;">
+        <div style="font-weight:600; font-size:13px;">{{ b.customer_name }}</div>
+        <div style="font-size:11px; color:var(--text-muted);">{% for bi in b.booking_items %}{{ bi.dress_name|dress_label(bi.category, bi.size) }}{% if not loop.last %}, {% endif %}{% else %}{{ b.dress_name }}{% endfor %} · {{ b.delivery_time }}{% if b.venue %} · {{ b.venue }}{% endif %}</div>
+      </div>
+      <span class="badge badge-{{ b.status }}">{{ b.status }}</span>
+      <a href="{{ url_for('booking_view', id=b.id) }}" class="btn btn-outline btn-sm" style="padding:4px 8px;"><i class="fa-solid fa-eye"></i></a>
+    </div>
+    {% endfor %}
+    {% else %}<div style="padding:20px; text-align:center; color:var(--text-muted);">No orders today</div>{% endif %}
+  </div>
+</div>
+
+<div id="statList_delivered" style="display:none; margin-bottom:20px;" class="card">
+  <div class="card-header">
+    <h3 class="card-title" style="color:var(--success);"><i class="fa-solid fa-truck-fast" style="margin-right:8px;"></i>Delivered Today</h3>
+    <button onclick="toggleStatList('delivered')" class="btn btn-outline btn-sm"><i class="fa-solid fa-xmark"></i> Close</button>
+  </div>
+  <div class="card-body p-0">
+    {% for b in today_deliveries_list if b.status == 'delivered' %}
+    <div style="display:flex; align-items:center; gap:12px; padding:10px 20px; border-bottom:1px solid var(--border);">
+      <span style="width:24px; height:24px; border-radius:50%; background:var(--success); color:white; display:flex; align-items:center; justify-content:center; font-size:11px; font-weight:700;">{{ loop.index }}</span>
+      <div style="flex:1;">
+        <div style="font-weight:600; font-size:13px;">{{ b.customer_name }}</div>
+        <div style="font-size:11px; color:var(--text-muted);">{% for bi in b.booking_items %}{{ bi.dress_name|dress_label(bi.category, bi.size) }}{% if not loop.last %}, {% endif %}{% else %}{{ b.dress_name }}{% endfor %} · {{ b.delivery_time }}{% if b.venue %} · {{ b.venue }}{% endif %}</div>
+      </div>
+      <a href="{{ url_for('booking_view', id=b.id) }}" class="btn btn-outline btn-sm" style="padding:4px 8px;"><i class="fa-solid fa-eye"></i></a>
+    </div>
+    {% else %}<div style="padding:20px; text-align:center; color:var(--text-muted);">No deliveries completed yet</div>{% endfor %}
+  </div>
+</div>
+
+<div id="statList_remaining" style="display:none; margin-bottom:20px;" class="card">
+  <div class="card-header">
+    <h3 class="card-title" style="color:var(--warning);">
+      <i class="fa-solid fa-clock" style="margin-right:8px;"></i>Remaining to Deliver
+      <span style="font-size:12px;font-weight:400;color:var(--text-muted);margin-left:8px;">(Today + Overdue)</span>
+    </h3>
+    <div style="display:flex;gap:8px;">
+      <a href="{{ url_for('remaining_to_deliver_page') }}" class="btn btn-primary btn-sm"><i class="fa-solid fa-arrow-up-right-from-square"></i> View Full Page</a>
+      <button onclick="toggleStatList('remaining')" class="btn btn-outline btn-sm"><i class="fa-solid fa-xmark"></i> Close</button>
+    </div>
+  </div>
+  <div class="card-body p-0">
+    {% if all_undelivered_list %}
+      {% set ns = namespace(prev_date=None) %}
+      {% for b in all_undelivered_list %}
+        {% if b.delivery_date != ns.prev_date %}
+          {% set ns.prev_date = b.delivery_date %}
+          <div style="padding:6px 20px;font-size:11px;font-weight:700;
+            {% if b.delivery_date < today %}background:#7b2d2d33;color:#fc8181;{% else %}background:#7b4a0033;color:#fbd38d;{% endif %}">
+            {% if b.delivery_date < today %}<i class="fa-solid fa-triangle-exclamation" style="margin-right:4px;"></i>OVERDUE — {{ b.delivery_date.strftime('%d %b %Y') }} ({{ (today - b.delivery_date).days }}d ago)
+            {% else %}<i class="fa-solid fa-clock" style="margin-right:4px;"></i>TODAY — {{ b.delivery_date.strftime('%d %b %Y') }}{% endif %}
+          </div>
+        {% endif %}
+        <div style="display:flex; align-items:center; gap:12px; padding:10px 20px; border-bottom:1px solid var(--border);
+          {% if b.delivery_date < today %}border-left:3px solid #e53e3e;{% endif %}">
+          <span style="width:26px; height:26px; border-radius:50%;
+            {% if b.delivery_date < today %}background:#7b2d2d;color:#fc8181;{% else %}background:var(--warning);color:white;{% endif %}
+            display:flex; align-items:center; justify-content:center; font-size:11px; font-weight:700; flex-shrink:0;">
+            {{ '%02d'|format(b.monthly_serial or 0) }}
+          </span>
+          <div style="flex:1;">
+            <div style="font-weight:600; font-size:13px;">{{ b.customer_name }}</div>
+            <div style="font-size:11px; color:var(--text-muted);">
+              {% for bi in b.booking_items %}{{ bi.dress_name|dress_label(bi.category, bi.size) }}{% if not loop.last %}, {% endif %}{% else %}{{ b.dress_name }}{% endfor %}
+              · {{ b.delivery_time }}{% if b.venue %} · {{ b.venue }}{% endif %}
+              {% if b.contact_1 %} · {{ b.contact_1 }}{% endif %}
+            </div>
+          </div>
+          {% if b.total_remaining > 0 %}
+          <span style="font-size:12px;font-weight:700;color:#fc8181;">₹{{ '{:,.0f}'.format(b.total_remaining) }}</span>
+          {% endif %}
+          <a href="{{ url_for('booking_delivery_detail', booking_id=b.id) }}" class="btn btn-primary btn-sm" style="padding:4px 10px;"><i class="fa-solid fa-truck"></i> Deliver</a>
+        </div>
+      {% endfor %}
+    {% else %}
+      <div style="padding:20px; text-align:center; color:#68d391;"><i class="fa-solid fa-circle-check" style="margin-right:6px;"></i>All deliveries completed!</div>
+    {% endif %}
+  </div>
+</div>
+
+<div id="statList_returning" style="display:none; margin-bottom:20px;" class="card">
+  <div class="card-header">
+    <h3 class="card-title" style="color:var(--info);"><i class="fa-solid fa-rotate-left" style="margin-right:8px;"></i>Returns Due Today</h3>
+    <button onclick="toggleStatList('returning')" class="btn btn-outline btn-sm"><i class="fa-solid fa-xmark"></i> Close</button>
+  </div>
+  <div class="card-body p-0">
+    {% if today_returns_list %}
+    {% for b in today_returns_list %}
+    <div style="display:flex; align-items:center; gap:12px; padding:10px 20px; border-bottom:1px solid var(--border);">
+      <span style="width:24px; height:24px; border-radius:50%; background:var(--info); color:white; display:flex; align-items:center; justify-content:center; font-size:11px; font-weight:700;">{{ loop.index }}</span>
+      <div style="flex:1;">
+        <div style="font-weight:600; font-size:13px;">{{ b.customer_name }}</div>
+        <div style="font-size:11px; color:var(--text-muted);">{% for bi in b.booking_items %}{{ bi.dress_name|dress_label(bi.category, bi.size) }}{% if not loop.last %}, {% endif %}{% else %}{{ b.dress_name }}{% endfor %} · Return by {{ b.return_time }}{% if b.venue %} · {{ b.venue }}{% endif %}</div>
+      </div>
+      {% if (b.total_remaining or b.remaining) > 0 %}
+      <span style="font-size:12px; font-weight:700; color:var(--danger);">₹{{ "{:,.0f}".format(b.total_remaining or b.remaining) }}</span>
+      {% endif %}
+      <a href="{{ url_for('booking_view', id=b.id) }}" class="btn btn-outline btn-sm" style="padding:4px 8px;"><i class="fa-solid fa-eye"></i></a>
+    </div>
+    {% endfor %}
+    {% else %}<div style="padding:20px; text-align:center; color:var(--text-muted);">No returns due today</div>{% endif %}
+  </div>
+</div>
+
+<!-- ── Today's Deliveries & Returns ────────────────────────── -->
+<div class="two-col mb-24" style="margin-bottom:24px;">
+
+  <!-- Today's Deliveries -->
+  <div class="card">
+    <div class="card-header">
+      <h3 class="card-title" style="color:var(--success);">
+        <i class="fa-solid fa-truck-fast" style="margin-right:8px;"></i>Deliveries Today
+      </h3>
+      <span class="badge badge-available">{{ today_stats.total_orders }}</span>
+    </div>
+    <div class="card-body p-0">
+      {% if today_deliveries_list %}
+        {% for b in today_deliveries_list %}
+        <div style="display:flex; align-items:center; gap:12px; padding:12px 20px; border-bottom:1px solid var(--border);">
+          <div class="rental-avatar" style="width:36px; height:36px; font-size:13px;
+               {% if b.status == 'delivered' %}background:linear-gradient(135deg, var(--success), #48BB78);{% endif %}">
+            {{ b.customer_name[0].upper() }}
+          </div>
+          <div style="flex:1;">
+            <div style="font-weight:600; font-size:13px;">{{ b.customer_name }}</div>
+            <div style="font-size:11px; color:var(--text-muted);">
+              {% for bi in b.booking_items %}{{ bi.dress_name|dress_label(bi.category, bi.size) }}{% if not loop.last %}, {% endif %}{% else %}{{ b.dress_name }}{% endfor %} &bull; {{ b.delivery_time }}
+            </div>
+          </div>
+          <div style="text-align:right;">
+            <span class="badge badge-{{ b.status }}">{{ b.status }}</span>
+          </div>
+          <a href="{{ url_for('booking_view', id=b.id) }}" class="btn btn-outline btn-sm" style="padding:4px 10px; font-size:11px;">
+            <i class="fa-solid fa-eye"></i>
+          </a>
+        </div>
+        {% endfor %}
+      {% else %}
+        <div class="empty-state" style="padding:36px;">
+          <div class="empty-icon" style="font-size:36px;"><i class="fa-solid fa-truck"></i></div>
+          <p>No deliveries scheduled today</p>
+        </div>
+      {% endif %}
+    </div>
+  </div>
+
+  <!-- Today's Returns -->
+  <div class="card">
+    <div class="card-header">
+      <h3 class="card-title" style="color:var(--gold-dark);">
+        <i class="fa-solid fa-rotate-left" style="margin-right:8px;"></i>Returns Due Today
+      </h3>
+      <span class="badge badge-gold">{{ today_stats.returning }}</span>
+    </div>
+    <div class="card-body p-0">
+      {% if today_returns_list %}
+        {% for b in today_returns_list %}
+        <div style="display:flex; align-items:center; gap:12px; padding:12px 20px; border-bottom:1px solid var(--border);">
+          <div class="rental-avatar" style="width:36px; height:36px; font-size:13px;
+               background:linear-gradient(135deg, var(--gold-dark), var(--gold));">
+            {{ b.customer_name[0].upper() }}
+          </div>
+          <div style="flex:1;">
+            <div style="font-weight:600; font-size:13px;">{{ b.customer_name }}</div>
+            <div style="font-size:11px; color:var(--text-muted);">
+              {% for bi in b.booking_items %}{{ bi.dress_name|dress_label(bi.category, bi.size) }}{% if not loop.last %}, {% endif %}{% else %}{{ b.dress_name }}{% endfor %} &bull; Return by {{ b.return_time }}
+            </div>
+          </div>
+          <div style="text-align:right;">
+            {% if b.remaining > 0 %}
+            <span style="font-weight:700; font-size:12px; color:var(--danger);">₹{{ "{:,.0f}".format(b.remaining) }}</span>
+            <div style="font-size:10px; color:var(--text-muted);">to collect</div>
+            {% else %}
+            <span style="font-size:12px; color:var(--success); font-weight:600;">Paid ✓</span>
+            {% endif %}
+          </div>
+          <a href="{{ url_for('booking_view', id=b.id) }}" class="btn btn-outline btn-sm" style="padding:4px 10px; font-size:11px;">
+            <i class="fa-solid fa-eye"></i>
+          </a>
+        </div>
+        {% endfor %}
+      {% else %}
+        <div class="empty-state" style="padding:36px;">
+          <div class="empty-icon" style="font-size:36px;"><i class="fa-solid fa-calendar-check"></i></div>
+          <p>No returns due today</p>
+        </div>
+      {% endif %}
+    </div>
+  </div>
+
+</div>
+
+<!-- ── Dress Checker & Free Item List Buttons ───────────────── -->
+<div style="margin-bottom:20px; display:flex; gap:12px; flex-wrap:wrap;">
+  <button onclick="toggleDressChecker()"
+          class="btn btn-gold btn-lg" style="padding:14px 28px; font-size:15px;">
+    <i class="fa-solid fa-shirt" style="margin-right:10px;"></i> Dress Checker
+  </button>
+  <button onclick="document.getElementById('freeItemPanel').style.display = document.getElementById('freeItemPanel').style.display === 'none' ? 'block' : 'none'; document.getElementById('dressCheckerPanel').style.display='none';"
+          class="btn btn-primary btn-lg" style="padding:14px 28px; font-size:15px;">
+    <i class="fa-solid fa-magnifying-glass" style="margin-right:10px;"></i> Free Item List
+    <span id="freeItemCount" style="margin-left:10px; background:rgba(255,255,255,0.25); padding:3px 10px; border-radius:20px; font-size:12px;">Search</span>
+  </button>
+</div>
+
+<!-- ── Dress Checker Panel ─────────────────────────────────── -->
+<div id="dressCheckerPanel" style="display:none;">
+<div class="card" style="margin-bottom:24px; border:2px solid var(--gold);">
+  <div class="card-header" style="background:linear-gradient(135deg, rgba(201,168,70,0.12), rgba(201,168,70,0.04));">
+    <h3 class="card-title" style="color:var(--gold-dark);">
+      <i class="fa-solid fa-shirt" style="margin-right:8px;"></i>Dress Checker
+    </h3>
+    <button onclick="document.getElementById('dressCheckerPanel').style.display='none';" class="btn btn-outline btn-sm"><i class="fa-solid fa-xmark"></i> Close</button>
+  </div>
+  <div class="card-body">
+    <p style="font-size:12px;color:var(--text-muted);margin-bottom:16px;">
+      Check if a specific dress is <strong>free</strong> between your delivery and return dates.
+      Type words in <strong>any order</strong> (e.g. <em>golden ct</em> finds <em>CT Golden</em>). Suggestions appear as you type.
+    </p>
+    <div class="filter-grid-5" style="margin-bottom:16px;">
+      <div>
+        <label class="form-label">Delivery Date *</label>
+        <input type="date" id="dcDeliveryDate" class="form-control" value="{{ today.isoformat() }}">
+      </div>
+      <div>
+        <label class="form-label">Return Date *</label>
+        <input type="date" id="dcReturnDate" class="form-control" value="{{ today.isoformat() }}">
+      </div>
+      <div>
+        <label class="form-label">Dress Name *</label>
+        <input type="text" id="dcDressName" class="form-control dress-name-suggest" data-category-select="#dcCategory" placeholder="Enter dress name to check…" autocomplete="off">
+      </div>
+      <div>
+        <label class="form-label">Category <span style="font-weight:400;text-transform:none;">(optional)</span></label>
+        <select id="dcCategory" class="form-control">
+          <option value="">All Categories</option>
+          <optgroup label="Men's">{% for cat in mens_categories %}<option value="{{ cat }}">{{ cat }}</option>{% endfor %}</optgroup>
+          <optgroup label="Women's">{% for cat in womens_categories %}<option value="{{ cat }}">{{ cat }}</option>{% endfor %}</optgroup>
+          <optgroup label="Jewellery">{% for cat in jewellery_categories %}<option value="{{ cat }}">{{ cat }}</option>{% endfor %}</optgroup>
+          <optgroup label="Accessories">{% for cat in accessory_categories %}<option value="{{ cat }}">{{ cat }}</option>{% endfor %}</optgroup>
+        </select>
+      </div>
+      <div style="display:flex;align-items:flex-end;">
+        <button type="button" class="btn btn-gold" style="width:100%;" onclick="runDressChecker()">
+          <i class="fa-solid fa-circle-check"></i> Check Availability
+        </button>
+      </div>
+    </div>
+    <div id="dressCheckerResults"></div>
+  </div>
+</div>
+</div>
+
+<div id="freeItemPanel" style="display:none;">
+<div class="card" style="margin-bottom:24px;">
+  <div class="card-header">
+    <h3 class="card-title">
+      <i class="fa-solid fa-magnifying-glass" style="margin-right:8px; color:var(--primary);"></i>Free Item List
+    </h3>
+    <button onclick="document.getElementById('freeItemPanel').style.display='none';" class="btn btn-outline btn-sm"><i class="fa-solid fa-xmark"></i> Close</button>
+  </div>
+  <div class="card-body">
+
+    <!-- Filter Columns -->
+    <div class="filter-grid-5" style="margin-bottom:20px;">
+      <div>
+        <label style="font-size:11px; font-weight:700; color:var(--text-muted); text-transform:uppercase; letter-spacing:0.5px; margin-bottom:4px; display:block;">
+          Date of Pickup
+        </label>
+        <input type="date" id="freeDeliveryDate" class="form-control" value="{{ today.isoformat() }}" onchange="searchFreeItems()">
+      </div>
+      <div>
+        <label style="font-size:11px; font-weight:700; color:var(--text-muted); text-transform:uppercase; letter-spacing:0.5px; margin-bottom:4px; display:block;">
+          Time of Delivery
+        </label>
+        <select id="freeDeliveryTime" class="form-control" onchange="searchFreeItems()">
+          {% for h in range(9, 23) %}
+          <option value="{{ h }}:00 {{ 'Noon' if h == 12 else ('AM' if h < 12 else 'PM') }}">{{ h if h <= 12 else h-12 }}:00 {{ 'Noon' if h == 12 else ('AM' if h < 12 else 'PM') }}</option>
+          {% endfor %}
+        </select>
+      </div>
+      <div>
+        <label style="font-size:11px; font-weight:700; color:var(--text-muted); text-transform:uppercase; letter-spacing:0.5px; margin-bottom:4px; display:block;">
+          Date of Return
+        </label>
+        <input type="date" id="freeReturnDate" class="form-control" value="{{ today.isoformat() }}" onchange="searchFreeItems()">
+      </div>
+      <div>
+        <label style="font-size:11px; font-weight:700; color:var(--text-muted); text-transform:uppercase; letter-spacing:0.5px; margin-bottom:4px; display:block;">
+          Time of Return
+        </label>
+        <select id="freeReturnTime" class="form-control" onchange="searchFreeItems()">
+          {% for h in range(9, 23) %}
+          <option value="{{ h }}:00 {{ 'Noon' if h == 12 else ('AM' if h < 12 else 'PM') }}">{{ h if h <= 12 else h-12 }}:00 {{ 'Noon' if h == 12 else ('AM' if h < 12 else 'PM') }}</option>
+          {% endfor %}
+        </select>
+      </div>
+      <div>
+        <label style="font-size:11px; font-weight:700; color:var(--text-muted); text-transform:uppercase; letter-spacing:0.5px; margin-bottom:4px; display:block;">
+          Category
+        </label>
+        <select id="freeCategoryFilter" class="form-control" onchange="searchFreeItems()">
+          <option value="">All Categories</option>
+          <optgroup label="🤵 Men's">
+          {% for cat in mens_categories %}<option value="{{ cat }}">{{ cat }}</option>{% endfor %}
+          </optgroup>
+          <optgroup label="👗 Women's">
+          {% for cat in womens_categories %}<option value="{{ cat }}">{{ cat }}</option>{% endfor %}
+          </optgroup>
+          <optgroup label="💎 Jewellery">
+          {% for cat in jewellery_categories %}<option value="{{ cat }}">{{ cat }}</option>{% endfor %}
+          </optgroup>
+          <optgroup label="👒 Accessories">
+          {% for cat in accessory_categories %}<option value="{{ cat }}">{{ cat }}</option>{% endfor %}
+          </optgroup>
+        </select>
+      </div>
+    </div>
+
+    <!-- Free Items Table -->
+    <div id="freeItemsResult" style="display:none;">
+      <h4 style="font-size:14px; font-weight:700; color:var(--success); margin-bottom:10px;">
+        <i class="fa-solid fa-circle-check" style="margin-right:6px;"></i>Available Dresses
+      </h4>
+      <div class="table-wrapper">
+        <table class="data-table" id="freeItemsTable">
+          <thead>
+            <tr>
+              <th>#</th>
+              <th>Dress Name</th>
+              <th>Category</th>
+              <th>Color</th>
+              <th>Size</th>
+              <th>Status</th>
+            </tr>
+          </thead>
+          <tbody id="freeItemsBody"></tbody>
+        </table>
+      </div>
+    </div>
+
+    <!-- Returning on Delivery Date -->
+    <div id="returningOnDeliveryResult" style="display:none; margin-top:20px;">
+      <h4 style="font-size:14px; font-weight:700; color:var(--gold-dark); margin-bottom:10px;">
+        <i class="fa-solid fa-rotate-left" style="margin-right:6px;"></i>Dresses Returning on Pickup Date
+      </h4>
+      <div class="table-wrapper">
+        <table class="data-table" id="returningTable">
+          <thead>
+            <tr>
+              <th>#</th>
+              <th>Dress Name</th>
+              <th>Category</th>
+              <th>Customer</th>
+              <th>Contact</th>
+              <th>Venue</th>
+              <th>S.No</th>
+              <th>Amount</th>
+              <th>Return Time</th>
+            </tr>
+          </thead>
+          <tbody id="returningBody"></tbody>
+        </table>
+      </div>
+    </div>
+
+    <!-- Empty state -->
+    <div id="freeItemsEmpty" style="display:none; text-align:center; padding:30px; color:var(--text-muted);">
+      <i class="fa-solid fa-box-open" style="font-size:36px; margin-bottom:10px; opacity:0.4;"></i>
+      <p>No free dresses found for the selected dates and category.</p>
+    </div>
+
+  </div>
+</div>
+</div><!-- end freeItemPanel -->
+
+<!-- ── Inventory & Overall Stats ──────────────────────────── -->
+<div style="display:flex; gap:16px; flex-wrap:wrap; margin-bottom:24px; align-items:center;">
+  <a href="{{ url_for('inventory_list') }}" class="btn btn-gold btn-lg" style="padding:14px 28px; font-size:15px;">
+    <i class="fa-solid fa-layer-group" style="margin-right:10px;"></i> Manage Inventory
+    <span style="margin-left:10px; background:rgba(255,255,255,0.25); padding:3px 10px; border-radius:20px; font-size:12px;">
+      {{ stats.total_items }} items
+    </span>
+  </a>
+  <div style="display:flex; gap:10px; flex-wrap:wrap;">
+    <div style="background:var(--success-bg); border:1.5px solid #b2dfdb; border-radius:10px; padding:8px 16px; font-size:13px; color:var(--success);">
+      <strong>{{ stats.available_items }}</strong> Available
+    </div>
+    <div style="background:#EEF2FF; border:1.5px solid #c7d2fe; border-radius:10px; padding:8px 16px; font-size:13px; color:#4F46E5;">
+      <strong>{{ stats.rented_items }}</strong> Rented Out
+    </div>
+  </div>
+</div>
+
+<!-- ── Overdue ──────────────────────────────────────────── -->
+{% if overdue_list %}
+<div class="card mb-24" style="margin-bottom:24px;">
+  <div class="card-header">
+    <h3 class="card-title" style="color:var(--danger);">
+      <i class="fa-solid fa-triangle-exclamation" style="margin-right:8px;"></i>Overdue Rentals
+    </h3>
+    <a href="{{ url_for('rentals_list', status='overdue') }}" class="btn btn-danger btn-sm">View All</a>
+  </div>
+  <div class="card-body p-0">
+    <div class="table-wrapper">
+      <table class="data-table">
+        <thead>
+          <tr>
+            <th>Rental #</th>
+            <th>Customer</th>
+            <th>Due Date</th>
+            <th>Days Overdue</th>
+            <th>Amount</th>
+            <th>Action</th>
+          </tr>
+        </thead>
+        <tbody>
+          {% for rental in overdue_list %}
+          <tr>
+            <td><span class="font-mono fw-semibold">{{ rental.rental_number }}</span></td>
+            <td>{{ rental.customer.name }}</td>
+            <td style="color:var(--danger); font-weight:600;">{{ rental.end_date.strftime('%d %b %Y') }}</td>
+            <td>
+              <span class="badge badge-overdue">
+                {{ (today - rental.end_date).days }} days
+              </span>
+            </td>
+            <td>₹{{ "{:,.0f}".format(rental.total_amount) }}</td>
+            <td>
+              <a href="{{ url_for('rentals_view', id=rental.id) }}" class="btn btn-outline btn-sm">
+                <i class="fa-solid fa-eye"></i> View
+              </a>
+            </td>
+          </tr>
+          {% endfor %}
+        </tbody>
+      </table>
+    </div>
+  </div>
+</div>
+{% endif %}
+
+{% endblock %}
+
+{% block scripts %}
+<script>
+function toggleDressChecker() {
+  var panel = document.getElementById('dressCheckerPanel');
+  var freePanel = document.getElementById('freeItemPanel');
+  var show = panel.style.display === 'none';
+  panel.style.display = show ? 'block' : 'none';
+  if (show && freePanel) freePanel.style.display = 'none';
+}
+
+function runDressChecker() {
+  var dd = document.getElementById('dcDeliveryDate').value;
+  var rd = document.getElementById('dcReturnDate').value;
+  var name = document.getElementById('dcDressName').value.trim();
+  var cat = document.getElementById('dcCategory').value;
+  var box = document.getElementById('dressCheckerResults');
+
+  if (!dd || !rd) {
+    box.innerHTML = '<div class="alert alert-warning"><i class="fa-solid fa-triangle-exclamation"></i> Please enter delivery and return dates.</div>';
+    return;
+  }
+  if (!name) {
+    box.innerHTML = '<div class="alert alert-warning"><i class="fa-solid fa-triangle-exclamation"></i> Please enter a dress name to check.</div>';
+    return;
+  }
+
+  box.innerHTML = '<div style="text-align:center;padding:24px;color:var(--text-muted);"><span class="spinner" style="display:inline-block;width:20px;height:20px;border:2px solid var(--border);border-top-color:var(--gold);border-radius:50%;animation:spin 0.8s linear infinite;"></span> Checking…</div>';
+
+  var url = '/api/dress-checker?delivery_date=' + encodeURIComponent(dd)
+    + '&return_date=' + encodeURIComponent(rd)
+    + '&dress_name=' + encodeURIComponent(name)
+    + '&category=' + encodeURIComponent(cat);
+
+  fetch(url)
+    .then(function(r) { return r.json(); })
+    .then(function(data) {
+      if (data.error) {
+        box.innerHTML = '<div class="alert alert-error"><i class="fa-solid fa-circle-xmark"></i> ' + data.error + '</div>';
+        return;
+      }
+      if (!data.items || !data.items.length) {
+        box.innerHTML = '<div class="alert alert-warning"><i class="fa-solid fa-circle-info"></i> ' + (data.message || 'No matching dress found.') + '</div>';
+        return;
+      }
+
+      var html = '<div style="font-size:12px;color:var(--text-muted);margin-bottom:12px;">'
+        + '<strong>' + data.items.length + '</strong> result(s) for <strong>' + data.dress_name + '</strong> · '
+        + data.delivery_date + ' to ' + data.return_date + '</div>';
+
+      data.items.forEach(function(item, idx) {
+        var statusBadge = '';
+        var border = '1px solid var(--border)';
+        if (item.status === 'available') {
+          statusBadge = '<span class="badge badge-available"><i class="fa-solid fa-check"></i> Free</span>';
+          border = '2px solid var(--success)';
+        } else if (item.status === 'available_with_warning') {
+          statusBadge = '<span class="badge badge-warning"><i class="fa-solid fa-triangle-exclamation"></i> Available with Warning</span>';
+          border = '2px solid var(--warning)';
+        } else {
+          statusBadge = '<span class="badge badge-overdue"><i class="fa-solid fa-ban"></i> Not Available</span>';
+          border = '2px solid var(--danger)';
+        }
+
+        var photo = item.photo
+          ? '<img src="/static/uploads/' + item.photo + '" style="width:56px;height:56px;object-fit:cover;border-radius:10px;border:1px solid var(--border);">'
+          : '<div style="width:56px;height:56px;border-radius:10px;background:var(--cream-dark);display:flex;align-items:center;justify-content:center;font-size:24px;">👗</div>';
+
+        html += '<div class="card" style="margin-bottom:12px;border:' + border + ';">';
+        html += '<div class="card-body" style="padding:14px 18px;display:flex;gap:14px;align-items:flex-start;flex-wrap:wrap;">';
+        html += photo;
+        html += '<div style="flex:1;min-width:200px;">';
+        html += '<div style="display:flex;align-items:center;gap:10px;flex-wrap:wrap;margin-bottom:6px;">';
+        html += '<strong style="font-size:15px;">' + (item.display_name || item.name) + '</strong>' + statusBadge + '</div>';
+        html += '<div style="font-size:12px;color:var(--text-muted);">' + item.category
+          + (item.size ? ' · Size ' + item.size : '') + (item.color ? ' · ' + item.color : '')
+          + ' · SKU ' + item.sku + '</div>';
+        html += '<div style="font-size:12px;margin-top:6px;">' + item.reason + '</div>';
+
+        if (item.returning_warning) {
+          var rw = item.returning_warning;
+          html += '<div style="margin-top:8px;padding:8px 12px;background:#FFF8E1;border-radius:8px;font-size:11px;color:#E65100;">';
+          html += '<i class="fa-solid fa-triangle-exclamation"></i> <strong>Returning on your delivery date</strong><br>';
+          html += 'Customer: ' + rw.customer + ' · Serial #' + String(rw.serial_no || 0).padStart(2,'0');
+          html += ' · ₹' + Number(rw.total_rent || 0).toLocaleString('en-IN');
+          html += ' · Return by ' + rw.return_time + (rw.venue ? ' · Venue: ' + rw.venue : '');
+          html += '</div>';
+        }
+        if (item.booked_warning) {
+          var bw = item.booked_warning;
+          html += '<div style="margin-top:8px;padding:8px 12px;background:#FFF0F0;border-radius:8px;font-size:11px;color:var(--danger);">';
+          html += '<i class="fa-solid fa-circle-exclamation"></i> <strong>Booked on your return date</strong><br>';
+          html += 'Customer: ' + bw.customer + ' · Serial #' + String(bw.serial_no || 0).padStart(2,'0');
+          html += ' · ₹' + Number(bw.total_rent || 0).toLocaleString('en-IN');
+          html += ' · Pickup ' + bw.delivery_time + (bw.venue ? ' · Venue: ' + bw.venue : '');
+          html += '</div>';
+        }
+        if (item.blocking_booking) {
+          var bb = item.blocking_booking;
+          html += '<div style="margin-top:8px;padding:8px 12px;background:var(--danger-bg);border-radius:8px;font-size:11px;color:var(--danger);">';
+          html += '<i class="fa-solid fa-lock"></i> <strong>Blocked by existing booking</strong><br>';
+          html += 'Customer: ' + bb.customer + ' · Serial #' + String(bb.serial_no || 0).padStart(2,'0');
+          html += ' · ' + bb.delivery_date + ' to ' + bb.return_date;
+          html += ' · ₹' + Number(bb.total_rent || 0).toLocaleString('en-IN');
+          if (bb.venue) html += ' · Venue: ' + bb.venue;
+          html += '</div>';
+        }
+        html += '</div></div></div>';
+      });
+
+      box.innerHTML = html;
+    })
+    .catch(function() {
+      box.innerHTML = '<div class="alert alert-error">Could not check dress availability.</div>';
+    });
+}
+
+function toggleStatList(listId) {
+  var allLists = ['totalOrders', 'delivered', 'remaining', 'returning'];
+  allLists.forEach(function(id) {
+    var el = document.getElementById('statList_' + id);
+    if (id === listId) {
+      el.style.display = el.style.display === 'none' ? 'block' : 'none';
+    } else {
+      el.style.display = 'none';
+    }
+  });
+}
+
+function searchFreeItems() {
+  var deliveryDate = document.getElementById('freeDeliveryDate').value;
+  var returnDate = document.getElementById('freeReturnDate').value;
+  var category = document.getElementById('freeCategoryFilter').value;
+
+  if (!deliveryDate || !returnDate) return;
+
+  var url = '/api/dashboard/free-items?delivery_date=' + deliveryDate +
+            '&return_date=' + returnDate +
+            '&category=' + encodeURIComponent(category);
+
+  fetch(url)
+    .then(function(r) { return r.json(); })
+    .then(function(data) {
+      var freeItems = data.free_items;
+      var returning = data.returning_on_delivery;
+      var warnings = data.warnings;
+
+      var freeResult = document.getElementById('freeItemsResult');
+      var returningResult = document.getElementById('returningOnDeliveryResult');
+      var emptyState = document.getElementById('freeItemsEmpty');
+      var countBadge = document.getElementById('freeItemCount');
+
+      // Update count badge
+      countBadge.textContent = freeItems.length + ' free items';
+
+      // Free Items Table
+      if (freeItems.length > 0) {
+        freeResult.style.display = 'block';
+        emptyState.style.display = 'none';
+        var tbody = document.getElementById('freeItemsBody');
+        var html = '';
+        for (var i = 0; i < freeItems.length; i++) {
+          var item = freeItems[i];
+          var hasWarning = warnings[String(item.id)];
+          var rowStyle = hasWarning ? 'background:#FFF8E1;' : '';
+
+          html += '<tr style="' + rowStyle + '">';
+          html += '<td>' + (i + 1) + '</td>';
+          html += '<td><strong>' + (item.display_name || item.name) + '</strong></td>';
+          html += '<td>' + item.category + '</td>';
+          html += '<td>' + (item.color || '—') + '</td>';
+          html += '<td>' + (item.size || '—') + '</td>';
+
+          if (hasWarning) {
+            var w = warnings[String(item.id)];
+            var venueStr = w.venue ? ' • Venue: ' + w.venue : '';
+            html += '<td>';
+            html += '<span class="badge" style="background:#FFF3E0; color:#E65100; font-size:10px; cursor:pointer;" ';
+            html += 'title="⚠ Booked on Return Date!\n';
+            html += 'Serial No: ' + String(w.serial_no).padStart(2, '0') + '\n';
+            html += 'Customer: ' + w.customer_name + '\n';
+            html += 'Amount: ₹' + w.amount.toLocaleString() + '\n';
+            html += 'Venue: ' + (w.venue || 'N/A') + '\n';
+            html += 'Return: ' + w.return_date + ' at ' + w.return_time + '">';
+            html += '<i class="fa-solid fa-triangle-exclamation"></i> Warning</span>';
+            html += '<div style="font-size:10px; margin-top:4px; color:#E65100; line-height:1.4;">';
+            html += '<strong>Serial #' + String(w.serial_no).padStart(2, '0') + '</strong><br>';
+            html += w.customer_name + ' • ₹' + w.amount.toLocaleString() + venueStr + '<br>';
+            html += 'Pickup: ' + w.delivery_date + ' ' + w.delivery_time;
+            html += '</div>';
+            html += '</td>';
+          } else {
+            html += '<td><span class="badge badge-available">Free</span></td>';
+          }
+          html += '</tr>';
+        }
+        tbody.innerHTML = html;
+      } else {
+        freeResult.style.display = 'none';
+        emptyState.style.display = 'block';
+      }
+
+      // Returning on Delivery Date
+      if (returning.length > 0) {
+        returningResult.style.display = 'block';
+        var rBody = document.getElementById('returningBody');
+        var rHtml = '';
+        for (var j = 0; j < returning.length; j++) {
+          var r = returning[j];
+          rHtml += '<tr>';
+          rHtml += '<td>' + (j + 1) + '</td>';
+          rHtml += '<td><strong>' + (r.display_name || r.dress_name) + '</strong></td>';
+          rHtml += '<td>' + r.category + '</td>';
+          rHtml += '<td>' + r.customer_name + '</td>';
+          rHtml += '<td>' + r.contact + '</td>';
+          rHtml += '<td>' + (r.venue || '—') + '</td>';
+          rHtml += '<td><span style="display:inline-flex; align-items:center; justify-content:center; width:24px; height:24px; border-radius:50%; background:linear-gradient(135deg, var(--primary), var(--primary-light)); color:white; font-weight:700; font-size:11px;">' + String(r.serial_no).padStart(2, '0') + '</span></td>';
+          rHtml += '<td>₹' + r.amount.toLocaleString() + '</td>';
+          rHtml += '<td><strong>' + r.return_time + '</strong></td>';
+          rHtml += '</tr>';
+        }
+        rBody.innerHTML = rHtml;
+      } else {
+        returningResult.style.display = 'none';
+      }
+    });
+}
+
+document.addEventListener('DOMContentLoaded', function() {
+  searchFreeItems();
+  {% if is_owner %}
+  pollStaffLoginRequests();
+  pollActiveStaffSessions();
+  setInterval(pollStaffLoginRequests, 5000);
+  setInterval(pollActiveStaffSessions, 8000);
+  {% endif %}
+});
+
+{% if is_owner %}
+function escapeHtml(text) {
+  var d = document.createElement('div');
+  d.textContent = text || '';
+  return d.innerHTML;
+}
+
+function forceLogoutStaff(sessionId, username) {
+  if (!confirm('Log out staff ID "' + username + '" immediately?')) return;
+  fetch('/api/staff-session/' + sessionId + '/force-logout', {
+    method: 'POST',
+    headers: { 'X-Requested-With': 'XMLHttpRequest' }
+  })
+    .then(function(r) { return r.json(); })
+    .then(function(data) {
+      if (data.ok) {
+        pollActiveStaffSessions();
+      } else {
+        alert(data.error || 'Could not log out staff');
+      }
+    });
+}
+
+function pollActiveStaffSessions() {
+  fetch('/api/staff-sessions/active')
+    .then(function(r) { return r.json(); })
+    .then(function(list) {
+      var panel = document.getElementById('activeStaffPanel');
+      var listEl = document.getElementById('activeStaffList');
+      var emptyEl = document.getElementById('activeStaffEmpty');
+      var badge = document.getElementById('activeStaffBadge');
+      if (!panel || !listEl) return;
+
+      if (badge) badge.textContent = String(list.length);
+
+      if (!list.length) {
+        panel.style.display = 'none';
+        listEl.innerHTML = '';
+        if (emptyEl) emptyEl.style.display = 'block';
+        return;
+      }
+
+      panel.style.display = 'block';
+      if (emptyEl) emptyEl.style.display = 'none';
+
+      listEl.innerHTML = list.map(function(s) {
+        var staffUse = s.staff_name && s.staff_name !== s.username
+          ? 'Using account for <strong>' + escapeHtml(s.staff_name) + '</strong>'
+            + (s.staff_id ? ' · Staff #' + escapeHtml(String(s.staff_id)) : '')
+          : 'Staff user account';
+        return '<div class="active-staff-row" data-session-id="' + s.id + '" style="display:flex;align-items:center;gap:14px;padding:14px 20px;border-bottom:1px solid var(--border);flex-wrap:wrap;">'
+          + '<div style="width:42px;height:42px;border-radius:50%;background:linear-gradient(135deg,#1A7A4A,#48BB78);color:#fff;display:flex;align-items:center;justify-content:center;font-weight:700;flex-shrink:0;"><i class="fa-solid fa-user-check"></i></div>'
+          + '<div style="flex:1;min-width:180px;">'
+          + '<div style="font-weight:700;font-size:14px;">Login ID: <span style="color:var(--primary);">' + escapeHtml(s.username) + '</span></div>'
+          + '<div style="font-size:12px;color:var(--text-muted);margin-top:2px;">' + staffUse + '</div>'
+          + '<div style="font-size:11px;color:var(--text-muted);margin-top:4px;"><i class="fa-solid fa-right-to-bracket" style="margin-right:4px;"></i>Logged in ' + escapeHtml(s.login_at) + ' · Active ' + escapeHtml(s.last_seen) + '</div>'
+          + '</div>'
+          + '<button type="button" class="btn btn-danger btn-sm" data-username="' + escapeHtml(s.username) + '" onclick="forceLogoutStaff(' + s.id + ', this.dataset.username)"><i class="fa-solid fa-right-from-bracket"></i> Log Out Staff</button>'
+          + '</div>';
+      }).join('');
+    });
+}
+
+function handleStaffLoginRequest(id, action) {
+  var url = '/api/staff-login-request/' + id + '/' + (action === 'approve' ? 'approve' : 'reject');
+  fetch(url, { method: 'POST', headers: { 'X-Requested-With': 'XMLHttpRequest' } })
+    .then(function(r) { return r.json(); })
+    .then(function(data) {
+      if (data.ok) {
+        pollStaffLoginRequests();
+        if (action === 'approve') {
+          setTimeout(pollActiveStaffSessions, 1500);
+        }
+      } else {
+        alert(data.error || 'Could not process request');
+      }
+    });
+}
+
+function pollStaffLoginRequests() {
+  fetch('/api/staff-login-requests/pending')
+    .then(function(r) { return r.json(); })
+    .then(function(list) {
+      var panel = document.getElementById('staffLoginApprovalPanel');
+      var listEl = document.getElementById('staffLoginRequestList');
+      var emptyEl = document.getElementById('staffLoginEmpty');
+      var badge = document.getElementById('staffLoginBadge');
+      if (!panel || !listEl) return;
+
+      if (badge) badge.textContent = String(list.length);
+
+      if (!list.length) {
+        panel.style.display = 'none';
+        listEl.innerHTML = '';
+        if (emptyEl) emptyEl.style.display = 'block';
+        return;
+      }
+
+      panel.style.display = 'block';
+      if (emptyEl) emptyEl.style.display = 'none';
+
+      listEl.innerHTML = list.map(function(req) {
+        var staffLine = req.staff_name && req.staff_name !== req.username ? escapeHtml(req.staff_name) + ' · ' : '';
+        return '<div class="staff-login-request-row" data-request-id="' + req.id + '" style="display:flex;align-items:center;gap:14px;padding:14px 20px;border-bottom:1px solid var(--border);flex-wrap:wrap;">'
+          + '<div style="width:42px;height:42px;border-radius:50%;background:linear-gradient(135deg,var(--primary),var(--primary-light));color:#fff;display:flex;align-items:center;justify-content:center;font-weight:700;flex-shrink:0;">'
+          + escapeHtml((req.username || '?')[0].toUpperCase()) + '</div>'
+          + '<div style="flex:1;min-width:160px;"><div style="font-weight:700;font-size:14px;">' + escapeHtml(req.username) + '</div>'
+          + '<div style="font-size:12px;color:var(--text-muted);">' + staffLine + 'Requested ' + escapeHtml(req.requested_at) + '</div></div>'
+          + '<div style="display:flex;gap:8px;flex-wrap:wrap;">'
+          + '<button type="button" class="btn btn-success btn-sm" onclick="handleStaffLoginRequest(' + req.id + ', \'approve\')"><i class="fa-solid fa-check"></i> Allow Login</button>'
+          + '<button type="button" class="btn btn-danger btn-sm" onclick="handleStaffLoginRequest(' + req.id + ', \'reject\')"><i class="fa-solid fa-xmark"></i> Deny</button>'
+          + '</div></div>';
+      }).join('');
+    });
+}
+{% endif %}
+</script>
+{% endblock %}
