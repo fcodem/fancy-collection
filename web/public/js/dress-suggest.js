@@ -17,7 +17,6 @@
 
   function initDressNameSuggest(input, options) {
     if (!input || input._dressSuggestInit) return;
-    if (input.getAttribute('data-skip-dress-suggest') === 'true') return;
     input._dressSuggestInit = true;
     options = options || {};
 
@@ -32,41 +31,15 @@
     var dropdown = document.createElement('div');
     dropdown.className = 'dress-suggest-dropdown';
     dropdown.style.display = 'none';
-    document.body.appendChild(dropdown);
-
-    window.addEventListener('scroll', function() {
-      if (dropdown.style.display !== 'none') positionDropdown();
-    }, true);
-    window.addEventListener('resize', function() {
-      if (dropdown.style.display !== 'none') positionDropdown();
-    });
+    wrap.appendChild(dropdown);
 
     var timer = null;
     var activeIdx = -1;
-    var suppressFetchUntil = 0;
 
     function getCategory() {
       if (options.getCategory) return options.getCategory() || '';
       if (options.categorySelect) return options.categorySelect.value || '';
       return '';
-    }
-
-    function positionDropdown() {
-      var rect = input.getBoundingClientRect();
-      dropdown.style.position = 'fixed';
-      dropdown.style.left = rect.left + 'px';
-      dropdown.style.top = (rect.bottom + 4) + 'px';
-      dropdown.style.width = rect.width + 'px';
-      dropdown.style.right = 'auto';
-      dropdown.style.zIndex = '10000';
-    }
-
-    function showDropdown() {
-      if (!dropdown.parentNode || dropdown.parentNode !== document.body) {
-        document.body.appendChild(dropdown);
-      }
-      positionDropdown();
-      dropdown.style.display = 'block';
     }
 
     function hideDropdown() {
@@ -76,14 +49,11 @@
     }
 
     function selectItem(item) {
-      clearTimeout(timer);
-      suppressFetchUntil = Date.now() + 600;
       input.value = item.name;
       hideDropdown();
       input.dispatchEvent(new Event('input', { bubbles: true }));
       input.dispatchEvent(new Event('change', { bubbles: true }));
       if (options.onSelect) options.onSelect(item);
-      input.blur();
     }
 
     function renderItems(items) {
@@ -99,7 +69,6 @@
           + '</button>';
       }).join('');
       dropdown.style.display = 'block';
-      positionDropdown();
       dropdown._items = items;
       dropdown.querySelectorAll('.dress-suggest-item').forEach(function(btn) {
         btn.addEventListener('mousedown', function(e) {
@@ -117,7 +86,6 @@
     }
 
     function fetchSuggestions() {
-      if (Date.now() < suppressFetchUntil) return;
       var q = input.value.trim();
       var min = options.minChars != null ? options.minChars : 1;
       if (q.length < min) {
@@ -146,7 +114,6 @@
     });
 
     input.addEventListener('focus', function() {
-      if (Date.now() < suppressFetchUntil) return;
       if (input.value.trim().length >= (options.minChars != null ? options.minChars : 1)) {
         fetchSuggestions();
       }
@@ -172,7 +139,7 @@
     });
 
     document.addEventListener('click', function(e) {
-      if (!wrap.contains(e.target) && !dropdown.contains(e.target)) hideDropdown();
+      if (!wrap.contains(e.target)) hideDropdown();
     });
 
     if (options.categorySelect) {
@@ -184,7 +151,6 @@
 
   function autoInitDressSuggest() {
     document.querySelectorAll('.dress-name-suggest').forEach(function(inp) {
-      if (inp.getAttribute('data-skip-dress-suggest') === 'true') return;
       var catSel = inp.dataset.categorySelect
         ? document.querySelector(inp.dataset.categorySelect)
         : null;

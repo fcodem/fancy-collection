@@ -1,5 +1,6 @@
 from datetime import datetime, date
 from flask_sqlalchemy import SQLAlchemy
+from sqlalchemy import Index
 from werkzeug.security import generate_password_hash, check_password_hash
 
 db = SQLAlchemy()
@@ -101,6 +102,11 @@ class ClothingItem(db.Model):
     created_at = db.Column(db.DateTime, default=datetime.utcnow)
 
     sub_category = db.Column(db.String(20))  # Premium, Normal, Cheap
+
+    __table_args__ = (
+        Index("idx_clothing_items_status", "status"),
+        Index("idx_clothing_items_name", "name"),
+    )
 
     def __repr__(self):
         return f"<ClothingItem {self.sku}>"
@@ -261,6 +267,13 @@ class Booking(db.Model):
 
     item = db.relationship("ClothingItem", foreign_keys=[item_id])
     booking_items = db.relationship("BookingItem", back_populates="booking", cascade="all, delete-orphan")
+
+    __table_args__ = (
+        Index("idx_bookings_delivery_date", "delivery_date"),
+        Index("idx_bookings_status", "status"),
+        Index("idx_bookings_customer_name", "customer_name"),
+        Index("idx_bookings_return_date", "return_date"),
+    )
 
     @property
     def is_delivery_today(self):

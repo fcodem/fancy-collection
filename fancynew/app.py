@@ -1,6 +1,7 @@
 import os
 import sys
 import uuid
+import time
 
 # Always use the fancynew folder as working directory (safe even if launched elsewhere)
 _APP_DIR = os.path.dirname(os.path.abspath(__file__))
@@ -10,44 +11,113 @@ if _APP_DIR not in sys.path:
     sys.path.insert(0, _APP_DIR)
 from datetime import date, datetime, timedelta
 from functools import wraps
-from flask import Flask, render_template, request, redirect, url_for, flash, jsonify, session
+from flask import Flask, render_template, request, redirect, url_for, flash, jsonify, session, g
 from werkzeug.utils import secure_filename
+from sqlalchemy import event
+from sqlalchemy.engine import Engine
+from sqlalchemy.orm import joinedload
+import sqlite3
 
 from models import db, User, Customer, ClothingItem, Rental, RentalItem, Invoice, Payment, Booking, BookingItem, Staff, StaffAttendance, Supplier, SupplierPurchase, CustomCategory, StaffLoginRequest, UserSession
 
 app = Flask(__name__)
-app.config["SECRET_KEY"] = os.environ.get("SECRET_KEY", "cloth-rental-dev-key-change-in-production")
+
+# ── Secret key: raise in production if not set ──────────────────────────────
+_secret_key = os.environ.get("SECRET_KEY")
+if not _secret_key:
+    if os.environ.get("FLASK_DEBUG", "0") != "1":
+        raise RuntimeError(
+            "SECRET_KEY environment variable must be set in production.\n"
+            "Run: export SECRET_KEY='your-long-random-secret-key'"
+        )
+    _secret_key = "cloth-rental-dev-key-change-in-production"
+app.config["SECRET_KEY"] = _secret_key
+
 app.config["SQLALCHEMY_DATABASE_URI"] = "sqlite:///" + os.path.join(
     os.path.dirname(os.path.abspath(__file__)), "cloth_rental.db"
 )
 app.config["SQLALCHEMY_TRACK_MODIFICATIONS"] = False
 
+# ── Session cookie security ──────────────────────────────────────────────────
+app.config["SESSION_COOKIE_HTTPONLY"] = True
+app.config["SESSION_COOKIE_SAMESITE"] = "Lax"
+app.config["SESSION_COOKIE_SECURE"] = os.environ.get("FLASK_DEBUG", "0") != "1"
+
 UPLOAD_FOLDER = os.path.join(os.path.dirname(os.path.abspath(__file__)), "static", "uploads")
 os.makedirs(UPLOAD_FOLDER, exist_ok=True)
 app.config["UPLOAD_FOLDER"] = UPLOAD_FOLDER
 ALLOWED_EXTENSIONS = {"png", "jpg", "jpeg", "webp", "gif"}
+ALLOWED_MIMES = {"image/jpeg", "image/png", "image/webp", "image/gif"}
 
 
-def allowed_file(filename):
-    return "." in filename and filename.rsplit(".", 1)[1].lower() in ALLOWED_EXTENSIONS
+def allowed_file(filename, file_stream=None):
+    """Check extension; also verify MIME type via python-magic if available."""
+    if "." not in filename or filename.rsplit(".", 1)[1].lower() not in ALLOWED_EXTENSIONS:
+        return False
+    if file_stream is not None:
+        try:
+            import magic
+            header = file_stream.read(2048)
+            file_stream.seek(0)
+            mime = magic.from_buffer(header, mime=True)
+            return mime in ALLOWED_MIMES
+        except ImportError:
+            pass
+        except Exception:
+            return False
+    return True
 
 
 db.init_app(app)
+
+# ── SQLite WAL mode: prevents "database is locked" for concurrent users ──────
+@event.listens_for(Engine, "connect")
+def _set_sqlite_wal(dbapi_connection, connection_record):
+    if isinstance(dbapi_connection, sqlite3.Connection):
+        cursor = dbapi_connection.cursor()
+        cursor.execute("PRAGMA journal_mode=WAL")
+        cursor.execute("PRAGMA busy_timeout=5000")
+        cursor.close()
+
+# ── Flask-WTF CSRF protection ────────────────────────────────────────────────
+try:
+    from flask_wtf.csrf import CSRFProtect
+    csrf = CSRFProtect(app)
+except ImportError:
+    app.logger.warning("flask-wtf not installed; CSRF protection disabled. Run: pip install Flask-WTF")
+    csrf = None
+
+# ── Flask-Limiter: rate-limit login attempts ─────────────────────────────────
+try:
+    from flask_limiter import Limiter
+    from flask_limiter.util import get_remote_address
+    limiter = Limiter(key_func=get_remote_address, app=app, default_limits=[])
+    _limiter_available = True
+except ImportError:
+    app.logger.warning("flask-limiter not installed; rate limiting disabled. Run: pip install Flask-Limiter")
+    _limiter_available = False
 
 
 # ─── Auth helpers ──────────────────────────────────────────────────────────────
 
 def get_current_user():
+    """Return the logged-in User, cached on Flask g for the lifetime of the request."""
+    if "current_user" in g:
+        return g.current_user
     uid = session.get("user_id")
     sid = session.get("session_id")
     if not uid or not sid:
+        g.current_user = None
         return None
     us = UserSession.query.filter_by(session_id=sid, user_id=uid, active=True).first()
     if not us:
+        g.current_user = None
         return None
     us.last_seen = datetime.utcnow()
     db.session.commit()
-    return User.query.get(uid)
+    user = User.query.get(uid)
+    g.current_user = user
+    return user
 
 
 def establish_user_login(user):
@@ -149,7 +219,15 @@ def get_pending_staff_login_requests():
 
 # ─── Login / Logout ────────────────────────────────────────────────────────────
 
+def _apply_login_limit(f):
+    """Conditionally apply Flask-Limiter rate limit to login POST (10/minute/IP)."""
+    if _limiter_available:
+        return limiter.limit("10 per minute", methods=["POST"])(f)
+    return f
+
+
 @app.route("/login", methods=["GET", "POST"])
+@_apply_login_limit
 def login():
     if get_current_user():
         return redirect(url_for("dashboard"))
@@ -474,8 +552,20 @@ def dress_label_filter(name, category="", size=""):
     return dress_display_name(name, category, size)
 
 
+_categories_cache: dict = {"data": None, "ts": 0.0}
+_CATEGORIES_TTL = 60  # seconds
+
+
+def bust_categories_cache():
+    """Call this whenever custom categories are added/removed."""
+    _categories_cache["data"] = None
+
+
 def get_all_categories():
-    """Return category lists merged with any custom categories from DB."""
+    """Return category lists merged with any custom categories from DB. Cached 60 s."""
+    now = time.monotonic()
+    if _categories_cache["data"] is not None and now - _categories_cache["ts"] < _CATEGORIES_TTL:
+        return _categories_cache["data"]
     try:
         custom = CustomCategory.query.filter_by(active=True).all()
     except Exception:
@@ -496,7 +586,10 @@ def get_all_categories():
             accessory.append(c.name)
         elif c.group == "other" and c.name not in other:
             other.append(c.name)
-    return mens, womens, jewellery, accessory, other
+    result = (mens, womens, jewellery, accessory, other)
+    _categories_cache["data"] = result
+    _categories_cache["ts"] = now
+    return result
 
 
 # Static fallbacks used before app context is available
@@ -612,8 +705,6 @@ def dashboard():
         Rental.status == "active", Rental.end_date < today
     ).order_by(Rental.end_date).limit(5).all()
 
-    inventory_items = ClothingItem.query.order_by(ClothingItem.category, ClothingItem.name).all()
-
     # Today's booking stats
     today_total_orders = Booking.query.filter(
         Booking.delivery_date == today
@@ -685,7 +776,6 @@ def dashboard():
         recent_rentals=recent_rentals,
         upcoming_returns=upcoming_returns,
         overdue_list=overdue_list,
-        inventory_items=inventory_items,
         categories=CATEGORIES,
         today=today,
         pending_staff_logins=pending_staff_logins,
@@ -965,7 +1055,8 @@ def inventory_add():
                 db.session.commit()
             except Exception as e:
                 db.session.rollback()
-                flash(f"Error adding item: {e}", "error")
+                app.logger.error("Error adding inventory item: %s", e)
+                flash("Something went wrong while adding the item. Please try again.", "error")
                 return redirect(url_for("inventory_add"))
             flash(f"'{name}' added with {count} size(s) as separate products.", "success")
             return redirect(url_for("inventory_list"))
@@ -989,7 +1080,8 @@ def inventory_add():
                 db.session.commit()
             except Exception as e:
                 db.session.rollback()
-                flash(f"Error adding item: {e}", "error")
+                app.logger.error("Error adding inventory item: %s", e)
+                flash("Something went wrong while adding the item. Please try again.", "error")
                 return redirect(url_for("inventory_add"))
             flash(f"Item '{item.name}' added successfully.", "success")
             return redirect(url_for("inventory_list"))
@@ -1419,12 +1511,14 @@ def billing_list():
 
 
 @app.route("/billing/<int:id>")
+@login_required
 def billing_view(id):
     invoice = Invoice.query.get_or_404(id)
     return render_template("billing/view.html", invoice=invoice, payment_methods=PAYMENT_METHODS)
 
 
 @app.route("/billing/<int:id>/pay", methods=["POST"])
+@login_required
 def billing_pay(id):
     invoice = Invoice.query.get_or_404(id)
     amount = float(request.form["amount"])
@@ -1448,6 +1542,7 @@ def billing_pay(id):
 
 
 @app.route("/billing/<int:id>/print")
+@login_required
 def billing_print(id):
     invoice = Invoice.query.get_or_404(id)
     return render_template("billing/print.html", invoice=invoice)
@@ -1456,6 +1551,7 @@ def billing_print(id):
 # ── Reports ──────────────────────────────────────────────────────────────
 
 @app.route("/reports")
+@login_required
 def reports():
     today = date.today()
     month_start = today.replace(day=1)
@@ -1537,130 +1633,129 @@ def booking_new():
             flash("Please select at least one dress.", "error")
             return redirect(url_for("booking_new"))
 
-        # Validate all dresses and check for conflicts
-        items_to_book = []
-        for i, raw_id in enumerate(item_ids):
-            item_id = int(raw_id)
-            item = ClothingItem.query.get(item_id)
-            if not item:
-                flash(f"Dress '{dress_names[i]}' not found.", "error")
-                return redirect(url_for("booking_new"))
+        # ── Atomic transaction: conflict check + booking creation ──────────────
+        # All checks and inserts happen inside one DB transaction to prevent
+        # double-booking race conditions under concurrent users.
+        try:
+            # Validate all dresses and check for conflicts INSIDE the transaction
+            items_to_book = []
+            for i, raw_id in enumerate(item_ids):
+                item_id = int(raw_id)
+                item = ClothingItem.query.with_for_update().get(item_id)
+                if not item:
+                    db.session.rollback()
+                    flash(f"Dress '{dress_names[i]}' not found.", "error")
+                    return redirect(url_for("booking_new"))
 
-            # Prevent double-booking; edge-day cases (returning on our delivery / booked on our return) are allowed
-            conflict = Booking.query.filter(
-                Booking.status.in_(["booked", "delivered"]),
-                Booking.delivery_date < return_date,
-                Booking.return_date > delivery_date,
-                Booking.return_date != delivery_date,
-                Booking.delivery_date != return_date,
-            ).join(BookingItem).filter(BookingItem.item_id == item_id).first()
-
-            if not conflict:
+                # Prevent double-booking; edge-day cases are allowed
                 conflict = Booking.query.filter(
-                    Booking.item_id == item_id,
                     Booking.status.in_(["booked", "delivered"]),
                     Booking.delivery_date < return_date,
                     Booking.return_date > delivery_date,
                     Booking.return_date != delivery_date,
                     Booking.delivery_date != return_date,
-                ).first()
+                ).join(BookingItem).filter(BookingItem.item_id == item_id).first()
 
-            if conflict:
-                flash(
-                    f"'{dress_names[i]}' is already booked from "
-                    f"{conflict.delivery_date.strftime('%d %b %Y')} to "
-                    f"{conflict.return_date.strftime('%d %b %Y')} "
-                    f"(Serial #{conflict.monthly_serial:02d}). ",
-                    "error"
+                if not conflict:
+                    conflict = Booking.query.filter(
+                        Booking.item_id == item_id,
+                        Booking.status.in_(["booked", "delivered"]),
+                        Booking.delivery_date < return_date,
+                        Booking.return_date > delivery_date,
+                        Booking.return_date != delivery_date,
+                        Booking.delivery_date != return_date,
+                    ).first()
+
+                if conflict:
+                    db.session.rollback()
+                    flash(
+                        f"'{dress_names[i]}' is already booked from "
+                        f"{conflict.delivery_date.strftime('%d %b %Y')} to "
+                        f"{conflict.return_date.strftime('%d %b %Y')} "
+                        f"(Serial #{conflict.monthly_serial:02d}). ",
+                        "error"
+                    )
+                    return redirect(url_for("booking_new"))
+
+                items_to_book.append(item)
+
+            booking_number = generate_number("BKG", Booking, "booking_number")
+
+            del_month_start = delivery_date.replace(day=1)
+            if delivery_date.month == 12:
+                del_month_end = date(delivery_date.year + 1, 1, 1)
+            else:
+                del_month_end = date(delivery_date.year, delivery_date.month + 1, 1)
+            month_booking_count = Booking.query.filter(
+                Booking.delivery_date >= del_month_start,
+                Booking.delivery_date < del_month_end,
+            ).count()
+            monthly_serial = serial_position_to_value(month_booking_count + 1)
+
+            total_price = sum(float(p) for p in prices)
+            total_advance = sum(float(a) for a in advances)
+            total_remaining = total_price - total_advance
+
+            booking = Booking(
+                booking_number=booking_number,
+                monthly_serial=monthly_serial,
+                customer_name=customer_name,
+                customer_address=customer_address,
+                contact_1=contact_1,
+                whatsapp_no=whatsapp_no,
+                venue=venue,
+                staff_names=staff_names,
+                delivery_date=delivery_date,
+                delivery_time=delivery_time,
+                return_date=return_date,
+                return_time=return_time,
+                security_deposit=security_deposit,
+                total_price=total_price,
+                total_advance=total_advance,
+                total_remaining=total_remaining,
+                common_notes=common_notes,
+                item_id=int(item_ids[0]),
+                dress_name=dress_names[0],
+                price=total_price,
+                advance=total_advance,
+                remaining=total_remaining,
+            )
+            db.session.add(booking)
+            db.session.flush()
+
+            for i, item in enumerate(items_to_book):
+                d_price = float(prices[i])
+                d_advance = float(advances[i])
+                d_note = dress_notes[i] if i < len(dress_notes) else ""
+                bi = BookingItem(
+                    booking_id=booking.id,
+                    item_id=item.id,
+                    dress_name=dress_names[i],
+                    category=item.category,
+                    size=item.size or "",
+                    price=d_price,
+                    advance=d_advance,
+                    remaining=d_price - d_advance,
+                    notes=d_note,
                 )
-                return redirect(url_for("booking_new"))
+                db.session.add(bi)
+                item.status = "rented"
 
-            items_to_book.append(item)
+            existing_customer = Customer.query.filter_by(phone=contact_1).first()
+            if not existing_customer:
+                new_cust = Customer(
+                    name=customer_name,
+                    phone=contact_1,
+                    email="",
+                    address=customer_address,
+                )
+                db.session.add(new_cust)
 
-        booking_number = generate_number("BKG", Booking, "booking_number")
-
-        # Monthly serial based on DELIVERY month (not booking date)
-        # Skips numbers whose digit sum is 4 or 8
-        del_month_start = delivery_date.replace(day=1)
-        if delivery_date.month == 12:
-            del_month_end = date(delivery_date.year + 1, 1, 1)
-        else:
-            del_month_end = date(delivery_date.year, delivery_date.month + 1, 1)
-        month_booking_count = Booking.query.filter(
-            Booking.delivery_date >= del_month_start,
-            Booking.delivery_date < del_month_end,
-        ).count()
-        # Convert position (count+1) to the actual valid serial number
-        monthly_serial = serial_position_to_value(month_booking_count + 1)
-
-        # Calculate totals
-        total_price = sum(float(p) for p in prices)
-        total_advance = sum(float(a) for a in advances)
-        total_remaining = total_price - total_advance
-
-        booking = Booking(
-            booking_number=booking_number,
-            monthly_serial=monthly_serial,
-            customer_name=customer_name,
-            customer_address=customer_address,
-            contact_1=contact_1,
-            whatsapp_no=whatsapp_no,
-            venue=venue,
-            staff_names=staff_names,
-            delivery_date=delivery_date,
-            delivery_time=delivery_time,
-            return_date=return_date,
-            return_time=return_time,
-            security_deposit=security_deposit,
-            total_price=total_price,
-            total_advance=total_advance,
-            total_remaining=total_remaining,
-            common_notes=common_notes,
-            # Legacy fields for first dress
-            item_id=int(item_ids[0]),
-            dress_name=dress_names[0],
-            price=total_price,
-            advance=total_advance,
-            remaining=total_remaining,
-        )
-        db.session.add(booking)
-        db.session.flush()
-
-        # Add each dress as BookingItem
-        for i, item in enumerate(items_to_book):
-            d_price = float(prices[i])
-            d_advance = float(advances[i])
-            d_note = dress_notes[i] if i < len(dress_notes) else ""
-            bi = BookingItem(
-                booking_id=booking.id,
-                item_id=item.id,
-                dress_name=dress_names[i],
-                category=item.category,
-                size=item.size or "",
-                price=d_price,
-                advance=d_advance,
-                remaining=d_price - d_advance,
-                notes=d_note,
-            )
-            db.session.add(bi)
-            item.status = "rented"
-
-        # Auto-add customer to Customers table
-        existing_customer = Customer.query.filter_by(phone=contact_1).first()
-        if not existing_customer:
-            new_cust = Customer(
-                name=customer_name,
-                phone=contact_1,
-                email="",
-                address=customer_address,
-            )
-            db.session.add(new_cust)
-
-        try:
             db.session.commit()
         except Exception as e:
             db.session.rollback()
-            flash(f"Error creating booking: {e}", "error")
+            app.logger.error("Error creating booking: %s", e)
+            flash("Something went wrong while creating the booking. Please try again.", "error")
             return redirect(url_for("booking_new"))
 
         flash(f"Booking Serial #{monthly_serial:02d} created ({len(items_to_book)} dresses)! Remaining: ₹{total_remaining:,.0f}", "success")
@@ -1831,7 +1926,8 @@ def booking_edit(id):
             db.session.commit()
         except Exception as e:
             db.session.rollback()
-            flash(f"Error updating booking: {e}", "error")
+            app.logger.error("Error updating booking: %s", e)
+            flash("Something went wrong while updating the booking. Please try again.", "error")
             return redirect(url_for("booking_edit", id=id))
 
         flash(f"Booking Serial #{booking.monthly_serial:02d} updated successfully!", "success")
@@ -1890,6 +1986,7 @@ def booking_cancel(id):
 
 
 @app.route("/api/booking/next-serial")
+@login_required
 def api_booking_next_serial():
     """Get the next serial number for a given delivery month."""
     dd_str = request.args.get("delivery_date", "")
@@ -2080,6 +2177,7 @@ def api_booking_date_check():
 
 
 @app.route("/api/booking/available-items")
+@login_required
 def api_booking_available_items():
     """Get available items including those returning on delivery date and booked on return date (with warnings)."""
     delivery_date_str = request.args.get("delivery_date", "")
@@ -2423,6 +2521,7 @@ def api_dress_checker():
 # ── API helpers ──────────────────────────────────────────────────────────────
 
 @app.route("/api/dashboard/free-items")
+@login_required
 def api_dashboard_free_items():
     """Dashboard free-item finder with warnings for items booked on return date."""
     delivery_date_str = request.args.get("delivery_date", "")
@@ -2561,6 +2660,7 @@ def api_dashboard_free_items():
 
 
 @app.route("/api/items/available")
+@login_required
 def api_available_items():
     items = ClothingItem.query.filter_by(status="available").all()
     return jsonify([
@@ -2713,7 +2813,8 @@ def reset_all_data():
 
         except Exception as e:
             db.session.rollback()
-            flash(f"Error during reset: {e}", "error")
+            app.logger.error("Error during data reset: %s", e)
+            flash("Something went wrong during the reset. Please try again.", "error")
 
         return redirect(url_for("dashboard"))
 
@@ -2824,7 +2925,12 @@ def api_packing_list():
     except ValueError:
         return jsonify({"error": "Invalid date format"}), 400
 
-    bookings = query.order_by(Booking.delivery_date.asc(), Booking.delivery_time).all()
+    bookings = (
+        query
+        .options(joinedload(Booking.booking_items).joinedload(BookingItem.item))
+        .order_by(Booking.delivery_date.asc(), Booking.delivery_time)
+        .all()
+    )
 
     results = []
     for b in bookings:
@@ -2833,7 +2939,7 @@ def api_packing_list():
             for bi in b.booking_items:
                 if category_filter and bi.category != category_filter:
                     continue
-                item_obj = ClothingItem.query.get(bi.item_id)
+                item_obj = bi.item  # already eagerly loaded — no extra query
 
                 # Check if this item is returning from another customer on b.delivery_date
                 ret_warning = None
@@ -3787,6 +3893,7 @@ def staff_work_page():
 
 
 @app.route("/api/staff-work")
+@login_required
 def api_staff_work():
     from_str = request.args.get("from", date.today().replace(day=1).isoformat())
     to_str = request.args.get("to", date.today().isoformat())
@@ -3846,6 +3953,10 @@ def add_staff():
 
     # Create login account if username provided
     if username and password:
+        if len(password) < 8:
+            db.session.rollback()
+            flash("Password must be at least 8 characters.", "error")
+            return redirect(url_for("staff_attendance_page"))
         if User.query.filter_by(username=username).first():
             db.session.rollback()
             flash(f"Username '{username}' is already taken.", "error")
@@ -3891,6 +4002,7 @@ def save_attendance():
 
 
 @app.route("/api/staff/attendance")
+@login_required
 def api_staff_attendance():
     month_str = request.args.get("month", date.today().strftime("%Y-%m"))
     try:
@@ -3939,6 +4051,7 @@ def mark_shop_closed():
 
 
 @app.route("/api/staff/attendance-calendar")
+@login_required
 def api_staff_attendance_calendar():
     staff_id = request.args.get("staff_id", type=int)
     month_str = request.args.get("month", date.today().strftime("%Y-%m"))
@@ -3973,6 +4086,7 @@ def search_booking_page():
 
 
 @app.route("/api/search-booking")
+@login_required
 def api_search_booking():
     """Month-based search - same logic as delivery search but for all statuses except cancelled."""
     search_date = request.args.get("date", date.today().isoformat())
@@ -4039,6 +4153,7 @@ def all_record_search_page():
 
 
 @app.route("/api/all-record-search")
+@login_required
 def api_all_record_search():
     """Universal search across all months/years including delivered and returned."""
     search_date = request.args.get("date", "")
@@ -4088,6 +4203,7 @@ def booking_delivery_page():
 
 
 @app.route("/api/delivery/search")
+@login_required
 def api_delivery_search():
     """Search bookings for delivery panel with smart month-based suggestion."""
     search_date = request.args.get("date", date.today().isoformat())
@@ -4202,6 +4318,7 @@ def booking_return_page():
 
 
 @app.route("/api/return/search")
+@login_required
 def api_return_search():
     """Search delivered bookings for return panel."""
     search_date = request.args.get("date", date.today().isoformat())
@@ -4338,6 +4455,7 @@ def returning_today_page():
 
 
 @app.route("/api/returning-today")
+@login_required
 def api_returning_today():
     target_date = request.args.get("date", date.today().isoformat())
     try:
@@ -4522,8 +4640,8 @@ def change_user_role(id):
 def reset_user_password(id):
     user = User.query.get_or_404(id)
     new_password = request.form.get("password", "").strip()
-    if not new_password or len(new_password) < 4:
-        flash("Password must be at least 4 characters.", "error")
+    if not new_password or len(new_password) < 8:
+        flash("Password must be at least 8 characters.", "error")
         return redirect(url_for("users_page"))
     user.set_password(new_password)
     db.session.commit()
@@ -4556,8 +4674,8 @@ def change_own_password():
         confirm = request.form.get("confirm_password", "").strip()
         if not user.check_password(current):
             flash("Current password is incorrect.", "error")
-        elif len(new_pw) < 4:
-            flash("New password must be at least 4 characters.", "error")
+        elif len(new_pw) < 8:
+            flash("New password must be at least 8 characters.", "error")
         elif new_pw != confirm:
             flash("Passwords do not match.", "error")
         else:
@@ -4569,13 +4687,18 @@ def change_own_password():
 
 
 def apply_migrations():
-    """Auto-apply schema migrations for new columns."""
-    import sqlite3
+    """Auto-apply schema migrations: new columns + performance indexes."""
     db_path = app.config["SQLALCHEMY_DATABASE_URI"].replace("sqlite:///", "")
     if not os.path.exists(db_path):
         return
     conn = sqlite3.connect(db_path)
     cursor = conn.cursor()
+
+    # ── Enable WAL mode at migration time too ────────────────────────────────
+    cursor.execute("PRAGMA journal_mode=WAL")
+    cursor.execute("PRAGMA busy_timeout=5000")
+
+    # ── New columns ──────────────────────────────────────────────────────────
     columns_to_add = [
         ("bookings", "delivery_notes", "TEXT"),
         ("bookings", "remaining_collected", "REAL DEFAULT 0"),
@@ -4595,7 +4718,25 @@ def apply_migrations():
         try:
             cursor.execute(f"ALTER TABLE {table} ADD COLUMN {col} {col_type}")
         except sqlite3.OperationalError:
+            pass  # column already exists
+
+    # ── Performance indexes ──────────────────────────────────────────────────
+    indexes_to_create = [
+        ("idx_bookings_delivery_date", "bookings", "delivery_date"),
+        ("idx_bookings_status",        "bookings", "status"),
+        ("idx_bookings_customer_name", "bookings", "customer_name"),
+        ("idx_bookings_return_date",   "bookings", "return_date"),
+        ("idx_clothing_items_status",  "clothing_items", "status"),
+        ("idx_clothing_items_name",    "clothing_items", "name"),
+    ]
+    for idx_name, table, column in indexes_to_create:
+        try:
+            cursor.execute(
+                f"CREATE INDEX IF NOT EXISTS {idx_name} ON {table} ({column})"
+            )
+        except sqlite3.OperationalError:
             pass
+
     conn.commit()
     conn.close()
 
@@ -4606,4 +4747,4 @@ if __name__ == "__main__":
         db.create_all()
         seed_database()
         ensure_owner_exists()
-    app.run(debug=True, port=5000)
+    app.run(debug=os.environ.get("FLASK_DEBUG", "0") == "1", port=5000)
