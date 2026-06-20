@@ -7,22 +7,26 @@ import {
   StandardBookingTableHead,
 } from "@/components/BookingDetailsColumns";
 import { serializeStandardBookingDetails } from "@/lib/bookingDetails";
-import { localTodayEnd, localTodayStart } from "@/lib/constants";
+import { localTodayStart } from "@/lib/constants";
+import { todayStartQ, todayEndQ } from "@/lib/prisma";
 import { formatInr } from "@/lib/format";
+
+export const dynamic = "force-dynamic";
 function fmtDate(d: Date) {
   return d.toISOString().slice(0, 10);
 }
 
 export default async function BookingPanelPage() {
-  const today = localTodayStart();
-  const todayEnd = localTodayEnd();
+  const todayReal = localTodayStart();
+  const today = todayStartQ();
+  const todayEnd = todayEndQ();
 
   const [bookings, totalCount, bookedCount, deliveredCount, returnedCount, deliveringToday, returningToday] =
     await Promise.all([
       prisma.booking.findMany({
         where: { status: { not: "cancelled" } },
         include: { bookingItems: { include: { item: true } }, legacyItem: true },
-        orderBy: { createdAt: "desc" },
+        orderBy: { monthlySerial: "desc" },
         take: 150,
       }),
       prisma.booking.count({ where: { status: { not: "cancelled" } } }),
@@ -153,7 +157,7 @@ export default async function BookingPanelPage() {
               <tbody>
                 {bookings.map((b) => {
                   const rem = b.totalRemaining ?? b.remaining;
-                  const overdue = b.status === "delivered" && fmtDate(b.returnDate) < fmtDate(today);
+                  const overdue = b.status === "delivered" && fmtDate(b.returnDate) < fmtDate(todayReal);
                   return (
                     <tr key={b.id} style={overdue ? { background: "rgba(192,57,43,0.04)" } : undefined}>
                       <td>
@@ -170,9 +174,17 @@ export default async function BookingPanelPage() {
                           <span style={{ color: "var(--success)", fontWeight: 600 }}>Paid ✓</span>
                         )}
                       </td>
-                      <td><span className={`badge badge-${b.status}`}>{b.status}</span></td>
                       <td>
+                        <span className={`badge badge-${b.status}`}>{b.status}</span>
+                        {b.status === "delivered" && (
+                          <span className="badge badge-success" style={{ marginLeft: 4, fontSize: 9 }}>DELIVERED</span>
+                        )}
+                      </td>
+                      <td style={{ display: "flex", gap: 4, alignItems: "center" }}>
                         <Link href={`/booking/${b.id}`} className="btn btn-outline btn-sm"><i className="fa-solid fa-eye" /></Link>
+                        {b.status === "delivered" && (
+                          <Link href={`/booking-delivery/${b.id}`} className="btn btn-outline btn-sm" title="Edit Delivered"><i className="fa-solid fa-pen" /></Link>
+                        )}
                       </td>
                     </tr>
                   );

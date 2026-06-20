@@ -1,5 +1,5 @@
 import { NextRequest, NextResponse } from "next/server";
-import prisma from "../prisma";
+import prisma, { todayStartQ, todayEndQ, dateQ } from "../prisma";
 import bcrypt from "bcryptjs";
 import {
   BASE_ACCESSORY,
@@ -8,8 +8,6 @@ import {
   BASE_WOMENS,
   SIZES,
   SUB_CATEGORIES,
-  localTodayEnd,
-  localTodayStart,
   todayIso,
   formatDate,
 } from "../constants";
@@ -63,16 +61,17 @@ export async function initDb() {
 }
 
 export async function getOverdueDeliveryCount() {
-  const today = localTodayStart();
+  const today = todayStartQ();
   return prisma.booking.count({
     where: { deliveryDate: { lt: today }, status: "booked" },
   });
 }
 
 export async function getDashboardData() {
-  const today = localTodayStart();
-  const todayEnd = localTodayEnd();
-  const monthStart = new Date(today.getFullYear(), today.getMonth(), 1);
+  const today = todayStartQ();
+  const todayEnd = todayEndQ();
+  const now = new Date();
+  const monthStart = dateQ(new Date(Date.UTC(now.getFullYear(), now.getMonth(), 1)));
 
   const [
     itemStatusCounts,

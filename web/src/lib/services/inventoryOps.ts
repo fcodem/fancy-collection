@@ -8,6 +8,8 @@ import {
 import { formatUnitName } from "../dress";
 import { computeAverageHash, hashSimilarity } from "../photoHash";
 import { saveUpload } from "../upload";
+import { broadcastShopEvent } from "../realtime/broadcast";
+import { logActivity, snapshotInventory } from "../activityLog";
 
 function itemTypeForCategory(category: string) {
   if (JEWELLERY_CATEGORIES.includes(category)) return "jewellery";
@@ -60,19 +62,22 @@ async function createInventoryUnits(
   return created;
 }
 
-export async function createInventoryItem(form: {
-  name: string;
-  category: string;
-  sizes?: string[];
-  size?: string;
-  color?: string;
-  daily_rate?: number;
-  deposit?: number;
-  condition_notes?: string;
-  sub_category?: string;
-  photo?: File | null;
-  quantity?: number;
-}) {
+export async function createInventoryItem(
+  form: {
+    name: string;
+    category: string;
+    sizes?: string[];
+    size?: string;
+    color?: string;
+    daily_rate?: number;
+    deposit?: number;
+    condition_notes?: string;
+    sub_category?: string;
+    photo?: File | null;
+    quantity?: number;
+  },
+  by?: string,
+) {
   const photoFilename = form.photo ? await saveUpload(form.photo) : "";
   const itemType = itemTypeForCategory(form.category);
   const subCategory = form.sub_category || "Normal";
@@ -100,10 +105,21 @@ export async function createInventoryItem(form: {
       );
       created.push(...units);
     }
+    broadcastShopEvent({ type: "inventory.changed", itemIds: created.map((i) => i.id), by });
+    for (const item of created) {
+      logActivity({
+        username: by || "system",
+        action: "created",
+        entity: "inventory",
+        entityId: item.id,
+        label: `Added ${item.name} (${item.category}, ${item.size || "—"})`,
+        after: snapshotInventory(item as unknown as Record<string, unknown>),
+      });
+    }
     return created;
   }
 
-  return createInventoryUnits(
+  const units = await createInventoryUnits(
     {
       name: form.name,
       category: form.category,
@@ -118,6 +134,18 @@ export async function createInventoryItem(form: {
     },
     quantity
   );
+  broadcastShopEvent({ type: "inventory.changed", itemIds: units.map((i) => i.id), by });
+  for (const item of units) {
+    logActivity({
+      username: by || "system",
+      action: "created",
+      entity: "inventory",
+      entityId: item.id,
+      label: `Added ${item.name} (${item.category}, ${item.size || "—"})`,
+      after: snapshotInventory(item as unknown as Record<string, unknown>),
+    });
+  }
+  return units;
 }
 
 export async function updateInventoryItem(
@@ -134,16 +162,18 @@ export async function updateInventoryItem(
     sub_category?: string;
     photo?: File | null;
     remove_photo?: boolean;
-  }
+  },
+  by?: string,
 ) {
   const existing = await prisma.clothingItem.findUnique({ where: { id } });
   if (!existing) throw new Error("Item not found");
+  const beforeSnapshot = snapshotInventory(existing as unknown as Record<string, unknown>);
 
   let photo = existing.photo;
   if (form.remove_photo) photo = null;
   if (form.photo) photo = await saveUpload(form.photo);
 
-  return prisma.clothingItem.update({
+  const updated = await prisma.clothingItem.update({
     where: { id },
     data: {
       name: form.name.trim(),
@@ -159,9 +189,20 @@ export async function updateInventoryItem(
       itemType: itemTypeForCategory(form.category),
     },
   });
+  broadcastShopEvent({ type: "inventory.changed", itemIds: [id], by });
+  logActivity({
+    username: by || "system",
+    action: "updated",
+    entity: "inventory",
+    entityId: id,
+    label: `Updated ${updated.name} (${updated.category})`,
+    before: beforeSnapshot,
+    after: snapshotInventory(updated as unknown as Record<string, unknown>),
+  });
+  return updated;
 }
 
-export async function deleteInventoryItem(id: number) {
+export async function deleteInventoryItem(id: number, by?: string) {
   const activeBooking = await prisma.booking.findFirst({
     where: {
       status: { in: ["booked", "delivered"] },
@@ -169,7 +210,19 @@ export async function deleteInventoryItem(id: number) {
     },
   });
   if (activeBooking) throw new Error("Cannot delete — item is in an active booking.");
+  const existing = await prisma.clothingItem.findUnique({ where: { id } });
   await prisma.clothingItem.delete({ where: { id } });
+  broadcastShopEvent({ type: "inventory.changed", itemIds: [id], by });
+  if (existing) {
+    logActivity({
+      username: by || "system",
+      action: "deleted",
+      entity: "inventory",
+      entityId: id,
+      label: `Deleted ${existing.name} (${existing.category})`,
+      before: snapshotInventory(existing as unknown as Record<string, unknown>),
+    });
+  }
 }
 
 export async function photoSearchInventory(photoBuffer: Buffer, category = "") {

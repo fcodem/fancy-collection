@@ -9,7 +9,7 @@ export async function POST(req: NextRequest) {
   if (isResponse(user)) return user;
   try {
     const body = await req.json();
-    const booking = await createBooking(body);
+    const booking = await createBooking(body, user.username);
     // #region agent log
     debugLog("booking/route.ts", "booking created", {
       id: booking.id,

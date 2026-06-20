@@ -1,18 +1,28 @@
 import { PrismaClient } from "@prisma/client";
 import bcrypt from "bcryptjs";
+import { isWerkzeugHash } from "../src/lib/werkzeugPassword";
 
 const prisma = new PrismaClient();
 
 async function ensureOwnerExists() {
+  const passwordHash = await bcrypt.hash("admin123", 10);
   const owner = await prisma.user.findUnique({ where: { username: "owner" } });
   if (!owner) {
     await prisma.user.create({
       data: {
         username: "owner",
-        passwordHash: await bcrypt.hash("admin123", 10),
+        passwordHash,
         role: "owner",
         active: true,
       },
+    });
+    return;
+  }
+
+  if (!owner.active || isWerkzeugHash(owner.passwordHash)) {
+    await prisma.user.update({
+      where: { username: "owner" },
+      data: { passwordHash, active: true, role: "owner" },
     });
   }
 }
@@ -20,12 +30,6 @@ async function ensureOwnerExists() {
 async function seedDatabase() {
   const existing = await prisma.customer.findFirst();
   if (existing) return;
-  await prisma.customer.createMany({
-    data: [
-      { name: "Priya Sharma", phone: "9876543210", email: "priya@email.com", address: "Mumbai" },
-      { name: "Rahul Mehta", phone: "9123456780", email: "rahul@email.com", address: "Delhi" },
-    ],
-  });
   await prisma.clothingItem.createMany({
     data: [
       { name: "Red Bridal Lehenga", sku: "LRG-001", category: "Lehenga", itemType: "clothing", size: "M", color: "Red", dailyRate: 2500, deposit: 10000 },

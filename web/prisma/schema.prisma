@@ -3,7 +3,7 @@ generator client {
 }
 
 datasource db {
-  provider = "postgresql"
+  provider = "sqlite"
   url      = env("DATABASE_URL")
 }
 
@@ -101,9 +101,9 @@ model Rental {
   id               Int       @id @default(autoincrement())
   rentalNumber     String    @unique @map("rental_number")
   customerId       Int       @map("customer_id")
-  startDate        DateTime  @map("start_date") @db.Date
-  endDate          DateTime  @map("end_date") @db.Date
-  actualReturnDate DateTime? @map("actual_return_date") @db.Date
+  startDate        DateTime  @map("start_date")
+  endDate          DateTime  @map("end_date")
+  actualReturnDate DateTime? @map("actual_return_date")
   status           String    @default("active")
   subtotal         Float     @default(0)
   depositTotal     Float     @default(0) @map("deposit_total")
@@ -135,19 +135,19 @@ model RentalItem {
 }
 
 model Invoice {
-  id            Int      @id @default(autoincrement())
-  invoiceNumber String   @unique @map("invoice_number")
-  rentalId      Int      @map("rental_id")
-  issueDate     DateTime @default(now()) @map("issue_date") @db.Date
-  dueDate       DateTime? @map("due_date") @db.Date
-  subtotal      Float    @default(0)
-  taxRate       Float    @default(0) @map("tax_rate")
-  taxAmount     Float    @default(0) @map("tax_amount")
-  total         Float    @default(0)
-  amountPaid    Float    @default(0) @map("amount_paid")
-  status        String   @default("unpaid")
+  id            Int       @id @default(autoincrement())
+  invoiceNumber String    @unique @map("invoice_number")
+  rentalId      Int       @map("rental_id")
+  issueDate     DateTime  @default(now()) @map("issue_date")
+  dueDate       DateTime? @map("due_date")
+  subtotal      Float     @default(0)
+  taxRate       Float     @default(0) @map("tax_rate")
+  taxAmount     Float     @default(0) @map("tax_amount")
+  total         Float     @default(0)
+  amountPaid    Float     @default(0) @map("amount_paid")
+  status        String    @default("unpaid")
   notes         String?
-  createdAt     DateTime @default(now()) @map("created_at")
+  createdAt     DateTime  @default(now()) @map("created_at")
 
   rental   Rental    @relation(fields: [rentalId], references: [id])
   payments Payment[]
@@ -177,9 +177,9 @@ model Booking {
   customerAddress    String    @map("customer_address")
   contact1           String    @map("contact_1")
   whatsappNo         String?   @map("whatsapp_no")
-  deliveryDate       DateTime  @map("delivery_date") @db.Date
+  deliveryDate       DateTime  @map("delivery_date")
   deliveryTime       String    @map("delivery_time")
-  returnDate         DateTime  @map("return_date") @db.Date
+  returnDate         DateTime  @map("return_date")
   returnTime         String    @map("return_time")
   venue              String?
   securityDeposit    Float     @default(0) @map("security_deposit")
@@ -232,6 +232,12 @@ model BookingItem {
   checkedBy     String? @map("checked_by")
   isPackedReady Boolean @default(false) @map("is_packed_ready")
   packingNote   String? @map("packing_note")
+  isDelivered   Boolean @default(false) @map("is_delivered")
+  deliveredAt   DateTime? @map("delivered_at")
+  itemRemainingCollected Float @default(0) @map("item_remaining_collected")
+  itemSecurityCollected  Float @default(0) @map("item_security_collected")
+  itemDeliveryNotes      String? @map("item_delivery_notes")
+  isReturned    Boolean @default(false) @map("is_returned")
 
   booking Booking      @relation(fields: [bookingId], references: [id], onDelete: Cascade)
   item    ClothingItem @relation(fields: [itemId], references: [id])
@@ -265,7 +271,7 @@ model Staff {
 model StaffAttendance {
   id      Int      @id @default(autoincrement())
   staffId Int      @map("staff_id")
-  date    DateTime @db.Date
+  date    DateTime
   status  String   @default("present")
 
   staff Staff @relation(fields: [staffId], references: [id])
@@ -275,11 +281,13 @@ model StaffAttendance {
 }
 
 model Supplier {
-  id        Int      @id @default(autoincrement())
-  name      String
-  phone     String?
-  address   String?
-  createdAt DateTime @default(now()) @map("created_at")
+  id             Int      @id @default(autoincrement())
+  name           String
+  phone          String?
+  address        String?
+  gstNo          String?  @map("gst_no")
+  accountDetails String?  @map("account_details")
+  createdAt      DateTime @default(now()) @map("created_at")
 
   purchases SupplierPurchase[]
 
@@ -293,8 +301,9 @@ model SupplierPurchase {
   category        String?
   amount          Float    @default(0)
   gstAmount       Float    @default(0) @map("gst_amount")
+  gstPercent      Float    @default(0) @map("gst_percent")
   transactionType String   @default("purchase") @map("transaction_type")
-  date            DateTime @default(now()) @db.Date
+  date            DateTime @default(now())
   notes           String?
 
   supplier Supplier @relation(fields: [supplierId], references: [id])
@@ -311,9 +320,9 @@ model ProspectLead {
   venue           String?
   notes           String?
   staffNames      String?   @map("staff_names")
-  deliveryDate    DateTime  @map("delivery_date") @db.Date
+  deliveryDate    DateTime  @map("delivery_date")
   deliveryTime    String?   @map("delivery_time")
-  returnDate      DateTime  @map("return_date") @db.Date
+  returnDate      DateTime  @map("return_date")
   returnTime      String?   @map("return_time")
   lastReminderAt  DateTime? @map("last_reminder_at")
   createdAt       DateTime  @default(now()) @map("created_at")
@@ -343,8 +352,25 @@ model ShopEnquiry {
   whatsappNo      String?  @map("whatsapp_no")
   enquiryNotes    String?  @map("enquiry_notes")
   staffNames      String?  @map("staff_names")
-  visitDate       DateTime @map("visit_date") @db.Date
+  visitDate       DateTime @map("visit_date")
   createdAt       DateTime @default(now()) @map("created_at")
 
   @@map("shop_enquiries")
+}
+
+model ActivityLog {
+  id         Int      @id @default(autoincrement())
+  username   String
+  action     String
+  entity     String
+  entityId   Int?     @map("entity_id")
+  label      String?
+  dataBefore String?  @map("data_before")
+  dataAfter  String?  @map("data_after")
+  createdAt  DateTime @default(now()) @map("created_at")
+
+  @@index([entity, entityId])
+  @@index([username])
+  @@index([createdAt])
+  @@map("activity_logs")
 }

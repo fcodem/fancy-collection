@@ -21,7 +21,7 @@ export async function POST(req: NextRequest) {
       sub_category: String(form.get("sub_category") || "Normal"),
       photo: photo instanceof File && photo.size > 0 ? photo : null,
       quantity: Number(form.get("quantity") || 1),
-    });
+    }, user.username);
     return jsonOk({ ok: true, count: items.length, ids: items.map((i) => i.id) });
   } catch (e) {
     return jsonError(e instanceof Error ? e.message : "Failed to add item");

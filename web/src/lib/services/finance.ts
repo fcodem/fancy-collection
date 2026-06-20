@@ -1,4 +1,4 @@
-import prisma from "../prisma";
+import prisma, { dateQ } from "../prisma";
 import {
   BASE_JEWELLERY,
   BASE_MENS,
@@ -27,22 +27,30 @@ function endOfDay(d: Date): Date {
   return s;
 }
 
+function startOfDayQ(d: Date): Date {
+  return dateQ(startOfDay(d));
+}
+
+function endOfDayQ(d: Date): Date {
+  return dateQ(endOfDay(d));
+}
+
 export async function getDailySale(targetDateStr: string) {
   const target = parseDate(targetDateStr);
-  const dayStart = startOfDay(target);
-  const dayEnd = endOfDay(target);
+  const dayStartQ = startOfDayQ(target);
+  const dayEndQ = endOfDayQ(target);
 
   const bookingsToday = await prisma.booking.findMany({
     where: {
       status: { not: "cancelled" },
-      createdAt: { gte: dayStart, lt: dayEnd },
+      createdAt: { gte: dayStartQ, lt: dayEndQ },
     },
     include: { bookingItems: true },
   });
 
   const deliveredToday = await prisma.booking.findMany({
     where: {
-      deliveryDate: { gte: dayStart, lt: dayEnd },
+      deliveryDate: { gte: dayStartQ, lt: dayEndQ },
       status: { in: ["delivered", "returned"] },
     },
     include: { bookingItems: true },
@@ -87,7 +95,7 @@ export async function getDailySale(targetDateStr: string) {
   const total_advance = Object.values(advance_by_category).reduce((a, b) => a + b, 0);
   const total_remaining_collected = Object.values(remaining_by_category).reduce((a, b) => a + b, 0);
 
-  const refundsToday = await getRefundsBetween(dayStart, dayEnd);
+  const refundsToday = await getRefundsBetween(dayStartQ, dayEndQ);
   const refund_total = totalRefundAmount(refundsToday);
   const refundCats = refundByCategory(refundsToday);
   const refundGender = refundGenderTotals(refundCats);
@@ -116,11 +124,11 @@ export async function getDailySale(targetDateStr: string) {
 
 export async function getDailyBooking(targetDateStr: string) {
   const target = parseDate(targetDateStr);
-  const dayStart = startOfDay(target);
-  const dayEnd = endOfDay(target);
+  const dayStartQ = startOfDayQ(target);
+  const dayEndQ = endOfDayQ(target);
 
   const bookings = await prisma.booking.findMany({
-    where: { status: { not: "cancelled" }, createdAt: { gte: dayStart, lt: dayEnd } },
+    where: { status: { not: "cancelled" }, createdAt: { gte: dayStartQ, lt: dayEndQ } },
     include: { bookingItems: true },
   });
 
@@ -142,7 +150,7 @@ export async function getDailyBooking(targetDateStr: string) {
   }
 
   const grand = Object.values(total_by_category).reduce((a, b) => a + b, 0);
-  const refundsToday = await getRefundsBetween(dayStart, dayEnd);
+  const refundsToday = await getRefundsBetween(dayStartQ, dayEndQ);
   const refund_total = totalRefundAmount(refundsToday);
   const refundCats = refundByCategory(refundsToday);
   const refundGender = refundGenderTotals(refundCats);
@@ -160,8 +168,8 @@ export async function getDailyBooking(targetDateStr: string) {
 
 export async function getMonthlySale(monthStr: string) {
   const [year, month] = monthStr.split("-").map(Number);
-  const monthStart = new Date(Date.UTC(year, month - 1, 1));
-  const monthEnd = new Date(Date.UTC(year, month, 1));
+  const monthStart = dateQ(new Date(Date.UTC(year, month - 1, 1)));
+  const monthEnd = dateQ(new Date(Date.UTC(year, month, 1)));
 
   const bookings = await prisma.booking.findMany({
     where: {
@@ -219,7 +227,7 @@ export async function getYearlySale(fromStr?: string, toStr?: string) {
   const bookings = await prisma.booking.findMany({
     where: {
       status: { not: "cancelled" },
-      createdAt: { gte: fromDate, lte: endOfDay(toDate) },
+      createdAt: { gte: dateQ(fromDate), lte: endOfDayQ(toDate) },
     },
     include: { bookingItems: true },
   });
@@ -242,8 +250,7 @@ export async function getYearlySale(fromStr?: string, toStr?: string) {
     }
   }
 
-  const refundEnd = endOfDay(toDate);
-  const refundsRange = await getRefundsBetween(fromDate, refundEnd);
+  const refundsRange = await getRefundsBetween(dateQ(fromDate), endOfDayQ(toDate));
   const refund_total = totalRefundAmount(refundsRange);
   const refundGender = refundGenderTotals(refundByCategory(refundsRange));
 
@@ -270,7 +277,7 @@ export async function getTopPerformers(fromStr: string, toStr: string, categoryF
   const bookings = await prisma.booking.findMany({
     where: {
       status: { not: "cancelled" },
-      createdAt: { gte: fromDate, lte: endOfDay(toDate) },
+      createdAt: { gte: dateQ(fromDate), lte: endOfDayQ(toDate) },
     },
     include: { bookingItems: { include: { item: true } } },
   });
@@ -303,7 +310,7 @@ export async function getTopPerformers(fromStr: string, toStr: string, categoryF
     }
   }
 
-  const refunds = await getRefundsBetween(fromDate, endOfDay(toDate));
+  const refunds = await getRefundsBetween(dateQ(fromDate), endOfDayQ(toDate));
   for (const b of refunds) {
     const amt = b.refundAmount || 0;
     const total = b.totalPrice || b.price || 0;
@@ -354,9 +361,11 @@ export async function getSecurityDepositSummary() {
 export async function getCategoryAnalysis(fromStr: string, toStr: string) {
   const fromDate = parseDate(fromStr);
   const toDate = parseDate(toStr);
+  const fromDateQ = dateQ(fromDate);
+  const toDateQ = dateQ(toDate);
 
   const purchases = await prisma.supplierPurchase.findMany({
-    where: { date: { gte: fromDate, lte: toDate } },
+    where: { date: { gte: fromDateQ, lte: toDateQ } },
   });
 
   const purchase_by_cat: Record<string, number> = {};
@@ -383,7 +392,7 @@ export async function getCategoryAnalysis(fromStr: string, toStr: string) {
   const bookingsCreated = await prisma.booking.findMany({
     where: {
       status: { not: "cancelled" },
-      createdAt: { gte: fromDate, lte: endOfDay(toDate) },
+      createdAt: { gte: fromDateQ, lte: endOfDayQ(toDate) },
     },
     include: { bookingItems: true },
   });
@@ -402,7 +411,7 @@ export async function getCategoryAnalysis(fromStr: string, toStr: string) {
 
   const delivered = await prisma.booking.findMany({
     where: {
-      deliveryDate: { gte: fromDate, lte: toDate },
+      deliveryDate: { gte: fromDateQ, lte: toDateQ },
       status: { in: ["delivered", "returned"] },
     },
     include: { bookingItems: true },
@@ -430,7 +439,7 @@ export async function getCategoryAnalysis(fromStr: string, toStr: string) {
     ...Object.keys(stock_by_cat),
   ]);
 
-  const refundsRange = await getRefundsBetween(fromDate, endOfDay(toDate));
+  const refundsRange = await getRefundsBetween(fromDateQ, endOfDayQ(toDate));
   const refundCats = refundByCategory(refundsRange);
   const refund_total = totalRefundAmount(refundsRange);
 

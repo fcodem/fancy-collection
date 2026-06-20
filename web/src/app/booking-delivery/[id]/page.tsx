@@ -7,6 +7,8 @@ import { getDeliveryDetail } from "@/lib/services/operations";
 import { getAllCategories } from "@/lib/categories";
 import { formatDate, todayIso } from "@/lib/constants";
 
+export const dynamic = "force-dynamic";
+
 export default async function DeliveryDetailPage({ params }: { params: Promise<{ id: string }> }) {
   const { id } = await params;
   const bookingId = parseInt(id, 10);
@@ -14,7 +16,26 @@ export default async function DeliveryDetailPage({ params }: { params: Promise<{
   if (!detail) notFound();
   const { booking, next_bookings } = detail;
 
-  const isDelivered = booking.status === "delivered";
+  const items = booking.bookingItems.map((bi) => ({
+    id: bi.id,
+    dressName: bi.dressName,
+    category: bi.category,
+    size: bi.size || bi.item?.size,
+    price: bi.price,
+    remaining: bi.remaining,
+    photo: bi.item?.photo || "",
+    isDelivered: bi.isDelivered,
+    itemRemainingCollected: bi.itemRemainingCollected,
+    itemSecurityCollected: bi.itemSecurityCollected,
+    itemDeliveryNotes: bi.itemDeliveryNotes,
+    preparedBy: bi.preparedBy || "",
+    checkedBy: bi.checkedBy || "",
+    packingNote: bi.packingNote || "",
+  }));
+
+  const allDelivered = items.length > 0 ? items.every((i) => i.isDelivered) : booking.status === "delivered";
+  const isDelivered = allDelivered;
+
   let editForm = null;
 
   if (isDelivered) {
@@ -79,6 +100,7 @@ export default async function DeliveryDetailPage({ params }: { params: Promise<{
           deliveryDate: formatDate(booking.deliveryDate),
           returnDate: formatDate(booking.returnDate),
         }}
+        items={items}
         nextBookings={next_bookings}
         isDelivered={isDelivered}
       />

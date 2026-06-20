@@ -8,7 +8,7 @@ export async function POST(req: NextRequest) {
   try {
     const body = await req.json();
     if (!body.bi_id) return jsonError("Missing bi_id", 400);
-    const result = await savePackingItem(body);
+    const result = await savePackingItem(body, user.username);
     return jsonOk(result);
   } catch (e) {
     return jsonError(e instanceof Error ? e.message : "Save failed", 404);

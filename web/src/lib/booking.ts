@@ -1,8 +1,8 @@
-import prisma from "./prisma";
+import prisma, { parseDateQ, startOfMonthQ, endOfMonthQ, dateQ } from "./prisma";
 import { dressDisplayName, buildDressSearchWhere, serializeBookingItems } from "./dress";
 import { bookingListRecordFrom, bookingWarningRecordFrom } from "./bookingDetails";
 import { serialPositionToValue, generateNumber } from "./serial";
-import { parseDate, startOfMonth, endOfMonth, formatDate } from "./constants";
+import { formatDate } from "./constants";
 import type { Booking, BookingItem, ClothingItem, Prisma } from "@prisma/client";
 
 type BookingWithItems = Booking & {
@@ -66,8 +66,8 @@ export async function checkItemAvailabilityForDates(
   const overlapping = await prisma.booking.findMany({
     where: {
       status: { in: ["booked", "delivered"] },
-      deliveryDate: { lte: rDate },
-      returnDate: { gte: dDate },
+      deliveryDate: { lte: dateQ(rDate) },
+      returnDate: { gte: dateQ(dDate) },
       ...(excludeBookingId ? { id: { not: excludeBookingId } } : {}),
     },
     include: bookingWarningInclude,
@@ -133,8 +133,8 @@ export async function searchBookingsByText(queryText: string, extraWhere: Prisma
   const words = q.split(/\s+/).filter(Boolean);
   const dressFilters = words.map((word) => ({
     OR: [
-      { dressName: { contains: word, mode: "insensitive" as const } },
-      { bookingItems: { some: { dressName: { contains: word, mode: "insensitive" as const } } } },
+      { dressName: { contains: word } },
+      { bookingItems: { some: { dressName: { contains: word } } } },
     ],
   }));
 
@@ -142,10 +142,10 @@ export async function searchBookingsByText(queryText: string, extraWhere: Prisma
     where: {
       ...extraWhere,
       OR: [
-        { customerName: { contains: q, mode: "insensitive" } },
-        { contact1: { contains: q, mode: "insensitive" } },
-        { whatsappNo: { contains: q, mode: "insensitive" } },
-        { bookingNumber: { contains: q, mode: "insensitive" } },
+        { customerName: { contains: q } },
+        { contact1: { contains: q } },
+        { whatsappNo: { contains: q } },
+        { bookingNumber: { contains: q } },
         ...(words.length ? [{ AND: dressFilters }] : []),
         ...(!isNaN(Number(q)) ? [{ monthlySerial: Number(q) }] : []),
       ],
@@ -170,8 +170,8 @@ export function serializeBookingForList(b: BookingWithItems) {
 }
 
 export async function getNextMonthlySerial(deliveryDate: Date) {
-  const monthStart = startOfMonth(deliveryDate);
-  const monthEnd = endOfMonth(deliveryDate);
+  const monthStart = startOfMonthQ(deliveryDate);
+  const monthEnd = endOfMonthQ(deliveryDate);
   const count = await prisma.booking.count({
     where: { deliveryDate: { gte: monthStart, lt: monthEnd } },
   });
@@ -194,8 +194,8 @@ export async function getAvailableItemsApi(
   categoryFilter = "",
   excludeBookingId?: number
 ) {
-  const dDate = parseDate(deliveryDateStr);
-  const rDate = parseDate(returnDateStr);
+  const dDate = parseDateQ(deliveryDateStr);
+  const rDate = parseDateQ(returnDateStr);
   const exclude = excludeBookingId ? { id: { not: excludeBookingId } } : {};
 
   const [allItems, overlappingBookings, returningOnDeliveryBookings, bookedOnReturnBookings, overlappingRentals] =
@@ -246,17 +246,23 @@ export async function getAvailableItemsApi(
   const rIso = formatDate(rDate, "iso");
 
   const busyItemIds = new Set<number>();
-  const returningInfo: Record<number, ReturnType<typeof warningRecordFromBooking>> = {};
-  const bookedOnReturnInfo: Record<number, ReturnType<typeof warningRecordFromBooking>> = {};
+  const returningInfo: Record<number, ReturnType<typeof warningRecordFromBooking> & { customer?: string; contact?: string }> = {};
+  const bookedOnReturnInfo: Record<number, ReturnType<typeof warningRecordFromBooking> & { customer?: string; contact?: string }> = {};
 
   for (const b of overlappingBookings) {
     for (const itemId of bookingItemIds(b)) {
       const bD = formatDate(b.deliveryDate, "iso");
       const bR = formatDate(b.returnDate, "iso");
       if (bR === dIso) {
-        if (!returningInfo[itemId]) returningInfo[itemId] = warningRecordFromBooking(b as BookingWithItems);
+        if (!returningInfo[itemId]) {
+          const rec = warningRecordFromBooking(b as BookingWithItems);
+          returningInfo[itemId] = { ...rec, customer: rec.customer_name, contact: rec.contact_1 };
+        }
       } else if (bD === rIso) {
-        if (!bookedOnReturnInfo[itemId]) bookedOnReturnInfo[itemId] = warningRecordFromBooking(b as BookingWithItems);
+        if (!bookedOnReturnInfo[itemId]) {
+          const rec = warningRecordFromBooking(b as BookingWithItems);
+          bookedOnReturnInfo[itemId] = { ...rec, customer: rec.customer_name, contact: rec.contact_1 };
+        }
       } else {
         busyItemIds.add(itemId);
       }

@@ -1,5 +1,5 @@
 import { NextRequest } from "next/server";
-import prisma from "@/lib/prisma";
+import prisma, { parseDateQ } from "@/lib/prisma";
 import { buildDressSearchWhere, dressDisplayName } from "@/lib/dress";
 import { checkItemAvailabilityForDates } from "@/lib/booking";
 import { parseDate } from "@/lib/constants";
@@ -20,6 +20,8 @@ export async function GET(req: NextRequest) {
   const dDate = parseDate(deliveryDateStr);
   const rDate = parseDate(returnDateStr);
   if (rDate < dDate) return jsonError("Return date cannot be before delivery date.");
+  const dDateQ = parseDateQ(deliveryDateStr);
+  const rDateQ = parseDateQ(returnDateStr);
 
   const where = buildDressSearchWhere(dressName);
   const items = await prisma.clothingItem.findMany({
@@ -41,7 +43,7 @@ export async function GET(req: NextRequest) {
 
   const results = await Promise.all(
     items.map(async (item) => {
-      const avail = await checkItemAvailabilityForDates(item, dDate, rDate);
+      const avail = await checkItemAvailabilityForDates(item, dDateQ, rDateQ);
       return {
         id: item.id,
         name: item.name,

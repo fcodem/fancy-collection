@@ -8,6 +8,8 @@ import {
 import type { BookingWarningRecord } from "@/lib/bookingDetails";
 import { photoUrl } from "@/lib/photoUrl";
 import { formatInr } from "@/lib/format";
+import { useRealtimeRefresh } from "@/hooks/useRealtimeRefresh";
+import { BOOKING_EVENTS } from "@/lib/realtime/types";
 
 const TIME_SLOTS = [
   "9:00 AM", "10:00 AM", "11:00 AM", "12:00 Noon", "1:00 PM", "2:00 PM",
@@ -228,6 +230,8 @@ export default function BookingListClient({
       setLoading(false);
     }
   }, [from, to, deliveryTime, returnTime, category]);
+
+  useRealtimeRefresh(BOOKING_EVENTS, load);
 
   useEffect(() => {
     if (skipFirst.current) {

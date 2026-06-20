@@ -35,15 +35,18 @@ export default function DressNameSuggestInput({
   const onSuggestRef = useRef(onSuggestSelect);
   const categoryRef = useRef(category);
 
+  const skip = !!props["data-skip-dress-suggest" as keyof typeof props];
+
   onChangeRef.current = props.onChange;
   onSuggestRef.current = onSuggestSelect;
   categoryRef.current = category;
 
   useEffect(() => {
+    if (skip) return;
     if (!ready || !inputRef.current || !window.initDressNameSuggest) return;
 
     const input = inputRef.current;
-    delete (input as HTMLInputElement & { _dressSuggestInit?: boolean })._dressSuggestInit;
+    if ((input as HTMLInputElement & { _dressSuggestInit?: boolean })._dressSuggestInit) return;
 
     const catEl = categorySelect ? (document.querySelector(categorySelect) as HTMLSelectElement | null) : null;
 
@@ -59,14 +62,18 @@ export default function DressNameSuggestInput({
         onSuggestRef.current?.(item);
       },
     });
-  }, [ready, categorySelect, minChars, category]);
+  }, [ready, categorySelect, minChars, skip]);
+
+  const cls = skip
+    ? `form-control ${className}`.trim()
+    : `form-control dress-name-suggest ${className}`.trim();
 
   return (
     <input
       ref={inputRef}
       {...props}
       autoComplete={autoComplete}
-      className={`form-control dress-name-suggest ${className}`.trim()}
+      className={cls}
     />
   );
 }

@@ -13,6 +13,20 @@ export default async function ReturnDetailPage({ params }: { params: Promise<{ i
   if (!booking) notFound();
 
   const items = serializeBookingItemRows(booking);
+  const itemDelivery = booking.bookingItems.map((bi) => ({
+    dressName: bi.dressName,
+    category: bi.category,
+    size: bi.size || bi.item?.size || "",
+    photo: bi.item?.photo || "",
+    isDelivered: bi.isDelivered,
+    isPackedReady: bi.isPackedReady,
+    preparedBy: bi.preparedBy || "",
+    checkedBy: bi.checkedBy || "",
+    packingNote: bi.packingNote || "",
+    itemRemainingCollected: bi.itemRemainingCollected,
+    itemSecurityCollected: bi.itemSecurityCollected,
+    itemDeliveryNotes: bi.itemDeliveryNotes,
+  }));
 
   return (
     <ServerAppShell>
@@ -21,8 +35,10 @@ export default async function ReturnDetailPage({ params }: { params: Promise<{ i
           ...booking,
           deliveryDate: formatDate(booking.deliveryDate),
           returnDate: formatDate(booking.returnDate),
+          deliveryNotes: booking.deliveryNotes,
         }}
         items={items}
+        itemDelivery={itemDelivery}
       />
     </ServerAppShell>
   );

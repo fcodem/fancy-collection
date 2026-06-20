@@ -1,13 +1,12 @@
 import Link from "next/link";
-import prisma from "@/lib/prisma";
+import prisma, { todayStartQ } from "@/lib/prisma";
 import ServerAppShell from "@/components/ServerAppShell";
 import { StandardBookingTableCells, StandardBookingTableHead } from "@/components/BookingDetailsColumns";
 import { serializeStandardBookingDetails } from "@/lib/bookingDetails";
 import { formatInr } from "@/lib/format";
-import { localTodayStart } from "@/lib/constants";
 
 export default async function RemainingToDeliverPage() {
-  const today = localTodayStart();
+  const today = todayStartQ();
 
   const bookings = await prisma.booking.findMany({
     where: { deliveryDate: { lte: today }, status: "booked" },

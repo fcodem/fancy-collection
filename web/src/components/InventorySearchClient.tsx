@@ -1,8 +1,10 @@
 "use client";
 
-import { useEffect, useState } from "react";
+import { useCallback, useState } from "react";
 import DressNameSuggestInput from "@/components/DressNameSuggestInput";
 import CategorySelect from "./CategorySelect";
+import { useRealtimeRefresh } from "@/hooks/useRealtimeRefresh";
+import { INVENTORY_EVENTS } from "@/lib/realtime/types";
 
 export default function InventorySearchClient() {
   const [q, setQ] = useState("");
@@ -10,11 +12,15 @@ export default function InventorySearchClient() {
   const [items, setItems] = useState<Array<Record<string, unknown>>>([]);
   const [photoResults, setPhotoResults] = useState<Array<Record<string, unknown>>>([]);
 
-  async function search() {
+  const search = useCallback(async () => {
     const res = await fetch(`/api/inventory/search?q=${encodeURIComponent(q)}&category=${encodeURIComponent(category)}`);
     const data = await res.json();
     setItems(data.items || []);
-  }
+  }, [q, category]);
+
+  useRealtimeRefresh(INVENTORY_EVENTS, () => {
+    if (items.length || photoResults.length) search();
+  });
 
   async function photoSearch(e: React.ChangeEvent<HTMLInputElement>) {
     const file = e.target.files?.[0];

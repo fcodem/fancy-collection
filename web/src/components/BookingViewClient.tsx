@@ -94,11 +94,31 @@ export default function BookingViewClient({
         />
       )}
 
+      {booking.status === "delivered" && (
+        <div style={{ display: "flex", alignItems: "center", gap: 14, padding: "14px 20px", marginBottom: 16, background: "linear-gradient(135deg,rgba(46,125,50,0.10),rgba(46,125,50,0.04))", border: "2px solid var(--success)", borderRadius: 12 }}>
+          <i className="fa-solid fa-circle-check" style={{ fontSize: 28, color: "var(--success)" }} />
+          <div>
+            <div style={{ fontSize: 15, fontWeight: 800, color: "var(--success)" }}>DRESS DELIVERED</div>
+            <div style={{ fontSize: 12, color: "var(--text-muted)", marginTop: 2 }}>This booking has been marked as delivered. Use the Return button when dress is returned.</div>
+          </div>
+        </div>
+      )}
+      {booking.status === "returned" && (
+        <div style={{ display: "flex", alignItems: "center", gap: 14, padding: "14px 20px", marginBottom: 16, background: "linear-gradient(135deg,rgba(21,101,192,0.10),rgba(21,101,192,0.04))", border: "2px solid #1565c0", borderRadius: 12 }}>
+          <i className="fa-solid fa-circle-check" style={{ fontSize: 28, color: "#1565c0" }} />
+          <div>
+            <div style={{ fontSize: 15, fontWeight: 800, color: "#1565c0" }}>DRESS RETURNED</div>
+            <div style={{ fontSize: 12, color: "var(--text-muted)", marginTop: 2 }}>This booking has been completed and dress returned.</div>
+          </div>
+        </div>
+      )}
       <div className="card">
         <div className="card-header" style={{ display: "flex", justifyContent: "space-between", alignItems: "flex-start", flexWrap: "wrap", gap: 16 }}>
           <div style={{ display: "flex", alignItems: "center", gap: 16, flexWrap: "wrap" }}>
             <h3 className="card-title">Booking #{String(booking.monthlySerial).padStart(2, "0")}</h3>
-            <span className={`badge badge-${booking.status === "booked" ? "warning" : booking.status === "delivered" ? "success" : "info"}`}>{booking.status}</span>
+            <span className={`badge badge-${booking.status === "booked" ? "warning" : booking.status === "delivered" ? "success" : booking.status === "returned" ? "info" : booking.status === "cancelled" ? "danger" : "info"}`} style={{ fontSize: 12, padding: "4px 12px", fontWeight: 700 }}>
+              {booking.status === "delivered" ? "✓ DELIVERED" : booking.status === "returned" ? "✓ RETURNED" : booking.status === "booked" ? "BOOKED" : booking.status === "cancelled" ? "CANCELLED" : booking.status.toUpperCase()}
+            </span>
           </div>
           {qrSlot}
         </div>

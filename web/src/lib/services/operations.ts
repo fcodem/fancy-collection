@@ -1,9 +1,11 @@
-import prisma from "../prisma";
+import prisma, { parseDateQ } from "../prisma";
 import { Prisma } from "@prisma/client";
 import { dressDisplayName, bookingItemSize, serializeBookingItems } from "../dress";
 import { serializeStandardBookingDetails } from "../bookingDetails";
 import { bookingUsesItem, checkItemAvailabilityForDates, getAvailableItemsApi } from "../booking";
 import { parseDate, formatDate } from "../constants";
+import { broadcastShopEvent } from "../realtime/broadcast";
+import { logActivity, snapshotBooking } from "../activityLog";
 
 function warnFromBooking(b: {
   customerName: string;
@@ -82,8 +84,8 @@ export async function getDashboardFreeItems(deliveryDateStr: string, returnDateS
   if (!deliveryDateStr || !returnDateStr) {
     return { free_items: [], returning_on_delivery: [], warnings: {} };
   }
-  const dDate = parseDate(deliveryDateStr);
-  const rDate = parseDate(returnDateStr);
+  const dDate = parseDateQ(deliveryDateStr);
+  const rDate = parseDateQ(returnDateStr);
 
   const allItems = await prisma.clothingItem.findMany({
     where: {
@@ -214,9 +216,11 @@ export async function bookingDateCheck(
   itemIds: number[]
 ) {
   if (!deliveryDateStr || !returnDateStr || !itemIds.length) return [];
-  const dDate = parseDate(deliveryDateStr);
-  const rDate = parseDate(returnDateStr);
-  if (rDate < dDate) throw new Error("return before delivery");
+  const dDateRaw = parseDate(deliveryDateStr);
+  const rDateRaw = parseDate(returnDateStr);
+  if (rDateRaw < dDateRaw) throw new Error("return before delivery");
+  const dDate = parseDateQ(deliveryDateStr);
+  const rDate = parseDateQ(returnDateStr);
 
   const results = [];
   for (const itemId of itemIds) {
@@ -284,9 +288,9 @@ export async function bookingDateCheck(
 export async function getPackingList(deliveryDateStr: string, returnDateStr: string, categoryFilter = "") {
   const where: Prisma.BookingWhereInput = { status: "booked" };
   if (deliveryDateStr) {
-    const dDate = parseDate(deliveryDateStr);
+    const dDate = parseDateQ(deliveryDateStr);
     if (returnDateStr) {
-      const rDate = parseDate(returnDateStr);
+      const rDate = parseDateQ(returnDateStr);
       where.deliveryDate = { gte: dDate, lte: rDate };
     } else {
       where.deliveryDate = dDate;
@@ -384,15 +388,19 @@ export async function getPackingList(deliveryDateStr: string, returnDateStr: str
   return results;
 }
 
-export async function savePackingItem(data: {
-  bi_id: number;
-  prepared_by?: string;
-  checked_by?: string;
-  is_packed_ready?: boolean;
-  packing_note?: string;
-}) {
+export async function savePackingItem(
+  data: {
+    bi_id: number;
+    prepared_by?: string;
+    checked_by?: string;
+    is_packed_ready?: boolean;
+    packing_note?: string;
+  },
+  by?: string,
+) {
   const bi = await prisma.bookingItem.findUnique({ where: { id: data.bi_id } });
   if (!bi) throw new Error("Item not found");
+  const beforePacking = { preparedBy: bi.preparedBy, checkedBy: bi.checkedBy, isPackedReady: bi.isPackedReady, packingNote: bi.packingNote };
   const updated = await prisma.bookingItem.update({
     where: { id: data.bi_id },
     data: {
@@ -401,6 +409,16 @@ export async function savePackingItem(data: {
       ...(data.is_packed_ready !== undefined ? { isPackedReady: Boolean(data.is_packed_ready) } : {}),
       ...(data.packing_note !== undefined ? { packingNote: data.packing_note.trim() || null } : {}),
     },
+  });
+  broadcastShopEvent({ type: "packing.updated", bookingId: bi.bookingId, by });
+  logActivity({
+    username: by || "system",
+    action: "packed",
+    entity: "booking_item",
+    entityId: bi.bookingId,
+    label: `Packing update — ${bi.dressName} (Booking #${bi.bookingId})`,
+    before: beforePacking as unknown as Record<string, unknown>,
+    after: { preparedBy: updated.preparedBy, checkedBy: updated.checkedBy, isPackedReady: updated.isPackedReady, packingNote: updated.packingNote } as unknown as Record<string, unknown>,
   });
   return {
     ok: true,
@@ -413,27 +431,135 @@ export async function savePackingItem(data: {
 
 export async function saveDelivery(
   bookingId: number,
-  data: { remaining_collected: number; security_collected: number; delivery_notes: string; mark_delivered?: boolean }
+  data: {
+    remaining_collected?: number;
+    security_collected?: number;
+    delivery_notes?: string;
+    mark_delivered?: boolean;
+    items?: Array<{
+      booking_item_id: number;
+      remaining_collected: number;
+      security_collected: number;
+      delivery_notes: string;
+      mark_delivered?: boolean;
+      update_only?: boolean;
+    }>;
+  },
+  by?: string,
 ) {
-  const booking = await prisma.booking.findUnique({ where: { id: bookingId } });
+  const booking = await prisma.booking.findUnique({
+    where: { id: bookingId },
+    include: { bookingItems: true },
+  });
   if (!booking) throw new Error("Booking not found");
-  return prisma.booking.update({
+  const beforeDelivery = snapshotBooking(booking as unknown as Record<string, unknown>);
+
+  if (data.items?.length) {
+    const allNotes: string[] = [];
+
+    for (const item of data.items) {
+      const bi = booking.bookingItems.find((b) => b.id === item.booking_item_id);
+      if (!bi) continue;
+
+      const itemUpdate: {
+        itemRemainingCollected: number;
+        itemSecurityCollected: number;
+        itemDeliveryNotes: string | null;
+        isDelivered?: boolean;
+        deliveredAt?: Date;
+      } = {
+        itemRemainingCollected: item.remaining_collected,
+        itemSecurityCollected: item.security_collected,
+        itemDeliveryNotes: item.delivery_notes?.trim() || null,
+      };
+
+      if (item.mark_delivered && !bi.isDelivered) {
+        itemUpdate.isDelivered = true;
+        itemUpdate.deliveredAt = new Date();
+      }
+
+      await prisma.bookingItem.update({
+        where: { id: bi.id },
+        data: itemUpdate,
+      });
+
+      if (item.delivery_notes?.trim()) allNotes.push(`${bi.dressName}: ${item.delivery_notes.trim()}`);
+    }
+
+    const refreshed = await prisma.booking.findUnique({
+      where: { id: bookingId },
+      include: { bookingItems: true },
+    });
+    if (!refreshed) throw new Error("Booking not found");
+
+    const totalRemaining = refreshed.bookingItems.reduce((s, bi) => s + bi.itemRemainingCollected, 0);
+    const totalSecurity = refreshed.bookingItems.reduce((s, bi) => s + bi.itemSecurityCollected, 0);
+    // Build fresh notes from current item notes only (don't accumulate)
+    const newNotes = allNotes.length ? allNotes.join(" | ") : (refreshed.deliveryNotes || "");
+
+    const allDelivered = refreshed.bookingItems.length > 0 && refreshed.bookingItems.every((bi) => bi.isDelivered);
+    const anyDelivered = refreshed.bookingItems.some((bi) => bi.isDelivered);
+
+    const result = await prisma.booking.update({
+      where: { id: bookingId },
+      data: {
+        remainingCollected: totalRemaining,
+        securityCollected: totalSecurity,
+        deliveryNotes: newNotes || data.delivery_notes || booking.deliveryNotes,
+        ...(allDelivered && anyDelivered
+          ? { status: "delivered", deliveredAt: booking.deliveredAt || new Date() }
+          : {}),
+      },
+    });
+    broadcastShopEvent({ type: "booking.delivered", bookingId, status: result.status, by });
+    logActivity({
+      username: by || "system",
+      action: "delivered",
+      entity: "booking",
+      entityId: bookingId,
+      label: `Delivery — Booking #${String(booking.monthlySerial).padStart(2, "0")} — ${booking.customerName}`,
+      before: beforeDelivery,
+      after: snapshotBooking(result as unknown as Record<string, unknown>),
+    });
+    return result;
+  }
+
+  if (data.mark_delivered && booking.status === "booked") {
+    await prisma.bookingItem.updateMany({
+      where: { bookingId },
+      data: { isDelivered: true, deliveredAt: new Date() },
+    });
+  }
+
+  const result = await prisma.booking.update({
     where: { id: bookingId },
     data: {
-      remainingCollected: data.remaining_collected,
-      securityCollected: data.security_collected,
-      deliveryNotes: data.delivery_notes,
+      remainingCollected: data.remaining_collected ?? booking.remainingCollected,
+      securityCollected: data.security_collected ?? booking.securityCollected,
+      deliveryNotes: data.delivery_notes ?? booking.deliveryNotes,
       ...(data.mark_delivered && booking.status === "booked"
         ? { status: "delivered", deliveredAt: new Date() }
         : {}),
     },
   });
+  broadcastShopEvent({ type: "booking.delivered", bookingId, status: result.status, by });
+  logActivity({
+    username: by || "system",
+    action: "delivered",
+    entity: "booking",
+    entityId: bookingId,
+    label: `Delivery — Booking #${String(booking.monthlySerial).padStart(2, "0")} — ${booking.customerName}`,
+    before: beforeDelivery,
+    after: snapshotBooking(result as unknown as Record<string, unknown>),
+  });
+  return result;
 }
 
 export async function saveReturn(
   bookingId: number,
   action: string,
-  data: { incomplete_notes?: string; security_held?: number; incomplete_photo?: string }
+  data: { incomplete_notes?: string; security_held?: number; incomplete_photo?: string },
+  by?: string,
 ) {
   const booking = await prisma.booking.findUnique({
     where: { id: bookingId },
@@ -448,6 +574,9 @@ export async function saveReturn(
         data: { status: "returned", returnedAt: new Date() },
       });
       for (const bi of booking.bookingItems) {
+        if (bi.isDelivered) {
+          await tx.bookingItem.update({ where: { id: bi.id }, data: { isReturned: true } });
+        }
         await tx.clothingItem.update({ where: { id: bi.itemId }, data: { status: "available" } });
       }
     });
@@ -464,11 +593,27 @@ export async function saveReturn(
         },
       });
       for (const bi of booking.bookingItems) {
+        if (bi.isDelivered) {
+          await tx.bookingItem.update({ where: { id: bi.id }, data: { isReturned: true } });
+        }
         await tx.clothingItem.update({ where: { id: bi.itemId }, data: { status: "available" } });
       }
     });
   }
-  return prisma.booking.findUnique({ where: { id: bookingId } });
+  const updated = await prisma.booking.findUnique({ where: { id: bookingId } });
+  if (updated) {
+    broadcastShopEvent({ type: "booking.returned", bookingId, status: updated.status, by });
+    logActivity({
+      username: by || "system",
+      action: "returned",
+      entity: "booking",
+      entityId: bookingId,
+      label: `Return (${action}) — Booking #${String(booking.monthlySerial).padStart(2, "0")} — ${booking.customerName}`,
+      before: snapshotBooking(booking as unknown as Record<string, unknown>),
+      after: snapshotBooking(updated as unknown as Record<string, unknown>),
+    });
+  }
+  return updated;
 }
 
 export async function resolveIncompleteReturn(bookingId: number) {
@@ -540,7 +685,7 @@ function alternateBookingSide(
 }
 
 export async function getReturningToday(targetDateStr: string) {
-  const refDate = parseDate(targetDateStr || new Date().toISOString().slice(0, 10));
+  const refDate = parseDateQ(targetDateStr || new Date().toISOString().slice(0, 10));
   const returning = await prisma.booking.findMany({
     where: {
       returnDate: refDate,
@@ -590,7 +735,9 @@ export async function getReturningToday(targetDateStr: string) {
       break;
     }
 
-    if (!next_booking) continue;
+    if (!next_booking) {
+      // Still show returning record even without alternate delivery
+    }
 
     const returningSide = alternateBookingSide(b, itemRows.map((i) => i.display_name || i.name));
     data.push({
@@ -604,7 +751,7 @@ export async function getReturningToday(targetDateStr: string) {
   return data;
 }
 
-export async function cancelBooking(bookingId: number, refundAmount = 0) {
+export async function cancelBooking(bookingId: number, refundAmount = 0, by?: string) {
   const booking = await prisma.booking.findUnique({
     where: { id: bookingId },
     include: { bookingItems: true },
@@ -631,6 +778,16 @@ export async function cancelBooking(bookingId: number, refundAmount = 0) {
         await tx.clothingItem.update({ where: { id: bi.itemId }, data: { status: "available" } });
       }
     }
+  });
+  broadcastShopEvent({ type: "booking.cancelled", bookingId, status: "cancelled", by });
+  logActivity({
+    username: by || "system",
+    action: "cancelled",
+    entity: "booking",
+    entityId: bookingId,
+    label: `Cancelled — Booking #${String(booking.monthlySerial).padStart(2, "0")} — ${booking.customerName} (Refund: ₹${refundAmount})`,
+    before: snapshotBooking(booking as unknown as Record<string, unknown>),
+    after: { status: "cancelled", refundAmount },
   });
 }
 

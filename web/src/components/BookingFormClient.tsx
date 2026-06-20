@@ -2,8 +2,10 @@
 
 
 
+import type { CSSProperties } from "react";
 import { useRouter } from "next/navigation";
 import { useCallback, useEffect, useMemo, useState } from "react";
+import DressNameSuggestInput from "@/components/DressNameSuggestInput";
 import { dressNameMatches } from "@/lib/dress";
 import { todayIso, parseDate, isDateBeforeToday } from "@/lib/constants";
 import { formatInr } from "@/lib/format";
@@ -27,17 +29,27 @@ const MENS_SIZES = [...Array.from({ length: 14 }, (_, i) => String(32 + i * 2)),
 
 
 type WarningInfo = {
-  customer: string;
+  customer?: string;
+  customer_name?: string;
   serial_no: number;
-  total_rent: number;
+  total_rent?: number;
   venue?: string;
   return_time?: string;
   delivery_time?: string;
   return_date?: string;
   delivery_date?: string;
   contact?: string;
+  contact_1?: string;
   booking_number?: string;
 };
+
+function warnCustomer(w: WarningInfo) {
+  return w.customer || w.customer_name || "—";
+}
+
+function warnContact(w: WarningInfo) {
+  return w.contact || w.contact_1 || "";
+}
 
 type DateCheckResult = {
   item_id: number;
@@ -55,12 +67,12 @@ function serialLabel(n: number) {
 function formatReturningWarning(w: WarningInfo) {
   return (
     <>
-      <strong>Returning on the date of delivery</strong> · {w.customer} · Serial #{String(w.serial_no).padStart(2, "0")}
+      <strong>Returning on the date of delivery</strong> · {warnCustomer(w)} · Serial #{String(w.serial_no).padStart(2, "0")}
       {w.return_time ? ` · by ${w.return_time}` : ""}
       {w.return_date ? ` · Return ${w.return_date}` : ""}
       {w.total_rent ? ` · ₹${formatInr(w.total_rent)}` : ""}
       {w.venue ? ` · ${w.venue}` : ""}
-      {w.contact ? ` · ${w.contact}` : ""}
+      {warnContact(w) ? ` · ${warnContact(w)}` : ""}
     </>
   );
 }
@@ -68,12 +80,12 @@ function formatReturningWarning(w: WarningInfo) {
 function formatBookedWarning(w: WarningInfo) {
   return (
     <>
-      <strong>Booked on the return date</strong> · {w.customer} · Serial #{String(w.serial_no).padStart(2, "0")}
+      <strong>Booked on the return date</strong> · {warnCustomer(w)} · Serial #{String(w.serial_no).padStart(2, "0")}
       {w.delivery_time ? ` · Pickup ${w.delivery_time}` : ""}
       {w.delivery_date ? ` · Delivery ${w.delivery_date}` : ""}
       {w.total_rent ? ` · ₹${formatInr(w.total_rent)}` : ""}
       {w.venue ? ` · ${w.venue}` : ""}
-      {w.contact ? ` · ${w.contact}` : ""}
+      {warnContact(w) ? ` · ${warnContact(w)}` : ""}
     </>
   );
 }
@@ -217,6 +229,7 @@ export default function BookingFormClient(props: Props) {
 
   const isProspect = props.mode === "prospect";
   const today = props.today || todayIso();
+  const [minDate, setMinDate] = useState(today);
 
   const [nowDisplay, setNowDisplay] = useState("");
 
@@ -278,19 +291,16 @@ export default function BookingFormClient(props: Props) {
 
 
   useEffect(() => {
+    setMinDate(todayIso());
+  }, []);
 
+  useEffect(() => {
     function tick() {
-
       setNowDisplay(new Date().toLocaleString("en-IN", { weekday: "long", day: "2-digit", month: "long", year: "numeric", hour: "2-digit", minute: "2-digit" }));
-
     }
-
     tick();
-
     const id = setInterval(tick, 60000);
-
     return () => clearInterval(id);
-
   }, []);
 
 
@@ -578,14 +588,23 @@ export default function BookingFormClient(props: Props) {
 
 
   function applyDeliveryDate(value: string) {
-    const next = isDateBeforeToday(value) ? today : value.slice(0, 10);
+    if (!value) {
+      setDeliveryDate("");
+      return;
+    }
+    const next = isDateBeforeToday(value) ? minDate : value.slice(0, 10);
     setDeliveryDate(next);
-    if (returnDate < next) setReturnDate(next);
+    if (returnDate && returnDate < next) setReturnDate(next);
   }
 
   function applyReturnDate(value: string) {
-    let next = isDateBeforeToday(value) ? today : value.slice(0, 10);
-    if (next < deliveryDate) next = deliveryDate;
+    if (!value) {
+      setReturnDate("");
+      return;
+    }
+    let next = isDateBeforeToday(value) ? minDate : value.slice(0, 10);
+    const floor = deliveryDate && deliveryDate >= minDate ? deliveryDate : minDate;
+    if (next < floor) next = floor;
     setReturnDate(next);
   }
 
@@ -601,6 +620,11 @@ export default function BookingFormClient(props: Props) {
 
       return;
 
+    }
+
+    if (!deliveryDate || !returnDate) {
+      setError("Please enter delivery and return dates.");
+      return;
     }
 
     if (durationDays < 1) {
@@ -718,7 +742,7 @@ export default function BookingFormClient(props: Props) {
 
 
 
-  function rowStyle(item: FreeItem, selected: boolean): React.CSSProperties {
+  function rowStyle(item: FreeItem, selected: boolean): CSSProperties {
 
     let bg: string | undefined;
 
@@ -875,7 +899,7 @@ export default function BookingFormClient(props: Props) {
               <input
                 type="date"
                 className="form-control"
-                min={today}
+                min={minDate}
                 value={deliveryDate}
                 onChange={(e) => applyDeliveryDate(e.target.value)}
               />
@@ -903,7 +927,7 @@ export default function BookingFormClient(props: Props) {
               <input
                 type="date"
                 className="form-control"
-                min={deliveryDate < today ? today : deliveryDate}
+                min={deliveryDate && deliveryDate >= minDate ? deliveryDate : minDate}
                 value={returnDate}
                 onChange={(e) => applyReturnDate(e.target.value)}
               />
@@ -962,7 +986,7 @@ export default function BookingFormClient(props: Props) {
 
         <div className="card-body">
 
-          <div className="form-row-flex" style={{ marginBottom: 14 }}>
+          <div className="form-row-flex" style={{ marginBottom: 14, overflow: "visible", position: "relative", zIndex: 10 }}>
 
             <select className="form-control" value={categoryFilter} onChange={(e) => { setCategoryFilter(e.target.value); setSizeFilter(""); }}>
 
@@ -990,7 +1014,13 @@ export default function BookingFormClient(props: Props) {
 
             )}
 
-            <input className="form-control" placeholder="Search dress name…" value={nameSearch} onChange={(e) => setNameSearch(e.target.value)} />
+            <DressNameSuggestInput
+              className="form-control"
+              placeholder="Search dress name…"
+              value={nameSearch}
+              category={categoryFilter}
+              onChange={(e) => setNameSearch(e.target.value)}
+            />
 
           </div>
 
@@ -1225,27 +1255,26 @@ export default function BookingFormClient(props: Props) {
 
 
       <div className="card">
-
         <div className="card-body" style={{ display: "flex", gap: 12, flexWrap: "wrap", alignItems: "center" }}>
-
-          <button type="button" className="btn btn-primary btn-lg" disabled={saving || !selectedDresses.length || hasHardBlock} onClick={() => save(false)}>
-
-            {hasHardBlock ? "Cannot Save — Dress Already Booked" : saving ? "Saving…" : isProspect ? "Save Prospect Lead" : props.editId ? "Update Booking" : "Confirm Booking"}
-
-          </button>
-
-          {!isProspect && (
-          <button type="button" className="btn btn-gold btn-lg" disabled={saving || !selectedDresses.length || hasHardBlock} onClick={() => save(true)}>
-
-            <i className="fa-solid fa-print" /> Save & Print Bill
-
-          </button>
+          {/* Primary action — one click saves and prints */}
+          {!isProspect && !props.editId ? (
+            <button type="button" className="btn btn-primary btn-lg" disabled={saving || !selectedDresses.length || hasHardBlock} onClick={() => save(true)}>
+              <i className="fa-solid fa-print" style={{ marginRight: 8 }} />
+              {hasHardBlock ? "Cannot Save — Dress Booked" : saving ? "Saving…" : "Confirm & Print Bill"}
+            </button>
+          ) : (
+            <button type="button" className="btn btn-primary btn-lg" disabled={saving || !selectedDresses.length || hasHardBlock} onClick={() => save(false)}>
+              {hasHardBlock ? "Cannot Save — Dress Already Booked" : saving ? "Saving…" : isProspect ? "Save Prospect Lead" : "Update Booking"}
+            </button>
           )}
-
+          {/* Secondary: save without printing */}
+          {!isProspect && !props.editId && (
+            <button type="button" className="btn btn-outline btn-lg" disabled={saving || !selectedDresses.length || hasHardBlock} onClick={() => save(false)}>
+              Save Only
+            </button>
+          )}
           <a href={isProspect ? "/prospect-leads" : props.editId ? `/booking/${props.editId}` : "/booking"} className="btn btn-outline">Cancel</a>
-
         </div>
-
       </div>
 
     </div>
@@ -1308,7 +1337,7 @@ function ConflictSummaryPanel({ loading, results }: { loading: boolean; results:
 
             <div style={{ fontSize: 12, color: "#feb2b2" }}>
 
-              {c.customer} · Serial #{serialLabel(c.serial_no)} · {c.delivery_date} → {c.return_date}
+              {warnCustomer(c as WarningInfo)} · Serial #{serialLabel(c.serial_no)} · {c.delivery_date} → {c.return_date}
 
               {c.delivery_time ? ` · Delivery ${c.delivery_time}` : ""}
 
@@ -1318,7 +1347,7 @@ function ConflictSummaryPanel({ loading, results }: { loading: boolean; results:
 
               {c.venue ? ` · ${c.venue}` : ""}
 
-              {c.contact ? ` · ${c.contact}` : ""}
+              {warnContact(c as WarningInfo) ? ` · ${warnContact(c as WarningInfo)}` : ""}
 
             </div>
 
@@ -1354,7 +1383,7 @@ function ConflictSummaryPanel({ loading, results }: { loading: boolean; results:
 
                     <i className="fa-solid fa-triangle-exclamation" style={{ marginRight: 6 }} />
 
-                    Returning on delivery date — {item.returning_warning.customer} · Serial #{serialLabel(item.returning_warning.serial_no)}
+                    Returning on delivery date — {warnCustomer(item.returning_warning)} · Serial #{serialLabel(item.returning_warning.serial_no)}
 
                     {item.returning_warning.return_time ? ` · by ${item.returning_warning.return_time}` : ""}
 
@@ -1364,7 +1393,7 @@ function ConflictSummaryPanel({ loading, results }: { loading: boolean; results:
 
                     {item.returning_warning.venue ? ` · ${item.returning_warning.venue}` : ""}
 
-                    {item.returning_warning.contact ? ` · ${item.returning_warning.contact}` : ""}
+                    {warnContact(item.returning_warning) ? ` · ${warnContact(item.returning_warning)}` : ""}
 
                   </div>
 
@@ -1376,7 +1405,7 @@ function ConflictSummaryPanel({ loading, results }: { loading: boolean; results:
 
                     <i className="fa-solid fa-circle-exclamation" style={{ marginRight: 6 }} />
 
-                    Booked on return date — {item.booked_on_return_warning.customer} · Serial #{serialLabel(item.booked_on_return_warning.serial_no)}
+                    Booked on return date — {warnCustomer(item.booked_on_return_warning)} · Serial #{serialLabel(item.booked_on_return_warning.serial_no)}
 
                     {item.booked_on_return_warning.delivery_time ? ` · Pickup ${item.booked_on_return_warning.delivery_time}` : ""}
 
@@ -1386,7 +1415,7 @@ function ConflictSummaryPanel({ loading, results }: { loading: boolean; results:
 
                     {item.booked_on_return_warning.venue ? ` · ${item.booked_on_return_warning.venue}` : ""}
 
-                    {item.booked_on_return_warning.contact ? ` · ${item.booked_on_return_warning.contact}` : ""}
+                    {warnContact(item.booked_on_return_warning) ? ` · ${warnContact(item.booked_on_return_warning)}` : ""}
 
                   </div>
 

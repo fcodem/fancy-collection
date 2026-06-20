@@ -142,14 +142,40 @@ export async function listSuppliers() {
   });
 }
 
-export async function addSupplier(data: { name: string; phone?: string; address?: string }) {
+export async function addSupplier(data: {
+  name: string;
+  phone?: string;
+  address?: string;
+  gst_no?: string;
+  account_details?: string;
+}) {
   return prisma.supplier.create({
     data: {
       name: data.name.trim(),
       phone: data.phone?.trim() || null,
       address: data.address?.trim() || null,
+      gstNo: data.gst_no?.trim() || null,
+      accountDetails: data.account_details?.trim() || null,
     },
   });
+}
+
+export async function getSupplierPurchaseSummary(supplierId: number, fromStr: string, toStr: string) {
+  const from = new Date(fromStr + "T00:00:00.000Z");
+  const to = new Date(toStr + "T23:59:59.999Z");
+  const purchases = await prisma.supplierPurchase.findMany({
+    where: { supplierId, date: { gte: from, lte: to }, transactionType: "purchase" },
+  });
+  const byCategory: Record<string, number> = {};
+  let total = 0;
+  let totalGst = 0;
+  for (const p of purchases) {
+    const cat = (p.category || "Uncategorized").trim() || "Uncategorized";
+    byCategory[cat] = (byCategory[cat] || 0) + p.amount;
+    total += p.amount;
+    totalGst += p.gstAmount;
+  }
+  return { by_category: byCategory, total, total_gst: totalGst, count: purchases.length };
 }
 
 export async function addSupplierPurchase(
@@ -159,17 +185,21 @@ export async function addSupplierPurchase(
     category?: string;
     amount: number;
     gst_amount?: number;
+    gst_percent?: number;
     date?: string;
     notes?: string;
   }
 ) {
+  const gstPercent = data.gst_percent || 0;
+  const gstAmount = data.gst_amount ?? Math.round((data.amount * gstPercent) / 100);
   return prisma.supplierPurchase.create({
     data: {
       supplierId,
       itemDescription: data.item_description.trim(),
       category: data.category?.trim() || null,
       amount: data.amount,
-      gstAmount: data.gst_amount || 0,
+      gstAmount,
+      gstPercent,
       transactionType: "purchase",
       date: data.date ? new Date(data.date + "T00:00:00.000Z") : new Date(),
       notes: data.notes?.trim() || null,

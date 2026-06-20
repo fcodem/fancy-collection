@@ -5,9 +5,9 @@ export async function listCustomers(q = "", category = "") {
     where: q
       ? {
           OR: [
-            { name: { contains: q, mode: "insensitive" } },
-            { phone: { contains: q, mode: "insensitive" } },
-            { email: { contains: q, mode: "insensitive" } },
+            { name: { contains: q } },
+            { phone: { contains: q } },
+            { email: { contains: q } },
           ],
         }
       : undefined,

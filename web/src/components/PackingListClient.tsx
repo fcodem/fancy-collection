@@ -1,6 +1,6 @@
 "use client";
 
-import { useEffect, useState } from "react";
+import { useEffect, useState, useCallback } from "react";
 import CategorySelect from "./CategorySelect";
 import {
   PackingBookingDetailsGrid,
@@ -8,6 +8,8 @@ import {
   type PackingReturningWarning,
 } from "@/components/BookingDetailsColumns";
 import type { StandardBookingDetails } from "@/lib/bookingDetails";
+import { useRealtimeRefresh } from "@/hooks/useRealtimeRefresh";
+import { BOOKING_EVENTS } from "@/lib/realtime/types";
 
 type PackingItem = {
   bi_id: number | null;
@@ -43,9 +45,18 @@ export default function PackingListClient({ today }: { today: string }) {
       `/api/packing-list?delivery_date=${from}&return_date=${to}&category=${encodeURIComponent(category)}`
     );
     const data = await res.json();
-    setRows(data);
+    const list = Array.isArray(data) ? data : [];
+    setRows(
+      list.map((b: PackingBooking) => ({
+        ...b,
+        items: Array.isArray(b.items) ? b.items : [],
+      }))
+    );
     setLoaded(true);
   }
+
+  const reload = useCallback(() => { void load(); }, [from, to, category]);
+  useRealtimeRefresh(BOOKING_EVENTS, reload);
 
   useEffect(() => {
     load();
@@ -59,7 +70,7 @@ export default function PackingListClient({ today }: { today: string }) {
     });
   }
 
-  const allItems = rows.flatMap((b) => b.items.filter((i) => i.bi_id));
+  const allItems = rows.flatMap((b) => (Array.isArray(b.items) ? b.items : []).filter((i) => i.bi_id));
   const packed = allItems.filter((i) => i.is_packed_ready).length;
 
   return (

@@ -28,7 +28,7 @@ export async function POST(req: NextRequest, { params }: { params: Promise<{ id:
         incomplete_notes,
         security_held,
         incomplete_photo,
-      });
+      }, user.username);
       return jsonOk({ ok: true, id: booking?.id, status: booking?.status });
     }
 
@@ -36,7 +36,7 @@ export async function POST(req: NextRequest, { params }: { params: Promise<{ id:
     const booking = await saveReturn(bookingId, body.action, {
       incomplete_notes: body.incomplete_notes,
       security_held: Number(body.security_held || 0),
-    });
+    }, user.username);
     return jsonOk({ ok: true, id: booking?.id, status: booking?.status });
   } catch (e) {
     return jsonError(e instanceof Error ? e.message : "Save failed");

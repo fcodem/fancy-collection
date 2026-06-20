@@ -60,8 +60,8 @@ export default async function InventoryPage({
       ...(status ? { status } : {}),
       ...(q ? {
         OR: [
-          { name: { contains: q, mode: "insensitive" } },
-          { sku: { contains: q, mode: "insensitive" } },
+          { name: { contains: q } },
+          { sku: { contains: q } },
         ],
       } : {}),
     },

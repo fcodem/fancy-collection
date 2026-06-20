@@ -1,6 +1,8 @@
-import prisma from "../prisma";
+import prisma, { parseDateQ, dateQ } from "../prisma";
 import { createBookingNumber, getNextMonthlySerial } from "../booking";
 import { parseDate, formatDate, assertBookingDatesNotPast } from "../constants";
+import { broadcastShopEvent } from "../realtime/broadcast";
+import { logActivity, snapshotBooking } from "../activityLog";
 
 export type BookingItemInput = {
   item_id: number;
@@ -31,12 +33,14 @@ type ItemToBook = {
   row: BookingItemInput;
 };
 
-async function findConflict(
-  itemId: number,
+async function findFirstConflictForItems(
+  itemIds: number[],
   deliveryDate: Date,
   returnDate: Date,
-  excludeBookingId?: number
+  excludeBookingId?: number,
 ) {
+  if (!itemIds.length) return null;
+
   const dIso = formatDate(deliveryDate, "iso");
   const rIso = formatDate(returnDate, "iso");
 
@@ -44,41 +48,55 @@ async function findConflict(
     where: {
       ...(excludeBookingId ? { id: { not: excludeBookingId } } : {}),
       status: { in: ["booked", "delivered"] },
-      deliveryDate: { lte: returnDate },
-      returnDate: { gte: deliveryDate },
+      deliveryDate: { lte: dateQ(returnDate) },
+      returnDate: { gte: dateQ(deliveryDate) },
+      OR: [
+        { itemId: { in: itemIds } },
+        { bookingItems: { some: { itemId: { in: itemIds } } } },
+      ],
     },
     include: { bookingItems: true },
   });
 
-  for (const b of bookings) {
-    const bD = formatDate(b.deliveryDate, "iso");
-    const bR = formatDate(b.returnDate, "iso");
-    if (bR === dIso || bD === rIso) continue; // edge-day allowed
-    const usesItem =
-      b.bookingItems.some((bi) => bi.itemId === itemId) || b.itemId === itemId;
-    if (usesItem) return b;
+  for (const itemId of itemIds) {
+    for (const b of bookings) {
+      const bD = formatDate(b.deliveryDate, "iso");
+      const bR = formatDate(b.returnDate, "iso");
+      if (bR === dIso || bD === rIso) continue;
+      const usesItem =
+        b.bookingItems.some((bi) => bi.itemId === itemId) || b.itemId === itemId;
+      if (usesItem) return { itemId, booking: b };
+    }
   }
   return null;
 }
 
-export async function createBooking(input: BookingFormInput) {
+export async function createBooking(input: BookingFormInput, by?: string) {
   assertBookingDatesNotPast(input.delivery_date, input.return_date);
   const deliveryDate = parseDate(input.delivery_date);
   const returnDate = parseDate(input.return_date);
   if (returnDate < deliveryDate) throw new Error("Return date must be on or after delivery date.");
+  const deliveryDateQ = parseDateQ(input.delivery_date);
+  const returnDateQ = parseDateQ(input.return_date);
   if (!input.items.length) throw new Error("Please select at least one dress.");
+
+  const itemIds = input.items.map((row) => row.item_id);
+  const items = await prisma.clothingItem.findMany({ where: { id: { in: itemIds } } });
+  const itemMap = new Map(items.map((item) => [item.id, item]));
 
   const itemsToBook: ItemToBook[] = [];
   for (const row of input.items) {
-    const item = await prisma.clothingItem.findUnique({ where: { id: row.item_id } });
+    const item = itemMap.get(row.item_id);
     if (!item) throw new Error(`Dress '${row.dress_name}' not found.`);
-    const conflict = await findConflict(item.id, deliveryDate, returnDate);
-    if (conflict) {
-      throw new Error(
-        `'${row.dress_name}' is already booked (Serial #${String(conflict.monthlySerial).padStart(2, "0")}).`
-      );
-    }
     itemsToBook.push({ item, row });
+  }
+
+  const conflict = await findFirstConflictForItems(itemIds, deliveryDate, returnDate);
+  if (conflict) {
+    const row = input.items.find((r) => r.item_id === conflict.itemId);
+    throw new Error(
+      `'${row?.dress_name || "Dress"}' is already booked (Serial #${String(conflict.booking.monthlySerial).padStart(2, "0")}).`
+    );
   }
 
   const bookingNumber = await createBookingNumber();
@@ -99,9 +117,9 @@ export async function createBooking(input: BookingFormInput) {
         whatsappNo: input.whatsapp_no.trim(),
         venue: input.venue?.trim() || null,
         staffNames: staffNames || null,
-        deliveryDate,
+        deliveryDate: deliveryDateQ,
         deliveryTime: input.delivery_time,
-        returnDate,
+        returnDate: returnDateQ,
         returnTime: input.return_time,
         securityDeposit: input.security_deposit || 0,
         totalPrice,
@@ -147,20 +165,35 @@ export async function createBooking(input: BookingFormInput) {
     return b;
   });
 
+  broadcastShopEvent({ type: "booking.created", bookingId: booking.id, status: booking.status, by });
+
+  const full = await prisma.booking.findUnique({ where: { id: booking.id }, include: { bookingItems: true } });
+  logActivity({
+    username: by || "system",
+    action: "created",
+    entity: "booking",
+    entityId: booking.id,
+    label: `Booking #${String(booking.monthlySerial).padStart(2, "0")} — ${input.customer_name} (${input.items.map(i => i.dress_name).join(", ")})`,
+    after: full ? snapshotBooking(full as unknown as Record<string, unknown>) : undefined,
+  });
+
   return booking;
 }
 
-export async function updateBooking(bookingId: number, input: BookingFormInput) {
+export async function updateBooking(bookingId: number, input: BookingFormInput, by?: string) {
   const booking = await prisma.booking.findUnique({
     where: { id: bookingId },
     include: { bookingItems: true },
   });
   if (!booking) throw new Error("Booking not found.");
+  const beforeSnapshot = snapshotBooking(booking as unknown as Record<string, unknown>);
 
   assertBookingDatesNotPast(input.delivery_date, input.return_date);
   const deliveryDate = parseDate(input.delivery_date);
   const returnDate = parseDate(input.return_date);
   if (returnDate < deliveryDate) throw new Error("Return date must be on or after delivery date.");
+  const deliveryDateQ = parseDateQ(input.delivery_date);
+  const returnDateQ = parseDateQ(input.return_date);
   if (!input.items.length) throw new Error("Please select at least one dress.");
 
   const oldItemIds = new Set([
@@ -168,19 +201,25 @@ export async function updateBooking(bookingId: number, input: BookingFormInput) 
     ...(booking.itemId ? [booking.itemId] : []),
   ]);
 
+  const itemIds = input.items.map((row) => row.item_id);
+  const items = await prisma.clothingItem.findMany({ where: { id: { in: itemIds } } });
+  const itemMap = new Map(items.map((item) => [item.id, item]));
+
   const itemsToBook: ItemToBook[] = [];
   const newItemIds = new Set<number>();
   for (const row of input.items) {
-    const item = await prisma.clothingItem.findUnique({ where: { id: row.item_id } });
+    const item = itemMap.get(row.item_id);
     if (!item) throw new Error(`Dress '${row.dress_name}' not found.`);
-    const conflict = await findConflict(item.id, deliveryDate, returnDate, bookingId);
-    if (conflict) {
-      throw new Error(
-        `'${row.dress_name}' is already booked (Serial #${String(conflict.monthlySerial).padStart(2, "0")}).`
-      );
-    }
     itemsToBook.push({ item, row });
     newItemIds.add(item.id);
+  }
+
+  const conflict = await findFirstConflictForItems(itemIds, deliveryDate, returnDate, bookingId);
+  if (conflict) {
+    const row = input.items.find((r) => r.item_id === conflict.itemId);
+    throw new Error(
+      `'${row?.dress_name || "Dress"}' is already booked (Serial #${String(conflict.booking.monthlySerial).padStart(2, "0")}).`
+    );
   }
 
   const totalPrice = input.items.reduce((s, i) => s + i.price, 0);
@@ -198,9 +237,9 @@ export async function updateBooking(bookingId: number, input: BookingFormInput) 
         whatsappNo: input.whatsapp_no.trim(),
         venue: input.venue?.trim() || null,
         staffNames: staffNames || null,
-        deliveryDate,
+        deliveryDate: deliveryDateQ,
         deliveryTime: input.delivery_time,
-        returnDate,
+        returnDate: returnDateQ,
         returnTime: input.return_time,
         securityDeposit: input.security_deposit || 0,
         commonNotes: input.common_notes?.trim() || null,
@@ -249,7 +288,20 @@ export async function updateBooking(bookingId: number, input: BookingFormInput) 
     }
   });
 
-  return prisma.booking.findUnique({ where: { id: bookingId }, include: { bookingItems: true } });
+  const updated = await prisma.booking.findUnique({ where: { id: bookingId }, include: { bookingItems: true } });
+  if (updated) {
+    broadcastShopEvent({ type: "booking.updated", bookingId, status: updated.status, by });
+    logActivity({
+      username: by || "system",
+      action: "updated",
+      entity: "booking",
+      entityId: bookingId,
+      label: `Booking #${String(updated.monthlySerial).padStart(2, "0")} — ${updated.customerName}`,
+      before: beforeSnapshot,
+      after: snapshotBooking(updated as unknown as Record<string, unknown>),
+    });
+  }
+  return updated;
 }
 
 export async function getNextSerialForDate(deliveryDateStr: string) {

@@ -1,8 +1,6 @@
-import prisma from "@/lib/prisma";
+import prisma, { parseDateQ, startOfMonthQ, endOfMonthQ, dateQ } from "@/lib/prisma";
 import {
   parseDate,
-  startOfMonth,
-  endOfMonth,
   todayIso,
 } from "@/lib/constants";
 import { serializeBookingForList } from "@/lib/booking";
@@ -53,7 +51,7 @@ export function customerNameWhere(q: string): Prisma.BookingWhereInput {
   if (!ws.length) return {};
   return {
     AND: ws.map((w) => ({
-      customerName: { contains: w, mode: "insensitive" as const },
+      customerName: { contains: w },
     })),
   };
 }
@@ -64,8 +62,8 @@ export function dressNameWhere(q: string): Prisma.BookingWhereInput {
   return {
     AND: ws.map((w) => ({
       OR: [
-        { dressName: { contains: w, mode: "insensitive" as const } },
-        { bookingItems: { some: { dressName: { contains: w, mode: "insensitive" as const } } } },
+        { dressName: { contains: w } },
+        { bookingItems: { some: { dressName: { contains: w } } } },
       ],
     })),
   };
@@ -80,8 +78,8 @@ export function phoneWhere(q: string): Prisma.BookingWhereInput {
 }
 
 export function yearDeliveryWhere(refDate: Date): Prisma.BookingWhereInput {
-  const yearStart = new Date(Date.UTC(refDate.getUTCFullYear(), 0, 1));
-  const yearEnd = new Date(Date.UTC(refDate.getUTCFullYear() + 1, 0, 1));
+  const yearStart = dateQ(new Date(Date.UTC(refDate.getUTCFullYear(), 0, 1)));
+  const yearEnd = dateQ(new Date(Date.UTC(refDate.getUTCFullYear() + 1, 0, 1)));
   return { deliveryDate: { gte: yearStart, lt: yearEnd } };
 }
 
@@ -97,8 +95,8 @@ export function categoryWhere(category: string): Prisma.BookingWhereInput {
 
 function monthDeliveryWhere(y: number, m: number): Prisma.BookingWhereInput {
   const anchor = new Date(Date.UTC(y, m, 15));
-  const monthStart = startOfMonth(anchor);
-  const monthEnd = endOfMonth(anchor);
+  const monthStart = startOfMonthQ(anchor);
+  const monthEnd = endOfMonthQ(anchor);
   return { deliveryDate: { gte: monthStart, lt: monthEnd } };
 }
 
@@ -118,8 +116,8 @@ export async function searchBySerialMonths(serial: number, refDate: Date) {
 
   for (const offset of offsets) {
     const anchor = new Date(Date.UTC(refDate.getUTCFullYear(), refDate.getUTCMonth() + offset, 15));
-    const monthStart = startOfMonth(anchor);
-    const monthEnd = endOfMonth(anchor);
+    const monthStart = startOfMonthQ(anchor);
+    const monthEnd = endOfMonthQ(anchor);
     const rows = await fetchBookings({
       monthlySerial: serial,
       deliveryDate: { gte: monthStart, lt: monthEnd },

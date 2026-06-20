@@ -6,6 +6,7 @@ import { ReactNode, useEffect, useMemo, useRef, useState } from "react";
 import { fetchJson } from "@/lib/fetchJson";
 import { useToast } from "@/components/ui/Toast";
 import { useMounted } from "@/lib/useMounted";
+import RealtimeProvider, { useRealtime } from "@/components/RealtimeProvider";
 
 const NAV_MAIN = [
   { href: "/", label: "Dashboard", icon: "fa-house-chimney" },
@@ -46,8 +47,9 @@ const NAV_OWNER = [
   { href: "/staff-work", label: "Staff Work", icon: "fa-user-tie" },
   { href: "/users", label: "Manage Users", icon: "fa-user-shield" },
   { href: "/recycle-bin", label: "Recycle Bin", icon: "fa-trash-can" },
-  { href: "/api/admin/export/bookings", label: "Export Bookings CSV", icon: "fa-file-csv", external: true },
-  { href: "/api/admin/export/inventory", label: "Export Inventory CSV", icon: "fa-file-csv", external: true },
+  { href: "/activity-log", label: "Activity Log", icon: "fa-clock-rotate-left" },
+  { href: "/reports", label: "Reports & Backup", icon: "fa-file-export" },
+  { href: "/admin/restore", label: "Restore Database", icon: "fa-upload" },
   { href: "/admin/reset-data", label: "Reset All Data", icon: "fa-triangle-exclamation", danger: true },
 ];
 
@@ -170,6 +172,15 @@ export default function AppShell({
     setOverdueDelivery(initialOverdueDelivery);
   }, [initialOverdueDelivery]);
 
+  useEffect(() => {
+    function onRealtimeToast(e: Event) {
+      const detail = (e as CustomEvent<{ message: string; type: "info" | "success" | "error" }>).detail;
+      if (detail?.message) toast(detail.message, detail.type || "info");
+    }
+    window.addEventListener("shop-realtime-toast", onRealtimeToast);
+    return () => window.removeEventListener("shop-realtime-toast", onRealtimeToast);
+  }, [toast]);
+
   function toggleCollapsed() {
     setCollapsed((c) => !c);
   }
@@ -185,6 +196,85 @@ export default function AppShell({
   }
 
   return (
+    <RealtimeProvider username={username} onNavRefresh={setOverdueDelivery}>
+      <AppLayoutInner
+        mounted={mounted}
+        collapsed={collapsed}
+        mobileOpen={mobileOpen}
+        navigating={navigating}
+        pathname={pathname}
+        title={title}
+        isOwner={isOwner}
+        username={username}
+        overdueDelivery={overdueDelivery}
+        onToggleCollapsed={toggleCollapsed}
+        onToggleMobile={toggleMobileMenu}
+        onCloseMobile={() => setMobileOpen(false)}
+        onLogout={handleLogout}
+      >
+        {children}
+      </AppLayoutInner>
+    </RealtimeProvider>
+  );
+}
+
+function OnlineIndicator() {
+  const { onlineUsers } = useRealtime();
+  if (onlineUsers < 2) return null;
+  return (
+    <span
+      title={`${onlineUsers} staff connected — changes sync live`}
+      style={{
+        display: "inline-flex",
+        alignItems: "center",
+        gap: 6,
+        fontSize: 11,
+        color: "var(--success)",
+        fontWeight: 600,
+        padding: "4px 10px",
+        borderRadius: 20,
+        background: "rgba(46,125,50,0.08)",
+        border: "1px solid rgba(46,125,50,0.2)",
+      }}
+    >
+      <span style={{ width: 6, height: 6, borderRadius: "50%", background: "var(--success)" }} />
+      {onlineUsers} online
+    </span>
+  );
+}
+
+function AppLayoutInner({
+  children,
+  mounted,
+  collapsed,
+  mobileOpen,
+  navigating,
+  pathname,
+  title,
+  isOwner,
+  username,
+  overdueDelivery,
+  onToggleCollapsed,
+  onToggleMobile,
+  onCloseMobile,
+  onLogout,
+}: {
+  children: ReactNode;
+  mounted: boolean;
+  collapsed: boolean;
+  mobileOpen: boolean;
+  navigating: boolean;
+  pathname: string;
+  title: string;
+  isOwner: boolean;
+  username: string;
+  overdueDelivery: number;
+  onToggleCollapsed: () => void;
+  onToggleMobile: () => void;
+  onCloseMobile: () => void;
+  onLogout: () => void;
+}) {
+  return (
     <div className={`app-layout ${mounted && collapsed ? "sidebar-collapsed" : ""}`} suppressHydrationWarning>
       <div className={`route-progress ${mounted && navigating ? "active" : ""}`} aria-hidden>
         <div className="route-progress-bar" />
@@ -192,7 +282,7 @@ export default function AppShell({
 
       <div
         className={`sidebar-overlay ${mobileOpen ? "active" : ""}`}
-        onClick={() => setMobileOpen(false)}
+        onClick={onCloseMobile}
         onKeyDown={() => {}}
         role="presentation"
       />
@@ -200,12 +290,12 @@ export default function AppShell({
       <aside className={`sidebar no-print ${mobileOpen ? "sidebar-open" : ""}`} id="appSidebar">
         <div className="sidebar-header-mobile no-print">
           <span className="sidebar-mobile-label">Menu</span>
-          <button type="button" className="sidebar-toggle sidebar-mobile-close" onClick={() => setMobileOpen(false)} aria-label="Close menu">
+          <button type="button" className="sidebar-toggle sidebar-mobile-close" onClick={onCloseMobile} aria-label="Close menu">
             <i className="fa-solid fa-xmark" />
           </button>
         </div>
         <div className="sidebar-toggle-row">
-          <button type="button" className="sidebar-toggle" onClick={toggleCollapsed} aria-label="Toggle sidebar">
+          <button type="button" className="sidebar-toggle" onClick={onToggleCollapsed} aria-label="Toggle sidebar">
             <i className="fa-solid fa-bars" />
           </button>
         </div>
@@ -217,7 +307,7 @@ export default function AppShell({
         <nav className="sidebar-nav">
           <div className="nav-section-label">Main Menu</div>
           {NAV_MAIN.map((item) => (
-            <Link key={item.href} href={item.href} className={`nav-item ${pathname === item.href ? "active" : ""}`} onClick={() => setMobileOpen(false)}>
+            <Link key={item.href} href={item.href} className={`nav-item ${pathname === item.href ? "active" : ""}`} onClick={onCloseMobile}>
               <i className={`fa-solid ${item.icon}`} /> <span className="nav-label">{item.label}</span>
               {item.badgeKey === "overdue_delivery" && overdueDelivery > 0 && (
                 <span className="nav-badge">{overdueDelivery}</span>
@@ -236,7 +326,7 @@ export default function AppShell({
                   ? "active"
                   : ""
               }`}
-              onClick={() => setMobileOpen(false)}
+              onClick={onCloseMobile}
             >
               <i className={`fa-solid ${item.icon}`} /> <span className="nav-label">{item.label}</span>
             </Link>
@@ -245,22 +335,16 @@ export default function AppShell({
             <>
               <div className="nav-section-label" style={{ marginTop: 8 }}>Finance</div>
               {NAV_FINANCE.map((item) => (
-                <Link key={item.href} href={item.href} className={`nav-item ${pathname === item.href || pathname.startsWith(item.href + "/") ? "active" : ""}`} onClick={() => setMobileOpen(false)}>
+                <Link key={item.href} href={item.href} className={`nav-item ${pathname === item.href || pathname.startsWith(item.href + "/") ? "active" : ""}`} onClick={onCloseMobile}>
                   <i className={`fa-solid ${item.icon}`} /> <span className="nav-label">{item.label}</span>
                 </Link>
               ))}
               <div className="nav-section-label" style={{ marginTop: 8 }}>Admin</div>
-              {NAV_OWNER.map((item) =>
-                item.external ? (
-                  <a key={item.href} href={item.href} target="_blank" rel="noreferrer" className="nav-item" style={item.danger ? { color: "#fc8181" } : undefined}>
-                    <i className={`fa-solid ${item.icon}`} /> <span className="nav-label">{item.label}</span>
-                  </a>
-                ) : (
-                  <Link key={item.href} href={item.href} className={`nav-item ${pathname === item.href ? "active" : ""}`} style={item.danger ? { color: "#fc8181" } : undefined} onClick={() => setMobileOpen(false)}>
-                    <i className={`fa-solid ${item.icon}`} /> <span className="nav-label">{item.label}</span>
-                  </Link>
-                ),
-              )}
+              {NAV_OWNER.map((item) => (
+                <Link key={item.href} href={item.href} className={`nav-item ${pathname === item.href ? "active" : ""}`} style={item.danger ? { color: "#fc8181" } : undefined} onClick={onCloseMobile}>
+                  <i className={`fa-solid ${item.icon}`} /> <span className="nav-label">{item.label}</span>
+                </Link>
+              ))}
             </>
           )}
           <div className="nav-section-label" style={{ marginTop: 8 }}>Quick Actions</div>
@@ -269,7 +353,7 @@ export default function AppShell({
               key={item.href}
               href={item.href}
               className={`nav-item ${pathname === item.href ? "active" : ""}`}
-              onClick={() => setMobileOpen(false)}
+              onClick={onCloseMobile}
             >
               <i className={`fa-solid ${item.icon}`} /> <span className="nav-label">{item.label}</span>
             </a>
@@ -280,14 +364,14 @@ export default function AppShell({
             <i className="fa-solid fa-user" />
             <span>{username}</span>
           </div>
-          <Link href="/profile/change-password" className="nav-item" style={{ marginTop: 4, fontSize: 12 }} onClick={() => setMobileOpen(false)}>
+          <Link href="/profile/change-password" className="nav-item" style={{ marginTop: 4, fontSize: 12 }} onClick={onCloseMobile}>
             <i className="fa-solid fa-key" /> Change Password
           </Link>
           <button
             type="button"
             className="nav-item"
             style={{ marginTop: 8, color: "#fca5a5", width: "100%", border: "none", background: "transparent", cursor: "pointer", textAlign: "left" }}
-            onClick={handleLogout}
+            onClick={onLogout}
           >
             <i className="fa-solid fa-right-from-bracket" /> <span className="nav-label">Logout</span>
           </button>
@@ -297,7 +381,7 @@ export default function AppShell({
       <main className="main-content">
         <header className="top-header no-print">
           <div style={{ display: "flex", alignItems: "center", gap: 12, minWidth: 0 }}>
-            <button type="button" className="sidebar-toggle sidebar-mobile-toggle" onClick={toggleMobileMenu} aria-label={mobileOpen ? "Close menu" : "Open menu"} aria-expanded={mobileOpen}>
+            <button type="button" className="sidebar-toggle sidebar-mobile-toggle" onClick={onToggleMobile} aria-label={mobileOpen ? "Close menu" : "Open menu"} aria-expanded={mobileOpen}>
               <i className={`fa-solid ${mobileOpen ? "fa-xmark" : "fa-bars"}`} />
             </button>
             <div style={{ minWidth: 0 }}>
@@ -306,6 +390,7 @@ export default function AppShell({
             </div>
           </div>
           <div className="header-actions">
+            <OnlineIndicator />
             <a href="/booking/new" className="btn btn-primary btn-sm">
               <i className="fa-solid fa-plus" /> New Booking
             </a>

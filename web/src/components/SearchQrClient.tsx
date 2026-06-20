@@ -148,7 +148,9 @@ export default function SearchQrClient() {
   useEffect(() => {
     if (!mounted) return;
     setIsMobile(isMobileOrTablet());
-  }, [mounted]);
+    // Auto-open camera: back camera on mobile/tablet, front on desktop
+    void allowCameraAndScan();
+  }, [mounted]); // eslint-disable-line react-hooks/exhaustive-deps
 
   const showAllowOverlay = !cameraReady && permissionUi !== "requesting";
   const switching = permissionUi === "requesting" && cameraReady;

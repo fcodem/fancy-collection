@@ -44,7 +44,7 @@ export async function POST(req: NextRequest) {
         staffNames: Array.isArray(body.staff_names) && body.staff_names.length
           ? body.staff_names.join(", ")
           : null,
-        visitDate: body.visit_date ? parseDate(body.visit_date) : new Date(),
+        visitDate: body.visit_date ? new Date(body.visit_date + "T00:00:00.000Z") : new Date(),
       },
     });
 

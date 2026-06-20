@@ -1,5 +1,4 @@
-import prisma from "@/lib/prisma";
-import { localTodayEnd, localTodayStart } from "@/lib/constants";
+import prisma, { todayStartQ, todayEndQ } from "@/lib/prisma";
 import { serializeStandardBookingDetails } from "@/lib/bookingDetails";
 import { bookingCategories, type StatListBooking } from "@/lib/dashboardStatListFilter";
 
@@ -66,8 +65,8 @@ function serializeRow(b: Awaited<ReturnType<typeof fetchStatListRaw>>[number]): 
 }
 
 async function fetchStatListRaw(listType: DashboardStatListType) {
-  const today = localTodayStart();
-  const todayEnd = localTodayEnd();
+  const today = todayStartQ();
+  const todayEnd = todayEndQ();
 
   switch (listType) {
     case "total-orders":

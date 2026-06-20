@@ -1,66 +1,60 @@
-import { Prisma, PrismaClient } from "@prisma/client";
+import { PrismaClient } from "@prisma/client";
 
-const globalForPrisma = globalThis as unknown as {
-  prisma?: PrismaClient;
-  bookingSchemaSig?: string;
-};
+/**
+ * Date helpers for Prisma queries.
+ * With PostgreSQL, DateTime is handled natively — use `new Date()` for writes.
+ * The `*Q` helpers below return Date objects for convenient date-range queries.
+ */
 
-const REQUIRED_DELEGATES = ["prospectLead", "shopEnquiry"] as const;
-
-function bookingSchemaSignature() {
-  const booking = Prisma.dmmf.datamodel.models.find((m) => m.name === "Booking");
-  return booking?.fields.map((f) => f.name).sort().join(",") ?? "";
+export function nowISO(): string {
+  return new Date().toISOString();
 }
 
-function hasRequiredDelegates(client: PrismaClient): boolean {
-  return REQUIRED_DELEGATES.every(
-    (key) =>
-      typeof (client as unknown as Record<string, { findMany?: unknown }>)[key]
-        ?.findMany === "function",
-  );
+export function dateToISO(d: Date | string | null | undefined): string | null {
+  if (!d) return null;
+  if (typeof d === "string") return d;
+  return d.toISOString();
 }
 
-function hasBookingQrTokenField(): boolean {
-  const booking = Prisma.dmmf.datamodel.models.find((m) => m.name === "Booking");
-  return booking?.fields.some((f) => f.name === "qrToken") ?? false;
+export function dateQ(d: Date | string): Date {
+  if (typeof d === "string") return new Date(d);
+  return d;
 }
 
-function createPrismaClient() {
-  return new PrismaClient({
+export function parseDateQ(s: string): Date {
+  const [y, m, day] = s.split("-").map(Number);
+  return new Date(Date.UTC(y, (m || 1) - 1, day || 1));
+}
+
+export function todayStartQ(): Date {
+  const now = new Date();
+  return new Date(Date.UTC(now.getFullYear(), now.getMonth(), now.getDate()));
+}
+
+export function todayEndQ(): Date {
+  const now = new Date();
+  return new Date(Date.UTC(now.getFullYear(), now.getMonth(), now.getDate() + 1));
+}
+
+export function startOfMonthQ(d: Date): Date {
+  return new Date(Date.UTC(d.getUTCFullYear(), d.getUTCMonth(), 1));
+}
+
+export function endOfMonthQ(d: Date): Date {
+  return new Date(Date.UTC(d.getUTCFullYear(), d.getUTCMonth() + 1, 1));
+}
+
+const globalForPrisma = globalThis as unknown as { prisma?: PrismaClient };
+
+const prisma =
+  globalForPrisma.prisma ??
+  new PrismaClient({
     log: process.env.NODE_ENV === "development" ? ["error", "warn"] : ["error"],
   });
+
+if (process.env.NODE_ENV !== "production") {
+  globalForPrisma.prisma = prisma;
 }
-
-function getPrismaClient(): PrismaClient {
-  let client = globalForPrisma.prisma;
-  const sig = bookingSchemaSignature();
-  const schemaOk =
-    hasRequiredDelegates(client ?? ({} as PrismaClient)) &&
-    hasBookingQrTokenField() &&
-    globalForPrisma.bookingSchemaSig === sig;
-
-  if (!client || !schemaOk) {
-    void client?.$disconnect().catch(() => {});
-    client = createPrismaClient();
-    globalForPrisma.bookingSchemaSig = sig;
-    if (process.env.NODE_ENV !== "production") {
-      globalForPrisma.prisma = client;
-    }
-  }
-  return client;
-}
-
-/** Lazy proxy so dev hot-reload never keeps a stale PrismaClient instance. */
-const prisma = new Proxy({} as PrismaClient, {
-  get(_target, prop) {
-    if (prop === "then") return undefined;
-    const client = getPrismaClient();
-    const value = Reflect.get(client, prop, client) as unknown;
-    return typeof value === "function"
-      ? (value as (...args: unknown[]) => unknown).bind(client)
-      : value;
-  },
-});
 
 export { prisma };
 export default prisma;

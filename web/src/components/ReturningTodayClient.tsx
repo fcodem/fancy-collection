@@ -1,10 +1,12 @@
 "use client";
 
-import { useEffect, useMemo, useState } from "react";
+import { useCallback, useEffect, useMemo, useState } from "react";
 import Link from "next/link";
 import { BookingNotesBlock } from "@/components/BookingNotesBlock";
 import { formatDate } from "@/lib/constants";
 import { formatInr } from "@/lib/format";
+import { useRealtimeRefresh } from "@/hooks/useRealtimeRefresh";
+import { BOOKING_EVENTS } from "@/lib/realtime/types";
 
 type BookingSide = {
   id: number;
@@ -34,6 +36,7 @@ type AlternateRow = {
   returning: BookingSide;
   next: BookingSide | null;
   item_categories: string[];
+  delivery_notes: string;
 };
 
 function displayDate(iso: string) {
@@ -86,7 +89,7 @@ function mapRow(raw: Record<string, unknown>): AlternateRow {
     nextSide = mapSide(next, nextItems);
   }
 
-  return { id: returning.id, returning, next: nextSide, item_categories: categories };
+  return { id: returning.id, returning, next: nextSide, item_categories: categories, delivery_notes: String(raw.delivery_notes || "") };
 }
 
 function DetailRow({ label, children }: { label: string; children: React.ReactNode }) {
@@ -108,9 +111,11 @@ function BalanceCell({ amount }: { amount: number }) {
 function CustomerRecordPanel({
   variant,
   side,
+  deliveryNotes,
 }: {
   variant: "return" | "deliver";
   side: BookingSide;
+  deliveryNotes?: string;
 }) {
   const isReturn = variant === "return";
   const viewHref = isReturn ? `/return/${side.id}` : `/booking/${side.id}`;
@@ -169,12 +174,17 @@ function CustomerRecordPanel({
                 "—"
               )}
             </DetailRow>
-            {(side.item_notes || side.common_notes) && (
+            {(side.item_notes || side.common_notes || deliveryNotes) && (
               <tr>
                 <td className="alternate-booking-label" style={{ verticalAlign: "top", paddingTop: 10 }}>
                   Notes
                 </td>
                 <td className="alternate-booking-value" style={{ paddingTop: 8 }}>
+                  {deliveryNotes && (
+                    <div style={{ marginBottom: 8, padding: "6px 10px", background: "var(--info-bg, #e8f4fd)", borderRadius: 6, fontSize: 12 }}>
+                      <strong>Delivery:</strong> {deliveryNotes}
+                    </div>
+                  )}
                   <BookingNotesBlock
                     itemNotes={side.item_notes}
                     commonNotes={side.common_notes}
@@ -217,7 +227,7 @@ export default function ReturningTodayClient({
   const [rows, setRows] = useState<AlternateRow[]>([]);
   const [loaded, setLoaded] = useState(false);
 
-  useEffect(() => {
+  const load = useCallback(() => {
     setLoaded(false);
     fetch(`/api/returning-today?date=${date}`, { cache: "no-store" })
       .then((r) => r.json())
@@ -231,6 +241,12 @@ export default function ReturningTodayClient({
         setLoaded(true);
       });
   }, [date]);
+
+  useRealtimeRefresh(BOOKING_EVENTS, load);
+
+  useEffect(() => {
+    load();
+  }, [load]);
 
   const filtered = useMemo(() => {
     if (!category) return rows;
@@ -248,7 +264,7 @@ export default function ReturningTodayClient({
         </div>
         <div className="card-body">
           <p style={{ fontSize: 13, color: "var(--text-muted)", marginBottom: 16 }}>
-            Shows dresses <strong>returning</strong> on the selected date that are also <strong>booked for delivery</strong> to another customer on the <strong>same date</strong> (alternate handover).
+            Shows all dresses <strong>returning</strong> on the selected date. When a dress is also <strong>booked for delivery</strong> to another customer the same day, the next customer appears on the right (alternate handover).
           </p>
           <div style={{ display: "flex", gap: 16, alignItems: "flex-end", flexWrap: "wrap" }}>
             <div>
@@ -292,11 +308,18 @@ export default function ReturningTodayClient({
           <div
             key={r.id}
             className="card alternate-booking-card"
-            style={{ marginBottom: 20, borderLeft: "4px solid #f39c12" }}
+            style={{ marginBottom: 20, borderLeft: `4px solid ${r.next ? "#f39c12" : "var(--primary)"}` }}
           >
-            <div className="alternate-booking-split">
-              <CustomerRecordPanel variant="return" side={r.returning} />
-              {r.next && <CustomerRecordPanel variant="deliver" side={r.next} />}
+            <div className={`alternate-booking-split${!r.next ? " alternate-booking-split--single" : ""}`}>
+              <CustomerRecordPanel variant="return" side={r.returning} deliveryNotes={r.delivery_notes} />
+              {r.next ? (
+                <CustomerRecordPanel variant="deliver" side={r.next} />
+              ) : (
+                <div className="alternate-booking-next" style={{ display: "flex", alignItems: "center", justifyContent: "center", padding: 32, color: "var(--text-muted)", fontSize: 13 }}>
+                  <i className="fa-solid fa-calendar-check" style={{ marginRight: 8 }} />
+                  No alternate delivery on this date
+                </div>
+              )}
             </div>
           </div>
         ))}
@@ -308,7 +331,7 @@ export default function ReturningTodayClient({
             <p style={{ margin: 0, fontSize: 15 }}>
               {rows.length && category
                 ? "No records match the selected category."
-                : "No alternate bookings on this date — no dress is both returning and delivering to another customer the same day."}
+                : "No bookings returning on this date."}
             </p>
           </div>
         </div>

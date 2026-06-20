@@ -23,7 +23,7 @@ export async function PUT(req: NextRequest, { params }: { params: Promise<{ id: 
   const { id } = await params;
   try {
     const body = await req.json();
-    const booking = await updateBooking(parseInt(id, 10), body);
+    const booking = await updateBooking(parseInt(id, 10), body, user.username);
     return jsonOk({ ok: true, id: booking?.id, serial: booking?.monthlySerial });
   } catch (e) {
     return jsonError(e instanceof Error ? e.message : "Failed to update booking");
@@ -35,7 +35,7 @@ export async function DELETE(_req: NextRequest, { params }: { params: Promise<{ 
   if (isResponse(user)) return user;
   const { id } = await params;
   try {
-    await cancelBooking(parseInt(id, 10));
+    await cancelBooking(parseInt(id, 10), 0, user.username);
     return jsonOk({ ok: true });
   } catch (e) {
     return jsonError(e instanceof Error ? e.message : "Failed to cancel booking");

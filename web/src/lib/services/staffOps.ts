@@ -1,4 +1,4 @@
-import prisma from "../prisma";
+import prisma, { dateQ, parseDateQ } from "../prisma";
 import { hashPassword } from "../auth";
 import { parseDate } from "../constants";
 
@@ -10,7 +10,7 @@ export async function getStaffWork(fromStr: string, toStr: string) {
 
   const bookings = await prisma.booking.findMany({
     where: {
-      createdAt: { gte: fromDate, lt: toEnd },
+      createdAt: { gte: dateQ(fromDate), lt: dateQ(toEnd) },
       status: { not: "cancelled" },
     },
     include: { bookingItems: true },
@@ -35,8 +35,8 @@ export async function getStaffWork(fromStr: string, toStr: string) {
 
 export async function getStaffAttendance(monthStr: string) {
   const [year, month] = monthStr.split("-").map(Number);
-  const monthStart = new Date(Date.UTC(year, month - 1, 1));
-  const monthEnd = new Date(Date.UTC(year, month, 1));
+  const monthStart = dateQ(new Date(Date.UTC(year, month - 1, 1)));
+  const monthEnd = dateQ(new Date(Date.UTC(year, month, 1)));
 
   const staffList = await prisma.staff.findMany({ where: { active: true }, orderBy: { name: "asc" } });
   const attendances = await prisma.staffAttendance.findMany({
@@ -57,8 +57,8 @@ export async function getStaffAttendance(monthStr: string) {
 
 export async function getAttendanceCalendar(staffId: number, monthStr: string) {
   const [year, month] = monthStr.split("-").map(Number);
-  const monthStart = new Date(Date.UTC(year, month - 1, 1));
-  const monthEnd = new Date(Date.UTC(year, month, 1));
+  const monthStart = dateQ(new Date(Date.UTC(year, month - 1, 1)));
+  const monthEnd = dateQ(new Date(Date.UTC(year, month, 1)));
   const records = await prisma.staffAttendance.findMany({
     where: { staffId, date: { gte: monthStart, lt: monthEnd } },
   });
@@ -107,7 +107,7 @@ export async function removeStaff(staffId: number) {
 }
 
 export async function saveAttendance(dateStr: string, statuses: Record<number, string>) {
-  const date = parseDate(dateStr);
+  const date = parseDateQ(dateStr);
   for (const [staffIdStr, status] of Object.entries(statuses)) {
     const staffId = parseInt(staffIdStr, 10);
     if (!status) continue;
@@ -120,7 +120,7 @@ export async function saveAttendance(dateStr: string, statuses: Record<number, s
 }
 
 export async function markShopClosed(dateStr: string) {
-  const date = parseDate(dateStr);
+  const date = parseDateQ(dateStr);
   const staffList = await prisma.staff.findMany({ where: { active: true } });
   for (const s of staffList) {
     await prisma.staffAttendance.upsert({

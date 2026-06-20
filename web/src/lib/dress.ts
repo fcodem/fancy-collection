@@ -43,9 +43,9 @@ export function buildDressSearchWhere(q: string) {
   return {
     AND: words.map((word) => ({
       OR: [
-        { name: { contains: word, mode: "insensitive" as const } },
-        { sku: { contains: word, mode: "insensitive" as const } },
-        { conditionNotes: { contains: word, mode: "insensitive" as const } },
+        { name: { contains: word } },
+        { sku: { contains: word } },
+        { conditionNotes: { contains: word } },
       ],
     })),
   };

@@ -1,4 +1,4 @@
-import prisma from "@/lib/prisma";
+import prisma, { parseDateQ, dateQ } from "@/lib/prisma";
 import { dressDisplayName } from "@/lib/dress";
 import {
   bookingListRecordFrom,
@@ -202,20 +202,23 @@ export async function getBookingListData(
   let rDate = returnDateStr ? parseDate(returnDateStr) : dDate;
   if (rDate < dDate) rDate = dDate;
 
+  const dDateQ = parseDateQ(deliveryDateStr);
+  const rDateQ = parseDateQ(returnDateStr || deliveryDateStr);
+
   const fromDisplay = formatDate(dDate, "display");
   const toDisplay = formatDate(rDate, "display");
 
   const mainWhere = {
     status: { in: ["booked", "delivered"] as string[] },
-    deliveryDate: { gte: dDate, lte: rDate },
+    deliveryDate: { gte: dDateQ, lte: rDateQ },
     ...(deliveryTimeFilter ? { deliveryTime: deliveryTimeFilter } : {}),
     ...(returnTimeFilter ? { returnTime: returnTimeFilter } : {}),
   };
 
   const unavailWhere = {
     status: { in: ["booked", "delivered"] as string[] },
-    deliveryDate: { lt: dDate },
-    returnDate: { gte: dDate, lt: rDate },
+    deliveryDate: { lt: dDateQ },
+    returnDate: { gte: dDateQ, lt: rDateQ },
     ...(deliveryTimeFilter ? { deliveryTime: deliveryTimeFilter } : {}),
     ...(returnTimeFilter ? { returnTime: returnTimeFilter } : {}),
   };
@@ -242,8 +245,8 @@ export async function getBookingListData(
           where: {
             status: { in: ["booked", "delivered"] },
             OR: [
-              ...(deliveryDates.length ? [{ returnDate: { in: deliveryDates } }] : []),
-              ...(returnDates.length ? [{ deliveryDate: { in: returnDates } }] : []),
+              ...(deliveryDates.length ? [{ returnDate: { in: deliveryDates.map(dateQ) } }] : []),
+              ...(returnDates.length ? [{ deliveryDate: { in: returnDates.map(dateQ) } }] : []),
             ],
           },
           select: bookingSelect,

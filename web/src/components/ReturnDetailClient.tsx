@@ -13,6 +13,7 @@ import { photoUrl } from "@/lib/photoUrl";
 export default function ReturnDetailClient({
   booking,
   items,
+  itemDelivery = [],
 }: {
   booking: BookingForStandardDetails & {
     id: number;
@@ -29,12 +30,27 @@ export default function ReturnDetailClient({
     advance?: number;
     totalRemaining?: number;
     remaining?: number;
+    deliveryNotes?: string | null;
   };
   items: BookingItemPricingRow[];
+  itemDelivery?: Array<{
+    dressName: string;
+    category?: string | null;
+    size?: string;
+    photo?: string;
+    isDelivered: boolean;
+    isPackedReady?: boolean;
+    preparedBy?: string;
+    checkedBy?: string;
+    packingNote?: string;
+    itemRemainingCollected: number;
+    itemSecurityCollected: number;
+    itemDeliveryNotes?: string | null;
+  }>;
 }) {
   const router = useRouter();
   const [incompleteNotes, setIncompleteNotes] = useState("");
-  const [securityHeld, setSecurityHeld] = useState(booking.securityDeposit || "");
+  const [securityHeld, setSecurityHeld] = useState(booking.securityCollected || booking.securityDeposit || "");
   const [photoFile, setPhotoFile] = useState<File | null>(null);
   const [photoPreview, setPhotoPreview] = useState<string | null>(null);
   const [saving, setSaving] = useState(false);
@@ -43,7 +59,9 @@ export default function ReturnDetailClient({
   const totalPrice = booking.totalPrice ?? booking.price ?? 0;
   const totalAdvance = booking.totalAdvance ?? booking.advance ?? 0;
   const totalRemaining = booking.totalRemaining ?? booking.remaining ?? 0;
-  const isDelivered = booking.status === "delivered";
+  // Accept returns when delivered OR when status is booked but all items are delivered
+  const allItemsDelivered = itemDelivery.length > 0 ? itemDelivery.every((d) => d.isDelivered) : false;
+  const isDelivered = booking.status === "delivered" || (booking.status === "booked" && allItemsDelivered);
 
   function onPhotoChange(e: React.ChangeEvent<HTMLInputElement>) {
     const file = e.target.files?.[0] || null;
@@ -131,18 +149,63 @@ export default function ReturnDetailClient({
             items={items}
             remainingCollected={booking.remainingCollected}
             extra={
-              booking.securityCollected > 0 ? (
-                <div style={{ marginTop: 12, fontSize: 13 }}>
-                  <span style={{ fontSize: 11, color: "var(--text-muted)", fontWeight: 700 }}>SECURITY COLLECTED </span>
-                  ₹{formatInr(booking.securityCollected)}
-                </div>
-              ) : undefined
+              <>
+                {booking.securityCollected > 0 && (
+                  <div style={{ marginTop: 8, fontSize: 13 }}>
+                    <span style={{ fontSize: 11, color: "var(--text-muted)", fontWeight: 700 }}>SECURITY COLLECTED </span>
+                    ₹{formatInr(booking.securityCollected)}
+                  </div>
+                )}
+                {booking.deliveryNotes && (
+                  <div style={{ marginTop: 8, fontSize: 13, padding: "8px 12px", background: "var(--info-bg, #e8f4fd)", borderRadius: 8 }}>
+                    <span style={{ fontSize: 11, color: "var(--text-muted)", fontWeight: 700 }}>DELIVERY NOTES </span>
+                    {booking.deliveryNotes}
+                  </div>
+                )}
+                {itemDelivery.filter((d) => d.isDelivered).map((d, i) => (
+                  <div key={i} style={{ marginTop: 12, fontSize: 13, padding: "12px 14px", border: "1px solid var(--border)", borderRadius: 8, background: "rgba(46,125,50,0.03)" }}>
+                    <div style={{ display: "flex", alignItems: "center", gap: 10, marginBottom: 8 }}>
+                      {d.photo && (
+                        <img src={photoUrl(d.photo)} alt="" style={{ width: 44, height: 44, borderRadius: 8, objectFit: "cover" }} />
+                      )}
+                      <div>
+                        <strong>{d.dressName}</strong>
+                        {(d.category || d.size) && (
+                          <div style={{ fontSize: 12, color: "var(--text-muted)" }}>
+                            {[d.category, d.size].filter(Boolean).join(" · ")}
+                          </div>
+                        )}
+                      </div>
+                      <span className="badge badge-success" style={{ marginLeft: "auto" }}>Delivered</span>
+                    </div>
+                    {(d.preparedBy || d.checkedBy || d.packingNote || d.isPackedReady) && (
+                      <div style={{ marginBottom: 8, padding: "8px 12px", background: "var(--info-bg, #e8f4fd)", borderRadius: 8, fontSize: 12 }}>
+                        <strong style={{ fontSize: 11, color: "var(--text-muted)" }}>PACKING INFO</strong>
+                        {d.isPackedReady && <div>Status: Packed &amp; ready</div>}
+                        {d.preparedBy && <div>Prepared by: {d.preparedBy}</div>}
+                        {d.checkedBy && <div>Checked by: {d.checkedBy}</div>}
+                        {d.packingNote && <div>Note: {d.packingNote}</div>}
+                      </div>
+                    )}
+                    <div style={{ fontSize: 12 }}>
+                      {d.itemRemainingCollected > 0 && <span>Remaining collected ₹{formatInr(d.itemRemainingCollected)}</span>}
+                      {d.itemRemainingCollected > 0 && d.itemSecurityCollected > 0 && <span> · </span>}
+                      {d.itemSecurityCollected > 0 && <span>Security collected ₹{formatInr(d.itemSecurityCollected)}</span>}
+                    </div>
+                    {d.itemDeliveryNotes && (
+                      <div style={{ marginTop: 6, color: "var(--text-muted)", fontSize: 12 }}>
+                        <strong>Delivery note:</strong> {d.itemDeliveryNotes}
+                      </div>
+                    )}
+                  </div>
+                ))}
+              </>
             }
           />
         </div>
       </div>
 
-      {booking.status === "delivered" && (
+      {isDelivered && booking.status !== "returned" && booking.status !== "cancelled" && booking.status !== "incomplete_return" && (
         <div className="card">
           <div className="card-header"><h3 className="card-title">Mark Return</h3></div>
           <div className="card-body">

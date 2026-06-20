@@ -1,11 +1,13 @@
 "use client";
 
-import { useEffect, useState } from "react";
+import { useCallback, useEffect, useState } from "react";
 import CategorySelect from "./CategorySelect";
 import { BookingWarningPanel } from "@/components/BookingDetailsColumns";
 import { WARNING_BOOKED_ON_RETURN, WARNING_RETURNING_ON_DELIVERY } from "@/lib/bookingDetails";
 import type { BookingWarningRecord } from "@/lib/bookingDetails";
 import { SIZES } from "@/lib/constants";
+import { useRealtimeRefresh } from "@/hooks/useRealtimeRefresh";
+import { BOOKING_EVENTS, INVENTORY_EVENTS } from "@/lib/realtime/types";
 
 type FreeItem = {
   id: number;
@@ -77,7 +79,7 @@ export default function FreeItemsClient({ today }: { today: string }) {
 
   const showSize = category === "Sherwani" || category === "Suit" || category === "Blazer";
 
-  async function search() {
+  const search = useCallback(async () => {
     const res = await fetch(
       `/api/booking/available-items?delivery_date=${deliveryDate}&return_date=${returnDate}&category=${encodeURIComponent(category)}`
     );
@@ -87,11 +89,15 @@ export default function FreeItemsClient({ today }: { today: string }) {
     if (subCat) items = items.filter((i) => i.sub_category === subCat || subCat === "Normal");
     setFree(items);
     setLoaded(true);
-  }
+  }, [deliveryDate, returnDate, category, size, subCat]);
 
   useEffect(() => {
     search();
   }, []);
+
+  useRealtimeRefresh([...BOOKING_EVENTS, ...INVENTORY_EVENTS], () => {
+    if (loaded) search();
+  });
 
   const totallyFree = free.filter((i) => !i.returning_warning && !i.booked_warning);
   const returning = free.filter((i) => i.returning_warning && !i.booked_warning);

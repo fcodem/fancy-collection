@@ -37,7 +37,7 @@ export async function PUT(req: NextRequest, { params }: { params: Promise<{ id: 
       sub_category: String(form.get("sub_category") || "Normal"),
       photo: photo instanceof File && photo.size > 0 ? photo : null,
       remove_photo: form.get("remove_photo") === "1",
-    });
+    }, user.username);
     return jsonOk({ ok: true, id: item.id });
   } catch (e) {
     return jsonError(e instanceof Error ? e.message : "Update failed");
@@ -49,7 +49,7 @@ export async function DELETE(_req: NextRequest, { params }: { params: Promise<{ 
   if (isResponse(user)) return user;
   const { id } = await params;
   try {
-    await deleteInventoryItem(parseInt(id, 10));
+    await deleteInventoryItem(parseInt(id, 10), user.username);
     return jsonOk({ ok: true });
   } catch (e) {
     return jsonError(e instanceof Error ? e.message : "Delete failed");

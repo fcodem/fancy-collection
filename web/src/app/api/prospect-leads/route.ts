@@ -1,7 +1,7 @@
 import { NextRequest } from "next/server";
-import prisma from "@/lib/prisma";
+import prisma, { parseDateQ } from "@/lib/prisma";
 import { jsonError, jsonOk, requireUser, requireUserReadOnly, isResponse } from "@/lib/api";
-import { parseDate, formatDate } from "@/lib/constants";
+import { formatDate } from "@/lib/constants";
 import { dressDisplayName } from "@/lib/dress";
 
 export async function GET() {
@@ -62,9 +62,9 @@ export async function POST(req: NextRequest) {
         staffNames: Array.isArray(body.staff_names) && body.staff_names.length
           ? body.staff_names.join(", ")
           : null,
-        deliveryDate: parseDate(body.delivery_date),
+        deliveryDate: parseDateQ(body.delivery_date),
         deliveryTime: body.delivery_time?.trim() || null,
-        returnDate: parseDate(body.return_date),
+        returnDate: parseDateQ(body.return_date),
         returnTime: body.return_time?.trim() || null,
         items: {
           create: body.items.map((item: { item_id: number; price?: number }) => ({

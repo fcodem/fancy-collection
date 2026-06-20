@@ -14,6 +14,7 @@
     "postinstall": "prisma generate && node scripts/copy-assets.mjs",
     "db:push": "prisma db push",
     "db:seed": "tsx prisma/seed.ts",
+    "db:reset-owner": "tsx scripts/reset-owner.ts",
     "copy-assets": "node scripts/copy-assets.mjs",
     "db:studio": "prisma studio",
     "db:migrate-sqlite": "python ../scripts/migrate_sqlite_to_postgres.py"
@@ -24,6 +25,7 @@
     "@vercel/blob": "^0.27.0",
     "bcryptjs": "^3.0.2",
     "chart.js": "^4.4.8",
+    "docx": "^9.7.1",
     "html5-qrcode": "^2.3.8",
     "iron-session": "^8.0.4",
     "next": "^15.2.4",

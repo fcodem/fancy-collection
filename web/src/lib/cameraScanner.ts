@@ -81,7 +81,7 @@ export function isNotReadableError(e: unknown): boolean {
 
 export function cameraErrorMessage(e: unknown, secureContext: boolean): string {
   if (!secureContext) {
-    return "Camera requires a secure page. On PC use http://localhost:3000/search-qr";
+    return "Camera requires a secure page. On PC use http://localhost:3088/search-qr — if accessing via IP address, use HTTPS or localhost instead.";
   }
   if (isNotAllowedError(e)) {
     return "Camera permission denied. Allow camera in browser site settings, then try again.";

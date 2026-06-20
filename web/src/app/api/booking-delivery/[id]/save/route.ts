@@ -13,7 +13,14 @@ export async function POST(req: NextRequest, { params }: { params: Promise<{ id:
       security_collected: Number(body.security_collected || 0),
       delivery_notes: body.delivery_notes || "",
       mark_delivered: Boolean(body.mark_delivered),
-    });
+      items: Array.isArray(body.items) ? body.items.map((it: Record<string, unknown>) => ({
+        booking_item_id: Number(it.booking_item_id),
+        remaining_collected: Number(it.remaining_collected || 0),
+        security_collected: Number(it.security_collected || 0),
+        delivery_notes: String(it.delivery_notes || ""),
+        mark_delivered: Boolean(it.mark_delivered),
+      })) : undefined,
+    }, user.username);
     return jsonOk({ ok: true, id: booking.id, status: booking.status });
   } catch (e) {
     return jsonError(e instanceof Error ? e.message : "Save failed");

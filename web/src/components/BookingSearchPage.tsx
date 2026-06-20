@@ -1,10 +1,12 @@
 "use client";
 
 import { useCallback, useEffect, useState } from "react";
-import DressNameSuggestInput from "@/components/DressNameSuggestInput";
+import BookingSearchSuggestInput from "@/components/BookingSearchSuggestInput";
 import { StandardBookingTableCells, StandardBookingTableHead } from "@/components/BookingDetailsColumns";
 import type { StandardBookingDetails } from "@/lib/bookingDetails";
 import { formatInr } from "@/lib/format";
+import { useRealtimeRefresh } from "@/hooks/useRealtimeRefresh";
+import { BOOKING_EVENTS } from "@/lib/realtime/types";
 
 type BookingRow = StandardBookingDetails & {
   id: number;
@@ -49,6 +51,8 @@ export default function BookingSearchPage({
   hint,
   todayIso,
   categories,
+  actionLabel = "Edit",
+  actionIcon = "fa-pen",
 }: {
   title: string;
   apiPath: string;
@@ -61,6 +65,8 @@ export default function BookingSearchPage({
   hint?: string;
   todayIso: string;
   categories?: Categories;
+  actionLabel?: string;
+  actionIcon?: string;
 }) {
   const [searchDate, setSearchDate] = useState(todayIso);
   const [query, setQuery] = useState("");
@@ -87,6 +93,8 @@ export default function BookingSearchPage({
     setLoaded(true);
   }, [apiPath, searchDate, query, category]);
 
+  useRealtimeRefresh(BOOKING_EVENTS, runSearch);
+
   // Date or category change: refresh list (nearest to date, or filtered by category).
   useEffect(() => {
     runSearch();
@@ -94,17 +102,18 @@ export default function BookingSearchPage({
   }, [searchDate, category]);
 
   const colSpan = 10 + (showRemaining ? 1 : 0) + (showStatus ? 1 : 0);
+  const suggestMode = apiPath.includes("return") ? "return" : "delivery";
   const defaultHint = monthBased
     ? "Pick a date to see bookings nearest to that date (booked & delivered). Optionally filter by category. Type in Search and click Search to show only matching records."
     : "Search by customer name, dress, phone, WhatsApp, or serial. Shows delivered & returned records. Customer name searches full lifetime; other fields search within the selected year.";
 
   return (
     <div>
-      <div className="card" style={{ marginBottom: 24 }}>
+      <div className="card" style={{ marginBottom: 24, overflow: "visible" }}>
         <div className="card-header">
           <h3 className="card-title">{title}</h3>
         </div>
-        <div className="card-body">
+        <div className="card-body" style={{ overflow: "visible" }}>
           <p style={{ fontSize: 12, color: "var(--text-muted)", marginBottom: 12 }}>
             {hint || defaultHint}
           </p>
@@ -160,16 +169,18 @@ export default function BookingSearchPage({
                 </select>
               </div>
             )}
-            <div>
+            <div style={{ position: "relative", zIndex: 20, overflow: "visible" }}>
               <label style={{ fontWeight: 600, fontSize: 13 }}>Search</label>
-              <DressNameSuggestInput
+              <BookingSearchSuggestInput
                 type="text"
                 className="form-input"
                 placeholder="Serial / customer / phone / dress…"
                 value={query}
+                searchDate={searchDate}
+                mode={suggestMode}
                 onChange={(e) => setQuery(e.target.value)}
+                onSuggestSelect={() => runSearch()}
                 onKeyDown={(e) => e.key === "Enter" && runSearch()}
-                data-skip-dress-suggest="true"
               />
             </div>
             <button className="btn btn-primary" type="button" onClick={runSearch}>
@@ -228,7 +239,7 @@ export default function BookingSearchPage({
                         )}
                         <td>
                           <a href={detailHref.replace("{id}", String(b.id))} className="btn btn-sm btn-primary">
-                            <i className="fa-solid fa-pen" /> Edit
+                            <i className={`fa-solid ${actionIcon}`} /> {actionLabel}
                           </a>
                         </td>
                       </tr>
