@@ -1,12 +1,25 @@
 import { redirect, notFound } from "next/navigation";
 import prisma from "@/lib/prisma";
+import { getCurrentUser, isOwner } from "@/lib/auth";
+import { isBookingLocked } from "@/lib/bookingLock";
 import ServerAppShell from "@/components/ServerAppShell";
 import BookingFormClient from "@/components/BookingFormClient";
 import { getAllCategories } from "@/lib/categories";
 import { todayIso } from "@/lib/constants";
 
-export default async function EditBookingPage({ params }: { params: Promise<{ id: string }> }) {
+export default async function EditBookingPage({
+  params,
+  searchParams,
+}: {
+  params: Promise<{ id: string }>;
+  searchParams: Promise<{ unlock?: string }>;
+}) {
+  const user = await getCurrentUser();
+  if (!user) redirect("/login");
+
   const { id } = await params;
+  const { unlock } = await searchParams;
+
   if (id === "new") redirect("/booking/new");
   const booking = await prisma.booking.findUnique({
     where: { id: parseInt(id, 10) },
@@ -18,6 +31,16 @@ export default async function EditBookingPage({ params }: { params: Promise<{ id
     redirect(`/booking-delivery/${booking.id}`);
   }
 
+  const locked = isBookingLocked(booking.status);
+  const owner = isOwner(user);
+
+  if (locked && !owner) {
+    redirect(`/booking/${booking.id}`);
+  }
+
+  const ownerUnlocked = locked && owner && unlock === "1";
+  const readOnly = locked && !ownerUnlocked;
+
   const cats = await getAllCategories();
   const staff = await prisma.staff.findMany({ where: { active: true }, orderBy: { name: "asc" } });
 
@@ -26,6 +49,10 @@ export default async function EditBookingPage({ params }: { params: Promise<{ id
       <BookingFormClient
         today={todayIso()}
         editId={booking.id}
+        readOnly={readOnly}
+        locked={locked}
+        isOwner={owner}
+        unlockHref={locked && owner ? `/booking/${booking.id}/edit?unlock=1` : undefined}
         initial={{
           monthly_serial: booking.monthlySerial,
           customer_name: booking.customerName,

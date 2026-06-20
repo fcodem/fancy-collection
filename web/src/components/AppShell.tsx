@@ -37,12 +37,15 @@ const NAV_FINANCE = [
   { href: "/finance/monthly-sale", label: "Monthly Sale", icon: "fa-calendar-days" },
   { href: "/finance/yearly-sale", label: "Yearly Sale", icon: "fa-chart-line" },
   { href: "/finance/top-performer", label: "Top Performer", icon: "fa-trophy" },
+  { href: "/finance/inventory-profitability", label: "Inventory Profitability", icon: "fa-chart-column" },
   { href: "/finance/category-analysis", label: "Category Analysis", icon: "fa-chart-pie" },
   { href: "/finance/security-deposit", label: "Security Deposit", icon: "fa-shield-halved" },
   { href: "/finance/suppliers", label: "Suppliers", icon: "fa-truck-field" },
 ];
 
 const NAV_OWNER = [
+  { href: "/admin/calendar", label: "Booking Calendar", icon: "fa-calendar-days" },
+  { href: "/admin/image-sync", label: "Bulk Image Sync", icon: "fa-images" },
   { href: "/customers", label: "Customers", icon: "fa-users" },
   { href: "/staff-work", label: "Staff Work", icon: "fa-user-tie" },
   { href: "/users", label: "Manage Users", icon: "fa-user-shield" },

@@ -197,6 +197,8 @@ model Booking {
   returnedAt         DateTime? @map("returned_at")
   incompleteNotes    String?   @map("incomplete_notes")
   incompletePhoto    String?   @map("incomplete_photo")
+  idPhoto1           String?   @map("id_photo_1")
+  idPhoto2           String?   @map("id_photo_2")
   securityHeld       Float     @default(0) @map("security_held")
   itemId             Int?      @map("item_id")
   dressName          String?   @map("dress_name")
@@ -373,4 +375,15 @@ model ActivityLog {
   @@index([username])
   @@index([createdAt])
   @@map("activity_logs")
+}
+
+model LoginAttempt {
+  id        Int      @id @default(autoincrement())
+  ip        String
+  success   Boolean  @default(false)
+  username  String?
+  createdAt DateTime @default(now()) @map("created_at")
+
+  @@index([ip, createdAt])
+  @@map("login_attempts")
 }

@@ -1,8 +1,61 @@
 import { NextRequest } from "next/server";
 import prisma from "@/lib/prisma";
-import { createBooking, updateBooking } from "@/lib/services/bookingCrud";
+import { createBooking } from "@/lib/services/bookingCrud";
 import { jsonError, jsonOk, requireUser, isResponse } from "@/lib/api";
 import { debugLog } from "@/lib/debugLog";
+import { formatDate } from "@/lib/constants";
+import { dressDisplayName } from "@/lib/dress";
+import { ensureBookingQrToken, bookingQrScanUrl } from "@/lib/bookingQr";
+import {
+  bookingConfirmationTemplateParams,
+  buildBookingConfirmationMessage,
+  deliverWhatsApp,
+} from "@/lib/whatsapp";
+
+async function maybeAutoSendBookingWhatsApp(bookingId: number, origin: string) {
+  if (process.env.AISENSY_AUTO_SEND_BOOKING !== "true") return;
+
+  const booking = await prisma.booking.findUnique({
+    where: { id: bookingId },
+    include: { bookingItems: { include: { item: true } } },
+  });
+  if (!booking) return;
+
+  const phone = booking.whatsappNo || booking.contact1;
+  if (!phone?.trim()) return;
+
+  const qrToken = await ensureBookingQrToken(booking.id);
+  const messageOpts = {
+    customerName: booking.customerName,
+    serialNo: booking.monthlySerial,
+    deliveryDate: formatDate(booking.deliveryDate, "display"),
+    deliveryTime: booking.deliveryTime,
+    returnDate: formatDate(booking.returnDate, "display"),
+    returnTime: booking.returnTime,
+    venue: booking.venue || undefined,
+    totalRent: booking.totalPrice,
+    advancePaid: booking.totalAdvance,
+    remaining: booking.totalRemaining,
+    dressNames: booking.bookingItems.length
+      ? booking.bookingItems.map((bi) =>
+          dressDisplayName(bi.dressName, bi.category, bi.size || bi.item?.size)
+        )
+      : booking.dressName
+        ? [booking.dressName]
+        : [],
+    qrUrl: bookingQrScanUrl(qrToken, origin),
+    billUrl: `${origin}/booking/${booking.id}/print`,
+  };
+
+  await deliverWhatsApp({
+    phone,
+    userName: booking.customerName,
+    message: buildBookingConfirmationMessage(messageOpts),
+    campaignType: "booking",
+    templateParams: bookingConfirmationTemplateParams(messageOpts),
+    source: `booking-auto-${booking.id}`,
+  }).catch((e) => console.error("Auto WhatsApp send failed:", e));
+}
 
 export async function POST(req: NextRequest) {
   const user = await requireUser();
@@ -10,6 +63,7 @@ export async function POST(req: NextRequest) {
   try {
     const body = await req.json();
     const booking = await createBooking(body, user.username);
+    void maybeAutoSendBookingWhatsApp(booking.id, req.nextUrl.origin);
     // #region agent log
     debugLog("booking/route.ts", "booking created", {
       id: booking.id,

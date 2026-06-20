@@ -6,6 +6,7 @@ export const dynamic = "force-dynamic";
 function errorMessage(code?: string) {
   if (code === "invalid") return "Invalid username or password.";
   if (code === "missing") return "Username and password are required.";
+  if (code === "blocked") return "Too many failed login attempts. Please try again in about 1 hour.";
   return undefined;
 }
 

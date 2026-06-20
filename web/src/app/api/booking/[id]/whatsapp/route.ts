@@ -1,28 +1,28 @@
 import { NextRequest } from "next/server";
 import prisma from "@/lib/prisma";
 import { ensureBookingQrToken, bookingQrScanUrl } from "@/lib/bookingQr";
-import { buildBookingConfirmationMessage, buildWhatsAppUrl } from "@/lib/whatsapp";
+import {
+  bookingConfirmationTemplateParams,
+  buildBookingConfirmationMessage,
+  deliverWhatsApp,
+  buildWhatsAppUrl,
+} from "@/lib/whatsapp";
 import { formatDate } from "@/lib/constants";
 import { dressDisplayName } from "@/lib/dress";
 import { jsonError, jsonOk, requireUser, isResponse } from "@/lib/api";
 
-export async function GET(req: NextRequest, { params }: { params: Promise<{ id: string }> }) {
-  const user = await requireUser();
-  if (isResponse(user)) return user;
-  const { id } = await params;
-  const bookingId = parseInt(id, 10);
-
+async function buildBookingWhatsAppPayload(bookingId: number, origin: string) {
   const booking = await prisma.booking.findUnique({
     where: { id: bookingId },
     include: { bookingItems: { include: { item: true } } },
   });
-  if (!booking) return jsonError("Booking not found", 404);
+  if (!booking) return null;
 
-  const phone = booking.whatsappNo || booking.contact1;
-  if (!phone?.trim()) return jsonError("No WhatsApp number on this booking");
+  const phoneRaw = booking.whatsappNo || booking.contact1;
+  if (!phoneRaw?.trim()) return { error: "No WhatsApp number on this booking" as const };
+  const phone = phoneRaw.trim();
 
   const qrToken = await ensureBookingQrToken(booking.id);
-  const origin = req.nextUrl.origin;
   const qrUrl = bookingQrScanUrl(qrToken, origin);
   const billUrl = `${origin}/booking/${booking.id}/print`;
 
@@ -34,7 +34,7 @@ export async function GET(req: NextRequest, { params }: { params: Promise<{ id: 
       ? [booking.dressName]
       : [];
 
-  const message = buildBookingConfirmationMessage({
+  const messageOpts = {
     customerName: booking.customerName,
     serialNo: booking.monthlySerial,
     deliveryDate: formatDate(booking.deliveryDate, "display"),
@@ -48,7 +48,74 @@ export async function GET(req: NextRequest, { params }: { params: Promise<{ id: 
     dressNames,
     qrUrl,
     billUrl,
+  };
+
+  return {
+    booking,
+    phone,
+    message: buildBookingConfirmationMessage(messageOpts),
+    templateParams: bookingConfirmationTemplateParams({ ...messageOpts, billUrl }),
+  };
+}
+
+export async function GET(req: NextRequest, { params }: { params: Promise<{ id: string }> }) {
+  const user = await requireUser();
+  if (isResponse(user)) return user;
+  const { id } = await params;
+  const bookingId = parseInt(id, 10);
+
+  const payload = await buildBookingWhatsAppPayload(bookingId, req.nextUrl.origin);
+  if (!payload) return jsonError("Booking not found", 404);
+  if ("error" in payload) return jsonError("No WhatsApp number on this booking");
+
+  const { phone, message, templateParams, booking } = payload;
+
+  return jsonOk({
+    message,
+    whatsappUrl: buildWhatsAppUrl(phone, message),
+  });
+}
+
+export async function POST(req: NextRequest, { params }: { params: Promise<{ id: string }> }) {
+  const user = await requireUser();
+  if (isResponse(user)) return user;
+  const { id } = await params;
+  const bookingId = parseInt(id, 10);
+
+  const payload = await buildBookingWhatsAppPayload(bookingId, req.nextUrl.origin);
+  if (!payload) return jsonError("Booking not found", 404);
+  if ("error" in payload) return jsonError("No WhatsApp number on this booking");
+
+  const { phone, message, templateParams, booking } = payload;
+
+  const result = await deliverWhatsApp({
+    phone,
+    userName: booking.customerName,
+    message,
+    campaignType: "booking",
+    templateParams,
+    source: `booking-${bookingId}`,
   });
 
-  return jsonOk({ whatsappUrl: buildWhatsAppUrl(phone, message), message });
+  if (result.delivered) {
+    return jsonOk({
+      ok: true,
+      delivered: true,
+      via: result.via,
+      messageId: result.messageId,
+      message: result.message,
+    });
+  }
+
+  if (result.error) {
+    return jsonError(result.error, 502);
+  }
+
+  return jsonOk({
+    ok: true,
+    delivered: false,
+    via: result.via,
+    whatsappUrl: result.whatsappUrl,
+    message: result.message,
+  });
 }

@@ -22,13 +22,22 @@ export default function ProspectLeadActions({ leadId, hasPhone }: { leadId: numb
         toast(data.error || "Failed to send reminder", "error");
         return;
       }
-      if (data.whatsappUrl) window.open(data.whatsappUrl, "_blank");
-      toast(
-        data.availability?.all_available
-          ? "All dresses available — WhatsApp opened"
-          : "Some dresses unavailable — WhatsApp opened",
-        "success",
-      );
+      if (data.delivered) {
+        toast(
+          data.availability?.all_available
+            ? "Reminder sent via AiSensy — all dresses available"
+            : "Reminder sent via AiSensy — some dresses unavailable",
+          "success",
+        );
+      } else if (data.whatsappUrl) {
+        window.open(data.whatsappUrl, "_blank");
+        toast(
+          data.availability?.all_available
+            ? "AiSensy not configured — WhatsApp opened manually"
+            : "Some dresses unavailable — WhatsApp opened manually",
+          "success",
+        );
+      }
       router.refresh();
     } finally {
       setBusy(null);
@@ -59,7 +68,7 @@ export default function ProspectLeadActions({ leadId, hasPhone }: { leadId: numb
         className="btn btn-sm btn-primary"
         disabled={!!busy || !hasPhone}
         onClick={sendReminder}
-        title={hasPhone ? "Check availability & open WhatsApp" : "No phone number"}
+        title={hasPhone ? "Send reminder via AiSensy (or open WhatsApp)" : "No phone number"}
       >
         {busy === "reminder" ? (
           <i className="fa-solid fa-spinner fa-spin" />

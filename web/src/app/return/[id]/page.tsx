@@ -36,6 +36,8 @@ export default async function ReturnDetailPage({ params }: { params: Promise<{ i
           deliveryDate: formatDate(booking.deliveryDate),
           returnDate: formatDate(booking.returnDate),
           deliveryNotes: booking.deliveryNotes,
+          idPhoto1: booking.idPhoto1,
+          idPhoto2: booking.idPhoto2,
         }}
         items={items}
         itemDelivery={itemDelivery}

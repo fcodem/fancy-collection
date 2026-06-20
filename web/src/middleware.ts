@@ -3,11 +3,21 @@ import type { NextRequest } from "next/server";
 
 const PUBLIC_PATHS = ["/login", "/login/pending", "/api/login", "/api/login-request/status", "/api/session/check"];
 
+const PWA_ASSET_PATHS = [
+  "/manifest.json",
+  "/sw.js",
+  "/~offline",
+  "/icon-192x192.png",
+  "/icon-512x512.png",
+];
+
 export async function middleware(request: NextRequest) {
   const { pathname } = request.nextUrl;
 
   if (
     PUBLIC_PATHS.some((p) => pathname === p || pathname.startsWith(p + "/")) ||
+    PWA_ASSET_PATHS.includes(pathname) ||
+    pathname.startsWith("/workbox-") ||
     pathname.startsWith("/_next") ||
     pathname.startsWith("/static") ||
     pathname.startsWith("/css") ||

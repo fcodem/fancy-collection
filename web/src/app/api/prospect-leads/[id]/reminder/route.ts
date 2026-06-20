@@ -4,7 +4,11 @@ import { jsonError, jsonOk, requireUser, isResponse } from "@/lib/api";
 import { formatDate } from "@/lib/constants";
 import { dressDisplayName } from "@/lib/dress";
 import { getAvailableItemsApi } from "@/lib/booking";
-import { buildProspectReminderMessage, buildWhatsAppUrl } from "@/lib/whatsapp";
+import {
+  buildProspectReminderMessage,
+  deliverWhatsApp,
+  prospectReminderTemplateParams,
+} from "@/lib/whatsapp";
 
 export async function POST(_req: NextRequest, ctx: { params: Promise<{ id: string }> }) {
   const user = await requireUser();
@@ -39,7 +43,7 @@ export async function POST(_req: NextRequest, ctx: { params: Promise<{ id: strin
     pi.item ? dressDisplayName(pi.item.name, pi.item.category, pi.item.size) : `Item #${pi.itemId}`,
   );
 
-  const message = buildProspectReminderMessage({
+  const messageOpts = {
     customerName: lead.customerName,
     deliveryDate: formatDate(lead.deliveryDate, "display"),
     deliveryTime: lead.deliveryTime || undefined,
@@ -49,6 +53,16 @@ export async function POST(_req: NextRequest, ctx: { params: Promise<{ id: strin
     dressNames,
     allAvailable,
     unavailableNames,
+  };
+
+  const message = buildProspectReminderMessage(messageOpts);
+  const result = await deliverWhatsApp({
+    phone,
+    userName: lead.customerName,
+    message,
+    campaignType: "prospect",
+    templateParams: prospectReminderTemplateParams(messageOpts),
+    source: `prospect-${id}`,
   });
 
   await prisma.prospectLead.update({
@@ -56,8 +70,28 @@ export async function POST(_req: NextRequest, ctx: { params: Promise<{ id: strin
     data: { lastReminderAt: new Date() },
   });
 
+  if (result.delivered) {
+    return jsonOk({
+      delivered: true,
+      via: result.via,
+      messageId: result.messageId,
+      availability: {
+        all_available: allAvailable,
+        available_count: selectedIds.filter((sid) => freeIds.has(sid)).length,
+        total_count: selectedIds.length,
+        unavailable_items: unavailableNames,
+      },
+    });
+  }
+
+  if (result.error) {
+    return jsonError(result.error, 502);
+  }
+
   return jsonOk({
-    whatsappUrl: buildWhatsAppUrl(phone, message),
+    delivered: false,
+    via: result.via,
+    whatsappUrl: result.whatsappUrl,
     availability: {
       all_available: allAvailable,
       available_count: selectedIds.filter((sid) => freeIds.has(sid)).length,

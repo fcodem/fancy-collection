@@ -1,8 +1,11 @@
 import { NextRequest } from "next/server";
 import prisma from "@/lib/prisma";
 import { requireOwner, isResponse, jsonOk, jsonError } from "@/lib/api";
+import { establishUserLogin } from "@/lib/auth";
+import type { Prisma } from "@prisma/client";
 
 export const dynamic = "force-dynamic";
+export const maxDuration = 120;
 
 function d(v: string | null | undefined): Date | null {
   if (!v) return null;
@@ -12,6 +15,23 @@ function d(v: string | null | undefined): Date | null {
 
 function dReq(v: string | null | undefined): Date {
   return d(v) ?? new Date();
+}
+
+function boolInt(v: unknown, defaultVal = true): number {
+  const b = v === undefined || v === null ? defaultVal : Boolean(v);
+  return b ? 1 : 0;
+}
+
+type Tx = Omit<
+  Prisma.TransactionClient,
+  "$connect" | "$disconnect" | "$on" | "$transaction" | "$use" | "$extends"
+>;
+
+async function resetSqliteSequence(tx: Tx, table: string) {
+  await tx.$executeRawUnsafe(
+    `INSERT OR REPLACE INTO sqlite_sequence (name, seq) VALUES (?, COALESCE((SELECT MAX(id) FROM "${table}"), 0))`,
+    table,
+  );
 }
 
 interface BackupData {
@@ -37,6 +57,9 @@ export async function POST(req: NextRequest) {
   const user = await requireOwner();
   if (isResponse(user)) return user;
 
+  const ownerRecord = await prisma.user.findUnique({ where: { id: user.id } });
+  if (!ownerRecord) return jsonError("Owner account not found.", 403);
+
   let backup: BackupData;
   try {
     backup = await req.json();
@@ -53,7 +76,6 @@ export async function POST(req: NextRequest) {
 
   try {
     await prisma.$transaction(async (tx) => {
-      // ── Phase 1: Delete in FK-safe order (children first) ──
       log.push("Clearing existing data...");
 
       await tx.$executeRawUnsafe(`DELETE FROM "activity_logs"`);
@@ -79,14 +101,11 @@ export async function POST(req: NextRequest) {
 
       log.push("Existing data cleared.");
 
-      // ── Phase 2: Insert in FK-safe order (parents first) ──
-
-      // Custom Categories
       if (backup.custom_categories?.length) {
         for (const c of backup.custom_categories) {
           await tx.$executeRawUnsafe(
             `INSERT INTO "custom_categories" ("id","name","group","active","created_at") VALUES (?,?,?,?,?)`,
-            c.id, c.name, c.group ?? "other", c.active ?? true ? 1 : 0,
+            c.id, c.name, c.group ?? "other", boolInt(c.active),
             dReq(c.createdAt as string).toISOString(),
           );
         }
@@ -94,12 +113,11 @@ export async function POST(req: NextRequest) {
         log.push(`Restored ${backup.custom_categories.length} custom categories`);
       }
 
-      // Staff
       if (backup.staff?.length) {
         for (const s of backup.staff) {
           await tx.$executeRawUnsafe(
             `INSERT INTO "staff" ("id","name","phone","active","created_at") VALUES (?,?,?,?,?)`,
-            s.id, s.name, s.phone ?? null, s.active ?? true ? 1 : 0,
+            s.id, s.name, s.phone ?? null, boolInt(s.active),
             dReq(s.createdAt as string).toISOString(),
           );
         }
@@ -107,14 +125,14 @@ export async function POST(req: NextRequest) {
         log.push(`Restored ${backup.staff.length} staff members`);
       }
 
-      // Users (includes passwordHash for full restore)
       if (backup.users?.length) {
         for (const u of backup.users) {
+          const hash = String(u.passwordHash ?? u.password_hash ?? "");
           await tx.$executeRawUnsafe(
             `INSERT INTO "users" ("id","username","password_hash","role","staff_id","active","created_at") VALUES (?,?,?,?,?,?,?)`,
-            u.id, u.username, u.passwordHash ?? u.password_hash ?? "",
+            u.id, u.username, hash,
             u.role ?? "staff", u.staffId ?? u.staff_id ?? null,
-            u.active ?? true ? 1 : 0,
+            boolInt(u.active),
             dReq(u.createdAt as string).toISOString(),
           );
         }
@@ -122,7 +140,6 @@ export async function POST(req: NextRequest) {
         log.push(`Restored ${backup.users.length} users`);
       }
 
-      // Customers
       if (backup.customers?.length) {
         for (const c of backup.customers) {
           await tx.$executeRawUnsafe(
@@ -136,7 +153,6 @@ export async function POST(req: NextRequest) {
         log.push(`Restored ${backup.customers.length} customers`);
       }
 
-      // Clothing Items (Inventory)
       if (backup.inventory?.length) {
         for (const i of backup.inventory) {
           await tx.$executeRawUnsafe(
@@ -153,7 +169,6 @@ export async function POST(req: NextRequest) {
         log.push(`Restored ${backup.inventory.length} inventory items`);
       }
 
-      // Suppliers
       if (backup.suppliers?.length) {
         for (const s of backup.suppliers) {
           await tx.$executeRawUnsafe(
@@ -168,7 +183,6 @@ export async function POST(req: NextRequest) {
         log.push(`Restored ${backup.suppliers.length} suppliers`);
       }
 
-      // Supplier Purchases
       if (backup.supplier_purchases?.length) {
         for (const p of backup.supplier_purchases) {
           await tx.$executeRawUnsafe(
@@ -186,7 +200,6 @@ export async function POST(req: NextRequest) {
         log.push(`Restored ${backup.supplier_purchases.length} supplier purchases`);
       }
 
-      // Staff Attendance
       if (backup.attendance?.length) {
         for (const a of backup.attendance) {
           await tx.$executeRawUnsafe(
@@ -200,12 +213,11 @@ export async function POST(req: NextRequest) {
         log.push(`Restored ${backup.attendance.length} attendance records`);
       }
 
-      // Bookings + BookingItems
       if (backup.bookings?.length) {
         let itemCount = 0;
         for (const b of backup.bookings) {
           await tx.$executeRawUnsafe(
-            `INSERT INTO "bookings" ("id","booking_number","monthly_serial","customer_name","customer_address","contact_1","whatsapp_no","delivery_date","delivery_time","return_date","return_time","venue","security_deposit","total_price","total_advance","total_remaining","common_notes","staff_names","status","created_at","delivery_notes","remaining_collected","security_collected","delivered_at","returned_at","incomplete_notes","incomplete_photo","security_held","item_id","dress_name","price","advance","remaining","notes","contact_2","qr_token","refund_amount","refunded_at") VALUES (?,?,?,?,?,?,?,?,?,?,?,?,?,?,?,?,?,?,?,?,?,?,?,?,?,?,?,?,?,?,?,?,?,?,?,?,?,?)`,
+            `INSERT INTO "bookings" ("id","booking_number","monthly_serial","customer_name","customer_address","contact_1","whatsapp_no","delivery_date","delivery_time","return_date","return_time","venue","security_deposit","total_price","total_advance","total_remaining","common_notes","staff_names","status","created_at","delivery_notes","remaining_collected","security_collected","delivered_at","returned_at","incomplete_notes","incomplete_photo","id_photo_1","id_photo_2","security_held","item_id","dress_name","price","advance","remaining","notes","contact_2","qr_token","refund_amount","refunded_at") VALUES (?,?,?,?,?,?,?,?,?,?,?,?,?,?,?,?,?,?,?,?,?,?,?,?,?,?,?,?,?,?,?,?,?,?,?,?,?,?,?,?)`,
             b.id,
             b.bookingNumber ?? b.booking_number,
             b.monthlySerial ?? b.monthly_serial ?? 0,
@@ -213,9 +225,9 @@ export async function POST(req: NextRequest) {
             b.customerAddress ?? b.customer_address ?? "",
             b.contact1 ?? b.contact_1 ?? "",
             b.whatsappNo ?? b.whatsapp_no ?? null,
-            dReq(b.deliveryDate as string ?? b.delivery_date as string).toISOString(),
+            dReq((b.deliveryDate ?? b.delivery_date) as string).toISOString(),
             b.deliveryTime ?? b.delivery_time ?? "",
-            dReq(b.returnDate as string ?? b.return_date as string).toISOString(),
+            dReq((b.returnDate ?? b.return_date) as string).toISOString(),
             b.returnTime ?? b.return_time ?? "",
             b.venue ?? null,
             b.securityDeposit ?? b.security_deposit ?? 0,
@@ -225,14 +237,16 @@ export async function POST(req: NextRequest) {
             b.commonNotes ?? b.common_notes ?? null,
             b.staffNames ?? b.staff_names ?? null,
             b.status ?? "booked",
-            dReq(b.createdAt as string ?? b.created_at as string).toISOString(),
+            dReq((b.createdAt ?? b.created_at) as string).toISOString(),
             b.deliveryNotes ?? b.delivery_notes ?? null,
             b.remainingCollected ?? b.remaining_collected ?? 0,
             b.securityCollected ?? b.security_collected ?? 0,
-            d(b.deliveredAt as string ?? b.delivered_at as string)?.toISOString() ?? null,
-            d(b.returnedAt as string ?? b.returned_at as string)?.toISOString() ?? null,
+            d((b.deliveredAt ?? b.delivered_at) as string)?.toISOString() ?? null,
+            d((b.returnedAt ?? b.returned_at) as string)?.toISOString() ?? null,
             b.incompleteNotes ?? b.incomplete_notes ?? null,
             b.incompletePhoto ?? b.incomplete_photo ?? null,
+            b.idPhoto1 ?? b.id_photo_1 ?? null,
+            b.idPhoto2 ?? b.id_photo_2 ?? null,
             b.securityHeld ?? b.security_held ?? 0,
             b.itemId ?? b.item_id ?? null,
             b.dressName ?? b.dress_name ?? null,
@@ -243,13 +257,10 @@ export async function POST(req: NextRequest) {
             b.contact2 ?? b.contact_2 ?? null,
             b.qrToken ?? b.qr_token ?? null,
             b.refundAmount ?? b.refund_amount ?? 0,
-            d(b.refundedAt as string ?? b.refunded_at as string)?.toISOString() ?? null,
+            d((b.refundedAt ?? b.refunded_at) as string)?.toISOString() ?? null,
           );
 
-          const items = b.bookingItems as Array<Record<string, unknown>> | undefined
-            ?? b.booking_items as Array<Record<string, unknown>> | undefined
-            ?? [];
-
+          const items = (b.bookingItems ?? b.booking_items ?? []) as Array<Record<string, unknown>>;
           for (const bi of items) {
             await tx.$executeRawUnsafe(
               `INSERT INTO "booking_items" ("id","booking_id","item_id","dress_name","category","price","advance","remaining","size","notes","prepared_by","checked_by","is_packed_ready","packing_note","is_delivered","delivered_at","item_remaining_collected","item_security_collected","item_delivery_notes","is_returned") VALUES (?,?,?,?,?,?,?,?,?,?,?,?,?,?,?,?,?,?,?,?)`,
@@ -265,14 +276,14 @@ export async function POST(req: NextRequest) {
               bi.notes ?? null,
               bi.preparedBy ?? bi.prepared_by ?? null,
               bi.checkedBy ?? bi.checked_by ?? null,
-              bi.isPackedReady ?? bi.is_packed_ready ?? false ? 1 : 0,
+              boolInt(bi.isPackedReady ?? bi.is_packed_ready, false),
               bi.packingNote ?? bi.packing_note ?? null,
-              bi.isDelivered ?? bi.is_delivered ?? false ? 1 : 0,
-              d(bi.deliveredAt as string ?? bi.delivered_at as string)?.toISOString() ?? null,
+              boolInt(bi.isDelivered ?? bi.is_delivered, false),
+              d((bi.deliveredAt ?? bi.delivered_at) as string)?.toISOString() ?? null,
               bi.itemRemainingCollected ?? bi.item_remaining_collected ?? 0,
               bi.itemSecurityCollected ?? bi.item_security_collected ?? 0,
               bi.itemDeliveryNotes ?? bi.item_delivery_notes ?? null,
-              bi.isReturned ?? bi.is_returned ?? false ? 1 : 0,
+              boolInt(bi.isReturned ?? bi.is_returned, false),
             );
             itemCount++;
           }
@@ -282,7 +293,6 @@ export async function POST(req: NextRequest) {
         log.push(`Restored ${backup.bookings.length} bookings with ${itemCount} items`);
       }
 
-      // Prospect Leads + items
       if (backup.prospect_leads?.length) {
         let plItemCount = 0;
         for (const pl of backup.prospect_leads) {
@@ -296,15 +306,15 @@ export async function POST(req: NextRequest) {
             pl.venue ?? null,
             pl.notes ?? null,
             pl.staffNames ?? pl.staff_names ?? null,
-            dReq(pl.deliveryDate as string ?? pl.delivery_date as string).toISOString(),
+            dReq((pl.deliveryDate ?? pl.delivery_date) as string).toISOString(),
             pl.deliveryTime ?? pl.delivery_time ?? null,
-            dReq(pl.returnDate as string ?? pl.return_date as string).toISOString(),
+            dReq((pl.returnDate ?? pl.return_date) as string).toISOString(),
             pl.returnTime ?? pl.return_time ?? null,
-            d(pl.lastReminderAt as string ?? pl.last_reminder_at as string)?.toISOString() ?? null,
-            dReq(pl.createdAt as string ?? pl.created_at as string).toISOString(),
+            d((pl.lastReminderAt ?? pl.last_reminder_at) as string)?.toISOString() ?? null,
+            dReq((pl.createdAt ?? pl.created_at) as string).toISOString(),
           );
 
-          const plItems = pl.items as Array<Record<string, unknown>> | undefined ?? [];
+          const plItems = (pl.items ?? []) as Array<Record<string, unknown>>;
           for (const pli of plItems) {
             await tx.$executeRawUnsafe(
               `INSERT INTO "prospect_lead_items" ("id","prospect_lead_id","item_id","rent") VALUES (?,?,?,?)`,
@@ -319,7 +329,6 @@ export async function POST(req: NextRequest) {
         log.push(`Restored ${backup.prospect_leads.length} prospect leads with ${plItemCount} items`);
       }
 
-      // Shop Enquiries
       if (backup.shop_enquiries?.length) {
         for (const e of backup.shop_enquiries) {
           await tx.$executeRawUnsafe(
@@ -331,37 +340,62 @@ export async function POST(req: NextRequest) {
             e.whatsappNo ?? e.whatsapp_no ?? null,
             e.enquiryNotes ?? e.enquiry_notes ?? null,
             e.staffNames ?? e.staff_names ?? null,
-            dReq(e.visitDate as string ?? e.visit_date as string).toISOString(),
-            dReq(e.createdAt as string ?? e.created_at as string).toISOString(),
+            dReq((e.visitDate ?? e.visit_date) as string).toISOString(),
+            dReq((e.createdAt ?? e.created_at) as string).toISOString(),
           );
         }
         counts.shop_enquiries = backup.shop_enquiries.length;
         log.push(`Restored ${backup.shop_enquiries.length} shop enquiries`);
       }
 
-      // Reset SQLite autoincrement sequences so new rows get correct IDs
-      const tables = [
+      const seqTables = [
         "custom_categories", "staff", "users", "customers", "clothing_items",
         "suppliers", "supplier_purchases", "staff_attendance", "bookings",
         "booking_items", "prospect_leads", "prospect_lead_items", "shop_enquiries",
+        "activity_logs",
       ];
-      for (const t of tables) {
-        await tx.$executeRawUnsafe(
-          `UPDATE sqlite_sequence SET seq = (SELECT MAX(id) FROM "${t}") WHERE name = ?`,
-          t,
-        );
+      for (const t of seqTables) {
+        await resetSqliteSequence(tx, t);
       }
-
       log.push("Autoincrement sequences reset.");
-    }, {
-      timeout: 120_000,
-    });
+    }, { timeout: 120_000 });
+
+    // Ensure the restoring owner can still log in (preserve password if backup lacked it)
+    let loginUser = await prisma.user.findUnique({ where: { username: ownerRecord.username } });
+    if (!loginUser) {
+      loginUser = await prisma.user.create({
+        data: {
+          username: ownerRecord.username,
+          passwordHash: ownerRecord.passwordHash,
+          role: "owner",
+          active: true,
+        },
+      });
+      log.push(`Re-created owner account "${ownerRecord.username}" (was missing from backup).`);
+    } else if (!loginUser.passwordHash) {
+      await prisma.user.update({
+        where: { id: loginUser.id },
+        data: { passwordHash: ownerRecord.passwordHash, role: "owner", active: true },
+      });
+      loginUser = await prisma.user.findUnique({ where: { id: loginUser.id } });
+      log.push(`Restored password for owner "${ownerRecord.username}".`);
+    }
+
+    if (loginUser) {
+      await establishUserLogin(loginUser.id);
+      log.push(`Session re-established for "${loginUser.username}".`);
+    }
+
+    const totalRestored = Object.values(counts).reduce((s, n) => s + n, 0);
 
     return jsonOk({
       success: true,
-      message: "Database restored successfully.",
+      message: totalRestored > 0
+        ? "Database restored successfully. You remain logged in."
+        : "Restore completed but backup file contained no data records. You remain logged in.",
       counts,
       log,
+      sessionRestored: !!loginUser,
       restored_by: user.username,
       restored_at: new Date().toISOString(),
     });

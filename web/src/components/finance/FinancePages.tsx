@@ -307,3 +307,159 @@ export function FinanceCategoryAnalysis({ monthStartIso, todayIso }: { monthStar
     </div>
   );
 }
+
+export function FinanceInventoryProfitability() {
+  const [data, setData] = useState<{
+    items: Array<{
+      rank: number;
+      itemId: number;
+      sku: string;
+      name: string;
+      category: string;
+      size: string | null;
+      photo: string | null;
+      status: string;
+      bookingCount: number;
+      lifetimeRevenue: number;
+    }>;
+    totals: {
+      itemCount: number;
+      itemsWithRevenue: number;
+      totalRevenue: number;
+      totalBookings: number;
+    };
+  } | null>(null);
+  const [loading, setLoading] = useState(true);
+  const [query, setQuery] = useState("");
+
+  useEffect(() => {
+    setLoading(true);
+    fetch("/api/finance/inventory-profitability", { credentials: "same-origin" })
+      .then((r) => r.json())
+      .then(setData)
+      .finally(() => setLoading(false));
+  }, []);
+
+  const filtered = (data?.items || []).filter((row) => {
+    if (!query.trim()) return true;
+    const q = query.toLowerCase();
+    return (
+      row.name.toLowerCase().includes(q) ||
+      row.sku.toLowerCase().includes(q) ||
+      row.category.toLowerCase().includes(q)
+    );
+  });
+
+  const top10 = (data?.items || []).slice(0, 10);
+
+  return (
+    <div className="card">
+      <div className="card-header">
+        <h3 className="card-title">
+          <i className="fa-solid fa-chart-column" style={{ marginRight: 8 }} />
+          Inventory Profitability
+        </h3>
+      </div>
+      <div className="card-body">
+        <p style={{ margin: "0 0 20px", color: "var(--text-muted)", fontSize: 14 }}>
+          Lifetime revenue per dress from completed bookings (returned), ranked highest to lowest.
+        </p>
+
+        {data && (
+          <div className="stats-grid" style={{ marginBottom: 24 }}>
+            <div className="stat-card primary" style={{ padding: 20 }}>
+              <div className="stat-value">₹{formatInr(data.totals.totalRevenue)}</div>
+              <div className="stat-label">Total Lifetime Revenue</div>
+            </div>
+            <div className="stat-card success" style={{ padding: 20 }}>
+              <div className="stat-value">{data.totals.itemsWithRevenue}</div>
+              <div className="stat-label">Items With Revenue</div>
+            </div>
+            <div className="stat-card info" style={{ padding: 20 }}>
+              <div className="stat-value">{data.totals.totalBookings}</div>
+              <div className="stat-label">Completed Rentals</div>
+            </div>
+            <div className="stat-card" style={{ padding: 20 }}>
+              <div className="stat-value">{data.totals.itemCount}</div>
+              <div className="stat-label">Inventory Items</div>
+            </div>
+          </div>
+        )}
+
+        {top10.length > 0 && (
+          <div style={{ marginBottom: 28 }}>
+            <FinanceChart
+              type="bar"
+              labels={top10.map((r) => r.name)}
+              values={top10.map((r) => r.lifetimeRevenue)}
+              title="Top 10 Earners (Lifetime)"
+              height={320}
+              horizontal
+            />
+          </div>
+        )}
+
+        <div style={{ marginBottom: 16, maxWidth: 360 }}>
+          <input
+            type="search"
+            className="form-control"
+            placeholder="Search name, SKU, or category…"
+            value={query}
+            onChange={(e) => setQuery(e.target.value)}
+          />
+        </div>
+
+        {loading ? (
+          <p style={{ color: "var(--text-muted)" }}>Loading profitability data…</p>
+        ) : (
+          <div style={{ overflowX: "auto" }}>
+            <table className="data-table">
+              <thead>
+                <tr>
+                  <th>Rank</th>
+                  <th>Item</th>
+                  <th>SKU</th>
+                  <th>Category</th>
+                  <th>Size</th>
+                  <th>Completed Rentals</th>
+                  <th>Lifetime Revenue</th>
+                </tr>
+              </thead>
+              <tbody>
+                {filtered.map((row) => (
+                  <tr key={row.itemId}>
+                    <td>
+                      <strong>#{row.rank}</strong>
+                    </td>
+                    <td>
+                      <strong>{row.name}</strong>
+                      {row.status !== "available" && (
+                        <span className="badge badge-warning" style={{ marginLeft: 8, fontSize: 10 }}>
+                          {row.status}
+                        </span>
+                      )}
+                    </td>
+                    <td>{row.sku}</td>
+                    <td>{row.category}</td>
+                    <td>{row.size || "—"}</td>
+                    <td>{row.bookingCount}</td>
+                    <td>
+                      <strong>₹{formatInr(row.lifetimeRevenue)}</strong>
+                    </td>
+                  </tr>
+                ))}
+                {!filtered.length && (
+                  <tr>
+                    <td colSpan={7} style={{ textAlign: "center", color: "var(--text-muted)" }}>
+                      No items match your search.
+                    </td>
+                  </tr>
+                )}
+              </tbody>
+            </table>
+          </div>
+        )}
+      </div>
+    </div>
+  );
+}

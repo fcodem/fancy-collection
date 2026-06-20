@@ -103,6 +103,8 @@ export default async function DeliveryDetailPage({ params }: { params: Promise<{
         items={items}
         nextBookings={next_bookings}
         isDelivered={isDelivered}
+        idPhoto1={booking.idPhoto1}
+        idPhoto2={booking.idPhoto2}
       />
       {editForm}
     </ServerAppShell>

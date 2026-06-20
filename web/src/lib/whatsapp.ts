@@ -1,7 +1,65 @@
+import { aisensyCampaign, isAisensyConfigured, sendAisensyCampaign } from "@/lib/aisensy";
+import { digitsOnly } from "@/lib/phone";
+
 export function buildWhatsAppUrl(phone: string, message: string): string {
-  let clean = (phone || "").replace(/\D/g, "");
+  let clean = digitsOnly(phone);
   if (clean.length === 10) clean = "91" + clean;
   return `https://wa.me/${clean}?text=${encodeURIComponent(message)}`;
+}
+
+export type WhatsAppDeliveryResult = {
+  delivered: boolean;
+  via: "aisensy" | "manual";
+  whatsappUrl?: string;
+  message: string;
+  error?: string;
+  messageId?: string;
+};
+
+export async function deliverWhatsApp(opts: {
+  phone: string;
+  userName: string;
+  message: string;
+  campaignType: "booking" | "prospect" | "return";
+  templateParams?: string[];
+  source?: string;
+}): Promise<WhatsAppDeliveryResult> {
+  const whatsappUrl = buildWhatsAppUrl(opts.phone, opts.message);
+  const campaignName = aisensyCampaign(opts.campaignType);
+
+  if (isAisensyConfigured() && campaignName) {
+    const sent = await sendAisensyCampaign({
+      campaignName,
+      phone: opts.phone,
+      userName: opts.userName,
+      templateParams: opts.templateParams ?? [opts.message],
+      source: opts.source,
+    });
+
+    if (sent.ok) {
+      return {
+        delivered: true,
+        via: "aisensy",
+        message: opts.message,
+        messageId: sent.messageId,
+      };
+    }
+
+    return {
+      delivered: false,
+      via: "manual",
+      whatsappUrl,
+      message: opts.message,
+      error: sent.error,
+    };
+  }
+
+  return {
+    delivered: false,
+    via: "manual",
+    whatsappUrl,
+    message: opts.message,
+  };
 }
 
 export function buildBookingConfirmationMessage(opts: {
@@ -51,6 +109,36 @@ export function buildBookingConfirmationMessage(opts: {
   return msg;
 }
 
+/** Template params for AiSensy booking confirmation campaign ({{1}}..{{10}}). */
+export function bookingConfirmationTemplateParams(opts: {
+  customerName: string;
+  serialNo: number;
+  deliveryDate: string;
+  deliveryTime?: string;
+  returnDate: string;
+  returnTime?: string;
+  venue?: string;
+  totalRent: number;
+  advancePaid: number;
+  remaining: number;
+  dressNames: string[];
+  billUrl?: string;
+}): string[] {
+  const serial = String(opts.serialNo).padStart(2, "0");
+  return [
+    opts.customerName,
+    serial,
+    `${opts.deliveryDate}${opts.deliveryTime ? ` (${opts.deliveryTime})` : ""}`,
+    `${opts.returnDate}${opts.returnTime ? ` (${opts.returnTime})` : ""}`,
+    opts.dressNames.join(", "),
+    opts.totalRent.toLocaleString("en-IN"),
+    opts.advancePaid.toLocaleString("en-IN"),
+    opts.remaining.toLocaleString("en-IN"),
+    opts.venue || "-",
+    opts.billUrl || "-",
+  ];
+}
+
 export function buildProspectReminderMessage(opts: {
   customerName: string;
   deliveryDate: string;
@@ -87,4 +175,52 @@ export function buildProspectReminderMessage(opts: {
 
   msg += `✨ *Fancy Collection* – Premium Rental Service`;
   return msg;
+}
+
+/** Template params for AiSensy prospect reminder campaign ({{1}}..{{6}}). */
+export function prospectReminderTemplateParams(opts: {
+  customerName: string;
+  deliveryDate: string;
+  returnDate: string;
+  dressNames: string[];
+  allAvailable: boolean;
+  unavailableNames: string[];
+}): string[] {
+  return [
+    opts.customerName,
+    opts.dressNames.join(", "),
+    opts.deliveryDate,
+    opts.returnDate,
+    opts.allAvailable ? "All dresses available" : "Some dresses unavailable",
+    opts.unavailableNames.join(", ") || "-",
+  ];
+}
+
+export function buildReturnReminderMessage(opts: {
+  customerName: string;
+  serialNo: number;
+  returnDate: string;
+  returnTime: string;
+}): string {
+  const serial = String(opts.serialNo).padStart(2, "0");
+  return (
+    `Hi ${opts.customerName}! Fancy Collection reminder: your rental (Booking #${serial}) is due for return today, ` +
+    `${opts.returnDate}${opts.returnTime ? ` by ${opts.returnTime}` : ""}. ` +
+    `Please return on time. Thank you! - Fancy Collection`
+  );
+}
+
+/** Template params for AiSensy return reminder campaign ({{1}}..{{4}}). */
+export function returnReminderTemplateParams(opts: {
+  customerName: string;
+  serialNo: number;
+  returnDate: string;
+  returnTime: string;
+}): string[] {
+  return [
+    opts.customerName,
+    String(opts.serialNo).padStart(2, "0"),
+    opts.returnDate,
+    opts.returnTime || "-",
+  ];
 }

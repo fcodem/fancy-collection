@@ -6,6 +6,11 @@ import { bookingUsesItem, checkItemAvailabilityForDates, getAvailableItemsApi } 
 import { parseDate, formatDate } from "../constants";
 import { broadcastShopEvent } from "../realtime/broadcast";
 import { logActivity, snapshotBooking } from "../activityLog";
+import { deleteUploads, saveUpload } from "../upload";
+
+async function clearBookingIdPhotos(booking: { idPhoto1?: string | null; idPhoto2?: string | null }) {
+  await deleteUploads([booking.idPhoto1, booking.idPhoto2]);
+}
 
 function warnFromBooking(b: {
   customerName: string;
@@ -555,6 +560,44 @@ export async function saveDelivery(
   return result;
 }
 
+export async function saveDeliveryIdPhotos(
+  bookingId: number,
+  data: { id_photo_1?: File | null; id_photo_2?: File | null },
+  by?: string,
+) {
+  const booking = await prisma.booking.findUnique({ where: { id: bookingId } });
+  if (!booking) throw new Error("Booking not found");
+
+  let idPhoto1 = booking.idPhoto1;
+  let idPhoto2 = booking.idPhoto2;
+
+  if (data.id_photo_1 instanceof File && data.id_photo_1.size > 0) {
+    if (idPhoto1) await deleteUploads([idPhoto1]);
+    idPhoto1 = await saveUpload(data.id_photo_1);
+  }
+  if (data.id_photo_2 instanceof File && data.id_photo_2.size > 0) {
+    if (idPhoto2) await deleteUploads([idPhoto2]);
+    idPhoto2 = await saveUpload(data.id_photo_2);
+  }
+
+  const result = await prisma.booking.update({
+    where: { id: bookingId },
+    data: { idPhoto1, idPhoto2 },
+  });
+
+  logActivity({
+    username: by || "system",
+    action: "updated",
+    entity: "booking",
+    entityId: bookingId,
+    label: `ID photos — Booking #${String(booking.monthlySerial).padStart(2, "0")} — ${booking.customerName}`,
+    before: { idPhoto1: booking.idPhoto1, idPhoto2: booking.idPhoto2 },
+    after: { idPhoto1: result.idPhoto1, idPhoto2: result.idPhoto2 },
+  });
+
+  return result;
+}
+
 export async function saveReturn(
   bookingId: number,
   action: string,
@@ -568,10 +611,16 @@ export async function saveReturn(
   if (!booking) throw new Error("Booking not found");
 
   if (action === "mark_returned") {
+    await clearBookingIdPhotos(booking);
     await prisma.$transaction(async (tx) => {
       await tx.booking.update({
         where: { id: bookingId },
-        data: { status: "returned", returnedAt: new Date() },
+        data: {
+          status: "returned",
+          returnedAt: new Date(),
+          idPhoto1: null,
+          idPhoto2: null,
+        },
       });
       for (const bi of booking.bookingItems) {
         if (bi.isDelivered) {
@@ -581,6 +630,7 @@ export async function saveReturn(
       }
     });
   } else if (action === "incomplete_return") {
+    await clearBookingIdPhotos(booking);
     await prisma.$transaction(async (tx) => {
       await tx.booking.update({
         where: { id: bookingId },
@@ -590,6 +640,8 @@ export async function saveReturn(
           incompletePhoto: data.incomplete_photo || null,
           securityHeld: data.security_held || 0,
           returnedAt: new Date(),
+          idPhoto1: null,
+          idPhoto2: null,
         },
       });
       for (const bi of booking.bookingItems) {

@@ -1,6 +1,6 @@
 import { redirect, notFound } from "next/navigation";
 import prisma from "@/lib/prisma";
-import { getCurrentUser } from "@/lib/auth";
+import { getCurrentUser, isOwner } from "@/lib/auth";
 import ServerAppShell from "@/components/ServerAppShell";
 import BookingViewClient from "@/components/BookingViewClient";
 import BookingQrDisplay from "@/components/BookingQrDisplay";
@@ -24,6 +24,7 @@ export default async function BookingViewPage({ params }: { params: Promise<{ id
   return (
     <ServerAppShell>
       <BookingViewClient
+        isOwner={isOwner(user)}
         booking={{
           ...booking,
           deliveryDate: formatDate(booking.deliveryDate),
@@ -32,6 +33,7 @@ export default async function BookingViewPage({ params }: { params: Promise<{ id
         qrSlot={
           <BookingQrDisplay bookingId={booking.id} qrToken={booking.qrToken} />
         }
-      />    </ServerAppShell>
+      />
+    </ServerAppShell>
   );
 }

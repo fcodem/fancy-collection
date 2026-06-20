@@ -8,6 +8,12 @@ import {
   verifyPassword,
 } from "@/lib/auth";
 import { jsonError, jsonOk } from "@/lib/api";
+import {
+  checkLoginBlocked,
+  getClientIpFromRequest,
+  loginBlockedMessage,
+  recordLoginAttempt,
+} from "@/lib/loginRateLimit";
 
 async function parseCredentials(req: NextRequest) {
   const contentType = req.headers.get("content-type") || "";
@@ -35,6 +41,16 @@ function wantsHtmlRedirect(req: NextRequest) {
 
 export async function POST(req: NextRequest) {
   try {
+    const ip = getClientIpFromRequest(req);
+    const blocked = await checkLoginBlocked(ip);
+    if (blocked.blocked) {
+      const msg = loginBlockedMessage(blocked.retryAfterMinutes ?? 60);
+      if (wantsHtmlRedirect(req)) {
+        return NextResponse.redirect(new URL(`/login?error=${encodeURIComponent("blocked")}`, req.url));
+      }
+      return jsonError(msg, 429);
+    }
+
     const { username, password } = await parseCredentials(req);
     const htmlRedirect = wantsHtmlRedirect(req);
 
@@ -47,18 +63,21 @@ export async function POST(req: NextRequest) {
 
     const user = await prisma.user.findUnique({ where: { username } });
     if (!user || !user.active) {
+      await recordLoginAttempt(ip, false, username);
       if (htmlRedirect) {
         return NextResponse.redirect(new URL("/login?error=invalid", req.url));
       }
       return jsonError("Invalid username or password.");
     }
     if (!(await verifyPassword(password, user.passwordHash))) {
+      await recordLoginAttempt(ip, false, username);
       if (htmlRedirect) {
         return NextResponse.redirect(new URL("/login?error=invalid", req.url));
       }
       return jsonError("Invalid username or password.");
     }
 
+    await recordLoginAttempt(ip, true, username);
     after(() => upgradePasswordHashIfNeeded(user.id, password, user.passwordHash));
 
     if (user.role === "owner") {

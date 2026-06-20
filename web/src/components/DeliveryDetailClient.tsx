@@ -1,7 +1,7 @@
 "use client";
 
 import { useRouter } from "next/navigation";
-import { useState } from "react";
+import { useEffect, useState } from "react";
 import { BookingRecordDetails } from "@/components/BookingRecordDetails";
 import type { BookingForStandardDetails } from "@/lib/bookingDetails";
 import { formatInr } from "@/lib/format";
@@ -46,11 +46,15 @@ export default function DeliveryDetailClient({
   items,
   nextBookings,
   isDelivered = false,
+  idPhoto1 = null,
+  idPhoto2 = null,
 }: {
   booking: BookingData;
   items: ItemRow[];
   nextBookings: Array<{ dress: string; next_customer: string; next_serial: number; next_time: string; next_venue: string }>;
   isDelivered?: boolean;
+  idPhoto1?: string | null;
+  idPhoto2?: string | null;
 }) {
   const router = useRouter();
   const [itemForms, setItemForms] = useState<Record<number, ItemFormState>>(() => {
@@ -67,6 +71,19 @@ export default function DeliveryDetailClient({
   const [saving, setSaving] = useState(false);
   const [error, setError] = useState("");
   const [editingDelivered, setEditingDelivered] = useState<Record<number, boolean>>({});
+  const [idPhoto1File, setIdPhoto1File] = useState<File | null>(null);
+  const [idPhoto2File, setIdPhoto2File] = useState<File | null>(null);
+  const [idPhoto1Preview, setIdPhoto1Preview] = useState<string | null>(null);
+  const [idPhoto2Preview, setIdPhoto2Preview] = useState<string | null>(null);
+  const [savedIdPhoto1, setSavedIdPhoto1] = useState(idPhoto1);
+  const [savedIdPhoto2, setSavedIdPhoto2] = useState(idPhoto2);
+  const [savingIdPhotos, setSavingIdPhotos] = useState(false);
+  const [idPhotoMessage, setIdPhotoMessage] = useState("");
+
+  useEffect(() => {
+    setSavedIdPhoto1(idPhoto1);
+    setSavedIdPhoto2(idPhoto2);
+  }, [idPhoto1, idPhoto2]);
 
   const allDelivered = items.length > 0 ? items.every((it) => it.isDelivered) : isDelivered;
   const hasMultiple = items.length > 1;
@@ -135,6 +152,55 @@ export default function DeliveryDetailClient({
     router.refresh();
   }
 
+  function onIdPhotoChange(slot: 1 | 2, file: File | null) {
+    if (slot === 1) {
+      setIdPhoto1File(file);
+      if (idPhoto1Preview) URL.revokeObjectURL(idPhoto1Preview);
+      setIdPhoto1Preview(file ? URL.createObjectURL(file) : null);
+    } else {
+      setIdPhoto2File(file);
+      if (idPhoto2Preview) URL.revokeObjectURL(idPhoto2Preview);
+      setIdPhoto2Preview(file ? URL.createObjectURL(file) : null);
+    }
+    setIdPhotoMessage("");
+  }
+
+  async function saveIdPhotos() {
+    if (!idPhoto1File && !idPhoto2File) {
+      setIdPhotoMessage("Choose at least one photo to upload.");
+      return;
+    }
+    setSavingIdPhotos(true);
+    setIdPhotoMessage("");
+    try {
+      const form = new FormData();
+      if (idPhoto1File) form.append("id_photo_1", idPhoto1File);
+      if (idPhoto2File) form.append("id_photo_2", idPhoto2File);
+      const res = await fetch(`/api/booking-delivery/${booking.id}/id-photos`, {
+        method: "POST",
+        body: form,
+        credentials: "same-origin",
+      });
+      const data = await res.json();
+      if (!res.ok) {
+        setIdPhotoMessage(data.error || "Failed to save ID photos");
+        return;
+      }
+      if (data.id_photo_1) setSavedIdPhoto1(data.id_photo_1);
+      if (data.id_photo_2) setSavedIdPhoto2(data.id_photo_2);
+      setIdPhoto1File(null);
+      setIdPhoto2File(null);
+      if (idPhoto1Preview) URL.revokeObjectURL(idPhoto1Preview);
+      if (idPhoto2Preview) URL.revokeObjectURL(idPhoto2Preview);
+      setIdPhoto1Preview(null);
+      setIdPhoto2Preview(null);
+      setIdPhotoMessage("ID photos saved.");
+      router.refresh();
+    } finally {
+      setSavingIdPhotos(false);
+    }
+  }
+
   return (
     <div>
       {allDelivered && (
@@ -177,6 +243,99 @@ export default function DeliveryDetailClient({
       )}
 
       {error && <div className="alert alert-error" style={{ marginBottom: 16 }}>{error}</div>}
+
+      <div className="card" style={{ marginBottom: 24 }}>
+        <div className="card-header">
+          <h3 className="card-title">
+            <i className="fa-solid fa-id-card" style={{ marginRight: 8 }} />
+            Customer ID Photos
+            <span style={{ fontWeight: 400, fontSize: 12, color: "var(--text-muted)", marginLeft: 8 }}>(optional)</span>
+          </h3>
+        </div>
+        <div className="card-body">
+          <p style={{ margin: "0 0 16px", fontSize: 13, color: "var(--text-muted)" }}>
+            Capture up to two ID photos at delivery using your camera. They appear on the return record and are removed automatically when the dress is returned.
+          </p>
+          <div style={{ display: "grid", gridTemplateColumns: "repeat(auto-fit, minmax(220px, 1fr))", gap: 16 }}>
+            {([1, 2] as const).map((slot) => {
+              const preview = slot === 1 ? idPhoto1Preview : idPhoto2Preview;
+              const saved = slot === 1 ? savedIdPhoto1 : savedIdPhoto2;
+              const hasPhoto = !!(preview || saved);
+              return (
+                <div key={slot}>
+                  <label className="form-label">ID Photo {slot}</label>
+                  <input
+                    type="file"
+                    accept="image/*"
+                    capture="environment"
+                    style={{ display: "none" }}
+                    id={`id-photo-capture-${slot}`}
+                    onChange={(e) => onIdPhotoChange(slot, e.target.files?.[0] || null)}
+                  />
+                  {hasPhoto ? (
+                    <div style={{ position: "relative" }}>
+                      <a
+                        href={preview || photoUrl(saved)}
+                        target="_blank"
+                        rel="noreferrer"
+                        style={{ display: "block" }}
+                      >
+                        <img
+                          src={preview || photoUrl(saved)}
+                          alt={`ID photo ${slot}`}
+                          style={{ width: "100%", maxHeight: 180, objectFit: "cover", borderRadius: 10, border: "1px solid var(--border)" }}
+                        />
+                      </a>
+                      <button
+                        type="button"
+                        className="btn btn-sm"
+                        style={{
+                          position: "absolute", bottom: 8, right: 8,
+                          background: "rgba(0,0,0,0.6)", color: "#fff", border: "none",
+                          borderRadius: 8, fontSize: 11, padding: "4px 10px",
+                        }}
+                        onClick={() => document.getElementById(`id-photo-capture-${slot}`)?.click()}
+                      >
+                        <i className="fa-solid fa-camera-rotate" style={{ marginRight: 4 }} />Retake
+                      </button>
+                    </div>
+                  ) : (
+                    <button
+                      type="button"
+                      className="btn btn-outline"
+                      style={{
+                        width: "100%", height: 120, display: "flex",
+                        flexDirection: "column", alignItems: "center", justifyContent: "center",
+                        gap: 8, borderRadius: 10, border: "2px dashed var(--border)",
+                        fontSize: 13, color: "var(--text-muted)",
+                      }}
+                      onClick={() => document.getElementById(`id-photo-capture-${slot}`)?.click()}
+                    >
+                      <i className="fa-solid fa-camera" style={{ fontSize: 24 }} />
+                      Capture Photo
+                    </button>
+                  )}
+                </div>
+              );
+            })}
+          </div>
+          <div style={{ display: "flex", gap: 12, alignItems: "center", marginTop: 16, flexWrap: "wrap" }}>
+            <button
+              type="button"
+              className="btn btn-outline btn-sm"
+              disabled={savingIdPhotos || (!idPhoto1File && !idPhoto2File)}
+              onClick={saveIdPhotos}
+            >
+              {savingIdPhotos ? "Saving…" : "Save ID Photos"}
+            </button>
+            {idPhotoMessage && (
+              <span style={{ fontSize: 13, color: idPhotoMessage.includes("saved") ? "var(--success)" : "var(--text-muted)" }}>
+                {idPhotoMessage}
+              </span>
+            )}
+          </div>
+        </div>
+      </div>
 
       <div className="card">
         <div className="card-header">

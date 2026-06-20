@@ -24,6 +24,8 @@ export default function ReturnDetailClient({
     securityHeld?: number;
     incompleteNotes?: string | null;
     incompletePhoto?: string | null;
+    idPhoto1?: string | null;
+    idPhoto2?: string | null;
     totalPrice?: number;
     price?: number;
     totalAdvance?: number;
@@ -160,6 +162,34 @@ export default function ReturnDetailClient({
                   <div style={{ marginTop: 8, fontSize: 13, padding: "8px 12px", background: "var(--info-bg, #e8f4fd)", borderRadius: 8 }}>
                     <span style={{ fontSize: 11, color: "var(--text-muted)", fontWeight: 700 }}>DELIVERY NOTES </span>
                     {booking.deliveryNotes}
+                  </div>
+                )}
+                {(booking.idPhoto1 || booking.idPhoto2) && (
+                  <div style={{ marginTop: 12, padding: "12px 14px", border: "1px solid var(--border)", borderRadius: 8, background: "rgba(90,20,51,0.04)" }}>
+                    <div style={{ fontSize: 11, color: "var(--text-muted)", fontWeight: 700, marginBottom: 10 }}>
+                      <i className="fa-solid fa-id-card" style={{ marginRight: 6 }} />
+                      CUSTOMER ID PHOTOS
+                    </div>
+                    <div style={{ display: "flex", gap: 12, flexWrap: "wrap" }}>
+                      {booking.idPhoto1 && (
+                        <a href={photoUrl(booking.idPhoto1)} target="_blank" rel="noreferrer">
+                          <img
+                            src={photoUrl(booking.idPhoto1)}
+                            alt="Customer ID 1"
+                            style={{ width: 140, height: 100, objectFit: "cover", borderRadius: 8, border: "1px solid var(--border)" }}
+                          />
+                        </a>
+                      )}
+                      {booking.idPhoto2 && (
+                        <a href={photoUrl(booking.idPhoto2)} target="_blank" rel="noreferrer">
+                          <img
+                            src={photoUrl(booking.idPhoto2)}
+                            alt="Customer ID 2"
+                            style={{ width: 140, height: 100, objectFit: "cover", borderRadius: 8, border: "1px solid var(--border)" }}
+                          />
+                        </a>
+                      )}
+                    </div>
                   </div>
                 )}
                 {itemDelivery.filter((d) => d.isDelivered).map((d, i) => (

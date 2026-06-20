@@ -195,6 +195,12 @@ type Props = {
   /** When "prospect", saves to prospect-leads API without reserving inventory */
   mode?: "booking" | "prospect";
 
+  /** Read-only view for completed/locked bookings */
+  readOnly?: boolean;
+  locked?: boolean;
+  isOwner?: boolean;
+  unlockHref?: string;
+
 };
 
 
@@ -228,6 +234,7 @@ export default function BookingFormClient(props: Props) {
   const router = useRouter();
 
   const isProspect = props.mode === "prospect";
+  const readOnly = props.readOnly ?? false;
   const today = props.today || todayIso();
   const [minDate, setMinDate] = useState(today);
 
@@ -611,6 +618,7 @@ export default function BookingFormClient(props: Props) {
 
 
   async function save(printAfter = false) {
+    if (readOnly) return;
 
     setError("");
 
@@ -780,7 +788,31 @@ export default function BookingFormClient(props: Props) {
 
       {error && <div className="alert alert-error" style={{ marginBottom: 16 }}>{error}</div>}
 
+      {props.locked && (
+        <div className="card" style={{ marginBottom: 16, borderLeft: "4px solid #1565c0", background: "rgba(21,101,192,0.06)" }}>
+          <div className="card-body" style={{ display: "flex", flexWrap: "wrap", alignItems: "center", gap: 12, justifyContent: "space-between" }}>
+            <div>
+              <div style={{ fontWeight: 700, color: "#1565c0" }}>
+                <i className="fa-solid fa-lock" style={{ marginRight: 8 }} />
+                Completed Booking — Read Only
+              </div>
+              <div style={{ fontSize: 12, color: "var(--text-muted)", marginTop: 4 }}>
+                {readOnly
+                  ? "This record is locked. Only the owner can unlock and edit it."
+                  : "Owner unlock active — you may edit this completed booking."}
+              </div>
+            </div>
+            {readOnly && props.isOwner && props.unlockHref && (
+              <a href={props.unlockHref} className="btn btn-primary">
+                <i className="fa-solid fa-unlock" style={{ marginRight: 8 }} />
+                Unlock &amp; Edit
+              </a>
+            )}
+          </div>
+        </div>
+      )}
 
+      <fieldset disabled={readOnly} style={{ border: "none", margin: 0, padding: 0, minWidth: 0 }}>
 
       <div className="card" style={{ marginBottom: 20, background: "linear-gradient(135deg, var(--primary-dark), var(--primary))", color: "white" }}>
 
@@ -1254,6 +1286,9 @@ export default function BookingFormClient(props: Props) {
 
 
 
+      </fieldset>
+
+      {!readOnly && (
       <div className="card">
         <div className="card-body" style={{ display: "flex", gap: 12, flexWrap: "wrap", alignItems: "center" }}>
           {/* Primary action — one click saves and prints */}
@@ -1276,6 +1311,18 @@ export default function BookingFormClient(props: Props) {
           <a href={isProspect ? "/prospect-leads" : props.editId ? `/booking/${props.editId}` : "/booking"} className="btn btn-outline">Cancel</a>
         </div>
       </div>
+      )}
+
+      {readOnly && (
+        <div className="card" style={{ marginTop: 16 }}>
+          <div className="card-body">
+            <a href={props.editId ? `/booking/${props.editId}` : "/booking"} className="btn btn-outline">
+              <i className="fa-solid fa-arrow-left" style={{ marginRight: 8 }} />
+              Back to Booking Record
+            </a>
+          </div>
+        </div>
+      )}
 
     </div>
 

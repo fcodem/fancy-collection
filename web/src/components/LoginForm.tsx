@@ -41,6 +41,10 @@ export default function LoginForm({ initialError }: { initialError?: string }) {
       }
 
       if (!res.ok) {
+        if (res.status === 429) {
+          setError(data.error || "Too many failed login attempts. Please try again later.");
+          return;
+        }
         setError(data.error || "Invalid username or password.");
         return;
       }

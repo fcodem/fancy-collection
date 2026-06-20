@@ -5,6 +5,7 @@ import {
   BASE_WOMENS,
   parseDate,
 } from "../constants";
+import { COMPLETED_BOOKING_STATUSES } from "../bookingLock";
 import {
   getRefundsBetween,
   refundByCategory,
@@ -469,6 +470,113 @@ export async function getCategoryAnalysis(fromStr: string, toStr: string) {
       remaining: Object.values(remaining_by_cat).reduce((a, b) => a + b, 0),
       stock: stockItems.length,
       refunds: refund_total,
+    },
+  };
+}
+
+export type InventoryProfitabilityRow = {
+  rank: number;
+  itemId: number;
+  sku: string;
+  name: string;
+  category: string;
+  size: string | null;
+  photo: string | null;
+  status: string;
+  bookingCount: number;
+  lifetimeRevenue: number;
+};
+
+/**
+ * Lifetime revenue per inventory item from completed bookings (returned / completed).
+ * Multi-item bookings use each line's rent (`booking_items.price`).
+ * Legacy single-item bookings use `bookings.total_price`.
+ */
+export async function getInventoryProfitability() {
+  const completedStatuses = [...COMPLETED_BOOKING_STATUSES];
+
+  const modernAgg = await prisma.bookingItem.groupBy({
+    by: ["itemId"],
+    where: {
+      booking: { status: { in: completedStatuses } },
+    },
+    _sum: { price: true },
+    _count: { _all: true },
+  });
+
+  const legacyBookings = await prisma.booking.findMany({
+    where: {
+      status: { in: completedStatuses },
+      itemId: { not: null },
+      bookingItems: { none: {} },
+    },
+    select: { itemId: true, totalPrice: true, price: true },
+  });
+
+  const revenueByItem = new Map<number, { revenue: number; bookings: number }>();
+
+  for (const row of modernAgg) {
+    revenueByItem.set(row.itemId, {
+      revenue: row._sum.price ?? 0,
+      bookings: row._count._all,
+    });
+  }
+
+  for (const b of legacyBookings) {
+    if (!b.itemId) continue;
+    const amount = b.totalPrice || b.price || 0;
+    const existing = revenueByItem.get(b.itemId) ?? { revenue: 0, bookings: 0 };
+    revenueByItem.set(b.itemId, {
+      revenue: existing.revenue + amount,
+      bookings: existing.bookings + 1,
+    });
+  }
+
+  const allItems = await prisma.clothingItem.findMany({
+    select: {
+      id: true,
+      sku: true,
+      name: true,
+      category: true,
+      size: true,
+      photo: true,
+      status: true,
+    },
+  });
+
+  const items: InventoryProfitabilityRow[] = allItems
+    .map((item) => {
+      const stats = revenueByItem.get(item.id);
+      return {
+        rank: 0,
+        itemId: item.id,
+        sku: item.sku,
+        name: item.name,
+        category: item.category,
+        size: item.size,
+        photo: item.photo,
+        status: item.status,
+        bookingCount: stats?.bookings ?? 0,
+        lifetimeRevenue: stats?.revenue ?? 0,
+      };
+    })
+    .sort(
+      (a, b) =>
+        b.lifetimeRevenue - a.lifetimeRevenue ||
+        b.bookingCount - a.bookingCount ||
+        a.name.localeCompare(b.name),
+    )
+    .map((row, index) => ({ ...row, rank: index + 1 }));
+
+  const totalRevenue = items.reduce((sum, row) => sum + row.lifetimeRevenue, 0);
+
+  return {
+    items,
+    totals: {
+      itemCount: items.length,
+      itemsWithRevenue: items.filter((row) => row.lifetimeRevenue > 0).length,
+      totalRevenue,
+      totalBookings: items.reduce((sum, row) => sum + row.bookingCount, 0),
     },
   };
 }

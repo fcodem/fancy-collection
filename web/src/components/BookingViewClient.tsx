@@ -5,6 +5,8 @@ import Link from "next/link";
 import { useState } from "react";
 import { BookingRecordDetails } from "@/components/BookingRecordDetails";
 import DeliveredCancelBooking from "@/components/DeliveredCancelBooking";
+import BookingWhatsAppButton from "@/components/BookingWhatsAppButton";
+import { isBookingLocked } from "@/lib/bookingLock";
 import type { BookingForStandardDetails } from "@/lib/bookingDetails";
 
 function editHref(id: number, status: string) {
@@ -14,6 +16,7 @@ function editHref(id: number, status: string) {
 export default function BookingViewClient({
   booking,
   qrSlot,
+  isOwner = false,
 }: {
   booking: BookingForStandardDetails & {
     id: number;
@@ -24,13 +27,18 @@ export default function BookingViewClient({
     totalAdvance?: number;
     totalRemaining?: number;
     remainingCollected?: number;
+    whatsappNo?: string | null;
+    contact1?: string;
   };
   qrSlot?: React.ReactNode;
+  isOwner?: boolean;
 }) {
   const router = useRouter();
   const [showCancel, setShowCancel] = useState(false);
 
   const isDelivered = booking.status === "delivered";
+  const locked = isBookingLocked(booking.status);
+  const canModify = !locked;
   const totalPrice = booking.totalPrice ?? booking.price ?? 0;
   const totalAdvance = booking.totalAdvance ?? booking.advance ?? 0;
   const totalRemaining = booking.totalRemaining ?? booking.remaining ?? 0;
@@ -61,10 +69,22 @@ export default function BookingViewClient({
   return (
     <div>
       <div style={{ display: "flex", gap: 12, marginBottom: 20, flexWrap: "wrap" }} className="no-print">
-        <Link href={editHref(booking.id, booking.status)} className="btn btn-outline">
-          {isDelivered ? "Edit (Delivery)" : "Edit"}
-        </Link>
+        {canModify && (
+          <Link href={editHref(booking.id, booking.status)} className="btn btn-outline">
+            {isDelivered ? "Edit (Delivery)" : "Edit"}
+          </Link>
+        )}
+        {locked && isOwner && (
+          <Link href={`/booking/${booking.id}/edit?unlock=1`} className="btn btn-primary">
+            <i className="fa-solid fa-unlock" style={{ marginRight: 6 }} />
+            Unlock &amp; Edit
+          </Link>
+        )}
         <Link href={`/booking/${booking.id}/print`} className="btn btn-primary">Print Bill</Link>
+        <BookingWhatsAppButton
+          bookingId={booking.id}
+          hasPhone={!!(booking.whatsappNo || booking.contact1)}
+        />
         {booking.status === "booked" && (
           <Link href={`/booking-delivery/${booking.id}`} className="btn btn-primary">
             <i className="fa-solid fa-truck-fast" /> Delivery
@@ -75,12 +95,26 @@ export default function BookingViewClient({
             <i className="fa-solid fa-rotate-left" /> Return
           </Link>
         )}
-        {booking.status !== "cancelled" && !showCancel && (
+        {canModify && booking.status !== "cancelled" && !showCancel && (
           <button type="button" className="btn btn-outline" style={{ color: "var(--danger)" }} onClick={openCancel}>
             Cancel Booking
           </button>
         )}
       </div>
+
+      {locked && (
+        <div style={{ display: "flex", alignItems: "center", gap: 14, padding: "14px 20px", marginBottom: 16, background: "rgba(21,101,192,0.08)", border: "2px solid #1565c0", borderRadius: 12 }}>
+          <i className="fa-solid fa-lock" style={{ fontSize: 24, color: "#1565c0" }} />
+          <div>
+            <div style={{ fontSize: 15, fontWeight: 800, color: "#1565c0" }}>COMPLETED — RECORD LOCKED</div>
+            <div style={{ fontSize: 12, color: "var(--text-muted)", marginTop: 2 }}>
+              {isOwner
+                ? "This booking is completed. Use Unlock & Edit to make changes."
+                : "This booking is completed and cannot be edited. Contact the owner for changes."}
+            </div>
+          </div>
+        </div>
+      )}
 
       {showCancel && isDelivered && (
         <DeliveredCancelBooking

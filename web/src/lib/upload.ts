@@ -1,7 +1,7 @@
-import { writeFile, mkdir } from "fs/promises";
+import { writeFile, mkdir, unlink } from "fs/promises";
 import { join } from "path";
 import { randomUUID } from "crypto";
-import { put } from "@vercel/blob";
+import { put, del } from "@vercel/blob";
 import { ALLOWED_EXTENSIONS } from "./constants";
 
 export { photoUrl } from "./photoUrl";
@@ -27,4 +27,31 @@ export async function saveUpload(file: File): Promise<string> {
   await mkdir(dir, { recursive: true });
   await writeFile(join(dir, filename), bytes);
   return filename;
+}
+
+/** Remove a stored upload (local filename or Vercel Blob URL). */
+export async function deleteUpload(stored: string | null | undefined): Promise<void> {
+  if (!stored?.trim()) return;
+
+  if (stored.startsWith("http://") || stored.startsWith("https://")) {
+    if (process.env.BLOB_READ_WRITE_TOKEN) {
+      try {
+        await del(stored);
+      } catch {
+        /* file may already be gone */
+      }
+    }
+    return;
+  }
+
+  const filename = stored.replace(/^uploads\//, "").replace(/^\//, "");
+  try {
+    await unlink(join(process.cwd(), "public", "uploads", filename));
+  } catch {
+    /* file may already be gone */
+  }
+}
+
+export async function deleteUploads(stored: Array<string | null | undefined>): Promise<void> {
+  await Promise.all(stored.map((s) => deleteUpload(s)));
 }

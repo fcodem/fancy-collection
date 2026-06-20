@@ -24,6 +24,7 @@ type RestoreResult = {
   counts?: Record<string, number>;
   log?: string[];
   error?: string;
+  sessionRestored?: boolean;
 };
 
 function formatBytes(bytes: number) {
@@ -122,17 +123,24 @@ export default function RestoreClient() {
         credentials: "same-origin",
         body: JSON.stringify(rawData),
       });
-      const data = await res.json();
+      const data = await res.json().catch(() => ({}));
       if (res.ok && data.success) {
         setPhase("done");
         setResult(data);
+        // Full reload after short delay so new session cookie is picked up
+        if (data.sessionRestored) {
+          setTimeout(() => { window.location.href = "/"; }, 2500);
+        }
       } else {
         setPhase("error");
-        setResult({ success: false, message: data.error || "Restore failed." });
+        setResult({ success: false, message: data.error || `Restore failed (HTTP ${res.status}).` });
       }
-    } catch {
+    } catch (err) {
       setPhase("error");
-      setResult({ success: false, message: "Network error. Please try again." });
+      setResult({
+        success: false,
+        message: err instanceof Error ? err.message : "Network error. Please try again.",
+      });
     }
   }
 
@@ -188,7 +196,14 @@ export default function RestoreClient() {
               <i className="fa-solid fa-circle-check" style={{ color: "var(--success)", fontSize: 28 }} />
               <div>
                 <div style={{ fontWeight: 800, fontSize: 16, color: "var(--success)" }}>Database Restored Successfully</div>
-                <div style={{ fontSize: 12, color: "var(--text-muted)" }}>{result.message}</div>
+                <div style={{ fontSize: 12, color: "var(--text-muted)" }}>
+                  {result.message}
+                  {result.sessionRestored && (
+                    <span style={{ display: "block", marginTop: 6, color: "var(--success)", fontWeight: 600 }}>
+                      You will stay logged in. Redirecting to dashboard…
+                    </span>
+                  )}
+                </div>
               </div>
             </div>
             {result.counts && (
@@ -323,6 +338,12 @@ export default function RestoreClient() {
 
                 {/* Table Counts */}
                 <div style={{ fontSize: 13, fontWeight: 600, marginBottom: 10, color: "var(--primary)" }}>Records to Restore:</div>
+                {Object.values(preview.tableCounts).every((c) => c === 0) && (
+                  <div style={{ padding: "10px 14px", marginBottom: 12, background: "rgba(198,40,40,0.08)", border: "1px solid #C62828", borderRadius: 8, fontSize: 12, color: "#C62828" }}>
+                    <i className="fa-solid fa-triangle-exclamation" style={{ marginRight: 6 }} />
+                    This backup file has <strong>no data records</strong>. Download a fresh backup from Reports &amp; Backup first.
+                  </div>
+                )}
                 <div style={{ display: "grid", gridTemplateColumns: "1fr 1fr", gap: "4px 24px" }}>
                   {Object.entries(preview.tableCounts).map(([table, count]) => (
                     <div key={table} style={{ display: "flex", justifyContent: "space-between", padding: "6px 0", borderBottom: "1px solid var(--border)", fontSize: 13 }}>
