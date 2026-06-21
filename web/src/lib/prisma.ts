@@ -26,6 +26,27 @@ export function parseDateQ(s: string): Date {
   return new Date(Date.UTC(y, (m || 1) - 1, day || 1));
 }
 
+/** True when using local SQLite file DB (Prisma mishandles lt/lte on TEXT datetimes). */
+export function isSqliteDb(): boolean {
+  return (process.env.DATABASE_URL || "").startsWith("file:");
+}
+
+export function dateIsoStart(dateStr: string): string {
+  return `${dateStr.slice(0, 10)}T00:00:00.000Z`;
+}
+
+/** Exclusive upper bound: start of the day after `dateStr`. */
+export function dateIsoEndExclusive(dateStr: string): string {
+  const [y, m, d] = dateStr.slice(0, 10).split("-").map(Number);
+  return new Date(Date.UTC(y, m - 1, d + 1)).toISOString();
+}
+
+export function deliveryRangeFilter(fromStr: string, toStr: string): { gte: Date; lt: Date } {
+  const to = toStr || fromStr;
+  const [y, m, d] = to.slice(0, 10).split("-").map(Number);
+  return { gte: parseDateQ(fromStr), lt: new Date(Date.UTC(y, m - 1, d + 1)) };
+}
+
 export function todayStartQ(): Date {
   const now = new Date();
   return new Date(Date.UTC(now.getFullYear(), now.getMonth(), now.getDate()));

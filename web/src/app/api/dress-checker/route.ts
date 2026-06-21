@@ -1,9 +1,95 @@
 import { NextRequest } from "next/server";
 import prisma, { parseDateQ } from "@/lib/prisma";
 import { buildDressSearchWhere, dressDisplayName } from "@/lib/dress";
-import { checkItemAvailabilityForDates } from "@/lib/booking";
-import { parseDate } from "@/lib/constants";
+import { bookingUsesItem } from "@/lib/booking";
+import { parseDate, formatDate } from "@/lib/constants";
 import { jsonError, jsonOk, requireUser, isResponse } from "@/lib/api";
+import type { Booking, BookingItem, ClothingItem } from "@prisma/client";
+
+type BookingWithItems = Booking & { bookingItems: BookingItem[] };
+
+function serializeBookingConflict(b: Booking) {
+  return {
+    customer: b.customerName,
+    serial_no: b.monthlySerial,
+    delivery_date: formatDate(b.deliveryDate, "iso"),
+    delivery_time: b.deliveryTime,
+    return_date: formatDate(b.returnDate, "iso"),
+    return_time: b.returnTime,
+    venue: b.venue || "",
+    total_rent: b.totalPrice || b.price,
+    contact: b.contact1 || "",
+    booking_id: b.id,
+  };
+}
+
+function checkItemAvailabilityInMemory(
+  item: ClothingItem,
+  dDate: Date,
+  rDate: Date,
+  overlappingBookings: BookingWithItems[],
+) {
+  if (item.status === "maintenance") {
+    return {
+      status: "not_available" as const,
+      reason: "Item is under maintenance",
+      returning_warning: null,
+      booked_warning: null,
+      blocking_booking: null,
+    };
+  }
+
+  const dIso = formatDate(dDate, "iso");
+  const rIso = formatDate(rDate, "iso");
+
+  let returning_warning: ReturnType<typeof serializeBookingConflict> & { return_time?: string } | null = null;
+  let booked_warning: ReturnType<typeof serializeBookingConflict> | null = null;
+  let blocking_booking: ReturnType<typeof serializeBookingConflict> | null = null;
+
+  for (const b of overlappingBookings) {
+    if (!bookingUsesItem(b, item.id)) continue;
+    const bD = formatDate(b.deliveryDate, "iso");
+    const bR = formatDate(b.returnDate, "iso");
+    if (bR === dIso) {
+      returning_warning = { ...serializeBookingConflict(b), return_time: b.returnTime };
+      continue;
+    }
+    if (bD === rIso) {
+      booked_warning = serializeBookingConflict(b);
+      continue;
+    }
+    blocking_booking = serializeBookingConflict(b);
+    break;
+  }
+
+  if (blocking_booking) {
+    return {
+      status: "not_available" as const,
+      reason: "Booked during selected dates",
+      returning_warning,
+      booked_warning,
+      blocking_booking,
+    };
+  }
+
+  if (returning_warning || booked_warning) {
+    return {
+      status: "available_with_warning" as const,
+      reason: "Available with scheduling note",
+      returning_warning,
+      booked_warning,
+      blocking_booking: null,
+    };
+  }
+
+  return {
+    status: "available" as const,
+    reason: "Free for entire period",
+    returning_warning: null,
+    booked_warning: null,
+    blocking_booking: null,
+  };
+}
 
 export async function GET(req: NextRequest) {
   const user = await requireUser();
@@ -41,23 +127,35 @@ export async function GET(req: NextRequest) {
     });
   }
 
-  const results = await Promise.all(
-    items.map(async (item) => {
-      const avail = await checkItemAvailabilityForDates(item, dDateQ, rDateQ);
-      return {
-        id: item.id,
-        name: item.name,
-        display_name: dressDisplayName(item.name, item.category, item.size),
-        sku: item.sku,
-        category: item.category,
-        size: item.size || "",
-        color: item.color || "",
-        photo: item.photo || "",
-        inventory_status: item.status,
-        ...avail,
-      };
-    })
-  );
+  const itemIds = items.map((i) => i.id);
+  const overlappingBookings = await prisma.booking.findMany({
+    where: {
+      status: { in: ["booked", "delivered"] },
+      deliveryDate: { lte: rDateQ },
+      returnDate: { gte: dDateQ },
+      OR: [
+        { itemId: { in: itemIds } },
+        { bookingItems: { some: { itemId: { in: itemIds } } } },
+      ],
+    },
+    include: { bookingItems: true },
+  });
+
+  const results = items.map((item) => {
+    const avail = checkItemAvailabilityInMemory(item, dDateQ, rDateQ, overlappingBookings);
+    return {
+      id: item.id,
+      name: item.name,
+      display_name: dressDisplayName(item.name, item.category, item.size),
+      sku: item.sku,
+      category: item.category,
+      size: item.size || "",
+      color: item.color || "",
+      photo: item.photo || "",
+      inventory_status: item.status,
+      ...avail,
+    };
+  });
 
   return jsonOk({
     items: results,

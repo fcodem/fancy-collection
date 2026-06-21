@@ -2,43 +2,18 @@ import { NextRequest } from "next/server";
 import prisma from "@/lib/prisma";
 import { requireOwner, isResponse, jsonOk, jsonError } from "@/lib/api";
 import { establishUserLogin } from "@/lib/auth";
-import type { Prisma } from "@prisma/client";
+import { boolParam, ph, resetAutoincrement, dateParam, dateParamReq } from "@/lib/restoreSql";
 
 export const dynamic = "force-dynamic";
 export const maxDuration = 120;
-
-function d(v: string | null | undefined): Date | null {
-  if (!v) return null;
-  const parsed = new Date(v);
-  return isNaN(parsed.getTime()) ? null : parsed;
-}
-
-function dReq(v: string | null | undefined): Date {
-  return d(v) ?? new Date();
-}
-
-function boolInt(v: unknown, defaultVal = true): number {
-  const b = v === undefined || v === null ? defaultVal : Boolean(v);
-  return b ? 1 : 0;
-}
-
-type Tx = Omit<
-  Prisma.TransactionClient,
-  "$connect" | "$disconnect" | "$on" | "$transaction" | "$use" | "$extends"
->;
-
-async function resetSqliteSequence(tx: Tx, table: string) {
-  await tx.$executeRawUnsafe(
-    `INSERT OR REPLACE INTO sqlite_sequence (name, seq) VALUES (?, COALESCE((SELECT MAX(id) FROM "${table}"), 0))`,
-    table,
-  );
-}
 
 interface BackupData {
   meta?: {
     app?: string;
     version?: string;
     record_counts?: Record<string, number>;
+    photo_manifest?: string[];
+    notes?: string[];
   };
   bookings?: Array<Record<string, unknown>>;
   inventory?: Array<Record<string, unknown>>;
@@ -49,8 +24,11 @@ interface BackupData {
   attendance?: Array<Record<string, unknown>>;
   suppliers?: Array<Record<string, unknown>>;
   supplier_purchases?: Array<Record<string, unknown>>;
+  rentals?: Array<Record<string, unknown>>;
+  invoices?: Array<Record<string, unknown>>;
   prospect_leads?: Array<Record<string, unknown>>;
   shop_enquiries?: Array<Record<string, unknown>>;
+  activity_logs?: Array<Record<string, unknown>>;
 }
 
 export async function POST(req: NextRequest) {
@@ -79,6 +57,7 @@ export async function POST(req: NextRequest) {
       log.push("Clearing existing data...");
 
       await tx.$executeRawUnsafe(`DELETE FROM "activity_logs"`);
+      await tx.$executeRawUnsafe(`DELETE FROM "login_attempts"`);
       await tx.$executeRawUnsafe(`DELETE FROM "prospect_lead_items"`);
       await tx.$executeRawUnsafe(`DELETE FROM "booking_items"`);
       await tx.$executeRawUnsafe(`DELETE FROM "rental_items"`);
@@ -104,9 +83,9 @@ export async function POST(req: NextRequest) {
       if (backup.custom_categories?.length) {
         for (const c of backup.custom_categories) {
           await tx.$executeRawUnsafe(
-            `INSERT INTO "custom_categories" ("id","name","group","active","created_at") VALUES (?,?,?,?,?)`,
-            c.id, c.name, c.group ?? "other", boolInt(c.active),
-            dReq(c.createdAt as string).toISOString(),
+            `INSERT INTO "custom_categories" ("id","name","group","active","created_at") VALUES (${ph(5)})`,
+            c.id, c.name, c.group ?? "other", boolParam(c.active),
+            dateParamReq(c.createdAt as string),
           );
         }
         counts.custom_categories = backup.custom_categories.length;
@@ -116,9 +95,9 @@ export async function POST(req: NextRequest) {
       if (backup.staff?.length) {
         for (const s of backup.staff) {
           await tx.$executeRawUnsafe(
-            `INSERT INTO "staff" ("id","name","phone","active","created_at") VALUES (?,?,?,?,?)`,
-            s.id, s.name, s.phone ?? null, boolInt(s.active),
-            dReq(s.createdAt as string).toISOString(),
+            `INSERT INTO "staff" ("id","name","phone","active","created_at") VALUES (${ph(5)})`,
+            s.id, s.name, s.phone ?? null, boolParam(s.active),
+            dateParamReq(s.createdAt as string),
           );
         }
         counts.staff = backup.staff.length;
@@ -129,11 +108,11 @@ export async function POST(req: NextRequest) {
         for (const u of backup.users) {
           const hash = String(u.passwordHash ?? u.password_hash ?? "");
           await tx.$executeRawUnsafe(
-            `INSERT INTO "users" ("id","username","password_hash","role","staff_id","active","created_at") VALUES (?,?,?,?,?,?,?)`,
+            `INSERT INTO "users" ("id","username","password_hash","role","staff_id","active","created_at") VALUES (${ph(7)})`,
             u.id, u.username, hash,
             u.role ?? "staff", u.staffId ?? u.staff_id ?? null,
-            boolInt(u.active),
-            dReq(u.createdAt as string).toISOString(),
+            boolParam(u.active),
+            dateParamReq(u.createdAt as string),
           );
         }
         counts.users = backup.users.length;
@@ -143,10 +122,10 @@ export async function POST(req: NextRequest) {
       if (backup.customers?.length) {
         for (const c of backup.customers) {
           await tx.$executeRawUnsafe(
-            `INSERT INTO "customers" ("id","name","phone","email","address","id_proof","notes","created_at") VALUES (?,?,?,?,?,?,?,?)`,
+            `INSERT INTO "customers" ("id","name","phone","email","address","id_proof","notes","created_at") VALUES (${ph(8)})`,
             c.id, c.name, c.phone, c.email ?? null, c.address ?? null,
             c.idProof ?? c.id_proof ?? null, c.notes ?? null,
-            dReq(c.createdAt as string).toISOString(),
+            dateParamReq(c.createdAt as string),
           );
         }
         counts.customers = backup.customers.length;
@@ -156,12 +135,12 @@ export async function POST(req: NextRequest) {
       if (backup.inventory?.length) {
         for (const i of backup.inventory) {
           await tx.$executeRawUnsafe(
-            `INSERT INTO "clothing_items" ("id","name","sku","category","size","color","daily_rate","deposit","status","item_type","photo","condition_notes","created_at","sub_category") VALUES (?,?,?,?,?,?,?,?,?,?,?,?,?,?)`,
+            `INSERT INTO "clothing_items" ("id","name","sku","category","size","color","daily_rate","deposit","status","item_type","photo","condition_notes","created_at","sub_category") VALUES (${ph(14)})`,
             i.id, i.name, i.sku, i.category, i.size ?? null, i.color ?? null,
             i.dailyRate ?? i.daily_rate ?? 0, i.deposit ?? 0,
             i.status ?? "available", i.itemType ?? i.item_type ?? "clothing",
             i.photo ?? null, i.conditionNotes ?? i.condition_notes ?? null,
-            dReq(i.createdAt as string).toISOString(),
+            dateParamReq(i.createdAt as string),
             i.subCategory ?? i.sub_category ?? null,
           );
         }
@@ -172,11 +151,11 @@ export async function POST(req: NextRequest) {
       if (backup.suppliers?.length) {
         for (const s of backup.suppliers) {
           await tx.$executeRawUnsafe(
-            `INSERT INTO "suppliers" ("id","name","phone","address","gst_no","account_details","created_at") VALUES (?,?,?,?,?,?,?)`,
+            `INSERT INTO "suppliers" ("id","name","phone","address","gst_no","account_details","created_at") VALUES (${ph(7)})`,
             s.id, s.name, s.phone ?? null, s.address ?? null,
             s.gstNo ?? s.gst_no ?? null,
             s.accountDetails ?? s.account_details ?? null,
-            dReq(s.createdAt as string).toISOString(),
+            dateParamReq(s.createdAt as string),
           );
         }
         counts.suppliers = backup.suppliers.length;
@@ -186,13 +165,13 @@ export async function POST(req: NextRequest) {
       if (backup.supplier_purchases?.length) {
         for (const p of backup.supplier_purchases) {
           await tx.$executeRawUnsafe(
-            `INSERT INTO "supplier_purchases" ("id","supplier_id","item_description","category","amount","gst_amount","gst_percent","transaction_type","date","notes") VALUES (?,?,?,?,?,?,?,?,?,?)`,
+            `INSERT INTO "supplier_purchases" ("id","supplier_id","item_description","category","amount","gst_amount","gst_percent","transaction_type","date","notes") VALUES (${ph(10)})`,
             p.id, p.supplierId ?? p.supplier_id,
             p.itemDescription ?? p.item_description, p.category ?? null,
             p.amount ?? 0, p.gstAmount ?? p.gst_amount ?? 0,
             p.gstPercent ?? p.gst_percent ?? 0,
             p.transactionType ?? p.transaction_type ?? "purchase",
-            dReq(p.date as string).toISOString(),
+            dateParamReq(p.date as string),
             p.notes ?? null,
           );
         }
@@ -203,9 +182,9 @@ export async function POST(req: NextRequest) {
       if (backup.attendance?.length) {
         for (const a of backup.attendance) {
           await tx.$executeRawUnsafe(
-            `INSERT INTO "staff_attendance" ("id","staff_id","date","status") VALUES (?,?,?,?)`,
+            `INSERT INTO "staff_attendance" ("id","staff_id","date","status") VALUES (${ph(4)})`,
             a.id, a.staffId ?? a.staff_id,
-            dReq(a.date as string).toISOString(),
+            dateParamReq(a.date as string),
             a.status ?? "present",
           );
         }
@@ -213,11 +192,91 @@ export async function POST(req: NextRequest) {
         log.push(`Restored ${backup.attendance.length} attendance records`);
       }
 
+      if (backup.rentals?.length) {
+        let rentalItemCount = 0;
+        for (const r of backup.rentals) {
+          await tx.$executeRawUnsafe(
+            `INSERT INTO "rentals" ("id","rental_number","customer_id","start_date","end_date","actual_return_date","status","subtotal","deposit_total","late_fee","damage_fee","discount","total_amount","notes","created_at") VALUES (${ph(15)})`,
+            r.id,
+            r.rentalNumber ?? r.rental_number,
+            r.customerId ?? r.customer_id,
+            dateParamReq((r.startDate ?? r.start_date) as string),
+            dateParamReq((r.endDate ?? r.end_date) as string),
+            dateParam((r.actualReturnDate ?? r.actual_return_date) as string),
+            r.status ?? "active",
+            r.subtotal ?? 0,
+            r.depositTotal ?? r.deposit_total ?? 0,
+            r.lateFee ?? r.late_fee ?? 0,
+            r.damageFee ?? r.damage_fee ?? 0,
+            r.discount ?? 0,
+            r.totalAmount ?? r.total_amount ?? 0,
+            r.notes ?? null,
+            dateParamReq((r.createdAt ?? r.created_at) as string),
+          );
+
+          const rItems = (r.items ?? []) as Array<Record<string, unknown>>;
+          for (const ri of rItems) {
+            await tx.$executeRawUnsafe(
+              `INSERT INTO "rental_items" ("id","rental_id","item_id","daily_rate","deposit") VALUES (${ph(5)})`,
+              ri.id,
+              ri.rentalId ?? ri.rental_id ?? r.id,
+              ri.itemId ?? ri.item_id,
+              ri.dailyRate ?? ri.daily_rate ?? 0,
+              ri.deposit ?? 0,
+            );
+            rentalItemCount++;
+          }
+        }
+        counts.rentals = backup.rentals.length;
+        counts.rental_items = rentalItemCount;
+        log.push(`Restored ${backup.rentals.length} rentals with ${rentalItemCount} items`);
+      }
+
+      if (backup.invoices?.length) {
+        let paymentCount = 0;
+        for (const inv of backup.invoices) {
+          await tx.$executeRawUnsafe(
+            `INSERT INTO "invoices" ("id","invoice_number","rental_id","issue_date","due_date","subtotal","tax_rate","tax_amount","total","amount_paid","status","notes","created_at") VALUES (${ph(13)})`,
+            inv.id,
+            inv.invoiceNumber ?? inv.invoice_number,
+            inv.rentalId ?? inv.rental_id,
+            dateParamReq((inv.issueDate ?? inv.issue_date) as string),
+            dateParam((inv.dueDate ?? inv.due_date) as string),
+            inv.subtotal ?? 0,
+            inv.taxRate ?? inv.tax_rate ?? 0,
+            inv.taxAmount ?? inv.tax_amount ?? 0,
+            inv.total ?? 0,
+            inv.amountPaid ?? inv.amount_paid ?? 0,
+            inv.status ?? "unpaid",
+            inv.notes ?? null,
+            dateParamReq((inv.createdAt ?? inv.created_at) as string),
+          );
+
+          const payments = (inv.payments ?? []) as Array<Record<string, unknown>>;
+          for (const p of payments) {
+            await tx.$executeRawUnsafe(
+              `INSERT INTO "payments" ("id","invoice_id","amount","method","reference","notes","paid_at") VALUES (${ph(7)})`,
+              p.id,
+              p.invoiceId ?? p.invoice_id ?? inv.id,
+              p.amount ?? 0,
+              p.method ?? "cash",
+              p.reference ?? null,
+              p.notes ?? null,
+              dateParamReq((p.paidAt ?? p.paid_at) as string),
+            );
+            paymentCount++;
+          }
+        }
+        counts.invoices = backup.invoices.length;
+        counts.payments = paymentCount;
+        log.push(`Restored ${backup.invoices.length} invoices with ${paymentCount} payments`);
+      }
+
       if (backup.bookings?.length) {
         let itemCount = 0;
         for (const b of backup.bookings) {
           await tx.$executeRawUnsafe(
-            `INSERT INTO "bookings" ("id","booking_number","monthly_serial","customer_name","customer_address","contact_1","whatsapp_no","delivery_date","delivery_time","return_date","return_time","venue","security_deposit","total_price","total_advance","total_remaining","common_notes","staff_names","status","created_at","delivery_notes","remaining_collected","security_collected","delivered_at","returned_at","incomplete_notes","incomplete_photo","id_photo_1","id_photo_2","security_held","item_id","dress_name","price","advance","remaining","notes","contact_2","qr_token","refund_amount","refunded_at") VALUES (?,?,?,?,?,?,?,?,?,?,?,?,?,?,?,?,?,?,?,?,?,?,?,?,?,?,?,?,?,?,?,?,?,?,?,?,?,?,?,?)`,
+            `INSERT INTO "bookings" ("id","booking_number","monthly_serial","customer_name","customer_address","contact_1","whatsapp_no","delivery_date","delivery_time","return_date","return_time","venue","security_deposit","total_price","total_advance","total_remaining","common_notes","staff_names","status","created_at","delivery_notes","remaining_collected","security_collected","delivered_at","returned_at","incomplete_notes","incomplete_photo","id_photo_1","id_photo_2","security_held","item_id","dress_name","price","advance","remaining","notes","contact_2","qr_token","refund_amount","refunded_at") VALUES (${ph(40)})`,
             b.id,
             b.bookingNumber ?? b.booking_number,
             b.monthlySerial ?? b.monthly_serial ?? 0,
@@ -225,9 +284,9 @@ export async function POST(req: NextRequest) {
             b.customerAddress ?? b.customer_address ?? "",
             b.contact1 ?? b.contact_1 ?? "",
             b.whatsappNo ?? b.whatsapp_no ?? null,
-            dReq((b.deliveryDate ?? b.delivery_date) as string).toISOString(),
+            dateParamReq((b.deliveryDate ?? b.delivery_date) as string),
             b.deliveryTime ?? b.delivery_time ?? "",
-            dReq((b.returnDate ?? b.return_date) as string).toISOString(),
+            dateParamReq((b.returnDate ?? b.return_date) as string),
             b.returnTime ?? b.return_time ?? "",
             b.venue ?? null,
             b.securityDeposit ?? b.security_deposit ?? 0,
@@ -237,12 +296,12 @@ export async function POST(req: NextRequest) {
             b.commonNotes ?? b.common_notes ?? null,
             b.staffNames ?? b.staff_names ?? null,
             b.status ?? "booked",
-            dReq((b.createdAt ?? b.created_at) as string).toISOString(),
+            dateParamReq((b.createdAt ?? b.created_at) as string),
             b.deliveryNotes ?? b.delivery_notes ?? null,
             b.remainingCollected ?? b.remaining_collected ?? 0,
             b.securityCollected ?? b.security_collected ?? 0,
-            d((b.deliveredAt ?? b.delivered_at) as string)?.toISOString() ?? null,
-            d((b.returnedAt ?? b.returned_at) as string)?.toISOString() ?? null,
+            dateParam((b.deliveredAt ?? b.delivered_at) as string),
+            dateParam((b.returnedAt ?? b.returned_at) as string),
             b.incompleteNotes ?? b.incomplete_notes ?? null,
             b.incompletePhoto ?? b.incomplete_photo ?? null,
             b.idPhoto1 ?? b.id_photo_1 ?? null,
@@ -257,13 +316,13 @@ export async function POST(req: NextRequest) {
             b.contact2 ?? b.contact_2 ?? null,
             b.qrToken ?? b.qr_token ?? null,
             b.refundAmount ?? b.refund_amount ?? 0,
-            d((b.refundedAt ?? b.refunded_at) as string)?.toISOString() ?? null,
+            dateParam((b.refundedAt ?? b.refunded_at) as string),
           );
 
           const items = (b.bookingItems ?? b.booking_items ?? []) as Array<Record<string, unknown>>;
           for (const bi of items) {
             await tx.$executeRawUnsafe(
-              `INSERT INTO "booking_items" ("id","booking_id","item_id","dress_name","category","price","advance","remaining","size","notes","prepared_by","checked_by","is_packed_ready","packing_note","is_delivered","delivered_at","item_remaining_collected","item_security_collected","item_delivery_notes","is_returned") VALUES (?,?,?,?,?,?,?,?,?,?,?,?,?,?,?,?,?,?,?,?)`,
+              `INSERT INTO "booking_items" ("id","booking_id","item_id","dress_name","category","price","advance","remaining","size","notes","prepared_by","checked_by","is_packed_ready","packing_note","is_delivered","delivered_at","item_remaining_collected","item_security_collected","item_delivery_notes","is_returned","is_incomplete_return","item_incomplete_notes","item_incomplete_photo","item_security_held") VALUES (${ph(24)})`,
               bi.id,
               bi.bookingId ?? bi.booking_id ?? b.id,
               bi.itemId ?? bi.item_id,
@@ -276,14 +335,18 @@ export async function POST(req: NextRequest) {
               bi.notes ?? null,
               bi.preparedBy ?? bi.prepared_by ?? null,
               bi.checkedBy ?? bi.checked_by ?? null,
-              boolInt(bi.isPackedReady ?? bi.is_packed_ready, false),
+              boolParam(bi.isPackedReady ?? bi.is_packed_ready, false),
               bi.packingNote ?? bi.packing_note ?? null,
-              boolInt(bi.isDelivered ?? bi.is_delivered, false),
-              d((bi.deliveredAt ?? bi.delivered_at) as string)?.toISOString() ?? null,
+              boolParam(bi.isDelivered ?? bi.is_delivered, false),
+              dateParam((bi.deliveredAt ?? bi.delivered_at) as string),
               bi.itemRemainingCollected ?? bi.item_remaining_collected ?? 0,
               bi.itemSecurityCollected ?? bi.item_security_collected ?? 0,
               bi.itemDeliveryNotes ?? bi.item_delivery_notes ?? null,
-              boolInt(bi.isReturned ?? bi.is_returned, false),
+              boolParam(bi.isReturned ?? bi.is_returned, false),
+              boolParam(bi.isIncompleteReturn ?? bi.is_incomplete_return, false),
+              bi.itemIncompleteNotes ?? bi.item_incomplete_notes ?? null,
+              bi.itemIncompletePhoto ?? bi.item_incomplete_photo ?? null,
+              bi.itemSecurityHeld ?? bi.item_security_held ?? 0,
             );
             itemCount++;
           }
@@ -297,7 +360,7 @@ export async function POST(req: NextRequest) {
         let plItemCount = 0;
         for (const pl of backup.prospect_leads) {
           await tx.$executeRawUnsafe(
-            `INSERT INTO "prospect_leads" ("id","customer_name","customer_address","contact_1","whatsapp_no","venue","notes","staff_names","delivery_date","delivery_time","return_date","return_time","last_reminder_at","created_at") VALUES (?,?,?,?,?,?,?,?,?,?,?,?,?,?)`,
+            `INSERT INTO "prospect_leads" ("id","customer_name","customer_address","contact_1","whatsapp_no","venue","notes","staff_names","delivery_date","delivery_time","return_date","return_time","last_reminder_at","created_at") VALUES (${ph(14)})`,
             pl.id,
             pl.customerName ?? pl.customer_name,
             pl.customerAddress ?? pl.customer_address ?? null,
@@ -306,18 +369,18 @@ export async function POST(req: NextRequest) {
             pl.venue ?? null,
             pl.notes ?? null,
             pl.staffNames ?? pl.staff_names ?? null,
-            dReq((pl.deliveryDate ?? pl.delivery_date) as string).toISOString(),
+            dateParamReq((pl.deliveryDate ?? pl.delivery_date) as string),
             pl.deliveryTime ?? pl.delivery_time ?? null,
-            dReq((pl.returnDate ?? pl.return_date) as string).toISOString(),
+            dateParamReq((pl.returnDate ?? pl.return_date) as string),
             pl.returnTime ?? pl.return_time ?? null,
-            d((pl.lastReminderAt ?? pl.last_reminder_at) as string)?.toISOString() ?? null,
-            dReq((pl.createdAt ?? pl.created_at) as string).toISOString(),
+            dateParam((pl.lastReminderAt ?? pl.last_reminder_at) as string),
+            dateParamReq((pl.createdAt ?? pl.created_at) as string),
           );
 
           const plItems = (pl.items ?? []) as Array<Record<string, unknown>>;
           for (const pli of plItems) {
             await tx.$executeRawUnsafe(
-              `INSERT INTO "prospect_lead_items" ("id","prospect_lead_id","item_id","rent") VALUES (?,?,?,?)`,
+              `INSERT INTO "prospect_lead_items" ("id","prospect_lead_id","item_id","rent") VALUES (${ph(4)})`,
               pli.id, pli.prospectLeadId ?? pli.prospect_lead_id ?? pl.id,
               pli.itemId ?? pli.item_id, pli.rent ?? 0,
             );
@@ -332,7 +395,7 @@ export async function POST(req: NextRequest) {
       if (backup.shop_enquiries?.length) {
         for (const e of backup.shop_enquiries) {
           await tx.$executeRawUnsafe(
-            `INSERT INTO "shop_enquiries" ("id","customer_name","customer_address","contact_1","whatsapp_no","enquiry_notes","staff_names","visit_date","created_at") VALUES (?,?,?,?,?,?,?,?,?)`,
+            `INSERT INTO "shop_enquiries" ("id","customer_name","customer_address","contact_1","whatsapp_no","enquiry_notes","staff_names","visit_date","created_at") VALUES (${ph(9)})`,
             e.id,
             e.customerName ?? e.customer_name,
             e.customerAddress ?? e.customer_address ?? null,
@@ -340,22 +403,41 @@ export async function POST(req: NextRequest) {
             e.whatsappNo ?? e.whatsapp_no ?? null,
             e.enquiryNotes ?? e.enquiry_notes ?? null,
             e.staffNames ?? e.staff_names ?? null,
-            dReq((e.visitDate ?? e.visit_date) as string).toISOString(),
-            dReq((e.createdAt ?? e.created_at) as string).toISOString(),
+            dateParamReq((e.visitDate ?? e.visit_date) as string),
+            dateParamReq((e.createdAt ?? e.created_at) as string),
           );
         }
         counts.shop_enquiries = backup.shop_enquiries.length;
         log.push(`Restored ${backup.shop_enquiries.length} shop enquiries`);
       }
 
+      if (backup.activity_logs?.length) {
+        for (const l of backup.activity_logs) {
+          await tx.$executeRawUnsafe(
+            `INSERT INTO "activity_logs" ("id","username","action","entity","entity_id","label","data_before","data_after","created_at") VALUES (${ph(9)})`,
+            l.id,
+            l.username,
+            l.action,
+            l.entity,
+            l.entityId ?? l.entity_id ?? null,
+            l.label ?? null,
+            l.dataBefore ?? l.data_before ?? null,
+            l.dataAfter ?? l.data_after ?? null,
+            dateParamReq((l.createdAt ?? l.created_at) as string),
+          );
+        }
+        counts.activity_logs = backup.activity_logs.length;
+        log.push(`Restored ${backup.activity_logs.length} activity log entries`);
+      }
+
       const seqTables = [
         "custom_categories", "staff", "users", "customers", "clothing_items",
-        "suppliers", "supplier_purchases", "staff_attendance", "bookings",
-        "booking_items", "prospect_leads", "prospect_lead_items", "shop_enquiries",
-        "activity_logs",
+        "suppliers", "supplier_purchases", "staff_attendance", "rentals", "rental_items",
+        "invoices", "payments", "bookings", "booking_items", "prospect_leads",
+        "prospect_lead_items", "shop_enquiries", "activity_logs",
       ];
       for (const t of seqTables) {
-        await resetSqliteSequence(tx, t);
+        await resetAutoincrement(tx, t);
       }
       log.push("Autoincrement sequences reset.");
     }, { timeout: 120_000 });

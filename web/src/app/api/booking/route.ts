@@ -2,7 +2,6 @@ import { NextRequest } from "next/server";
 import prisma from "@/lib/prisma";
 import { createBooking } from "@/lib/services/bookingCrud";
 import { jsonError, jsonOk, requireUser, isResponse } from "@/lib/api";
-import { debugLog } from "@/lib/debugLog";
 import { formatDate } from "@/lib/constants";
 import { dressDisplayName } from "@/lib/dress";
 import { ensureBookingQrToken, bookingQrScanUrl } from "@/lib/bookingQr";
@@ -11,6 +10,7 @@ import {
   buildBookingConfirmationMessage,
   deliverWhatsApp,
 } from "@/lib/whatsapp";
+import { BookingFormSchema } from "@/lib/validation";
 
 async function maybeAutoSendBookingWhatsApp(bookingId: number, origin: string) {
   if (process.env.AISENSY_AUTO_SEND_BOOKING !== "true") return;
@@ -61,22 +61,17 @@ export async function POST(req: NextRequest) {
   const user = await requireUser();
   if (isResponse(user)) return user;
   try {
-    const body = await req.json();
+    const raw = await req.json();
+    const parseResult = BookingFormSchema.safeParse(raw);
+    if (!parseResult.success) {
+      return jsonError(parseResult.error.issues[0]?.message || "Invalid input", 400);
+    }
+    const body = parseResult.data;
     const booking = await createBooking(body, user.username);
     void maybeAutoSendBookingWhatsApp(booking.id, req.nextUrl.origin);
-    // #region agent log
-    debugLog("booking/route.ts", "booking created", {
-      id: booking.id,
-      serial: booking.monthlySerial,
-      itemCount: body.items?.length ?? 0,
-    }, "D");
-    // #endregion
     return jsonOk({ ok: true, id: booking.id, serial: booking.monthlySerial });
   } catch (e) {
     const msg = e instanceof Error ? e.message : "Failed to create booking";
-    // #region agent log
-    debugLog("booking/route.ts", "booking create failed", { error: msg }, "D");
-    // #endregion
     return jsonError(msg);
   }
 }

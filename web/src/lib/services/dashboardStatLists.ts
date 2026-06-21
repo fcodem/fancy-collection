@@ -1,4 +1,10 @@
-import prisma, { todayStartQ, todayEndQ } from "@/lib/prisma";
+import prisma from "@/lib/prisma";
+import { todayIso } from "@/lib/constants";
+import {
+  whereDeliveryInRange,
+  whereReturnInRange,
+  whereRemainingToDeliver,
+} from "@/lib/bookingDateQuery";
 import { serializeStandardBookingDetails } from "@/lib/bookingDetails";
 import { bookingCategories, type StatListBooking } from "@/lib/dashboardStatListFilter";
 
@@ -65,32 +71,31 @@ function serializeRow(b: Awaited<ReturnType<typeof fetchStatListRaw>>[number]): 
 }
 
 async function fetchStatListRaw(listType: DashboardStatListType) {
-  const today = todayStartQ();
-  const todayEnd = todayEndQ();
+  const todayStr = todayIso();
 
   switch (listType) {
     case "total-orders":
       return prisma.booking.findMany({
-        where: { deliveryDate: { gte: today, lt: todayEnd } },
+        where: await whereDeliveryInRange(todayStr, todayStr),
         include: bookingInclude,
         orderBy: { deliveryTime: "asc" },
       });
     case "delivered-today":
       return prisma.booking.findMany({
-        where: { deliveryDate: { gte: today, lt: todayEnd }, status: "delivered" },
+        where: { ...(await whereDeliveryInRange(todayStr, todayStr)), status: "delivered" },
         include: bookingInclude,
         orderBy: { deliveryTime: "asc" },
       });
     case "remaining-to-deliver":
       return prisma.booking.findMany({
-        where: { deliveryDate: { lte: today }, status: "booked" },
+        where: await whereRemainingToDeliver(todayStr),
         include: bookingInclude,
         orderBy: [{ deliveryDate: "asc" }, { deliveryTime: "asc" }],
       });
     case "returning-today":
       return prisma.booking.findMany({
         where: {
-          returnDate: { gte: today, lt: todayEnd },
+          ...(await whereReturnInRange(todayStr, todayStr)),
           status: { in: ["booked", "delivered"] },
         },
         include: bookingInclude,

@@ -1,11 +1,12 @@
 import { NextRequest } from "next/server";
 import prisma from "@/lib/prisma";
-import { updateBooking } from "@/lib/services/bookingCrud";
+import { updateBooking, type BookingFormInput } from "@/lib/services/bookingCrud";
 import { cancelBooking } from "@/lib/services/operations";
 import { serializeBookingForList } from "@/lib/booking";
 import { bookingLockedMessage, isBookingLocked } from "@/lib/bookingLock";
 import { jsonError, jsonOk, requireUser, isResponse } from "@/lib/api";
 import { isOwner } from "@/lib/auth";
+import { BookingFormSchema } from "@/lib/validation";
 
 export async function GET(_req: NextRequest, { params }: { params: Promise<{ id: string }> }) {
   const user = await requireUser();
@@ -30,8 +31,13 @@ export async function PUT(req: NextRequest, { params }: { params: Promise<{ id: 
     return jsonError(bookingLockedMessage(), 403);
   }
   try {
-    const body = await req.json();
-    const booking = await updateBooking(bookingId, body, user.username);
+    const raw = await req.json();
+    const parseResult = BookingFormSchema.partial().safeParse(raw);
+    if (!parseResult.success) {
+      return jsonError(parseResult.error.issues[0]?.message || "Invalid input", 400);
+    }
+    const body = parseResult.data;
+    const booking = await updateBooking(bookingId, body as BookingFormInput, user.username);
     return jsonOk({ ok: true, id: booking?.id, serial: booking?.monthlySerial });
   } catch (e) {
     return jsonError(e instanceof Error ? e.message : "Failed to update booking");

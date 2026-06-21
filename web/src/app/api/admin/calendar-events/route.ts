@@ -1,6 +1,7 @@
 import prisma from "@/lib/prisma";
 import { jsonOk, requireUser, isResponse } from "@/lib/api";
 import { formatInr } from "@/lib/format";
+import { resolveBookingStatus } from "@/lib/bookingStatus";
 
 export const dynamic = "force-dynamic";
 
@@ -8,10 +9,18 @@ export async function GET() {
   const user = await requireUser();
   if (isResponse(user)) return user;
 
+  const now = new Date();
+  const rangeStart = new Date(Date.UTC(now.getUTCFullYear() - 1, now.getUTCMonth(), 1));
+  const rangeEnd = new Date(Date.UTC(now.getUTCFullYear() + 1, now.getUTCMonth() + 6, 0));
+
   const bookings = await prisma.booking.findMany({
-    where: { status: { not: "cancelled" } },
+    where: {
+      status: { not: "cancelled" },
+      deliveryDate: { lte: rangeEnd },
+      returnDate: { gte: rangeStart },
+    },
     include: {
-      bookingItems: { select: { dressName: true, category: true, price: true } },
+      bookingItems: { select: { dressName: true, category: true, price: true, isDelivered: true } },
     },
     orderBy: { deliveryDate: "asc" },
   });
@@ -29,7 +38,7 @@ export async function GET() {
       title: `${b.customerName} — ${dressNames}`,
       start: b.deliveryDate.toISOString().slice(0, 10),
       end: end.toISOString().slice(0, 10),
-      status: b.status,
+      status: resolveBookingStatus(b),
       serial: b.monthlySerial,
       customer: b.customerName,
       phone: b.contact1,

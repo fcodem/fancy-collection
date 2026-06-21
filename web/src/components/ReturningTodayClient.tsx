@@ -7,6 +7,7 @@ import { formatDate } from "@/lib/constants";
 import { formatInr } from "@/lib/format";
 import { useRealtimeRefresh } from "@/hooks/useRealtimeRefresh";
 import { BOOKING_EVENTS } from "@/lib/realtime/types";
+import DownloadPdfButton from "@/components/DownloadPdfButton";
 
 type BookingSide = {
   id: number;
@@ -253,6 +254,40 @@ export default function ReturningTodayClient({
     return rows.filter((r) => r.item_categories.includes(category));
   }, [rows, category]);
 
+  const pdfHeaders = [
+    "S.No",
+    "Returning Customer",
+    "Dresses",
+    "Contact",
+    "Return Date/Time",
+    "Next Customer",
+    "Next Dresses",
+    "Next Contact",
+    "Delivery Date/Time",
+  ];
+
+  const pdfRows = useMemo(
+    () =>
+      filtered.map((r) => {
+        const ret = r.returning;
+        const nxt = r.next;
+        return [
+          serialLabel(ret.serial),
+          ret.customer_name || "—",
+          ret.items.join(", ") || "—",
+          ret.contact_1 || "—",
+          `${displayDate(ret.return_date)}${ret.return_time ? ` ${ret.return_time}` : ""}`,
+          nxt?.customer_name || "—",
+          nxt?.items.join(", ") || "—",
+          nxt?.contact_1 || "—",
+          nxt
+            ? `${displayDate(nxt.delivery_date)}${nxt.delivery_time ? ` ${nxt.delivery_time}` : ""}`
+            : "—",
+        ];
+      }),
+    [filtered],
+  );
+
   return (
     <div className="alternate-booking-page">
       <div className="card" style={{ marginBottom: 20 }}>
@@ -264,7 +299,7 @@ export default function ReturningTodayClient({
         </div>
         <div className="card-body">
           <p style={{ fontSize: 13, color: "var(--text-muted)", marginBottom: 16 }}>
-            Shows all dresses <strong>returning</strong> on the selected date. When a dress is also <strong>booked for delivery</strong> to another customer the same day, the next customer appears on the right (alternate handover).
+            Shows dresses that are <strong>returning</strong> from one customer and <strong>delivered</strong> to another customer on the <strong>same date</strong> (alternate handover). Regular returns with no same-day re-delivery are not listed here.
           </p>
           <div style={{ display: "flex", gap: 16, alignItems: "flex-end", flexWrap: "wrap" }}>
             <div>
@@ -286,9 +321,14 @@ export default function ReturningTodayClient({
                 ))}
               </select>
             </div>
-            <button type="button" className="btn btn-outline no-print" onClick={() => window.print()}>
-              <i className="fa-solid fa-print" style={{ marginRight: 6 }} />Print
-            </button>
+            <DownloadPdfButton
+              title="Alternate Booking"
+              filename={`alternate-booking-${date}`}
+              subtitle={`Date: ${displayDate(date)}${category ? ` · Category: ${category}` : ""}`}
+              headers={pdfHeaders}
+              rows={pdfRows}
+              disabled={!loaded || !pdfRows.length}
+            />
           </div>
         </div>
       </div>
@@ -308,18 +348,11 @@ export default function ReturningTodayClient({
           <div
             key={r.id}
             className="card alternate-booking-card"
-            style={{ marginBottom: 20, borderLeft: `4px solid ${r.next ? "#f39c12" : "var(--primary)"}` }}
+            style={{ marginBottom: 20, borderLeft: "4px solid #f39c12" }}
           >
-            <div className={`alternate-booking-split${!r.next ? " alternate-booking-split--single" : ""}`}>
+            <div className="alternate-booking-split">
               <CustomerRecordPanel variant="return" side={r.returning} deliveryNotes={r.delivery_notes} />
-              {r.next ? (
-                <CustomerRecordPanel variant="deliver" side={r.next} />
-              ) : (
-                <div className="alternate-booking-next" style={{ display: "flex", alignItems: "center", justifyContent: "center", padding: 32, color: "var(--text-muted)", fontSize: 13 }}>
-                  <i className="fa-solid fa-calendar-check" style={{ marginRight: 8 }} />
-                  No alternate delivery on this date
-                </div>
-              )}
+              {r.next && <CustomerRecordPanel variant="deliver" side={r.next} />}
             </div>
           </div>
         ))}
@@ -330,8 +363,8 @@ export default function ReturningTodayClient({
             <i className="fa-solid fa-calendar-xmark" style={{ fontSize: 40, marginBottom: 12, opacity: 0.4 }} />
             <p style={{ margin: 0, fontSize: 15 }}>
               {rows.length && category
-                ? "No records match the selected category."
-                : "No bookings returning on this date."}
+                ? "No alternate handovers match the selected category."
+                : "No alternate handovers on this date — no dress is both returning and being delivered to another customer."}
             </p>
           </div>
         </div>

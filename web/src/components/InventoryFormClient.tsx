@@ -11,6 +11,7 @@ const ALL_CATS = [...BASE_MENS, ...BASE_WOMENS, ...BASE_JEWELLERY, ...BASE_ACCES
 export default function InventoryFormClient({ item }: { item?: Record<string, unknown> }) {
   const router = useRouter();
   const [category, setCategory] = useState((item?.category as string) || "");
+  const [name, setName] = useState((item?.name as string) || "");
   const [selectedSizes, setSelectedSizes] = useState<string[]>([]);
   const [saving, setSaving] = useState(false);
   const [photoPreview, setPhotoPreview] = useState("");
@@ -48,7 +49,15 @@ export default function InventoryFormClient({ item }: { item?: Record<string, un
       <div className="card-header"><h3 className="card-title">{isEdit ? "Edit Item" : "Add Item"}</h3></div>
       <div className="card-body" style={{ display: "grid", gap: 16, maxWidth: 600 }}>
         <div><label className="form-label">Name *</label>
-          <DressNameSuggestInput name="name" required defaultValue={item?.name as string} category={category} data-skip-dress-suggest="true" />
+          <DressNameSuggestInput
+            name="name"
+            required
+            value={name}
+            onChange={(e) => setName(e.target.value)}
+            onSuggestSelect={(item) => setName(item.name)}
+            category={category}
+            showPhotos
+          />
         </div>
         <div><label className="form-label">Category *</label>
           <select id="invCategory" name="category" className="form-control" required value={category} onChange={(e) => setCategory(e.target.value)}>

@@ -1,3 +1,4 @@
+import { unstable_cache } from "next/cache";
 import prisma from "./prisma";
 import {
   BASE_ACCESSORY,
@@ -6,7 +7,7 @@ import {
   BASE_WOMENS,
 } from "./constants";
 
-export async function getAllCategories() {
+async function loadAllCategories() {
   const custom = await prisma.customCategory.findMany({ where: { active: true } });
   const mens = [...BASE_MENS];
   const womens = [...BASE_WOMENS];
@@ -31,6 +32,8 @@ export async function getAllCategories() {
     all_categories: [...mens, ...womens, ...jewellery, ...accessory, ...other],
   };
 }
+
+export const getAllCategories = unstable_cache(loadAllCategories, ["all-categories"], { revalidate: 120 });
 
 export function isMensCategory(category: string, mens: string[]): boolean {
   return mens.includes(category);

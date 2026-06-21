@@ -66,43 +66,47 @@ function bookingDateLabel(d: string | Date) {
   return formatDate(iso, "display");
 }
 
-type DressCheckerBooking = {
-  booking_id?: number;
-  customer?: string;
-  serial_no?: number;
-  delivery_date?: string;
-  delivery_time?: string;
-  return_date?: string;
-  return_time?: string;
-  venue?: string;
-  total_rent?: number;
-  contact?: string;
+type DressCheckerItem = {
+  id: number;
+  name: string;
+  display_name: string;
+  category: string;
+  size: string;
+  status: string;
+  reason: string;
+  blocking_booking?: Record<string, unknown> | null;
+  booked_warning?: Record<string, unknown> | null;
+  returning_warning?: Record<string, unknown> | null;
 };
+
+type DressCheckerState =
+  | { kind: "idle" }
+  | { kind: "loading" }
+  | { kind: "error"; message: string }
+  | { kind: "warning"; message: string }
+  | { kind: "results"; dressName: string; items: DressCheckerItem[] };
+
+function DressCheckerBookingInfo({
+  booking,
+  label,
+}: {
+  booking: Record<string, unknown>;
+  label: string;
+}) {
+  return (
+    <div style={{ marginTop: 8, fontSize: 12, padding: "6px 10px",
+      background: "var(--bg-warning-soft, #fff8e1)", borderRadius: 4 }}>
+      <strong>{label}:</strong>{" "}
+      {String(booking.customer || "")}
+      {booking.serial_no ? ` #${String(booking.serial_no).padStart(2, "0")}` : ""}
+      {booking.delivery_date ? ` · Del: ${booking.delivery_date}` : ""}
+      {booking.return_date ? ` · Ret: ${booking.return_date}` : ""}
+    </div>
+  );
+}
 
 function serialLabel(n: number) {
   return String(n || 0).padStart(2, "0");
-}
-
-function dressCheckerBookingHtml(booking: DressCheckerBooking, label: string) {
-  if (!booking?.booking_id) return "";
-  const serial = serialLabel(booking.serial_no || 0);
-  const rent = booking.total_rent ? formatInr(booking.total_rent) : "";
-  return `<div style="margin-top:10px;padding:10px 12px;background:var(--cream-dark);border-radius:8px;border-left:3px solid var(--primary);">
-    <div style="font-size:12px;color:var(--text-muted);margin-bottom:6px;"><strong style="color:var(--text);">${label}</strong></div>
-    <div style="font-size:13px;font-weight:600;">${booking.customer || "—"}</div>
-    <div style="font-size:12px;color:var(--text-muted);margin-top:4px;">
-      Serial #${serial}${rent ? ` · ${rent}` : ""}${booking.contact ? ` · ${booking.contact}` : ""}
-    </div>
-    <div style="font-size:12px;margin-top:4px;">
-      <i class="fa-solid fa-truck" style="margin-right:4px;color:var(--primary);"></i>${booking.delivery_date || "—"} ${booking.delivery_time || ""}
-      <span style="margin:0 6px;">→</span>
-      <i class="fa-solid fa-rotate-left" style="margin-right:4px;"></i>${booking.return_date || "—"} ${booking.return_time || ""}
-      ${booking.venue ? `<span style="margin-left:6px;">· ${booking.venue}</span>` : ""}
-    </div>
-    <a href="/booking/${booking.booking_id}" class="btn btn-primary btn-sm" style="margin-top:10px;">
-      <i class="fa-solid fa-eye" style="margin-right:6px;"></i>View Booking Details
-    </a>
-  </div>`;
 }
 
 export default function DashboardView({ data, isOwner, pendingStaff, activeStaff }: DashboardProps) {
@@ -118,7 +122,7 @@ export default function DashboardView({ data, isOwner, pendingStaff, activeStaff
   const [dcReturn, setDcReturn] = useState(data.today_iso);
   const [dcDress, setDcDress] = useState("");
   const [dcCategory, setDcCategory] = useState("");
-  const [dcResult, setDcResult] = useState("");
+  const [dcState, setDcState] = useState<DressCheckerState>({ kind: "idle" });
 
   const [fiDelivery, setFiDelivery] = useState(data.today_iso);
   const [fiReturn, setFiReturn] = useState(data.today_iso);
@@ -164,12 +168,18 @@ export default function DashboardView({ data, isOwner, pendingStaff, activeStaff
   }
 
   const searchFreeItems = useCallback(async () => {
-    const res = await fetch(
-      `/api/dashboard/free-items?delivery_date=${fiDelivery}&return_date=${fiReturn}&category=${encodeURIComponent(fiCategory)}`
-    );
-    const json = await res.json();
-    setFiData(json);
-    setFreeItemCount(`${(json.free_items || []).length} free items`);
+    try {
+      const res = await fetch(
+        `/api/dashboard/free-items?delivery_date=${fiDelivery}&return_date=${fiReturn}&category=${encodeURIComponent(fiCategory)}`,
+        { credentials: "same-origin" },
+      );
+      if (!res.ok) return;
+      const json = await res.json();
+      setFiData(json);
+      setFreeItemCount(`${(json.free_items || []).length} free items`);
+    } catch {
+      /* ignore transient network errors */
+    }
   }, [fiDelivery, fiReturn, fiCategory]);
 
   useEffect(() => {
@@ -179,7 +189,8 @@ export default function DashboardView({ data, isOwner, pendingStaff, activeStaff
   useEffect(() => {
     const t = setTimeout(async () => {
       const q = dashQuery.trim();
-      if (q.length < 2) {
+      const isSerial = /^\d+$/.test(q);
+      if (!q || (!isSerial && q.length < 2)) {
         setDashResults([]);
         setDashSearchMode("");
         setShowDashResults(false);
@@ -202,44 +213,26 @@ export default function DashboardView({ data, isOwner, pendingStaff, activeStaff
 
   async function runDressChecker() {
     if (!dcDress.trim()) {
-      setDcResult('<div class="alert alert-warning">Please enter a dress name to check.</div>');
+      setDcState({ kind: "warning", message: "Please enter a dress name to check." });
       return;
     }
-    setDcResult('<div style="text-align:center;padding:24px;">Checking…</div>');
+    setDcState({ kind: "loading" });
     const url = `/api/dress-checker?delivery_date=${dcDelivery}&return_date=${dcReturn}&dress_name=${encodeURIComponent(dcDress)}&category=${encodeURIComponent(dcCategory)}`;
-    const res = await fetch(url);
-    const json = await res.json();
-    if (json.error) {
-      setDcResult(`<div class="alert alert-error">${json.error}</div>`);
-      return;
-    }
-    if (!json.items?.length) {
-      setDcResult(`<div class="alert alert-warning">${json.message || "No matching dress found."}</div>`);
-      return;
-    }
-    let html = `<div style="font-size:12px;margin-bottom:12px;"><strong>${json.items.length}</strong> result(s) for <strong>${json.dress_name}</strong></div>`;
-    for (const item of json.items) {
-      const badge =
-        item.status === "available"
-          ? '<span class="badge badge-available">Free</span>'
-          : item.status === "available_with_warning"
-            ? '<span class="badge badge-warning">Available with Warning</span>'
-            : '<span class="badge badge-overdue">Not Available</span>';
-      html += `<div class="card" style="margin-bottom:12px;padding:14px 18px;">
-        <strong>${item.display_name || item.name}</strong> ${badge}
-        <div style="font-size:12px;color:var(--text-muted);margin-top:6px;">${item.category}${item.size ? " · Size " + item.size : ""} · ${item.reason}</div>`;
-      if (item.blocking_booking) {
-        html += dressCheckerBookingHtml(item.blocking_booking, "Currently booked");
+    try {
+      const res = await fetch(url, { credentials: "same-origin" });
+      const json = await res.json();
+      if (json.error) {
+        setDcState({ kind: "error", message: json.error });
+        return;
       }
-      if (item.booked_warning) {
-        html += dressCheckerBookingHtml(item.booked_warning, "Booked on your return date");
+      if (!json.items?.length) {
+        setDcState({ kind: "warning", message: json.message || "No matching dress found." });
+        return;
       }
-      if (item.returning_warning) {
-        html += dressCheckerBookingHtml(item.returning_warning, "Returning on your delivery date");
-      }
-      html += `</div>`;
+      setDcState({ kind: "results", dressName: json.dress_name, items: json.items });
+    } catch {
+      setDcState({ kind: "error", message: "Could not reach the server. Check your connection and try again." });
     }
-    setDcResult(html);
   }
 
   return (
@@ -291,21 +284,35 @@ export default function DashboardView({ data, isOwner, pendingStaff, activeStaff
         </div>
       )}
 
-      <div className="card" style={{ marginBottom: 20 }}>
-        <div className="card-body" style={{ padding: "14px 20px" }}>
-          <div className="dashboard-search-row" style={{ display: "flex", gap: 12, alignItems: "center", flexWrap: "wrap" }}>
+      <div className="card" style={{ marginBottom: 20, overflow: "visible" }}>
+        <div className="card-body" style={{ padding: "14px 20px", overflow: "visible" }}>
+          <div
+            className="dashboard-search-row"
+            style={{ display: "flex", gap: 12, alignItems: "center", flexWrap: "wrap", position: "relative", zIndex: 30 }}
+          >
             <i className="fa-solid fa-magnifying-glass" style={{ color: "var(--primary)", fontSize: 18 }} />
-            <DressNameSuggestInput
-              type="text"
-              className="form-control"
-              placeholder="Quick search: Customer name, serial no, phone, dress name..."
-              value={dashQuery}
-              onChange={(e) => setDashQuery(e.target.value)}
-              onFocus={() => dashResults.length > 0 && setShowDashResults(true)}
-              onBlur={() => setTimeout(() => setShowDashResults(false), 200)}
-              style={{ flex: 1, minWidth: 0 }}
-              data-skip-dress-suggest="true"
-            />
+            <div style={{ flex: 1, minWidth: 0, position: "relative" }}>
+              <DressNameSuggestInput
+                type="text"
+                className="form-control"
+                placeholder="Quick search: Customer name, serial no, phone, dress name..."
+                value={dashQuery}
+                onChange={(e) => setDashQuery(e.target.value)}
+                onSuggestSelect={(item) => {
+                  setDashQuery(item.name);
+                  setShowDashResults(true);
+                }}
+                onFocus={() => {
+                  if (dashResults.length > 0) setShowDashResults(true);
+                }}
+                onBlur={() => setTimeout(() => setShowDashResults(false), 250)}
+                onKeyDown={(e) => {
+                  if (e.key === "Enter") setShowDashResults(true);
+                }}
+                style={{ width: "100%", fontSize: 15 }}
+                minChars={2}
+              />
+            </div>
             <Link href="/search-booking" className="btn btn-outline btn-sm">Advanced Search</Link>
             <Link href="/search-qr" className="btn btn-gold btn-sm">
               <i className="fa-solid fa-qrcode" style={{ marginRight: 6 }} />Search QR Code
@@ -315,11 +322,11 @@ export default function DashboardView({ data, isOwner, pendingStaff, activeStaff
             <div style={{ marginTop: 12, maxHeight: 360, overflowY: "auto", border: "1px solid var(--border)", borderRadius: 8 }}>
               {dashSearchMode && (
                 <div style={{ padding: "8px 12px", fontSize: 11, color: "var(--text-muted)", borderBottom: "1px solid var(--border)", background: "var(--cream-dark)" }}>
-                  {dashSearchMode === "serial" && "Serial number — previous, current & next month"}
-                  {dashSearchMode === "customer" && "Customer name — nearest dates first"}
-                  {dashSearchMode === "phone" && "Phone / WhatsApp — nearest dates first"}
-                  {dashSearchMode === "dress" && "Dress name — nearest dates first"}
-                  {dashSearchMode === "mixed" && "Matches — nearest dates first"}
+                  {dashSearchMode === "serial" && "Serial number — booked & delivered only"}
+                  {dashSearchMode === "customer" && "Customer name — booked & delivered only"}
+                  {dashSearchMode === "phone" && "Phone / WhatsApp — booked & delivered only"}
+                  {dashSearchMode === "dress" && "Dress name — booked & delivered only"}
+                  {dashSearchMode === "mixed" && "Matches — booked & delivered only"}
                 </div>
               )}
               {dashResults.map((b) => (
@@ -359,7 +366,7 @@ export default function DashboardView({ data, isOwner, pendingStaff, activeStaff
               ))}
             </div>
           )}
-          {showDashResults && dashQuery.trim().length >= 2 && dashResults.length === 0 && (
+          {showDashResults && dashQuery.trim().length >= (/^\d+$/.test(dashQuery.trim()) ? 1 : 2) && dashResults.length === 0 && (
             <div style={{ marginTop: 12, padding: 12, textAlign: "center", color: "var(--text-muted)", fontSize: 13 }}>
               No matching bookings found.
             </div>
@@ -453,13 +460,69 @@ export default function DashboardView({ data, isOwner, pendingStaff, activeStaff
                   categorySelect="#dcCategory"
                   value={dcDress}
                   onChange={(e) => setDcDress(e.target.value)}
+                  onSuggestSelect={(item) => setDcDress(item.name)}
                   placeholder="Enter dress name…"
-                  data-skip-dress-suggest="true"
+                  showPhotos
                 />
               </div>
             </div>
             <button type="button" className="btn btn-primary" onClick={runDressChecker}><i className="fa-solid fa-check" /> Check Availability</button>
-            <div style={{ marginTop: 16 }} dangerouslySetInnerHTML={{ __html: dcResult }} />
+            <div style={{ marginTop: 16 }}>
+              {dcState.kind === "loading" && (
+                <div style={{ textAlign: "center", padding: "24px" }}>Checking…</div>
+              )}
+              {dcState.kind === "error" && (
+                <div className="alert alert-error">{dcState.message}</div>
+              )}
+              {dcState.kind === "warning" && (
+                <div className="alert alert-warning">{dcState.message}</div>
+              )}
+              {dcState.kind === "results" && (
+                <div>
+                  <div style={{ fontSize: 12, marginBottom: 12 }}>
+                    <strong>{dcState.items.length}</strong> result(s) for{" "}
+                    <strong>{dcState.dressName}</strong>
+                  </div>
+                  {dcState.items.map((item) => {
+                    const badge =
+                      item.status === "available" ? (
+                        <span className="badge badge-available">Free</span>
+                      ) : item.status === "available_with_warning" ? (
+                        <span className="badge badge-warning">Available with Warning</span>
+                      ) : (
+                        <span className="badge badge-overdue">Not Available</span>
+                      );
+                    return (
+                      <div key={item.id} className="card" style={{ marginBottom: 12, padding: "14px 18px" }}>
+                        <strong>{item.display_name || item.name}</strong> {badge}
+                        <div style={{ fontSize: 12, color: "var(--text-muted)", marginTop: 6 }}>
+                          {item.category}
+                          {item.size ? ` · Size ${item.size}` : ""} · {item.reason}
+                        </div>
+                        {item.blocking_booking && (
+                          <DressCheckerBookingInfo
+                            booking={item.blocking_booking}
+                            label="Currently booked"
+                          />
+                        )}
+                        {item.booked_warning && (
+                          <DressCheckerBookingInfo
+                            booking={item.booked_warning}
+                            label="Booked on your return date"
+                          />
+                        )}
+                        {item.returning_warning && (
+                          <DressCheckerBookingInfo
+                            booking={item.returning_warning}
+                            label="Returning on your delivery date"
+                          />
+                        )}
+                      </div>
+                    );
+                  })}
+                </div>
+              )}
+            </div>
           </div>
         </div>
       )}

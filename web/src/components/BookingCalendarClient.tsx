@@ -61,6 +61,7 @@ export default function BookingCalendarClient() {
       .then((data) => {
         if (Array.isArray(data)) setEvents(data);
       })
+      .catch(() => {})
       .finally(() => setLoading(false));
   }, []);
 

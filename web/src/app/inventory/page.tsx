@@ -5,7 +5,7 @@ import { getCurrentUser, isOwner } from "@/lib/auth";
 import ServerAppShell from "@/components/ServerAppShell";
 import InventoryFilterBar from "@/components/InventoryFilterBar";
 import InventoryDeleteButton from "@/components/InventoryDeleteButton";
-import { dressDisplayName, stripUnitSuffix } from "@/lib/dress";
+import { dressDisplayName, stripUnitSuffix, buildDressSearchWhere } from "@/lib/dress";
 import { photoUrl } from "@/lib/photoUrl";
 import type { ClothingItem } from "@prisma/client";
 
@@ -58,12 +58,7 @@ export default async function InventoryPage({
     where: {
       ...(category ? { category } : {}),
       ...(status ? { status } : {}),
-      ...(q ? {
-        OR: [
-          { name: { contains: q } },
-          { sku: { contains: q } },
-        ],
-      } : {}),
+      ...(q ? buildDressSearchWhere(q) : {}),
     },
     orderBy: [{ category: "asc" }, { name: "asc" }],
     take: 200,

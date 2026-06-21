@@ -19,8 +19,9 @@ const nextConfig: NextConfig = {
   },
   experimental: {
     serverActions: {
-      bodySizeLimit: "10mb",
+      bodySizeLimit: "50mb",
     },
+    proxyClientMaxBodySize: "50mb",
     optimizePackageImports: ["@prisma/client"],
   },
 };
@@ -35,7 +36,7 @@ export default sentryEnabled
       project: process.env.SENTRY_PROJECT,
       authToken: process.env.SENTRY_AUTH_TOKEN,
       silent: !process.env.CI,
-      widenClientFileUpload: Boolean(process.env.SENTRY_AUTH_TOKEN),
+      widenClientFileUpload: false,
       disableLogger: true,
       automaticVercelMonitors: false,
     })

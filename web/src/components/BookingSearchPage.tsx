@@ -7,6 +7,12 @@ import type { StandardBookingDetails } from "@/lib/bookingDetails";
 import { formatInr } from "@/lib/format";
 import { useRealtimeRefresh } from "@/hooks/useRealtimeRefresh";
 import { BOOKING_EVENTS } from "@/lib/realtime/types";
+import DownloadPdfButton from "@/components/DownloadPdfButton";
+import {
+  STANDARD_BOOKING_HEADERS,
+  balanceRemainingLabel,
+  standardBookingPdfRow,
+} from "@/lib/standardBookingPdfRows";
 
 type BookingRow = StandardBookingDetails & {
   id: number;
@@ -18,6 +24,10 @@ type BookingRow = StandardBookingDetails & {
   total_price?: number;
   total_remaining?: number;
   remaining_collected?: number;
+  security_collected?: number;
+  security_held?: number;
+  delivery_notes?: string;
+  balance_remaining?: number;
   status?: string;
 };
 
@@ -35,7 +45,7 @@ const MODE_HINTS: Record<string, string> = {
   dress: "Dress name match — sorted nearest to selected date",
   mixed: "Combined matches — sorted nearest to selected date",
   year: "All records in selected year",
-  month: "Month search — booked & delivered only",
+  month: "Booked & delivered only for the selected month — sorted by serial",
   date: "Showing bookings nearest to the selected date",
 };
 
@@ -46,6 +56,7 @@ export default function BookingSearchPage({
   dateLabel = "Date",
   showRemaining = false,
   showStatus = false,
+  showDeliveryInfo = false,
   showCategoryFilter = false,
   monthBased = false,
   hint,
@@ -60,6 +71,7 @@ export default function BookingSearchPage({
   dateLabel?: string;
   showRemaining?: boolean;
   showStatus?: boolean;
+  showDeliveryInfo?: boolean;
   showCategoryFilter?: boolean;
   monthBased?: boolean;
   hint?: string;
@@ -73,45 +85,94 @@ export default function BookingSearchPage({
   const [category, setCategory] = useState("");
   const [rows, setRows] = useState<BookingRow[]>([]);
   const [searchMode, setSearchMode] = useState("");
+  const [searchMonth, setSearchMonth] = useState("");
   const [loaded, setLoaded] = useState(false);
 
   const runSearch = useCallback(async () => {
-    const params = new URLSearchParams({
-      date: searchDate,
-      q: query,
-    });
-    if (category) params.set("category", category);
-    const res = await fetch(`${apiPath}?${params.toString()}`, { credentials: "same-origin" });
-    const data = await res.json();
-    if (Array.isArray(data)) {
-      setRows(data);
-      setSearchMode("");
-    } else {
-      setRows(Array.isArray(data.results) ? data.results : []);
-      setSearchMode(data.mode || "");
+    try {
+      const params = new URLSearchParams({
+        date: searchDate,
+        q: query,
+      });
+      if (category) params.set("category", category);
+      const res = await fetch(`${apiPath}?${params.toString()}`, {
+        credentials: "same-origin",
+        cache: "no-store",
+      });
+      if (!res.ok) return;
+      const data = await res.json();
+      if (Array.isArray(data)) {
+        setRows(data);
+        setSearchMode("");
+        setSearchMonth("");
+      } else {
+        setRows(Array.isArray(data.results) ? data.results : []);
+        setSearchMode(data.mode || "");
+        setSearchMonth(typeof data.month === "string" ? data.month : "");
+      }
+      setLoaded(true);
+    } catch {
+      /* ignore transient network errors (e.g. dev recompile during poll refresh) */
+      setLoaded((prev) => prev || true);
     }
-    setLoaded(true);
   }, [apiPath, searchDate, query, category]);
 
   useRealtimeRefresh(BOOKING_EVENTS, runSearch);
 
   // Date or category change: refresh list (nearest to date, or filtered by category).
   useEffect(() => {
-    runSearch();
+    void runSearch();
     // eslint-disable-next-line react-hooks/exhaustive-deps
   }, [searchDate, category]);
 
-  const colSpan = 10 + (showRemaining ? 1 : 0) + (showStatus ? 1 : 0);
+  const colSpan = 10 + (showRemaining ? 1 : 0) + (showStatus ? 1 : 0) + (showDeliveryInfo ? 1 : 0);
   const suggestMode = apiPath.includes("return") ? "return" : "delivery";
   const defaultHint = monthBased
-    ? "Pick a date to see bookings nearest to that date (booked & delivered). Optionally filter by category. Type in Search and click Search to show only matching records."
-    : "Search by customer name, dress, phone, WhatsApp, or serial. Shows delivered & returned records. Customer name searches full lifetime; other fields search within the selected year.";
+    ? "Pick any date in a month — booked and delivered records for that month appear below (returned records are hidden). Use Search to filter by customer, dress, phone, or serial."
+    : "Search by customer name, dress, phone, WhatsApp, or serial. Includes booked, delivered, and returned records. Customer name searches full lifetime; other fields search within the selected year.";
+
+  const pdfHeaders = [
+    ...STANDARD_BOOKING_HEADERS,
+    ...(showStatus ? ["Status"] : []),
+    ...(showRemaining ? ["Balance Left"] : []),
+    ...(showDeliveryInfo ? ["Delivery Info"] : []),
+  ];
+
+  const pdfRows = rows.map((b) => {
+    const serial = b.serial_no ?? b.serial;
+    const row = standardBookingPdfRow(serial, b);
+    if (showStatus) row.push(b.status || "—");
+    if (showRemaining) {
+      row.push(
+        balanceRemainingLabel(b.total_remaining, b.remaining_collected, b.balance_remaining),
+      );
+    }
+    if (showDeliveryInfo) {
+      const parts: string[] = [];
+      if ((b.remaining_collected || 0) > 0) parts.push(`Collected: ₹${formatInr(b.remaining_collected || 0)}`);
+      if ((b.security_held || b.security_collected || 0) > 0) {
+        parts.push(`Security held: ₹${formatInr(b.security_held || b.security_collected || 0)}`);
+      }
+      if (b.delivery_notes) parts.push(b.delivery_notes);
+      row.push(parts.length ? parts.join(" · ") : "—");
+    }
+    return row;
+  });
 
   return (
     <div>
       <div className="card" style={{ marginBottom: 24, overflow: "visible" }}>
         <div className="card-header">
           <h3 className="card-title">{title}</h3>
+          <DownloadPdfButton
+            title={title}
+            filename={title.toLowerCase().replace(/\s+/g, "-")}
+            subtitle={`${dateLabel}: ${searchDate}${query ? ` · Search: ${query}` : ""}`}
+            headers={pdfHeaders}
+            rows={pdfRows}
+            disabled={!loaded || !pdfRows.length}
+            size="sm"
+          />
         </div>
         <div className="card-body" style={{ overflow: "visible" }}>
           <p style={{ fontSize: 12, color: "var(--text-muted)", marginBottom: 12 }}>
@@ -202,6 +263,9 @@ export default function BookingSearchPage({
                 background: "var(--cream-dark)",
               }}
             >
+              {searchMode === "month" && searchMonth
+                ? `Delivery month: ${new Date(`${searchMonth}-15T00:00:00.000Z`).toLocaleDateString("en-IN", { month: "long", year: "numeric", timeZone: "UTC" })} · `
+                : ""}
               {MODE_HINTS[searchMode]} · {rows.length} result{rows.length === 1 ? "" : "s"}
             </div>
           )}
@@ -213,7 +277,8 @@ export default function BookingSearchPage({
                     <th>S.No</th>
                     <StandardBookingTableHead />
                     {showStatus && <th>Status</th>}
-                    {showRemaining && <th>Remaining</th>}
+                    {showRemaining && <th>Balance Left</th>}
+                    {showDeliveryInfo && <th>Delivery Info</th>}
                     <th>Action</th>
                   </tr>
                 </thead>
@@ -234,7 +299,33 @@ export default function BookingSearchPage({
                         )}
                         {showRemaining && (
                           <td>
-                            ₹{formatInr(Number((b.total_remaining || 0) - (b.remaining_collected || 0)))}
+                            {(() => {
+                              const left =
+                                b.balance_remaining ??
+                                Math.max(0, (b.total_remaining || 0) - (b.remaining_collected || 0));
+                              return left > 0 ? (
+                                <span style={{ fontWeight: 700, color: "var(--danger)" }}>₹{formatInr(left)}</span>
+                              ) : (
+                                <span style={{ color: "var(--success)", fontWeight: 600 }}>Paid ✓</span>
+                              );
+                            })()}
+                          </td>
+                        )}
+                        {showDeliveryInfo && (
+                          <td style={{ fontSize: 12, maxWidth: 220, wordBreak: "break-word" }}>
+                            {(b.remaining_collected || 0) > 0 && (
+                              <div>Collected: ₹{formatInr(b.remaining_collected || 0)}</div>
+                            )}
+                            {(b.security_held || b.security_collected || 0) > 0 && (
+                              <div>
+                                Security held: ₹{formatInr(b.security_held || b.security_collected || 0)}
+                              </div>
+                            )}
+                            {b.delivery_notes ? (
+                              <div style={{ color: "var(--text-muted)", marginTop: 4 }}>{b.delivery_notes}</div>
+                            ) : (
+                              !(b.remaining_collected || b.security_collected || b.security_held) && "—"
+                            )}
                           </td>
                         )}
                         <td>

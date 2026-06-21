@@ -83,8 +83,22 @@ export default function RestoreClient() {
           "Attendance": countTable(data.attendance),
           "Suppliers": countTable(data.suppliers),
           "Supplier Purchases": countTable(data.supplier_purchases),
+          "Rentals": countTable(data.rentals),
+          "Rental Items": (data.rentals ?? []).reduce(
+            (s: number, r: Record<string, unknown>) => s + countTable(r.items),
+            0,
+          ),
+          "Invoices": countTable(data.invoices),
+          "Payments": (data.invoices ?? []).reduce(
+            (s: number, inv: Record<string, unknown>) => s + countTable(inv.payments),
+            0,
+          ),
           "Prospect Leads": countTable(data.prospect_leads),
           "Shop Enquiries": countTable(data.shop_enquiries),
+          "Activity Logs": countTable(data.activity_logs),
+          "Photo Files (paths)": Array.isArray(data.meta?.photo_manifest)
+            ? data.meta.photo_manifest.length
+            : 0,
         };
         setPreview({
           meta: data.meta,
@@ -133,7 +147,14 @@ export default function RestoreClient() {
         }
       } else {
         setPhase("error");
-        setResult({ success: false, message: data.error || `Restore failed (HTTP ${res.status}).` });
+        const msg =
+          data.error ||
+          (res.status === 413
+            ? "Backup file is too large (max ~50MB). Try exporting a smaller backup or contact support."
+            : res.status === 401
+              ? "Session expired — log in again as owner and retry."
+              : `Restore failed (HTTP ${res.status}).`);
+        setResult({ success: false, message: msg });
       }
     } catch (err) {
       setPhase("error");

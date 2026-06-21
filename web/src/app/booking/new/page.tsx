@@ -1,4 +1,3 @@
-import { redirect } from "next/navigation";
 import prisma from "@/lib/prisma";
 import ServerAppShell from "@/components/ServerAppShell";
 import BookingFormClient from "@/components/BookingFormClient";
@@ -7,14 +6,25 @@ import { todayIso } from "@/lib/constants";
 
 export const dynamic = "force-dynamic";
 
-export default async function NewBookingPage() {
-  const cats = await getAllCategories();
-  const staff = await prisma.staff.findMany({ where: { active: true }, orderBy: { name: "asc" } });
+export default async function NewBookingPage({
+  searchParams,
+}: {
+  searchParams: Promise<{ confirmed?: string; serial?: string }>;
+}) {
+  const sp = await searchParams;
+  const saveConfirmedSerial =
+    sp.confirmed === "1" && sp.serial ? parseInt(sp.serial, 10) || undefined : undefined;
+
+  const [cats, staff] = await Promise.all([
+    getAllCategories(),
+    prisma.staff.findMany({ where: { active: true }, orderBy: { name: "asc" } }),
+  ]);
 
   return (
     <ServerAppShell>
       <BookingFormClient
         today={todayIso()}
+        saveConfirmedSerial={saveConfirmedSerial}
         staffList={staff.map((s) => s.name)}
         mensCategories={cats.mens_categories}
         womensCategories={cats.womens_categories}

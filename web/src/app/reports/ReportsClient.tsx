@@ -1,6 +1,7 @@
 "use client";
 
 import { useState } from "react";
+import Link from "next/link";
 
 async function downloadFile(url: string, label: string, setDownloading: (v: string | null) => void) {
   setDownloading(label);
@@ -205,13 +206,27 @@ export default function ReportsClient({ isOwner = false }: { isOwner?: boolean }
                 Downloads a <code style={{ background: "var(--cream-dark)", padding: "1px 6px", borderRadius: 4 }}>.json</code> file containing <strong>every record</strong> in the system:
               </p>
               <div style={{ display: "grid", gridTemplateColumns: "1fr 1fr", gap: "4px 20px", fontSize: 13, color: "var(--text-muted)" }}>
-                {["All Bookings", "All Booking Items", "Complete Inventory", "Customer Records", "Staff Records", "Attendance", "Suppliers", "Enquiries & Leads"].map((item) => (
+                {[
+                  "All Bookings & Items",
+                  "Complete Inventory",
+                  "Customers & Staff",
+                  "Users & Categories",
+                  "Attendance & Suppliers",
+                  "Rentals, Invoices & Payments",
+                  "Prospect Leads & Enquiries",
+                  "Activity Log (audit trail)",
+                ].map((item) => (
                   <div key={item} style={{ display: "flex", alignItems: "center", gap: 6 }}>
                     <i className="fa-solid fa-check" style={{ color: "var(--success)", fontSize: 11 }} />
                     {item}
                   </div>
                 ))}
               </div>
+              <p style={{ fontSize: 12, color: "var(--text-muted)", marginTop: 12, marginBottom: 0 }}>
+                <i className="fa-solid fa-image" style={{ marginRight: 6 }} />
+                Dress photos and ID images are stored as file paths. Also copy <code>public/uploads/</code> or use{" "}
+                <Link href="/admin/image-sync" style={{ fontWeight: 600 }}>Bulk Image Sync</Link> after restore.
+              </p>
             </div>
             <div style={{ display: "flex", flexDirection: "column", gap: 12, minWidth: 230 }}>
               <button
@@ -270,6 +285,7 @@ export default function ReportsClient({ isOwner = false }: { isOwner?: boolean }
             <li>Go to <strong>Admin → Restore Database</strong> and upload the <code>.json</code> backup file.</li>
             <li>The system will preview the file contents, then restore everything in a single transaction.</li>
             <li>The <strong>Bookings CSV</strong> and <strong>Inventory CSV</strong> can also be opened in Excel without the website.</li>
+            <li>After restore, copy your <strong>uploads folder</strong> back or re-sync dress photos via Bulk Image Sync.</li>
           </ol>
         </div>
       </div>

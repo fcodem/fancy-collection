@@ -17,7 +17,7 @@ export default async function AllRecordSearchPage() {
         showCategoryFilter
         todayIso={todayIso()}
         categories={categories}
-        hint="Searches all records across the database — booked, delivered, and returned. Customer name searches full lifetime; other fields search within the selected year."
+        hint="Includes all statuses — booked, delivered, returned, and incomplete return. Customer name searches full lifetime; other fields search within the selected year."
       />
     </ServerAppShell>
   );

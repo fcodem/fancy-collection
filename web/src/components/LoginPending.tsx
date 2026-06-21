@@ -37,7 +37,8 @@ export default function LoginPending() {
 
         if (data.status === "approved") {
           sessionStorage.removeItem("fc_pending_login_token");
-          window.location.href = data.redirect || "/";
+          setStatusMsg("Approved — signing you in…");
+          window.location.replace(data.redirect || `/api/login-request/complete?t=${encodeURIComponent(pollToken)}`);
           return;
         }
         if (data.status === "rejected") {
@@ -77,6 +78,9 @@ export default function LoginPending() {
           Your login request has been sent. Please wait while the owner approves your access.
         </p>
         <p style={{ fontSize: 13, marginTop: 8 }}>{statusMsg}</p>
+        <p style={{ fontSize: 12, color: "var(--text-muted)", marginTop: 6 }}>
+          Keep this page open until you are signed in. After the owner approves, login completes automatically.
+        </p>
         <div className="spinner" style={{ margin: "24px auto" }} />
         <a href="/login" className="btn btn-outline" style={{ marginTop: 16 }}>
           Back to Login

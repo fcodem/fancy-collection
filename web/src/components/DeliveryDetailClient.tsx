@@ -3,6 +3,7 @@
 import { useRouter } from "next/navigation";
 import { useEffect, useState } from "react";
 import { BookingRecordDetails } from "@/components/BookingRecordDetails";
+import PhotoCaptureButton from "@/components/PhotoCaptureButton";
 import type { BookingForStandardDetails } from "@/lib/bookingDetails";
 import { formatInr } from "@/lib/format";
 import { photoUrl } from "@/lib/photoUrl";
@@ -41,9 +42,17 @@ type ItemFormState = {
   notes: string;
 };
 
+type SaveItemResponse = {
+  id: number;
+  isDelivered: boolean;
+  itemRemainingCollected: number;
+  itemSecurityCollected: number;
+  itemDeliveryNotes?: string | null;
+};
+
 export default function DeliveryDetailClient({
   booking,
-  items,
+  items: initialItems,
   nextBookings,
   isDelivered = false,
   idPhoto1 = null,
@@ -57,9 +66,11 @@ export default function DeliveryDetailClient({
   idPhoto2?: string | null;
 }) {
   const router = useRouter();
+  const [localItems, setLocalItems] = useState(initialItems);
+  const [bookingStatus, setBookingStatus] = useState(booking.status);
   const [itemForms, setItemForms] = useState<Record<number, ItemFormState>>(() => {
     const init: Record<number, ItemFormState> = {};
-    for (const it of items) {
+    for (const it of initialItems) {
       init[it.id] = {
         remaining: String(it.itemRemainingCollected || ""),
         security: String(it.itemSecurityCollected || ""),
@@ -81,12 +92,43 @@ export default function DeliveryDetailClient({
   const [idPhotoMessage, setIdPhotoMessage] = useState("");
 
   useEffect(() => {
+    setLocalItems(initialItems);
+    setBookingStatus(booking.status);
+  }, [initialItems, booking.status]);
+
+  useEffect(() => {
     setSavedIdPhoto1(idPhoto1);
     setSavedIdPhoto2(idPhoto2);
   }, [idPhoto1, idPhoto2]);
 
-  const allDelivered = items.length > 0 ? items.every((it) => it.isDelivered) : isDelivered;
-  const hasMultiple = items.length > 1;
+  const allDelivered = localItems.length > 0 ? localItems.every((it) => it.isDelivered) : bookingStatus === "delivered";
+  const hasMultiple = localItems.length > 1;
+
+  function applySaveResponse(data: { status?: string; items?: SaveItemResponse[] }) {
+    if (data.status) setBookingStatus(data.status);
+    if (!data.items?.length) return;
+    const byId = new Map(data.items.map((it) => [it.id, it]));
+    setLocalItems((prev) =>
+      prev.map((it) => {
+        const saved = byId.get(it.id);
+        if (!saved) return it;
+        return {
+          ...it,
+          isDelivered: saved.isDelivered,
+          itemRemainingCollected: saved.itemRemainingCollected,
+          itemSecurityCollected: saved.itemSecurityCollected,
+          itemDeliveryNotes: saved.itemDeliveryNotes,
+        };
+      }),
+    );
+    setEditingDelivered((prev) => {
+      const next = { ...prev };
+      for (const saved of data.items!) {
+        if (saved.isDelivered) delete next[saved.id];
+      }
+      return next;
+    });
+  }
 
   function updateItem(id: number, field: keyof ItemFormState, value: string) {
     setItemForms((prev) => ({ ...prev, [id]: { ...prev[id], [field]: value } }));
@@ -95,7 +137,7 @@ export default function DeliveryDetailClient({
   async function saveItem(itemId: number) {
     setSaving(true);
     setError("");
-    const it = items.find((i) => i.id === itemId);
+    const it = localItems.find((i) => i.id === itemId);
     if (!it) { setSaving(false); return; }
 
     const payload = {
@@ -113,6 +155,7 @@ export default function DeliveryDetailClient({
       method: "POST",
       headers: { "Content-Type": "application/json" },
       body: JSON.stringify(payload),
+      credentials: "same-origin",
     });
     const data = await res.json();
     setSaving(false);
@@ -120,13 +163,14 @@ export default function DeliveryDetailClient({
       setError(data.error || "Save failed");
       return;
     }
-    router.refresh();
+    applySaveResponse(data);
+    if (data.status === "delivered") router.refresh();
   }
 
   async function saveAll(markDelivered = false) {
     setSaving(true);
     setError("");
-    const pending = items.filter((it) => !it.isDelivered);
+    const pending = localItems.filter((it) => !it.isDelivered);
     if (!pending.length) { setSaving(false); return; }
     const payload = {
       items: pending.map((it) => ({
@@ -142,6 +186,7 @@ export default function DeliveryDetailClient({
       method: "POST",
       headers: { "Content-Type": "application/json" },
       body: JSON.stringify(payload),
+      credentials: "same-origin",
     });
     const data = await res.json();
     setSaving(false);
@@ -149,7 +194,8 @@ export default function DeliveryDetailClient({
       setError(data.error || "Save failed");
       return;
     }
-    router.refresh();
+    applySaveResponse(data);
+    if (data.status === "delivered") router.refresh();
   }
 
   function onIdPhotoChange(slot: 1 | 2, file: File | null) {
@@ -254,67 +300,22 @@ export default function DeliveryDetailClient({
         </div>
         <div className="card-body">
           <p style={{ margin: "0 0 16px", fontSize: 13, color: "var(--text-muted)" }}>
-            Capture up to two ID photos at delivery using your camera. They appear on the return record and are removed automatically when the dress is returned.
+            Tap Open Camera to capture up to two ID photos at delivery. They appear on the return record and are removed automatically when the dress is returned.
           </p>
           <div style={{ display: "grid", gridTemplateColumns: "repeat(auto-fit, minmax(220px, 1fr))", gap: 16 }}>
             {([1, 2] as const).map((slot) => {
               const preview = slot === 1 ? idPhoto1Preview : idPhoto2Preview;
               const saved = slot === 1 ? savedIdPhoto1 : savedIdPhoto2;
-              const hasPhoto = !!(preview || saved);
               return (
                 <div key={slot}>
                   <label className="form-label">ID Photo {slot}</label>
-                  <input
-                    type="file"
-                    accept="image/*"
-                    capture="environment"
-                    style={{ display: "none" }}
-                    id={`id-photo-capture-${slot}`}
-                    onChange={(e) => onIdPhotoChange(slot, e.target.files?.[0] || null)}
+                  <PhotoCaptureButton
+                    label={`ID photo ${slot}`}
+                    modalTitle={`Capture ID Photo ${slot}`}
+                    previewUrl={preview}
+                    savedUrl={saved ? photoUrl(saved) : null}
+                    onCapture={(file) => onIdPhotoChange(slot, file)}
                   />
-                  {hasPhoto ? (
-                    <div style={{ position: "relative" }}>
-                      <a
-                        href={preview || photoUrl(saved)}
-                        target="_blank"
-                        rel="noreferrer"
-                        style={{ display: "block" }}
-                      >
-                        <img
-                          src={preview || photoUrl(saved)}
-                          alt={`ID photo ${slot}`}
-                          style={{ width: "100%", maxHeight: 180, objectFit: "cover", borderRadius: 10, border: "1px solid var(--border)" }}
-                        />
-                      </a>
-                      <button
-                        type="button"
-                        className="btn btn-sm"
-                        style={{
-                          position: "absolute", bottom: 8, right: 8,
-                          background: "rgba(0,0,0,0.6)", color: "#fff", border: "none",
-                          borderRadius: 8, fontSize: 11, padding: "4px 10px",
-                        }}
-                        onClick={() => document.getElementById(`id-photo-capture-${slot}`)?.click()}
-                      >
-                        <i className="fa-solid fa-camera-rotate" style={{ marginRight: 4 }} />Retake
-                      </button>
-                    </div>
-                  ) : (
-                    <button
-                      type="button"
-                      className="btn btn-outline"
-                      style={{
-                        width: "100%", height: 120, display: "flex",
-                        flexDirection: "column", alignItems: "center", justifyContent: "center",
-                        gap: 8, borderRadius: 10, border: "2px dashed var(--border)",
-                        fontSize: 13, color: "var(--text-muted)",
-                      }}
-                      onClick={() => document.getElementById(`id-photo-capture-${slot}`)?.click()}
-                    >
-                      <i className="fa-solid fa-camera" style={{ fontSize: 24 }} />
-                      Capture Photo
-                    </button>
-                  )}
                 </div>
               );
             })}
@@ -345,7 +346,7 @@ export default function DeliveryDetailClient({
           </h3>
         </div>
         <div className="card-body">
-          {items.map((it) => (
+          {localItems.map((it) => (
             <div
               key={it.id}
               style={{
@@ -457,7 +458,7 @@ export default function DeliveryDetailClient({
 
           {!allDelivered && (
             <div style={{ display: "flex", gap: 12, marginTop: 8, flexWrap: "wrap" }}>
-              {items.length > 0 && (
+              {localItems.length > 0 && (
                 <button className="btn btn-primary" disabled={saving} onClick={() => saveAll(true)}>
                   <i className="fa-solid fa-truck" style={{ marginRight: 6 }} />
                   Deliver All Dresses

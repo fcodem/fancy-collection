@@ -1,7 +1,11 @@
-import { NextRequest } from "next/server";
+import { NextRequest, NextResponse } from "next/server";
 import prisma from "@/lib/prisma";
-import { getSession, establishUserLogin, expireOldLoginRequests } from "@/lib/auth";
+import { getSession, expireOldLoginRequests } from "@/lib/auth";
 import { jsonOk } from "@/lib/api";
+
+export const dynamic = "force-dynamic";
+
+const NO_STORE = { "Cache-Control": "no-store, no-cache, must-revalidate" };
 
 async function resolveLoginRequestToken(req: NextRequest) {
   const session = await getSession();
@@ -11,30 +15,33 @@ async function resolveLoginRequestToken(req: NextRequest) {
 
 export async function GET(req: NextRequest) {
   const token = await resolveLoginRequestToken(req);
-  if (!token) return jsonOk({ status: "none" });
+  if (!token) {
+    return NextResponse.json({ status: "none" }, { headers: NO_STORE });
+  }
 
   await expireOldLoginRequests();
   const reqRow = await prisma.staffLoginRequest.findUnique({
     where: { token },
     include: { user: true },
   });
-  if (!reqRow) return jsonOk({ status: "none" });
+  if (!reqRow) {
+    return NextResponse.json({ status: "none" }, { headers: NO_STORE });
+  }
 
   if (reqRow.status === "approved") {
-    const session = await getSession();
-    let active = false;
-    if (session.userId === reqRow.userId && session.sessionId) {
-      const row = await prisma.userSession.findFirst({
-        where: { userId: reqRow.userId, sessionId: session.sessionId, active: true },
-      });
-      active = !!row;
-    }
-    if (!active) {
-      await establishUserLogin(reqRow.userId);
-    }
-    return jsonOk({ status: "approved", redirect: "/" });
+    return NextResponse.json(
+      {
+        status: "approved",
+        redirect: `/api/login-request/complete?t=${encodeURIComponent(token)}`,
+      },
+      { headers: NO_STORE },
+    );
   }
-  if (reqRow.status === "rejected") return jsonOk({ status: "rejected" });
-  if (reqRow.status === "expired") return jsonOk({ status: "expired" });
-  return jsonOk({ status: "pending" });
+  if (reqRow.status === "rejected") {
+    return NextResponse.json({ status: "rejected" }, { headers: NO_STORE });
+  }
+  if (reqRow.status === "expired") {
+    return NextResponse.json({ status: "expired" }, { headers: NO_STORE });
+  }
+  return NextResponse.json({ status: "pending" }, { headers: NO_STORE });
 }

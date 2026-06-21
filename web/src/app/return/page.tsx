@@ -16,6 +16,7 @@ export default async function ReturnPage() {
         dateLabel="Return Date"
         showRemaining
         showStatus
+        showDeliveryInfo
         showCategoryFilter
         categories={categories}
         actionLabel="Return"

@@ -1,15 +1,18 @@
 import Link from "next/link";
-import prisma, { todayStartQ } from "@/lib/prisma";
+import prisma from "@/lib/prisma";
+import {
+  whereRemainingToDeliver,
+} from "@/lib/bookingDateQuery";
+import { todayIso } from "@/lib/constants";
 import ServerAppShell from "@/components/ServerAppShell";
+import DownloadPdfButton from "@/components/DownloadPdfButton";
 import { StandardBookingTableCells, StandardBookingTableHead } from "@/components/BookingDetailsColumns";
 import { serializeStandardBookingDetails } from "@/lib/bookingDetails";
 import { formatInr } from "@/lib/format";
 
 export default async function RemainingToDeliverPage() {
-  const today = todayStartQ();
-
   const bookings = await prisma.booking.findMany({
-    where: { deliveryDate: { lte: today }, status: "booked" },
+    where: await whereRemainingToDeliver(todayIso()),
     include: { bookingItems: { include: { item: true } }, legacyItem: true },
     orderBy: [{ deliveryDate: "asc" }, { deliveryTime: "asc" }],
   });
@@ -17,13 +20,23 @@ export default async function RemainingToDeliverPage() {
   return (
     <ServerAppShell>
       <div className="card">
-        <div className="card-header"><h3 className="card-title">Remaining to Deliver ({bookings.length})</h3></div>
+        <div className="card-header">
+          <h3 className="card-title">Remaining to Deliver ({bookings.length})</h3>
+          {bookings.length > 0 && (
+            <DownloadPdfButton
+              title="Remaining to Deliver"
+              filename="remaining-to-deliver"
+              tableId="remaining-to-deliver-table"
+              size="sm"
+            />
+          )}
+        </div>
         <div className="card-body p-0">
           {bookings.length === 0 ? (
             <div style={{ textAlign: "center", padding: 40, color: "var(--text-muted)" }}>All deliveries are complete.</div>
           ) : (
             <div className="table-wrapper">
-              <table className="data-table">
+              <table id="remaining-to-deliver-table" className="data-table">
                 <thead>
                   <tr>
                     <th>S.No</th>

@@ -1,5 +1,7 @@
 "use client";
 
+import { useRouter } from "next/navigation";
+import { useState } from "react";
 import DressNameSuggestInput from "@/components/DressNameSuggestInput";
 
 type Props = {
@@ -9,6 +11,18 @@ type Props = {
 };
 
 export default function InventoryFilterBar({ q, status, showAdd }: Props) {
+  const router = useRouter();
+  const [query, setQuery] = useState(q);
+  const [statusVal, setStatusVal] = useState(status);
+
+  function submit(e?: React.FormEvent) {
+    e?.preventDefault();
+    const params = new URLSearchParams();
+    if (query.trim()) params.set("q", query.trim());
+    if (statusVal) params.set("status", statusVal);
+    router.push(params.size ? `/inventory?${params.toString()}` : "/inventory");
+  }
+
   return (
     <div className="card" style={{ marginBottom: 24 }}>
       <div className="card-header">
@@ -20,15 +34,22 @@ export default function InventoryFilterBar({ q, status, showAdd }: Props) {
         )}
       </div>
       <div className="card-body">
-        <form style={{ display: "flex", gap: 12, flexWrap: "wrap" }}>
+        <form style={{ display: "flex", gap: 12, flexWrap: "wrap" }} onSubmit={submit}>
           <DressNameSuggestInput
             name="q"
-            defaultValue={q}
+            value={query}
+            onChange={(e) => setQuery(e.target.value)}
+            onSuggestSelect={(item) => setQuery(item.sku || item.name)}
             placeholder="Search dress name or SKU…"
             style={{ flex: 1, minWidth: 200 }}
-            data-skip-dress-suggest="true"
+            showPhotos
           />
-          <select name="status" defaultValue={status} className="form-control">
+          <select
+            name="status"
+            value={statusVal}
+            onChange={(e) => setStatusVal(e.target.value)}
+            className="form-control"
+          >
             <option value="">All Status</option>
             <option value="available">Available</option>
             <option value="rented">Rented</option>
@@ -42,4 +63,3 @@ export default function InventoryFilterBar({ q, status, showAdd }: Props) {
     </div>
   );
 }
-

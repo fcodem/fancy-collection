@@ -10,6 +10,7 @@ import { photoUrl } from "@/lib/photoUrl";
 import { formatInr } from "@/lib/format";
 import { useRealtimeRefresh } from "@/hooks/useRealtimeRefresh";
 import { BOOKING_EVENTS } from "@/lib/realtime/types";
+import DownloadPdfButton from "@/components/DownloadPdfButton";
 
 const TIME_SLOTS = [
   "9:00 AM", "10:00 AM", "11:00 AM", "12:00 Noon", "1:00 PM", "2:00 PM",
@@ -31,6 +32,7 @@ type ItemRow = {
 type BookingRow = {
   id: number;
   serial_no: number;
+  status: string;
   customer_name: string;
   customer_address: string;
   contact_1: string;
@@ -69,6 +71,18 @@ function serialLabel(n: number) {
   return String(n || 0).padStart(2, "0");
 }
 
+function statusBadgeClass(status: string): string {
+  if (status === "delivered") return "badge-success";
+  if (status === "returned") return "badge-info";
+  if (status === "booked") return "badge-warning";
+  return "badge-secondary";
+}
+
+function statusLabel(status: string): string {
+  if (status === "delivered") return "DELIVERED";
+  return status.toUpperCase();
+}
+
 function BookingCard({ booking, idx, isUnavailable }: { booking: BookingRow; idx: number; isUnavailable?: boolean }) {
   return (
     <div className="card" style={{ marginBottom: 16, borderLeft: isUnavailable ? "4px solid #e53e3e" : undefined }}>
@@ -104,14 +118,19 @@ function BookingCard({ booking, idx, isUnavailable }: { booking: BookingRow; idx
             )}
           </div>
         </div>
-        <div className="booking-card-header-dates">
-          <div>
-            <i className="fa-solid fa-truck" style={{ marginRight: 4, color: "var(--primary)" }} />
-            {booking.delivery_date} {booking.delivery_time}
-          </div>
-          <div style={{ fontSize: 11, color: "var(--text-muted)" }}>
-            <i className="fa-solid fa-rotate-left" style={{ marginRight: 4 }} />
-            {booking.return_date} {booking.return_time}
+        <div style={{ display: "flex", flexDirection: "column", alignItems: "flex-end", gap: 6 }}>
+          <span className={`badge ${statusBadgeClass(booking.status)}`} style={{ fontSize: 10 }}>
+            {statusLabel(booking.status)}
+          </span>
+          <div className="booking-card-header-dates">
+            <div>
+              <i className="fa-solid fa-truck" style={{ marginRight: 4, color: "var(--primary)" }} />
+              {booking.delivery_date} {booking.delivery_time}
+            </div>
+            <div style={{ fontSize: 11, color: "var(--text-muted)" }}>
+              <i className="fa-solid fa-rotate-left" style={{ marginRight: 4 }} />
+              {booking.return_date} {booking.return_time}
+            </div>
           </div>
         </div>
       </div>
@@ -244,6 +263,38 @@ export default function BookingListClient({
   const { bookings, unavailable } = data;
   const empty = !bookings.length && !unavailable.length;
 
+  const pdfHeaders = [
+    "S.No",
+    "Customer",
+    "Status",
+    "Dresses",
+    "Delivery",
+    "Return",
+    "Total Rent",
+    "Advance",
+    "Venue",
+    "Contact",
+    "Notes",
+  ];
+
+  function bookingPdfRows(list: BookingRow[], unavailableFlag = false) {
+    return list.map((b, idx) => [
+      serialLabel(b.serial_no || idx + 1),
+      b.customer_name || "—",
+      unavailableFlag ? `Unavailable — ${b.reason || "—"}` : statusLabel(b.status),
+      b.dress_names || b.items?.map((i) => i.display_name || i.dress_name).join(", ") || "—",
+      `${b.delivery_date || "—"}${b.delivery_time ? ` ${b.delivery_time}` : ""}`,
+      `${b.return_date || "—"}${b.return_time ? ` ${b.return_time}` : ""}`,
+      `₹${formatInr(b.total_rent)}`,
+      `₹${formatInr(b.total_advance)}`,
+      b.venue || "—",
+      b.contact_1 || "—",
+      [b.item_notes, b.common_notes].filter(Boolean).join(" · ") || "—",
+    ]);
+  }
+
+  const pdfRows = [...bookingPdfRows(bookings), ...bookingPdfRows(unavailable, true)];
+
   return (
     <div>
       <div className="card" style={{ marginBottom: 24 }}>
@@ -252,9 +303,15 @@ export default function BookingListClient({
             <i className="fa-solid fa-list-check" style={{ marginRight: 8 }} />
             Filter Booked Items
           </h3>
-          <button type="button" onClick={() => window.print()} className="btn btn-outline btn-sm no-print">
-            <i className="fa-solid fa-print" /> Print
-          </button>
+          <DownloadPdfButton
+            title="Booked Items"
+            filename={`booked-items-${data.from_date}-to-${data.to_date}`}
+            subtitle={`Period: ${data.from_date} to ${data.to_date}`}
+            headers={pdfHeaders}
+            rows={pdfRows}
+            disabled={!pdfRows.length}
+            size="sm"
+          />
         </div>
         <div className="card-body">
           <div className="filter-grid-5" style={{ marginBottom: 16 }}>

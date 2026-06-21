@@ -12,6 +12,11 @@ import { formatDate } from "@/lib/constants";
 import { filterStatListBookings } from "@/lib/dashboardStatListFilter";
 import type { DashboardStatBookingRow, DashboardStatListType } from "@/lib/services/dashboardStatLists";
 import { formatInr } from "@/lib/format";
+import DownloadPdfButton from "@/components/DownloadPdfButton";
+import {
+  STANDARD_BOOKING_HEADERS,
+  standardBookingPdfRow,
+} from "@/lib/standardBookingPdfRows";
 
 type Props = {
   listType: DashboardStatListType;
@@ -67,6 +72,35 @@ export default function DashboardStatListClient({
 
   const hasFilters = Boolean(appliedQuery || appliedCategory);
 
+  const pdfHeaders =
+    listType === "remaining-to-deliver"
+      ? ["S.No", "Customer", "Dress", "Delivery", "Contact", "Remaining"]
+      : [
+          ...STANDARD_BOOKING_HEADERS,
+          ...(listType === "total-orders" ? ["Status"] : []),
+          ...(listType === "returning-today" ? ["Remaining"] : []),
+        ];
+
+  const pdfRows =
+    listType === "remaining-to-deliver"
+      ? filtered.map((b) => [
+          String(b.monthlySerial).padStart(2, "0"),
+          b.customer_name || "—",
+          b.dress_names || "—",
+          `${formatDate(b.deliveryDateIso, "display")}${b.delivery_time ? ` ${b.delivery_time}` : ""}`,
+          b.contact1 || "—",
+          (b.totalRemaining || 0) > 0 ? `₹${formatInr(b.totalRemaining || 0)}` : "Paid ✓",
+        ])
+      : filtered.map((b) => {
+          const row = standardBookingPdfRow(b.monthlySerial, b);
+          if (listType === "total-orders") row.push(b.status || "—");
+          if (listType === "returning-today") {
+            const rem = b.totalRemaining || 0;
+            row.push(rem > 0 ? `₹${formatInr(rem)}` : "Paid ✓");
+          }
+          return row;
+        });
+
   return (
     <div>
       <div className="page-banner" style={{ marginBottom: 20, background: "linear-gradient(135deg, var(--primary-dark), var(--primary))", borderRadius: "var(--radius)", padding: "16px 22px", color: "white", display: "flex", justifyContent: "space-between", alignItems: "center", flexWrap: "wrap", gap: 12 }}>
@@ -81,6 +115,17 @@ export default function DashboardStatListClient({
         <Link href="/" className="btn btn-sm" style={{ background: "rgba(255,255,255,0.15)", color: "white", border: "1.5px solid rgba(255,255,255,0.35)" }}>
           <i className="fa-solid fa-arrow-left" style={{ marginRight: 6 }} />Dashboard
         </Link>
+        <DownloadPdfButton
+          title={title}
+          filename={listType}
+          subtitle={description}
+          headers={pdfHeaders}
+          rows={pdfRows}
+          disabled={!pdfRows.length}
+          className="btn btn-sm"
+          size="sm"
+          style={{ background: "rgba(255,255,255,0.15)", color: "white", border: "1.5px solid rgba(255,255,255,0.35)" }}
+        />
       </div>
 
       <div className="card" style={{ marginBottom: 20 }}>
@@ -94,8 +139,13 @@ export default function DashboardStatListClient({
                 placeholder="Customer, serial, phone, dress name…"
                 value={query}
                 onChange={(e) => setQuery(e.target.value)}
+                onSuggestSelect={(item) => {
+                  setQuery(item.name);
+                  setAppliedQuery(item.name);
+                }}
                 onKeyDown={(e) => e.key === "Enter" && applyFilters()}
-                data-skip-dress-suggest="true"
+                category={category}
+                showPhotos
               />
             </div>
             <div>

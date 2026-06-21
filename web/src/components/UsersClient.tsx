@@ -6,7 +6,7 @@ export default function UsersClient() {
   const [data, setData] = useState<{ users: Array<Record<string, unknown>>; staff_list: Array<{ id: number; name: string }> } | null>(null);
 
   useEffect(() => {
-    fetch("/api/users").then((r) => r.json()).then(setData);
+    fetch("/api/users").then((r) => r.json()).then(setData).catch(() => {});
   }, []);
 
   async function approveLogin(reqId: number) {

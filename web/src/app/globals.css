@@ -839,6 +839,10 @@ a.stat-card:hover {
   color: var(--text-muted, #999);
 }
 
+.dress-search-result-link:hover {
+  background: var(--bg);
+}
+
 .inv-form-photo-preview {
   margin-top: 12px;
   display: flex;

@@ -1,16 +1,19 @@
 import Link from "next/link";
-import prisma, { todayStartQ } from "@/lib/prisma";
+import prisma from "@/lib/prisma";
+import { whereReturnBefore } from "@/lib/bookingDateQuery";
+import { todayIso } from "@/lib/constants";
 import ServerAppShell from "@/components/ServerAppShell";
+import DownloadPdfButton from "@/components/DownloadPdfButton";
 import { StandardBookingTableCells, StandardBookingTableHead } from "@/components/BookingDetailsColumns";
 import { serializeStandardBookingDetails } from "@/lib/bookingDetails";
 import { localTodayStart } from "@/lib/constants";
 
 export default async function LateReturnPage() {
-  const todayQ = todayStartQ();
   const today = localTodayStart();
+  const returnWhere = await whereReturnBefore(todayIso());
 
   const bookings = await prisma.booking.findMany({
-    where: { returnDate: { lt: todayQ }, status: "delivered" },
+    where: { ...returnWhere, status: "delivered" },
     include: { bookingItems: { include: { item: true } }, legacyItem: true },
     orderBy: { returnDate: "asc" },
   });
@@ -18,13 +21,23 @@ export default async function LateReturnPage() {
   return (
     <ServerAppShell>
       <div className="card">
-        <div className="card-header"><h3 className="card-title" style={{ color: "var(--danger)" }}>Late Returns ({bookings.length})</h3></div>
+        <div className="card-header">
+          <h3 className="card-title" style={{ color: "var(--danger)" }}>Late Returns ({bookings.length})</h3>
+          {bookings.length > 0 && (
+            <DownloadPdfButton
+              title="Late Returns"
+              filename="late-returns"
+              tableId="late-return-table"
+              size="sm"
+            />
+          )}
+        </div>
         <div className="card-body p-0">
           {bookings.length === 0 ? (
             <div style={{ textAlign: "center", padding: 40, color: "var(--text-muted)" }}>No late returns.</div>
           ) : (
             <div className="table-wrapper">
-              <table className="data-table">
+              <table id="late-return-table" className="data-table">
                 <thead>
                   <tr>
                     <th>S.No</th>

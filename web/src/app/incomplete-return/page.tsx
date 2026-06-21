@@ -7,6 +7,7 @@ import { serializeStandardBookingDetails } from "@/lib/bookingDetails";
 import { photoUrl } from "@/lib/photoUrl";
 import { formatInr } from "@/lib/format";
 import { formatDate } from "@/lib/constants";
+import DownloadPdfButton from "@/components/DownloadPdfButton";
 
 export default async function IncompleteReturnPage() {
   const bookings = await prisma.booking.findMany({
@@ -23,6 +24,14 @@ export default async function IncompleteReturnPage() {
             <i className="fa-solid fa-circle-exclamation" style={{ marginRight: 8, color: "#f39c12" }} />
             Incomplete Return Records
           </h3>
+          {bookings.length > 0 && (
+            <DownloadPdfButton
+              title="Incomplete Return Records"
+              filename="incomplete-returns"
+              tableId="incomplete-return-table"
+              size="sm"
+            />
+          )}
         </div>
         <div className="card-body p-0">
           {bookings.length === 0 ? (
@@ -32,7 +41,7 @@ export default async function IncompleteReturnPage() {
             </div>
           ) : (
             <div className="table-wrapper">
-              <table className="data-table">
+              <table id="incomplete-return-table" className="data-table">
                 <thead>
                   <tr>
                     <th>S.No</th>
@@ -49,9 +58,35 @@ export default async function IncompleteReturnPage() {
                     <tr key={b.id}>
                       <td>{String(b.monthlySerial).padStart(2, "0")}</td>
                       <StandardBookingTableCells d={serializeStandardBookingDetails(b)} />
-                      <td style={{ maxWidth: 200, wordBreak: "break-word" }}>{b.incompleteNotes || "—"}</td>
+                      <td style={{ maxWidth: 240, wordBreak: "break-word" }}>
+                        {b.bookingItems.some((bi) => bi.isIncompleteReturn) ? (
+                          b.bookingItems
+                            .filter((bi) => bi.isIncompleteReturn)
+                            .map((bi) => (
+                              <div key={bi.id} style={{ marginBottom: 6, fontSize: 13 }}>
+                                <strong>{bi.dressName}:</strong> {bi.itemIncompleteNotes || "—"}
+                              </div>
+                            ))
+                        ) : (
+                          b.incompleteNotes || "—"
+                        )}
+                      </td>
                       <td>
-                        {b.incompletePhoto ? (
+                        {b.bookingItems.some((bi) => bi.itemIncompletePhoto) ? (
+                          <div style={{ display: "flex", gap: 6, flexWrap: "wrap" }}>
+                            {b.bookingItems
+                              .filter((bi) => bi.itemIncompletePhoto)
+                              .map((bi) => (
+                                <a key={bi.id} href={photoUrl(bi.itemIncompletePhoto!)} target="_blank" rel="noreferrer" title={bi.dressName}>
+                                  <img
+                                    src={photoUrl(bi.itemIncompletePhoto!)}
+                                    alt={bi.dressName}
+                                    style={{ width: 56, height: 56, objectFit: "cover", borderRadius: 6, border: "1px solid var(--border)" }}
+                                  />
+                                </a>
+                              ))}
+                          </div>
+                        ) : b.incompletePhoto ? (
                           <a href={photoUrl(b.incompletePhoto)} target="_blank" rel="noreferrer">
                             <img
                               src={photoUrl(b.incompletePhoto)}

@@ -1,12 +1,49 @@
 import prisma, { parseDateQ } from "../prisma";
+import { whereBookingOverlapsPeriod, whereDeliveryInRange, whereReturnInRange, whereReturnOnAnyDates } from "../bookingDateQuery";
+import { formatDate, parseDate } from "../constants";
 import { Prisma } from "@prisma/client";
 import { dressDisplayName, bookingItemSize, serializeBookingItems } from "../dress";
-import { serializeStandardBookingDetails } from "../bookingDetails";
-import { bookingUsesItem, checkItemAvailabilityForDates, getAvailableItemsApi } from "../booking";
-import { parseDate, formatDate } from "../constants";
+import { serializeStandardBookingDetails, bookingWarningRecordFrom } from "../bookingDetails";
+import { getAvailableItemsApi, findFirstItemConflict } from "../booking";
 import { broadcastShopEvent } from "../realtime/broadcast";
 import { logActivity, snapshotBooking } from "../activityLog";
 import { deleteUploads, saveUpload } from "../upload";
+
+/** Promote booked → delivered when all items are marked delivered. Never auto-return. */
+export async function syncBookingStatusFromItems(bookingId: number) {
+  const booking = await prisma.booking.findUnique({
+    where: { id: bookingId },
+    include: { bookingItems: true },
+  });
+  if (!booking || booking.status !== "booked") return booking;
+
+  const items = booking.bookingItems;
+  if (!items.length || !items.every((bi) => bi.isDelivered)) return booking;
+
+  const itemDeliveredAt = items.map((bi) => bi.deliveredAt).find((d): d is Date => d != null);
+
+  return prisma.booking.update({
+    where: { id: bookingId },
+    data: {
+      status: "delivered",
+      deliveredAt: booking.deliveredAt || itemDeliveredAt || new Date(),
+    },
+  });
+}
+
+export async function repairAllBookingStatuses() {
+  const bookings = await prisma.booking.findMany({
+    where: { status: "booked" },
+    select: { id: true },
+  });
+  let fixed = 0;
+  for (const { id } of bookings) {
+    const before = await prisma.booking.findUnique({ where: { id }, select: { status: true } });
+    const after = await syncBookingStatusFromItems(id);
+    if (before && after && before.status !== after.status) fixed += 1;
+  }
+  return fixed;
+}
 
 async function clearBookingIdPhotos(booking: { idPhoto1?: string | null; idPhoto2?: string | null }) {
   await deleteUploads([booking.idPhoto1, booking.idPhoto2]);
@@ -63,32 +100,14 @@ function packingRecordFromBooking(b: BookingForPackingRecord) {
 }
 
 function packingWarningFromBooking(b: BookingForPackingRecord) {
-  const row = packingRecordFromBooking(b);
-  return {
-    booking_id: b.id,
-    serial_no: row.serial_no,
-    customer_name: row.customer_name,
-    customer_address: row.customer_address,
-    contact_1: row.contact_1,
-    whatsapp_no: row.whatsapp_no,
-    venue: row.venue,
-    staff_names: row.staff_names,
-    delivery_date: row.delivery_date,
-    delivery_time: row.delivery_time,
-    return_date: row.return_date,
-    return_time: row.return_time,
-    total_rent: row.total_rent,
-    total_advance: row.total_advance,
-    dress_names: row.dress_names,
-    item_notes: row.item_notes,
-    common_notes: row.common_notes,
-  };
+  return bookingWarningRecordFrom(b);
 }
 
 export async function getDashboardFreeItems(deliveryDateStr: string, returnDateStr: string, categoryFilter = "") {
   if (!deliveryDateStr || !returnDateStr) {
     return { free_items: [], returning_on_delivery: [], warnings: {} };
   }
+
   const dDate = parseDateQ(deliveryDateStr);
   const rDate = parseDateQ(returnDateStr);
 
@@ -99,13 +118,21 @@ export async function getDashboardFreeItems(deliveryDateStr: string, returnDateS
     },
   });
 
+  const [overlapWhere, returningOnDeliveryWhere, deliveryOnReturnWhere] = await Promise.all([
+    whereBookingOverlapsPeriod(deliveryDateStr, returnDateStr),
+    whereReturnInRange(deliveryDateStr, deliveryDateStr),
+    whereDeliveryInRange(returnDateStr, returnDateStr),
+  ]);
+
   const overlappingBookings = await prisma.booking.findMany({
     where: {
       status: { in: ["booked", "delivered"] },
-      deliveryDate: { lte: rDate },
-      returnDate: { gte: dDate },
+      ...overlapWhere,
     },
-    include: { bookingItems: true },
+    select: {
+      itemId: true,
+      bookingItems: { select: { itemId: true } },
+    },
   });
 
   const bookedItemIds = new Set<number>();
@@ -128,8 +155,21 @@ export async function getDashboardFreeItems(deliveryDateStr: string, returnDateS
   const busyIds = new Set([...bookedItemIds, ...rentedItemIds]);
 
   const returningOnDeliveryBookings = await prisma.booking.findMany({
-    where: { status: { in: ["booked", "delivered"] }, returnDate: dDate },
-    include: { bookingItems: true },
+    where: { status: { in: ["booked", "delivered"] }, ...returningOnDeliveryWhere },
+    select: {
+      itemId: true,
+      dressName: true,
+      bookingNumber: true,
+      monthlySerial: true,
+      customerName: true,
+      contact1: true,
+      totalPrice: true,
+      price: true,
+      returnTime: true,
+      returnDate: true,
+      venue: true,
+      bookingItems: { select: { itemId: true, dressName: true, category: true } },
+    },
   });
   const returningOnDeliveryIds = new Set<number>();
   for (const b of returningOnDeliveryBookings) {
@@ -138,8 +178,18 @@ export async function getDashboardFreeItems(deliveryDateStr: string, returnDateS
   }
 
   const bookingsOnReturnDate = await prisma.booking.findMany({
-    where: { status: { in: ["booked", "delivered"] }, deliveryDate: rDate },
-    include: { bookingItems: true },
+    where: { status: { in: ["booked", "delivered"] }, ...deliveryOnReturnWhere },
+    select: {
+      itemId: true,
+      bookingNumber: true,
+      monthlySerial: true,
+      customerName: true,
+      totalPrice: true,
+      price: true,
+      deliveryTime: true,
+      venue: true,
+      bookingItems: { select: { itemId: true } },
+    },
   });
   const bookedOnReturnIds = new Set<number>();
   const bookedOnReturnInfo: Record<string, object> = {};
@@ -224,52 +274,51 @@ export async function bookingDateCheck(
   const dDateRaw = parseDate(deliveryDateStr);
   const rDateRaw = parseDate(returnDateStr);
   if (rDateRaw < dDateRaw) throw new Error("return before delivery");
-  const dDate = parseDateQ(deliveryDateStr);
-  const rDate = parseDateQ(returnDateStr);
+  const dIso = deliveryDateStr.slice(0, 10);
+  const rIso = returnDateStr.slice(0, 10);
 
+  const [returnOnDeliveryWhere, deliveryOnReturnWhere] = await Promise.all([
+    whereReturnInRange(dIso, dIso),
+    whereDeliveryInRange(rIso, rIso),
+  ]);
+
+  const excludeId = bookingId > 0 ? bookingId : undefined;
   const results = [];
   for (const itemId of itemIds) {
     const item = await prisma.clothingItem.findUnique({ where: { id: itemId } });
     if (!item) continue;
 
-    const hard = await prisma.booking.findFirst({
-      where: {
-        id: { not: bookingId },
-        status: { in: ["booked", "delivered"] },
-        deliveryDate: { lt: rDate },
-        returnDate: { gt: dDate },
-        AND: [
-          { NOT: { returnDate: dDate } },
-          { NOT: { deliveryDate: rDate } },
-        ],
-        OR: [{ bookingItems: { some: { itemId } } }, { itemId }],
-      },
-    });
+    const conflict = await findFirstItemConflict(
+      [itemId],
+      deliveryDateStr,
+      returnDateStr,
+      excludeId,
+    );
 
-    if (hard) {
+    if (conflict) {
       results.push({
         item_id: itemId,
         item_name: item.name,
         status: "hard_conflict",
-        conflict: warnFromBooking(hard),
+        conflict: warnFromBooking(conflict.booking),
       });
       continue;
     }
 
     const retWarn = await prisma.booking.findFirst({
       where: {
-        id: { not: bookingId },
+        ...(excludeId ? { id: { not: excludeId } } : {}),
         status: { in: ["booked", "delivered"] },
-        returnDate: dDate,
+        ...returnOnDeliveryWhere,
         OR: [{ bookingItems: { some: { itemId } } }, { itemId }],
       },
     });
 
     const delWarn = await prisma.booking.findFirst({
       where: {
-        id: { not: bookingId },
+        ...(excludeId ? { id: { not: excludeId } } : {}),
         status: { in: ["booked", "delivered"] },
-        deliveryDate: rDate,
+        ...deliveryOnReturnWhere,
         OR: [{ bookingItems: { some: { itemId } } }, { itemId }],
       },
     });
@@ -293,13 +342,7 @@ export async function bookingDateCheck(
 export async function getPackingList(deliveryDateStr: string, returnDateStr: string, categoryFilter = "") {
   const where: Prisma.BookingWhereInput = { status: "booked" };
   if (deliveryDateStr) {
-    const dDate = parseDateQ(deliveryDateStr);
-    if (returnDateStr) {
-      const rDate = parseDateQ(returnDateStr);
-      where.deliveryDate = { gte: dDate, lte: rDate };
-    } else {
-      where.deliveryDate = dDate;
-    }
+    Object.assign(where, await whereDeliveryInRange(deliveryDateStr, returnDateStr || deliveryDateStr));
   }
 
   const bookings = await prisma.booking.findMany({
@@ -308,7 +351,7 @@ export async function getPackingList(deliveryDateStr: string, returnDateStr: str
     orderBy: [{ deliveryDate: "asc" }, { deliveryTime: "asc" }],
   });
 
-  const deliveryDates = [...new Set(bookings.map((b) => b.deliveryDate.getTime()))];
+  const deliveryDateStrs = [...new Set(bookings.map((b) => formatDate(b.deliveryDate, "iso")))];
   type ReturningBooking = Awaited<
     ReturnType<
       typeof prisma.booking.findMany<{
@@ -317,10 +360,10 @@ export async function getPackingList(deliveryDateStr: string, returnDateStr: str
     >
   >[number];
   const returningByDeliveryDate = new Map<number, ReturningBooking[]>();
-  if (deliveryDates.length) {
+  if (deliveryDateStrs.length) {
     const returningBookings = await prisma.booking.findMany({
       where: {
-        returnDate: { in: bookings.map((b) => b.deliveryDate) },
+        ...(await whereReturnOnAnyDates(deliveryDateStrs)),
         status: { in: ["booked", "delivered"] },
       },
       include: { bookingItems: { include: { item: true } }, legacyItem: true },
@@ -460,64 +503,90 @@ export async function saveDelivery(
   const beforeDelivery = snapshotBooking(booking as unknown as Record<string, unknown>);
 
   if (data.items?.length) {
-    const allNotes: string[] = [];
+    const result = await prisma.$transaction(async (tx) => {
+      const itemById = new Map(booking.bookingItems.map((bi) => [bi.id, bi]));
+      const updates = data.items!.map((item) => {
+        const bi = itemById.get(item.booking_item_id);
+        if (!bi) return null;
 
-    for (const item of data.items) {
-      const bi = booking.bookingItems.find((b) => b.id === item.booking_item_id);
-      if (!bi) continue;
+        const itemUpdate: {
+          itemRemainingCollected: number;
+          itemSecurityCollected: number;
+          itemDeliveryNotes: string | null;
+          isDelivered?: boolean;
+          deliveredAt?: Date;
+        } = {
+          itemRemainingCollected: item.remaining_collected,
+          itemSecurityCollected: item.security_collected,
+          itemDeliveryNotes: item.delivery_notes?.trim() || null,
+        };
 
-      const itemUpdate: {
-        itemRemainingCollected: number;
-        itemSecurityCollected: number;
-        itemDeliveryNotes: string | null;
-        isDelivered?: boolean;
-        deliveredAt?: Date;
-      } = {
-        itemRemainingCollected: item.remaining_collected,
-        itemSecurityCollected: item.security_collected,
-        itemDeliveryNotes: item.delivery_notes?.trim() || null,
-      };
+        if (item.mark_delivered && !bi.isDelivered) {
+          itemUpdate.isDelivered = true;
+          itemUpdate.deliveredAt = new Date();
+        }
 
-      if (item.mark_delivered && !bi.isDelivered) {
-        itemUpdate.isDelivered = true;
-        itemUpdate.deliveredAt = new Date();
-      }
-
-      await prisma.bookingItem.update({
-        where: { id: bi.id },
-        data: itemUpdate,
+        return tx.bookingItem.update({ where: { id: bi.id }, data: itemUpdate });
       });
 
-      if (item.delivery_notes?.trim()) allNotes.push(`${bi.dressName}: ${item.delivery_notes.trim()}`);
-    }
+      await Promise.all(updates.filter(Boolean));
 
-    const refreshed = await prisma.booking.findUnique({
-      where: { id: bookingId },
-      include: { bookingItems: true },
+      const refreshed = await tx.booking.findUnique({
+        where: { id: bookingId },
+        include: { bookingItems: true },
+      });
+      if (!refreshed) throw new Error("Booking not found");
+
+      const totalRemaining = refreshed.bookingItems.reduce((s, bi) => s + bi.itemRemainingCollected, 0);
+      const totalSecurity = refreshed.bookingItems.reduce((s, bi) => s + bi.itemSecurityCollected, 0);
+      const newNotes = refreshed.bookingItems
+        .map((bi) => (bi.itemDeliveryNotes ? `${bi.dressName}: ${bi.itemDeliveryNotes}` : null))
+        .filter(Boolean)
+        .join(" | ");
+
+      const dressIsOut =
+        refreshed.bookingItems.some((bi) => bi.isDelivered) || refreshed.status === "delivered";
+      const nextSecurityHeld =
+        booking.status === "incomplete_return"
+          ? booking.securityHeld
+          : totalSecurity > 0
+            ? totalSecurity
+            : dressIsOut && booking.securityDeposit > 0
+              ? booking.securityDeposit
+              : 0;
+
+      let updated = await tx.booking.update({
+        where: { id: bookingId },
+        data: {
+          remainingCollected: totalRemaining,
+          securityCollected: totalSecurity,
+          securityHeld: nextSecurityHeld,
+          deliveryNotes: newNotes || data.delivery_notes || booking.deliveryNotes,
+        },
+        include: { bookingItems: true },
+      });
+
+      if (
+        updated.status === "booked" &&
+        updated.bookingItems.length > 0 &&
+        updated.bookingItems.every((bi) => bi.isDelivered)
+      ) {
+        const itemDeliveredAt = updated.bookingItems.map((bi) => bi.deliveredAt).find((d): d is Date => d != null);
+        updated = await tx.booking.update({
+          where: { id: bookingId },
+          data: {
+            status: "delivered",
+            deliveredAt: updated.deliveredAt || itemDeliveredAt || new Date(),
+          },
+          include: { bookingItems: true },
+        });
+      }
+
+      return updated;
     });
-    if (!refreshed) throw new Error("Booking not found");
 
-    const totalRemaining = refreshed.bookingItems.reduce((s, bi) => s + bi.itemRemainingCollected, 0);
-    const totalSecurity = refreshed.bookingItems.reduce((s, bi) => s + bi.itemSecurityCollected, 0);
-    // Build fresh notes from current item notes only (don't accumulate)
-    const newNotes = allNotes.length ? allNotes.join(" | ") : (refreshed.deliveryNotes || "");
-
-    const allDelivered = refreshed.bookingItems.length > 0 && refreshed.bookingItems.every((bi) => bi.isDelivered);
-    const anyDelivered = refreshed.bookingItems.some((bi) => bi.isDelivered);
-
-    const result = await prisma.booking.update({
-      where: { id: bookingId },
-      data: {
-        remainingCollected: totalRemaining,
-        securityCollected: totalSecurity,
-        deliveryNotes: newNotes || data.delivery_notes || booking.deliveryNotes,
-        ...(allDelivered && anyDelivered
-          ? { status: "delivered", deliveredAt: booking.deliveredAt || new Date() }
-          : {}),
-      },
-    });
     broadcastShopEvent({ type: "booking.delivered", bookingId, status: result.status, by });
-    logActivity({
+    void logActivity({
       username: by || "system",
       action: "delivered",
       entity: "booking",
@@ -536,19 +605,29 @@ export async function saveDelivery(
     });
   }
 
-  const result = await prisma.booking.update({
+  const secCollected = data.security_collected ?? booking.securityCollected;
+  const dressIsOut = data.mark_delivered || booking.status === "delivered";
+  const nextSecurityHeld =
+    booking.status === "incomplete_return"
+      ? booking.securityHeld
+      : secCollected > 0
+        ? secCollected
+        : dressIsOut && booking.securityDeposit > 0
+          ? booking.securityDeposit
+          : 0;
+
+  await prisma.booking.update({
     where: { id: bookingId },
     data: {
       remainingCollected: data.remaining_collected ?? booking.remainingCollected,
-      securityCollected: data.security_collected ?? booking.securityCollected,
+      securityCollected: secCollected,
+      securityHeld: nextSecurityHeld,
       deliveryNotes: data.delivery_notes ?? booking.deliveryNotes,
-      ...(data.mark_delivered && booking.status === "booked"
-        ? { status: "delivered", deliveredAt: new Date() }
-        : {}),
     },
   });
+  const result = (await syncBookingStatusFromItems(bookingId))!;
   broadcastShopEvent({ type: "booking.delivered", bookingId, status: result.status, by });
-  logActivity({
+  void logActivity({
     username: by || "system",
     action: "delivered",
     entity: "booking",
@@ -601,7 +680,18 @@ export async function saveDeliveryIdPhotos(
 export async function saveReturn(
   bookingId: number,
   action: string,
-  data: { incomplete_notes?: string; security_held?: number; incomplete_photo?: string },
+  data: {
+    incomplete_notes?: string;
+    security_held?: number;
+    incomplete_photo?: string;
+    items?: Array<{
+      booking_item_id: number;
+      is_incomplete: boolean;
+      incomplete_notes?: string;
+      security_held?: number;
+      incomplete_photo?: string;
+    }>;
+  },
   by?: string,
 ) {
   const booking = await prisma.booking.findUnique({
@@ -618,6 +708,7 @@ export async function saveReturn(
         data: {
           status: "returned",
           returnedAt: new Date(),
+          securityHeld: 0,
           idPhoto1: null,
           idPhoto2: null,
         },
@@ -631,8 +722,9 @@ export async function saveReturn(
     });
   } else if (action === "incomplete_return") {
     await clearBookingIdPhotos(booking);
-    await prisma.$transaction(async (tx) => {
-      await tx.booking.update({
+
+    if (!booking.bookingItems.length) {
+      await prisma.booking.update({
         where: { id: bookingId },
         data: {
           status: "incomplete_return",
@@ -644,13 +736,84 @@ export async function saveReturn(
           idPhoto2: null,
         },
       });
-      for (const bi of booking.bookingItems) {
-        if (bi.isDelivered) {
-          await tx.bookingItem.update({ where: { id: bi.id }, data: { isReturned: true } });
-        }
-        await tx.clothingItem.update({ where: { id: bi.itemId }, data: { status: "available" } });
+      if (booking.itemId) {
+        await prisma.clothingItem.update({
+          where: { id: booking.itemId },
+          data: { status: "rented" },
+        });
       }
-    });
+    } else {
+      const itemPayload = data.items || [];
+      const incompleteIds = new Set(
+        itemPayload.filter((i) => i.is_incomplete).map((i) => i.booking_item_id),
+      );
+
+      if (itemPayload.length > 0 && incompleteIds.size === 0) {
+        throw new Error("Select at least one dress for incomplete return.");
+      }
+
+      await prisma.$transaction(async (tx) => {
+        let totalSecurityHeld = 0;
+        const noteParts: string[] = [];
+        let firstPhoto = data.incomplete_photo || null;
+
+        for (const bi of booking.bookingItems) {
+          if (!bi.isDelivered) continue;
+
+          const row = itemPayload.find((i) => i.booking_item_id === bi.id);
+          const isIncomplete = itemPayload.length === 0 ? true : Boolean(row?.is_incomplete);
+
+          if (isIncomplete) {
+            const held = row?.security_held ?? 0;
+            totalSecurityHeld += held;
+            const notes = row?.incomplete_notes?.trim() || "";
+            if (notes) noteParts.push(`${bi.dressName}: ${notes}`);
+            if (row?.incomplete_photo && !firstPhoto) firstPhoto = row.incomplete_photo;
+
+            await tx.bookingItem.update({
+              where: { id: bi.id },
+              data: {
+                isIncompleteReturn: true,
+                isReturned: false,
+                itemIncompleteNotes: notes || null,
+                itemIncompletePhoto: row?.incomplete_photo || null,
+                itemSecurityHeld: held,
+              },
+            });
+          } else {
+            await tx.bookingItem.update({
+              where: { id: bi.id },
+              data: {
+                isReturned: true,
+                isIncompleteReturn: false,
+                itemIncompleteNotes: null,
+                itemIncompletePhoto: null,
+                itemSecurityHeld: 0,
+              },
+            });
+            await tx.clothingItem.update({
+              where: { id: bi.itemId },
+              data: { status: "available" },
+            });
+          }
+        }
+
+        await tx.booking.update({
+          where: { id: bookingId },
+          data: {
+            status: "incomplete_return",
+            incompleteNotes: noteParts.length
+              ? noteParts.join(" | ")
+              : data.incomplete_notes || "",
+            incompletePhoto: firstPhoto,
+            securityHeld: data.security_held ?? totalSecurityHeld,
+            returnedAt: new Date(),
+            idPhoto1: null,
+            idPhoto2: null,
+          },
+        });
+      });
+    }
   }
   const updated = await prisma.booking.findUnique({ where: { id: bookingId } });
   if (updated) {
@@ -669,9 +832,42 @@ export async function saveReturn(
 }
 
 export async function resolveIncompleteReturn(bookingId: number) {
-  const booking = await prisma.booking.findUnique({ where: { id: bookingId } });
+  const booking = await prisma.booking.findUnique({
+    where: { id: bookingId },
+    include: { bookingItems: true },
+  });
   if (!booking || booking.status !== "incomplete_return") return null;
-  return prisma.booking.update({ where: { id: bookingId }, data: { status: "returned" } });
+
+  await prisma.$transaction(async (tx) => {
+    await tx.booking.update({
+      where: { id: bookingId },
+      data: { status: "returned", securityHeld: 0 },
+    });
+    for (const bi of booking.bookingItems) {
+      await tx.bookingItem.update({
+        where: { id: bi.id },
+        data: {
+          isReturned: true,
+          isIncompleteReturn: false,
+          itemIncompleteNotes: null,
+          itemIncompletePhoto: null,
+          itemSecurityHeld: 0,
+        },
+      });
+      await tx.clothingItem.update({
+        where: { id: bi.itemId },
+        data: { status: "available" },
+      });
+    }
+    if (booking.itemId && !booking.bookingItems.length) {
+      await tx.clothingItem.update({
+        where: { id: booking.itemId },
+        data: { status: "available" },
+      });
+    }
+  });
+
+  return prisma.booking.findUnique({ where: { id: bookingId } });
 }
 
 function alternateBookingSide(
@@ -737,10 +933,15 @@ function alternateBookingSide(
 }
 
 export async function getReturningToday(targetDateStr: string) {
-  const refDate = parseDateQ(targetDateStr || new Date().toISOString().slice(0, 10));
+  const dateStr = (targetDateStr || new Date().toISOString().slice(0, 10)).slice(0, 10);
+  const [returnWhere, deliveryWhere] = await Promise.all([
+    whereReturnInRange(dateStr, dateStr),
+    whereDeliveryInRange(dateStr, dateStr),
+  ]);
+
   const returning = await prisma.booking.findMany({
     where: {
-      returnDate: refDate,
+      ...returnWhere,
       status: { in: ["booked", "delivered"] },
     },
     include: { bookingItems: { include: { item: true } }, legacyItem: true },
@@ -749,7 +950,7 @@ export async function getReturningToday(targetDateStr: string) {
 
   const candidates = await prisma.booking.findMany({
     where: {
-      deliveryDate: refDate,
+      ...deliveryWhere,
       status: { in: ["booked", "delivered"] },
     },
     include: { bookingItems: { include: { item: true } }, legacyItem: true },
@@ -787,9 +988,7 @@ export async function getReturningToday(targetDateStr: string) {
       break;
     }
 
-    if (!next_booking) {
-      // Still show returning record even without alternate delivery
-    }
+    if (!next_booking) continue;
 
     const returningSide = alternateBookingSide(b, itemRows.map((i) => i.display_name || i.name));
     data.push({
@@ -874,19 +1073,38 @@ export async function deleteBookingPermanent(bookingId: number) {
 export async function getDeliveryDetail(bookingId: number) {
   const booking = await prisma.booking.findUnique({
     where: { id: bookingId },
-    include: { bookingItems: { include: { item: true } } },
+    include: {
+      bookingItems: {
+        include: { item: { select: { photo: true, size: true, color: true, category: true } } },
+      },
+    },
   });
   if (!booking) return null;
+
+  const itemIds = booking.bookingItems.map((bi) => bi.itemId);
+  const nextCandidates =
+    itemIds.length > 0
+      ? await prisma.booking.findMany({
+          where: {
+            id: { not: booking.id },
+            deliveryDate: booking.returnDate,
+            status: { not: "cancelled" },
+            bookingItems: { some: { itemId: { in: itemIds } } },
+          },
+          include: { bookingItems: { where: { itemId: { in: itemIds } } } },
+        })
+      : [];
+
+  const nextByItemId = new Map<number, (typeof nextCandidates)[number]>();
+  for (const nxt of nextCandidates) {
+    for (const bi of nxt.bookingItems) {
+      if (!nextByItemId.has(bi.itemId)) nextByItemId.set(bi.itemId, nxt);
+    }
+  }
+
   const next_bookings = [];
   for (const bi of booking.bookingItems) {
-    const nxt = await prisma.booking.findFirst({
-      where: {
-        id: { not: booking.id },
-        deliveryDate: booking.returnDate,
-        status: { not: "cancelled" },
-        bookingItems: { some: { itemId: bi.itemId } },
-      },
-    });
+    const nxt = nextByItemId.get(bi.itemId);
     if (nxt) {
       next_bookings.push({
         dress: dressDisplayName(bi.dressName, bi.category, bookingItemSize(bi)),

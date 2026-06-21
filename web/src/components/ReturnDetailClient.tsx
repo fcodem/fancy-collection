@@ -5,10 +5,54 @@ import { useRouter } from "next/navigation";
 import { useState } from "react";
 import { BookingRecordDetails } from "@/components/BookingRecordDetails";
 import DeliveredCancelBooking from "@/components/DeliveredCancelBooking";
-import type { BookingForStandardDetails } from "@/lib/bookingDetails";
+import PhotoCaptureButton from "@/components/PhotoCaptureButton";
+import {
+  balanceLeftToCollect,
+  effectiveRemainingCollected,
+  securityCurrentlyHeld,
+  type BookingForStandardDetails,
+} from "@/lib/bookingDetails";
 import type { BookingItemPricingRow } from "@/lib/dress";
 import { formatInr } from "@/lib/format";
 import { photoUrl } from "@/lib/photoUrl";
+
+type ItemDeliveryRow = {
+  id: number;
+  dressName: string;
+  category?: string | null;
+  size?: string;
+  photo?: string;
+  isDelivered: boolean;
+  isReturned?: boolean;
+  isIncompleteReturn?: boolean;
+  isPackedReady?: boolean;
+  preparedBy?: string;
+  checkedBy?: string;
+  packingNote?: string;
+  itemRemainingCollected: number;
+  itemSecurityCollected: number;
+  itemDeliveryNotes?: string | null;
+  itemIncompleteNotes?: string | null;
+  itemIncompletePhoto?: string | null;
+  itemSecurityHeld?: number;
+};
+
+type IncompleteDressForm = {
+  selected: boolean;
+  notes: string;
+  securityHeld: string;
+  photoFile: File | null;
+  photoPreview: string | null;
+};
+
+function hasItemDeliveryInfo(d: ItemDeliveryRow) {
+  return (
+    d.isDelivered ||
+    Boolean(d.itemDeliveryNotes?.trim()) ||
+    d.itemRemainingCollected > 0 ||
+    d.itemSecurityCollected > 0
+  );
+}
 
 export default function ReturnDetailClient({
   booking,
@@ -32,62 +76,133 @@ export default function ReturnDetailClient({
     advance?: number;
     totalRemaining?: number;
     remaining?: number;
+    securityDeposit?: number;
     deliveryNotes?: string | null;
   };
   items: BookingItemPricingRow[];
-  itemDelivery?: Array<{
-    dressName: string;
-    category?: string | null;
-    size?: string;
-    photo?: string;
-    isDelivered: boolean;
-    isPackedReady?: boolean;
-    preparedBy?: string;
-    checkedBy?: string;
-    packingNote?: string;
-    itemRemainingCollected: number;
-    itemSecurityCollected: number;
-    itemDeliveryNotes?: string | null;
-  }>;
+  itemDelivery?: ItemDeliveryRow[];
 }) {
   const router = useRouter();
-  const [incompleteNotes, setIncompleteNotes] = useState("");
-  const [securityHeld, setSecurityHeld] = useState(booking.securityCollected || booking.securityDeposit || "");
-  const [photoFile, setPhotoFile] = useState<File | null>(null);
-  const [photoPreview, setPhotoPreview] = useState<string | null>(null);
+  const allItemsDelivered = itemDelivery.length > 0 ? itemDelivery.every((d) => d.isDelivered) : false;
+  const isDelivered = booking.status === "delivered" || (booking.status === "booked" && allItemsDelivered);
+  const securityHeldAmount = securityCurrentlyHeld({
+    status: booking.status,
+    securityHeld: booking.securityHeld,
+    securityCollected: booking.securityCollected,
+    securityDeposit: booking.securityDeposit,
+    items: itemDelivery,
+    dressIsOut: isDelivered,
+  });
+
+  const returnableItems = itemDelivery.filter((d) => d.isDelivered && !d.isReturned);
+
+  const [incompleteForms, setIncompleteForms] = useState<Record<number, IncompleteDressForm>>(() => {
+    const init: Record<number, IncompleteDressForm> = {};
+    for (const row of itemDelivery.filter((d) => d.isDelivered && !d.isReturned)) {
+      init[row.id] = {
+        selected: false,
+        notes: "",
+        securityHeld: String(row.itemSecurityCollected || ""),
+        photoFile: null,
+        photoPreview: null,
+      };
+    }
+    return init;
+  });
   const [saving, setSaving] = useState(false);
   const [showCancel, setShowCancel] = useState(false);
+  const [incompleteError, setIncompleteError] = useState("");
+
+  const anyIncompleteSelected = returnableItems.some((r) => incompleteForms[r.id]?.selected);
 
   const totalPrice = booking.totalPrice ?? booking.price ?? 0;
   const totalAdvance = booking.totalAdvance ?? booking.advance ?? 0;
   const totalRemaining = booking.totalRemaining ?? booking.remaining ?? 0;
-  // Accept returns when delivered OR when status is booked but all items are delivered
-  const allItemsDelivered = itemDelivery.length > 0 ? itemDelivery.every((d) => d.isDelivered) : false;
-  const isDelivered = booking.status === "delivered" || (booking.status === "booked" && allItemsDelivered);
+  const collectedAtDelivery = effectiveRemainingCollected(booking.remainingCollected, itemDelivery);
+  const balanceLeft = balanceLeftToCollect(totalRemaining, collectedAtDelivery);
 
-  function onPhotoChange(e: React.ChangeEvent<HTMLInputElement>) {
-    const file = e.target.files?.[0] || null;
-    setPhotoFile(file);
-    if (photoPreview) URL.revokeObjectURL(photoPreview);
-    setPhotoPreview(file ? URL.createObjectURL(file) : null);
+  function toggleIncompleteDress(id: number, selected: boolean) {
+    setIncompleteForms((prev) => ({
+      ...prev,
+      [id]: { ...prev[id], selected },
+    }));
+    setIncompleteError("");
+  }
+
+  function updateIncompleteForm(id: number, patch: Partial<IncompleteDressForm>) {
+    setIncompleteForms((prev) => ({
+      ...prev,
+      [id]: { ...prev[id], ...patch },
+    }));
+  }
+
+  function onIncompletePhotoChange(id: number, file: File | null) {
+    setIncompleteForms((prev) => {
+      const old = prev[id];
+      if (old?.photoPreview) URL.revokeObjectURL(old.photoPreview);
+      return {
+        ...prev,
+        [id]: {
+          ...old,
+          photoFile: file,
+          photoPreview: file ? URL.createObjectURL(file) : null,
+        },
+      };
+    });
   }
 
   async function act(action: string) {
     setSaving(true);
     try {
-      if (action === "incomplete_return") {
-        const form = new FormData();
-        form.append("action", action);
-        form.append("incomplete_notes", incompleteNotes);
-        form.append("security_held", String(Number(securityHeld) || 0));
-        if (photoFile) form.append("incomplete_photo", photoFile);
-        await fetch(`/api/return/${booking.id}/save`, { method: "POST", body: form });
+      await fetch(`/api/return/${booking.id}/save`, {
+        method: "POST",
+        headers: { "Content-Type": "application/json" },
+        body: JSON.stringify({ action }),
+      });
+      router.refresh();
+    } finally {
+      setSaving(false);
+    }
+  }
+
+  async function submitIncompleteReturn() {
+    if (returnableItems.length > 0 && !anyIncompleteSelected) {
+      setIncompleteError("Select at least one dress for incomplete return.");
+      return;
+    }
+
+    setIncompleteError("");
+    setSaving(true);
+    try {
+      const form = new FormData();
+      form.append("action", "incomplete_return");
+
+      if (returnableItems.length === 1 && returnableItems[0].id === 0) {
+        const f = incompleteForms[0];
+        form.append("incomplete_notes", f?.notes || "");
+        form.append("security_held", String(Number(f?.securityHeld) || 0));
+        if (f?.photoFile) form.append("incomplete_photo", f.photoFile);
       } else {
-        await fetch(`/api/return/${booking.id}/save`, {
-          method: "POST",
-          headers: { "Content-Type": "application/json" },
-          body: JSON.stringify({ action }),
-        });
+        const items = returnableItems.map((row) => ({
+          booking_item_id: row.id,
+          is_incomplete: Boolean(incompleteForms[row.id]?.selected),
+          incomplete_notes: incompleteForms[row.id]?.notes || "",
+          security_held: Number(incompleteForms[row.id]?.securityHeld) || 0,
+        }));
+        form.append("items", JSON.stringify(items));
+        for (const row of returnableItems) {
+          const f = incompleteForms[row.id];
+          if (f?.selected && f.photoFile) {
+            form.append(`item_photo_${row.id}`, f.photoFile);
+          }
+        }
+      }
+
+      const res = await fetch(`/api/return/${booking.id}/save`, { method: "POST", body: form });
+      const data = await res.json();
+      if (!res.ok) {
+        setIncompleteError(data.error || "Save failed");
+        return;
       }
       router.refresh();
     } finally {
@@ -149,13 +264,75 @@ export default function ReturnDetailClient({
           <BookingRecordDetails
             booking={booking}
             items={items}
-            remainingCollected={booking.remainingCollected}
+            remainingCollected={collectedAtDelivery}
             extra={
-              <>
-                {booking.securityCollected > 0 && (
-                  <div style={{ marginTop: 8, fontSize: 13 }}>
-                    <span style={{ fontSize: 11, color: "var(--text-muted)", fontWeight: 700 }}>SECURITY COLLECTED </span>
-                    ₹{formatInr(booking.securityCollected)}
+            <>
+              <div
+                style={{
+                  marginTop: 16,
+                  marginBottom: 4,
+                  padding: "14px 16px",
+                  borderRadius: 10,
+                  background: balanceLeft > 0 ? "rgba(192,57,43,0.07)" : "rgba(46,125,50,0.07)",
+                  border: `1.5px solid ${balanceLeft > 0 ? "var(--danger)" : "var(--success)"}`,
+                }}
+              >
+                <div
+                  style={{
+                    display: "grid",
+                    gridTemplateColumns: "repeat(auto-fit, minmax(150px, 1fr))",
+                    gap: 14,
+                    fontSize: 13,
+                  }}
+                >
+                  <div>
+                    <div style={{ fontSize: 11, color: "var(--text-muted)", fontWeight: 700, marginBottom: 4 }}>
+                      TOTAL REMAINING (BOOKING)
+                    </div>
+                    <strong>₹{formatInr(totalRemaining)}</strong>
+                  </div>
+                  <div>
+                    <div style={{ fontSize: 11, color: "var(--text-muted)", fontWeight: 700, marginBottom: 4 }}>
+                      COLLECTED AT DELIVERY
+                    </div>
+                    <strong style={{ color: "var(--success)" }}>₹{formatInr(collectedAtDelivery)}</strong>
+                  </div>
+                  <div>
+                    <div style={{ fontSize: 11, color: "var(--text-muted)", fontWeight: 700, marginBottom: 4 }}>
+                      BALANCE LEFT TO COLLECT
+                    </div>
+                    <strong style={{ fontSize: 20, color: balanceLeft > 0 ? "var(--danger)" : "var(--success)" }}>
+                      {balanceLeft > 0 ? `₹${formatInr(balanceLeft)}` : "Paid ✓"}
+                    </strong>
+                  </div>
+                  {securityHeldAmount > 0 && booking.status !== "returned" && booking.status !== "cancelled" && (
+                    <div>
+                      <div style={{ fontSize: 11, color: "var(--text-muted)", fontWeight: 700, marginBottom: 4 }}>
+                        SECURITY HELD
+                      </div>
+                      <strong style={{ fontSize: 18, color: "#1565c0" }}>₹{formatInr(securityHeldAmount)}</strong>
+                    </div>
+                  )}
+                </div>
+              </div>
+              {securityHeldAmount > 0 && booking.status !== "returned" && booking.status !== "cancelled" && (
+                  <div
+                    style={{
+                      marginTop: 12,
+                      fontSize: 13,
+                      padding: "10px 14px",
+                      background: "rgba(21,101,192,0.08)",
+                      borderRadius: 8,
+                      border: "1px solid rgba(21,101,192,0.25)",
+                    }}
+                  >
+                    <span style={{ fontSize: 11, color: "var(--text-muted)", fontWeight: 700 }}>SECURITY HELD (UNTIL RETURN) </span>
+                    <strong style={{ color: "#1565c0" }}>₹{formatInr(securityHeldAmount)}</strong>
+                    {booking.securityCollected > 0 && (booking.securityDeposit ?? 0) > booking.securityCollected && (
+                      <span style={{ fontSize: 12, color: "var(--text-muted)", marginLeft: 8 }}>
+                        (₹{formatInr(booking.securityCollected)} collected at delivery)
+                      </span>
+                    )}
                   </div>
                 )}
                 {booking.deliveryNotes && (
@@ -192,7 +369,7 @@ export default function ReturnDetailClient({
                     </div>
                   </div>
                 )}
-                {itemDelivery.filter((d) => d.isDelivered).map((d, i) => (
+                {itemDelivery.filter(hasItemDeliveryInfo).map((d, i) => (
                   <div key={i} style={{ marginTop: 12, fontSize: 13, padding: "12px 14px", border: "1px solid var(--border)", borderRadius: 8, background: "rgba(46,125,50,0.03)" }}>
                     <div style={{ display: "flex", alignItems: "center", gap: 10, marginBottom: 8 }}>
                       {d.photo && (
@@ -206,7 +383,12 @@ export default function ReturnDetailClient({
                           </div>
                         )}
                       </div>
-                      <span className="badge badge-success" style={{ marginLeft: "auto" }}>Delivered</span>
+                      <span
+                        className={`badge ${d.isDelivered ? "badge-success" : "badge-info"}`}
+                        style={{ marginLeft: "auto" }}
+                      >
+                        {d.isDelivered ? "Delivered" : "Delivery Saved"}
+                      </span>
                     </div>
                     {(d.preparedBy || d.checkedBy || d.packingNote || d.isPackedReady) && (
                       <div style={{ marginBottom: 8, padding: "8px 12px", background: "var(--info-bg, #e8f4fd)", borderRadius: 8, fontSize: 12 }}>
@@ -217,11 +399,13 @@ export default function ReturnDetailClient({
                         {d.packingNote && <div>Note: {d.packingNote}</div>}
                       </div>
                     )}
-                    <div style={{ fontSize: 12 }}>
-                      {d.itemRemainingCollected > 0 && <span>Remaining collected ₹{formatInr(d.itemRemainingCollected)}</span>}
-                      {d.itemRemainingCollected > 0 && d.itemSecurityCollected > 0 && <span> · </span>}
-                      {d.itemSecurityCollected > 0 && <span>Security collected ₹{formatInr(d.itemSecurityCollected)}</span>}
-                    </div>
+                    {(d.itemRemainingCollected > 0 || d.itemSecurityCollected > 0) && (
+                      <div style={{ fontSize: 12 }}>
+                        {d.itemRemainingCollected > 0 && <span>Remaining collected ₹{formatInr(d.itemRemainingCollected)}</span>}
+                        {d.itemRemainingCollected > 0 && d.itemSecurityCollected > 0 && <span> · </span>}
+                        {d.itemSecurityCollected > 0 && <span>Security held ₹{formatInr(d.itemSecurityCollected)}</span>}
+                      </div>
+                    )}
                     {d.itemDeliveryNotes && (
                       <div style={{ marginTop: 6, color: "var(--text-muted)", fontSize: 12 }}>
                         <strong>Delivery note:</strong> {d.itemDeliveryNotes}
@@ -240,27 +424,116 @@ export default function ReturnDetailClient({
           <div className="card-header"><h3 className="card-title">Mark Return</h3></div>
           <div className="card-body">
             <button className="btn btn-primary" style={{ marginRight: 12 }} disabled={saving} onClick={() => act("mark_returned")}>
-              Mark Returned (Complete)
+              <i className="fa-solid fa-circle-check" style={{ marginRight: 6 }} />
+              Mark All Returned (Complete)
             </button>
+
             <div style={{ marginTop: 24, paddingTop: 24, borderTop: "1px solid var(--border)" }}>
-              <h4 style={{ marginBottom: 12 }}>Incomplete Return</h4>
-              <div style={{ marginBottom: 12 }}>
-                <label className="form-label">Missing Items / Notes</label>
-                <textarea className="form-control" value={incompleteNotes} onChange={(e) => setIncompleteNotes(e.target.value)} rows={2} placeholder="What items are missing?" />
-              </div>
-              <div style={{ marginBottom: 12 }}>
-                <label className="form-label">Security Held (₹)</label>
-                <input type="number" className="form-control" value={securityHeld} onChange={(e) => setSecurityHeld(e.target.value)} min={0} step="0.01" />
-              </div>
-              <div style={{ marginBottom: 12 }}>
-                <label className="form-label">Photo of Incomplete Item <span style={{ fontWeight: 400, color: "var(--text-muted)" }}>(optional)</span></label>
-                <input type="file" className="form-control" accept="image/*" capture="environment" onChange={onPhotoChange} />
-                {photoPreview && (
-                  <img src={photoPreview} alt="Preview" style={{ marginTop: 8, maxWidth: 200, maxHeight: 200, borderRadius: 8, border: "1px solid var(--border)" }} />
-                )}
-              </div>
-              <button className="btn btn-outline" disabled={saving} onClick={() => act("incomplete_return")}>
-                Mark Incomplete Return
+              <h4 style={{ marginBottom: 8 }}>
+                <i className="fa-solid fa-circle-exclamation" style={{ color: "#f39c12", marginRight: 8 }} />
+                Incomplete Return
+              </h4>
+              <p style={{ fontSize: 13, color: "var(--text-muted)", marginBottom: 16 }}>
+                Select the dress(es) that are missing or not fully returned. Other delivered dresses will be marked as returned.
+              </p>
+
+              {incompleteError && (
+                <div className="alert alert-error" style={{ marginBottom: 16 }}>{incompleteError}</div>
+              )}
+
+              {returnableItems.length === 0 ? (
+                <p style={{ color: "var(--text-muted)", fontSize: 13 }}>No delivered dresses pending return.</p>
+              ) : (
+                returnableItems.map((row) => {
+                  const form = incompleteForms[row.id];
+                  const selected = form?.selected ?? false;
+                  return (
+                    <div
+                      key={row.id}
+                      style={{
+                        marginBottom: 14,
+                        padding: "14px 16px",
+                        border: `1.5px solid ${selected ? "#f39c12" : "var(--border)"}`,
+                        borderRadius: 10,
+                        background: selected ? "rgba(243,156,18,0.06)" : "var(--cream-dark, #fafafa)",
+                      }}
+                    >
+                      <label style={{ display: "flex", alignItems: "center", gap: 12, cursor: "pointer", margin: 0 }}>
+                        <input
+                          type="checkbox"
+                          checked={selected}
+                          onChange={(e) => toggleIncompleteDress(row.id, e.target.checked)}
+                          style={{ width: 18, height: 18, accentColor: "#f39c12" }}
+                        />
+                        {row.photo && (
+                          <img
+                            src={photoUrl(row.photo)}
+                            alt=""
+                            style={{ width: 48, height: 48, borderRadius: 8, objectFit: "cover" }}
+                          />
+                        )}
+                        <div style={{ flex: 1 }}>
+                          <strong>{row.dressName}</strong>
+                          {(row.category || row.size) && (
+                            <div style={{ fontSize: 12, color: "var(--text-muted)" }}>
+                              {[row.category, row.size].filter(Boolean).join(" · ")}
+                            </div>
+                          )}
+                        </div>
+                        <span className="badge badge-warning">Select if incomplete</span>
+                      </label>
+
+                      {selected && (
+                        <div style={{ marginTop: 16, paddingTop: 16, borderTop: "1px dashed rgba(243,156,18,0.4)" }}>
+                          <div style={{ marginBottom: 12 }}>
+                            <label className="form-label">What is missing / notes for this dress</label>
+                            <textarea
+                              className="form-control"
+                              rows={2}
+                              value={form?.notes ?? ""}
+                              onChange={(e) => updateIncompleteForm(row.id, { notes: e.target.value })}
+                              placeholder="e.g. Dupatta missing, dress damaged…"
+                            />
+                          </div>
+                          <div style={{ marginBottom: 12 }}>
+                            <label className="form-label">Security to hold for this dress (₹)</label>
+                            <input
+                              type="number"
+                              className="form-control"
+                              value={form?.securityHeld ?? ""}
+                              onChange={(e) => updateIncompleteForm(row.id, { securityHeld: e.target.value })}
+                              min={0}
+                              step="0.01"
+                            />
+                          </div>
+                          <div>
+                            <label className="form-label">
+                              Photo <span style={{ fontWeight: 400, color: "var(--text-muted)" }}>(optional)</span>
+                            </label>
+                            <PhotoCaptureButton
+                              label={`Incomplete photo — ${row.dressName}`}
+                              modalTitle={`Capture photo — ${row.dressName}`}
+                              previewUrl={form?.photoPreview}
+                              onCapture={(file) => onIncompletePhotoChange(row.id, file)}
+                              emptyHeight={100}
+                            />
+                          </div>
+                        </div>
+                      )}
+                    </div>
+                  );
+                })
+              )}
+
+              <button
+                type="button"
+                className="btn btn-outline"
+                style={{ marginTop: 8, borderColor: "#f39c12", color: "#e67e22" }}
+                disabled={saving || (returnableItems.length > 0 && !anyIncompleteSelected)}
+                onClick={() => void submitIncompleteReturn()}
+              >
+                <i className="fa-solid fa-circle-exclamation" style={{ marginRight: 6 }} />
+                {saving ? "Saving…" : "Mark Incomplete Return"}
               </button>
             </div>
           </div>
@@ -284,19 +557,69 @@ export default function ReturnDetailClient({
             <h3 style={{ color: "#f39c12", marginBottom: 12 }}>
               <i className="fa-solid fa-circle-exclamation" /> Incomplete Return
             </h3>
-            <p><strong>Missing Items:</strong> {booking.incompleteNotes || "—"}</p>
-            <p><strong>Security Held:</strong> ₹{formatInr(booking.securityHeld || 0)}</p>
-            {booking.incompletePhoto && (
-              <div style={{ marginTop: 16 }}>
-                <p style={{ fontWeight: 600, marginBottom: 8 }}>Photo</p>
-                <a href={photoUrl(booking.incompletePhoto)} target="_blank" rel="noreferrer">
-                  <img
-                    src={photoUrl(booking.incompletePhoto)}
-                    alt="Incomplete item"
-                    style={{ maxWidth: "100%", maxHeight: 320, borderRadius: 8, border: "1px solid var(--border)" }}
-                  />
-                </a>
-              </div>
+            {itemDelivery.filter((d) => d.isIncompleteReturn).length > 0 ? (
+              itemDelivery
+                .filter((d) => d.isIncompleteReturn)
+                .map((d, i) => (
+                  <div
+                    key={i}
+                    style={{
+                      marginBottom: 14,
+                      padding: "12px 14px",
+                      border: "1px solid rgba(243,156,18,0.35)",
+                      borderRadius: 8,
+                      background: "rgba(243,156,18,0.05)",
+                    }}
+                  >
+                    <div style={{ display: "flex", alignItems: "center", gap: 10, marginBottom: 8 }}>
+                      {d.photo && (
+                        <img src={photoUrl(d.photo)} alt="" style={{ width: 44, height: 44, borderRadius: 8, objectFit: "cover" }} />
+                      )}
+                      <strong>{d.dressName}</strong>
+                      <span className="badge badge-incomplete_return" style={{ marginLeft: "auto" }}>Incomplete</span>
+                    </div>
+                    <p style={{ margin: "4px 0", fontSize: 13 }}>
+                      <strong>Notes:</strong> {d.itemIncompleteNotes || booking.incompleteNotes || "—"}
+                    </p>
+                    {(d.itemSecurityHeld ?? 0) > 0 && (
+                      <p style={{ margin: "4px 0", fontSize: 13 }}>
+                        <strong>Security held:</strong> ₹{formatInr(d.itemSecurityHeld || 0)}
+                      </p>
+                    )}
+                    {d.itemIncompletePhoto && (
+                      <a href={photoUrl(d.itemIncompletePhoto)} target="_blank" rel="noreferrer">
+                        <img
+                          src={photoUrl(d.itemIncompletePhoto)}
+                          alt="Incomplete"
+                          style={{ marginTop: 8, maxWidth: 200, maxHeight: 200, borderRadius: 8, border: "1px solid var(--border)" }}
+                        />
+                      </a>
+                    )}
+                  </div>
+                ))
+            ) : (
+              <>
+                <p><strong>Missing Items:</strong> {booking.incompleteNotes || "—"}</p>
+                <p><strong>Security Held:</strong> ₹{formatInr(booking.securityHeld || 0)}</p>
+                {booking.incompletePhoto && (
+                  <div style={{ marginTop: 16 }}>
+                    <p style={{ fontWeight: 600, marginBottom: 8 }}>Photo</p>
+                    <a href={photoUrl(booking.incompletePhoto)} target="_blank" rel="noreferrer">
+                      <img
+                        src={photoUrl(booking.incompletePhoto)}
+                        alt="Incomplete item"
+                        style={{ maxWidth: "100%", maxHeight: 320, borderRadius: 8, border: "1px solid var(--border)" }}
+                      />
+                    </a>
+                  </div>
+                )}
+              </>
+            )}
+            {itemDelivery.some((d) => d.isReturned && d.isDelivered) && (
+              <p style={{ fontSize: 13, color: "var(--success)", marginTop: 12 }}>
+                <i className="fa-solid fa-circle-check" style={{ marginRight: 6 }} />
+                Other dress(es) in this booking were returned completely.
+              </p>
             )}
             <Link href="/incomplete-return" className="btn btn-outline" style={{ marginTop: 16 }}>
               View in Incomplete Returns

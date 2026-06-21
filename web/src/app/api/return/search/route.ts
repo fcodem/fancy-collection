@@ -1,9 +1,10 @@
 import { NextRequest } from "next/server";
-import prisma, { parseDateQ } from "@/lib/prisma";
+import prisma from "@/lib/prisma";
+import { whereReturnInRange } from "@/lib/bookingDateQuery";
 import { serializeBookingForList } from "@/lib/booking";
 import type { BookingWithItems } from "@/lib/services/bookingSearchCore";
 import { parseDate } from "@/lib/constants";
-import { categoryWhere } from "@/lib/services/bookingSearchCore";
+import { categoryWhere, words } from "@/lib/services/bookingSearchCore";
 import { jsonOk, requireUser, isResponse } from "@/lib/api";
 import type { Prisma } from "@prisma/client";
 
@@ -21,13 +22,19 @@ function textWhere(q: string): Prisma.BookingWhereInput {
   if (digits.length >= 7) {
     return { OR: [{ contact1: { contains: digits } }, { whatsappNo: { contains: digits } }] };
   }
-  const ws = q.trim().split(/\s+/).filter(Boolean);
+  const ws = words(q);
   return {
     AND: ws.map((w) => ({
       OR: [
-        { customerName: { contains: w } },
-        { dressName: { contains: w } },
-        { bookingItems: { some: { dressName: { contains: w } } } },
+        { customerName: { contains: w, mode: "insensitive" as const } },
+        { dressName: { contains: w, mode: "insensitive" as const } },
+        { bookingItems: { some: { dressName: { contains: w, mode: "insensitive" as const } } } },
+        { legacyItem: { is: { sku: { contains: w, mode: "insensitive" as const } } } },
+        {
+          bookingItems: {
+            some: { item: { is: { sku: { contains: w, mode: "insensitive" as const } } } },
+          },
+        },
       ],
     })),
   };
@@ -41,10 +48,15 @@ export async function GET(req: NextRequest) {
   const queryText = req.nextUrl.searchParams.get("q")?.trim() || "";
   const category = req.nextUrl.searchParams.get("category")?.trim() || "";
   const refDateRaw = parseDate(searchDate);
-  const refDate = parseDateQ(searchDate);
 
-  const dayBefore = parseDateQ(new Date(Date.UTC(refDateRaw.getUTCFullYear(), refDateRaw.getUTCMonth(), refDateRaw.getUTCDate() - 1)).toISOString().slice(0, 10));
-  const dayAfter  = parseDateQ(new Date(Date.UTC(refDateRaw.getUTCFullYear(), refDateRaw.getUTCMonth(), refDateRaw.getUTCDate() + 1)).toISOString().slice(0, 10));
+  const dayBeforeStr = new Date(Date.UTC(refDateRaw.getUTCFullYear(), refDateRaw.getUTCMonth(), refDateRaw.getUTCDate() - 1)).toISOString().slice(0, 10);
+  const dayAfterStr = new Date(Date.UTC(refDateRaw.getUTCFullYear(), refDateRaw.getUTCMonth(), refDateRaw.getUTCDate() + 1)).toISOString().slice(0, 10);
+
+  const [exactWhere, beforeWhere, afterWhere] = await Promise.all([
+    whereReturnInRange(searchDate, searchDate),
+    whereReturnInRange(dayBeforeStr, dayBeforeStr),
+    whereReturnInRange(dayAfterStr, dayAfterStr),
+  ]);
 
   const base: Prisma.BookingWhereInput = {
     status: { in: ["delivered", "booked"] },
@@ -57,18 +69,14 @@ export async function GET(req: NextRequest) {
   };
 
   const [exact, before, after, rest] = await Promise.all([
-    prisma.booking.findMany({ where: { ...base, returnDate: refDate }, include: bookingInclude, orderBy: { returnTime: "asc" } }),
-    prisma.booking.findMany({ where: { ...base, returnDate: dayBefore }, include: bookingInclude, orderBy: { returnTime: "asc" } }),
-    prisma.booking.findMany({ where: { ...base, returnDate: dayAfter }, include: bookingInclude, orderBy: { returnTime: "asc" } }),
+    prisma.booking.findMany({ where: { ...base, ...exactWhere }, include: bookingInclude, orderBy: { returnTime: "asc" }, take: 100 }),
+    prisma.booking.findMany({ where: { ...base, ...beforeWhere }, include: bookingInclude, orderBy: { returnTime: "asc" }, take: 100 }),
+    prisma.booking.findMany({ where: { ...base, ...afterWhere }, include: bookingInclude, orderBy: { returnTime: "asc" }, take: 100 }),
     prisma.booking.findMany({
       where: {
         ...base,
         NOT: {
-          OR: [
-            { returnDate: refDate },
-            { returnDate: dayBefore },
-            { returnDate: dayAfter },
-          ],
+          OR: [exactWhere, beforeWhere, afterWhere],
         },
       },
       include: bookingInclude,

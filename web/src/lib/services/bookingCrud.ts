@@ -1,6 +1,11 @@
-import prisma, { parseDateQ, dateQ } from "../prisma";
-import { createBookingNumber, getNextMonthlySerial } from "../booking";
-import { parseDate, formatDate, assertBookingDatesNotPast } from "../constants";
+import prisma, { parseDateQ } from "../prisma";
+import {
+  findFirstItemConflict,
+  formatItemConflictError,
+  createBookingNumber,
+  getNextMonthlySerial,
+} from "../booking";
+import { parseDate, assertBookingDatesNotPast } from "../constants";
 import { broadcastShopEvent } from "../realtime/broadcast";
 import { logActivity, snapshotBooking } from "../activityLog";
 
@@ -33,42 +38,21 @@ type ItemToBook = {
   row: BookingItemInput;
 };
 
-async function findFirstConflictForItems(
-  itemIds: number[],
-  deliveryDate: Date,
-  returnDate: Date,
-  excludeBookingId?: number,
-) {
-  if (!itemIds.length) return null;
-
-  const dIso = formatDate(deliveryDate, "iso");
-  const rIso = formatDate(returnDate, "iso");
-
-  const bookings = await prisma.booking.findMany({
-    where: {
-      ...(excludeBookingId ? { id: { not: excludeBookingId } } : {}),
-      status: { in: ["booked", "delivered"] },
-      deliveryDate: { lte: dateQ(returnDate) },
-      returnDate: { gte: dateQ(deliveryDate) },
-      OR: [
-        { itemId: { in: itemIds } },
-        { bookingItems: { some: { itemId: { in: itemIds } } } },
-      ],
-    },
-    include: { bookingItems: true },
-  });
-
-  for (const itemId of itemIds) {
-    for (const b of bookings) {
-      const bD = formatDate(b.deliveryDate, "iso");
-      const bR = formatDate(b.returnDate, "iso");
-      if (bR === dIso || bD === rIso) continue;
-      const usesItem =
-        b.bookingItems.some((bi) => bi.itemId === itemId) || b.itemId === itemId;
-      if (usesItem) return { itemId, booking: b };
-    }
+function assertUniqueItemIds(itemIds: number[]) {
+  if (new Set(itemIds).size !== itemIds.length) {
+    throw new Error("Each dress can only be selected once per booking.");
   }
-  return null;
+}
+
+function throwIfConflict(
+  conflict: Awaited<ReturnType<typeof findFirstItemConflict>>,
+  items: BookingItemInput[],
+) {
+  if (!conflict) return;
+  const row = items.find((r) => r.item_id === conflict.itemId);
+  throw new Error(
+    formatItemConflictError(row?.dress_name || "Dress", conflict.booking.monthlySerial),
+  );
 }
 
 export async function createBooking(input: BookingFormInput, by?: string) {
@@ -81,6 +65,7 @@ export async function createBooking(input: BookingFormInput, by?: string) {
   if (!input.items.length) throw new Error("Please select at least one dress.");
 
   const itemIds = input.items.map((row) => row.item_id);
+  assertUniqueItemIds(itemIds);
   const items = await prisma.clothingItem.findMany({ where: { id: { in: itemIds } } });
   const itemMap = new Map(items.map((item) => [item.id, item]));
 
@@ -91,22 +76,20 @@ export async function createBooking(input: BookingFormInput, by?: string) {
     itemsToBook.push({ item, row });
   }
 
-  const conflict = await findFirstConflictForItems(itemIds, deliveryDate, returnDate);
-  if (conflict) {
-    const row = input.items.find((r) => r.item_id === conflict.itemId);
-    throw new Error(
-      `'${row?.dress_name || "Dress"}' is already booked (Serial #${String(conflict.booking.monthlySerial).padStart(2, "0")}).`
-    );
-  }
-
   const bookingNumber = await createBookingNumber();
-  const monthlySerial = await getNextMonthlySerial(deliveryDate);
-  const totalPrice = input.items.reduce((s, i) => s + i.price, 0);
-  const totalAdvance = input.items.reduce((s, i) => s + i.advance, 0);
-  const totalRemaining = totalPrice - totalAdvance;
-  const staffNames = (input.staff_names || []).filter(Boolean).join(", ");
 
   const booking = await prisma.$transaction(async (tx) => {
+    throwIfConflict(
+      await findFirstItemConflict(itemIds, input.delivery_date, input.return_date, undefined, tx),
+      input.items,
+    );
+
+    const monthlySerial = await getNextMonthlySerial(deliveryDate, tx);
+    const totalPrice = input.items.reduce((s, i) => s + i.price, 0);
+    const totalAdvance = input.items.reduce((s, i) => s + i.advance, 0);
+    const totalRemaining = totalPrice - totalAdvance;
+    const staffNames = (input.staff_names || []).filter(Boolean).join(", ");
+
     const b = await tx.booking.create({
       data: {
         bookingNumber,
@@ -202,6 +185,7 @@ export async function updateBooking(bookingId: number, input: BookingFormInput, 
   ]);
 
   const itemIds = input.items.map((row) => row.item_id);
+  assertUniqueItemIds(itemIds);
   const items = await prisma.clothingItem.findMany({ where: { id: { in: itemIds } } });
   const itemMap = new Map(items.map((item) => [item.id, item]));
 
@@ -214,20 +198,17 @@ export async function updateBooking(bookingId: number, input: BookingFormInput, 
     newItemIds.add(item.id);
   }
 
-  const conflict = await findFirstConflictForItems(itemIds, deliveryDate, returnDate, bookingId);
-  if (conflict) {
-    const row = input.items.find((r) => r.item_id === conflict.itemId);
-    throw new Error(
-      `'${row?.dress_name || "Dress"}' is already booked (Serial #${String(conflict.booking.monthlySerial).padStart(2, "0")}).`
-    );
-  }
-
   const totalPrice = input.items.reduce((s, i) => s + i.price, 0);
   const totalAdvance = input.items.reduce((s, i) => s + i.advance, 0);
   const totalRemaining = totalPrice - totalAdvance;
   const staffNames = (input.staff_names || []).filter(Boolean).join(", ");
 
   await prisma.$transaction(async (tx) => {
+    throwIfConflict(
+      await findFirstItemConflict(itemIds, input.delivery_date, input.return_date, bookingId, tx),
+      input.items,
+    );
+
     await tx.booking.update({
       where: { id: bookingId },
       data: {

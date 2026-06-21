@@ -9,6 +9,19 @@ export function dressNameMatches(text: string, q: string): boolean {
   return words.every((w) => textL.includes(w));
 }
 
+/** Client-side inventory filter — name, display label, or SKU/item code. */
+export function inventoryItemMatches(
+  item: { name?: string | null; display_name?: string | null; sku?: string | null },
+  q: string,
+): boolean {
+  if (!q.trim()) return true;
+  return (
+    dressNameMatches(item.name || "", q) ||
+    dressNameMatches(item.display_name || "", q) ||
+    dressNameMatches(item.sku || "", q)
+  );
+}
+
 export function isSherwaniCategory(category?: string | null): boolean {
   return (category || "").trim().toLowerCase() === "sherwani";
 }
@@ -43,9 +56,9 @@ export function buildDressSearchWhere(q: string) {
   return {
     AND: words.map((word) => ({
       OR: [
-        { name: { contains: word } },
-        { sku: { contains: word } },
-        { conditionNotes: { contains: word } },
+        { name: { contains: word, mode: "insensitive" as const } },
+        { sku: { contains: word, mode: "insensitive" as const } },
+        { conditionNotes: { contains: word, mode: "insensitive" as const } },
       ],
     })),
   };

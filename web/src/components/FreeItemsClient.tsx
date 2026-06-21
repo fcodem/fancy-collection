@@ -8,6 +8,7 @@ import type { BookingWarningRecord } from "@/lib/bookingDetails";
 import { SIZES } from "@/lib/constants";
 import { useRealtimeRefresh } from "@/hooks/useRealtimeRefresh";
 import { BOOKING_EVENTS, INVENTORY_EVENTS } from "@/lib/realtime/types";
+import DownloadPdfButton from "@/components/DownloadPdfButton";
 
 type FreeItem = {
   id: number;
@@ -80,15 +81,21 @@ export default function FreeItemsClient({ today }: { today: string }) {
   const showSize = category === "Sherwani" || category === "Suit" || category === "Blazer";
 
   const search = useCallback(async () => {
-    const res = await fetch(
-      `/api/booking/available-items?delivery_date=${deliveryDate}&return_date=${returnDate}&category=${encodeURIComponent(category)}`
-    );
-    const data = await res.json();
-    let items: FreeItem[] = data.free_items || [];
-    if (size) items = items.filter((i) => i.size === size);
-    if (subCat) items = items.filter((i) => i.sub_category === subCat || subCat === "Normal");
-    setFree(items);
-    setLoaded(true);
+    try {
+      const res = await fetch(
+        `/api/booking/available-items?delivery_date=${deliveryDate}&return_date=${returnDate}&category=${encodeURIComponent(category)}`,
+      );
+      if (!res.ok) return;
+      const data = await res.json();
+      let items: FreeItem[] = data.free_items || [];
+      if (size) items = items.filter((i) => i.size === size);
+      if (subCat) items = items.filter((i) => i.sub_category === subCat || subCat === "Normal");
+      setFree(items);
+      setLoaded(true);
+    } catch {
+      /* ignore transient network errors (e.g. dev recompile during poll refresh) */
+      setLoaded(true);
+    }
   }, [deliveryDate, returnDate, category, size, subCat]);
 
   useEffect(() => {
@@ -104,11 +111,35 @@ export default function FreeItemsClient({ today }: { today: string }) {
   const booked = free.filter((i) => i.booked_warning && !i.returning_warning);
   const both = free.filter((i) => i.returning_warning && i.booked_warning);
 
+  const pdfHeaders = ["Dress", "Category", "Size", "Color", "Availability"];
+  const pdfRows = free.map((item) => {
+    let availability = "Totally Free";
+    if (item.returning_warning && item.booked_warning) availability = "Returning & Booked";
+    else if (item.returning_warning) availability = "Returning on delivery date";
+    else if (item.booked_warning) availability = "Booked on return date";
+    return [
+      item.display_name || item.name || "—",
+      item.category || "—",
+      item.size || "—",
+      item.color || "—",
+      availability,
+    ];
+  });
+
   return (
     <div>
       <div className="card" style={{ marginBottom: 24 }}>
         <div className="card-header">
           <h3 className="card-title">Search Free Items</h3>
+          <DownloadPdfButton
+            title="Free Items"
+            filename={`free-items-${deliveryDate}`}
+            subtitle={`Pickup: ${deliveryDate} · Return: ${returnDate}${category ? ` · ${category}` : ""}`}
+            headers={pdfHeaders}
+            rows={pdfRows}
+            disabled={!loaded || !pdfRows.length}
+            size="sm"
+          />
         </div>
         <div className="card-body">
           <div className="filter-grid-5">

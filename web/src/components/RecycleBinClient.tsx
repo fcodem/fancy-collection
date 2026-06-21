@@ -16,7 +16,7 @@ export default function RecycleBinClient() {
   const [rows, setRows] = useState<RecycleRow[]>([]);
 
   useEffect(() => {
-    fetch("/api/recycle-bin").then((r) => r.json()).then(setRows);
+    fetch("/api/recycle-bin").then((r) => r.json()).then(setRows).catch(() => {});
   }, []);
 
   async function restore(id: number) {

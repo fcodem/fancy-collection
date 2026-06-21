@@ -1,4 +1,5 @@
 import { NextRequest } from "next/server";
+import prisma from "@/lib/prisma";
 import { saveDelivery } from "@/lib/services/operations";
 import { jsonError, jsonOk, requireUser, isResponse } from "@/lib/api";
 
@@ -21,7 +22,28 @@ export async function POST(req: NextRequest, { params }: { params: Promise<{ id:
         mark_delivered: Boolean(it.mark_delivered),
       })) : undefined,
     }, user.username);
-    return jsonOk({ ok: true, id: booking.id, status: booking.status });
+    const itemRows = await prisma.bookingItem.findMany({
+      where: { bookingId: booking.id },
+      select: {
+        id: true,
+        isDelivered: true,
+        itemRemainingCollected: true,
+        itemSecurityCollected: true,
+        itemDeliveryNotes: true,
+      },
+    });
+    return jsonOk({
+      ok: true,
+      id: booking.id,
+      status: booking.status,
+      items: itemRows.map((bi) => ({
+        id: bi.id,
+        isDelivered: bi.isDelivered,
+        itemRemainingCollected: bi.itemRemainingCollected,
+        itemSecurityCollected: bi.itemSecurityCollected,
+        itemDeliveryNotes: bi.itemDeliveryNotes,
+      })),
+    });
   } catch (e) {
     return jsonError(e instanceof Error ? e.message : "Save failed");
   }

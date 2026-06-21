@@ -1,5 +1,6 @@
 import { EventEmitter } from "events";
 import type { ShopEvent } from "./types";
+import { getServerRealtimeMode } from "./config";
 
 type Listener = (event: ShopEvent) => void;
 
@@ -17,6 +18,22 @@ function getBus() {
   return globalForBus.shopRealtimeBus;
 }
 
+/** Publish to Ably (cross-instance). Used when REALTIME_MODE=ably. */
+async function publishAblyEvent(event: ShopEvent): Promise<void> {
+  const key = process.env.ABLY_API_KEY;
+  if (!key) {
+    console.warn("[realtime] ABLY_API_KEY not set; event not published");
+    return;
+  }
+  try {
+    const Ably = await import("ably");
+    const rest = new Ably.Rest({ key });
+    await rest.channels.get("shop").publish("event", event);
+  } catch (err) {
+    console.error("[realtime] Ably publish failed:", err);
+  }
+}
+
 export function subscribeShopEvents(listener: Listener): () => void {
   const bus = getBus();
   bus.on("shop", listener);
@@ -24,10 +41,26 @@ export function subscribeShopEvents(listener: Listener): () => void {
 }
 
 export function emitShopEvent(event: ShopEvent) {
-  getBus().emit("shop", event);
+  const mode = getServerRealtimeMode();
+
+  if (mode === "ably") {
+    void publishAblyEvent(event);
+    return;
+  }
+
+  if (mode === "sse") {
+    getBus().emit("shop", event);
+    return;
+  }
+
+  // polling: clients refresh on an interval — no server-side fan-out needed
 }
 
 export function registerRealtimeClient(username?: string): () => void {
+  if (getServerRealtimeMode() !== "sse") {
+    return () => {};
+  }
+
   globalForBus.shopRealtimeClients = (globalForBus.shopRealtimeClients ?? 0) + 1;
   const online = globalForBus.shopRealtimeClients;
   emitShopEvent({

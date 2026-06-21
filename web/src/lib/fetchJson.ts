@@ -11,7 +11,13 @@ export async function fetchJson<T = Record<string, unknown>>(
   input: RequestInfo | URL,
   init?: RequestInit,
 ): Promise<T> {
-  const res = await fetch(input, { credentials: "same-origin", ...init });
+  let res: Response;
+  try {
+    res = await fetch(input, { credentials: "same-origin", ...init });
+  } catch (e) {
+    if (e instanceof Error && e.name === "AbortError") throw e;
+    throw new ApiError(e instanceof Error ? e.message : "Network request failed", 0);
+  }
   const text = await res.text();
   let data: T & { error?: string } = {} as T & { error?: string };
   if (text) {
@@ -25,10 +31,6 @@ export async function fetchJson<T = Record<string, unknown>>(
     }
   }
   if (!res.ok) {
-    // #region agent log
-    const { debugLog } = await import("./debugLog");
-    debugLog("fetchJson.ts", "request failed", { url: String(input), status: res.status, error: data.error }, "C");
-    // #endregion
     throw new ApiError(data.error || `Request failed (${res.status})`, res.status);
   }
   return data as T;

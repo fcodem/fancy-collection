@@ -1,14 +1,42 @@
 import { NextRequest } from "next/server";
 import { requireUserReadOnly, isResponse } from "@/lib/api";
+import { getServerRealtimeMode } from "@/lib/realtime/config";
 import { registerRealtimeClient, subscribeShopEvents } from "@/lib/realtime/bus";
 import type { ShopEvent } from "@/lib/realtime/types";
 
 export const dynamic = "force-dynamic";
 export const runtime = "nodejs";
+export const maxDuration = 300;
 
 const HEARTBEAT_MS = 25_000;
 
+/**
+ * Legacy SSE stream — only used when REALTIME_MODE=sse (single Node process / local dev).
+ * On Vercel use NEXT_PUBLIC_REALTIME_MODE=polling or ably.
+ */
 export async function GET(req: NextRequest) {
+  const mode = getServerRealtimeMode();
+
+  if (mode === "polling") {
+    return new Response(
+      JSON.stringify({
+        mode: "polling",
+        message: "Realtime uses client polling. Set REALTIME_MODE=sse for EventSource.",
+      }),
+      { status: 200, headers: { "Content-Type": "application/json" } },
+    );
+  }
+
+  if (mode === "ably") {
+    return new Response(
+      JSON.stringify({
+        mode: "ably",
+        message: "Realtime uses Ably WebSocket. SSE is disabled.",
+      }),
+      { status: 200, headers: { "Content-Type": "application/json" } },
+    );
+  }
+
   const user = await requireUserReadOnly();
   if (isResponse(user)) return user;
 

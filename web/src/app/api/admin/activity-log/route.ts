@@ -5,6 +5,14 @@ import { requireOwner, isResponse, jsonOk } from "@/lib/api";
 
 export const dynamic = "force-dynamic";
 
+async function ownerUsernames(): Promise<string[]> {
+  const owners = await prisma.user.findMany({
+    where: { role: "owner" },
+    select: { username: true },
+  });
+  return owners.map((o) => o.username);
+}
+
 export async function GET(req: NextRequest) {
   const user = await requireOwner();
   if (isResponse(user)) return user;
@@ -16,17 +24,23 @@ export async function GET(req: NextRequest) {
   const action = sp.get("action") || undefined;
   const username = sp.get("username") || undefined;
   const search = sp.get("q") || undefined;
+  const includeOwner = sp.get("include_owner") === "1" || sp.get("include_owner") === "true";
 
-  const where: Prisma.ActivityLogWhereInput = {};
-  if (entity) where.entity = entity;
-  if (action) where.action = action;
-  if (username) where.username = username;
+  const and: Prisma.ActivityLogWhereInput[] = [];
+  if (entity) and.push({ entity });
+  if (action) and.push({ action });
+  if (username) and.push({ username });
   if (search) {
-    where.OR = [
-      { label: { contains: search } },
-      { username: { contains: search } },
-    ];
+    and.push({
+      OR: [{ label: { contains: search } }, { username: { contains: search } }],
+    });
   }
+  if (!includeOwner) {
+    const owners = await ownerUsernames();
+    if (owners.length) and.push({ username: { notIn: owners } });
+  }
+
+  const where: Prisma.ActivityLogWhereInput = and.length ? { AND: and } : {};
 
   const [logs, total] = await Promise.all([
     prisma.activityLog.findMany({

@@ -4,13 +4,13 @@
 
 import type { CSSProperties } from "react";
 import { useRouter } from "next/navigation";
-import { useCallback, useEffect, useMemo, useState } from "react";
+import { useCallback, useEffect, useMemo, useRef, useState } from "react";
 import DressNameSuggestInput from "@/components/DressNameSuggestInput";
-import { dressNameMatches } from "@/lib/dress";
+import { inventoryItemMatches } from "@/lib/dress";
 import { todayIso, parseDate, isDateBeforeToday } from "@/lib/constants";
 import { formatInr } from "@/lib/format";
 import { photoUrl } from "@/lib/photoUrl";
-import { debugLog } from "@/lib/debugLog";
+import { isAbortError } from "@/lib/bookingQrClient";
 
 
 
@@ -99,6 +99,8 @@ type FreeItem = {
   name: string;
 
   display_name?: string;
+
+  sku?: string;
 
   category: string;
 
@@ -191,6 +193,9 @@ type Props = {
 
   /** Redirect here after save instead of /booking/[id] */
   afterSaveHref?: string;
+
+  /** When set, show a success banner after redirect from a completed save */
+  saveConfirmedSerial?: number;
 
   /** When "prospect", saves to prospect-leads API without reserving inventory */
   mode?: "booking" | "prospect";
@@ -289,6 +294,7 @@ export default function BookingFormClient(props: Props) {
   const [dateCheckResults, setDateCheckResults] = useState<DateCheckResult[]>([]);
 
   const [dateCheckLoading, setDateCheckLoading] = useState(false);
+  const availabilityAbortRef = useRef<AbortController | null>(null);
 
   const hasHardBlock = useMemo(
     () => !isProspect && dateCheckResults.some((r) => r.status === "hard_conflict"),
@@ -322,11 +328,25 @@ export default function BookingFormClient(props: Props) {
 
     }
 
-    const res = await fetch(`/api/booking/next-serial?delivery_date=${date}`, { credentials: "same-origin" });
+    if (!date) return;
 
-    const data = await res.json();
+    try {
 
-    setSerialDisplay(data.display ? `#${data.display}` : "--");
+      const res = await fetch(`/api/booking/next-serial?delivery_date=${date}`, { credentials: "same-origin" });
+
+      if (!res.ok) return;
+
+      const data = await res.json();
+
+      setSerialDisplay(data.display ? `#${data.display}` : "--");
+
+    } catch (e) {
+
+      if (isAbortError(e)) return;
+
+      /* keep current serial on transient network errors */
+
+    }
 
   }, [props.editId, props.initial?.monthly_serial]);
 
@@ -335,6 +355,11 @@ export default function BookingFormClient(props: Props) {
   const fetchAvailability = useCallback(async () => {
 
     if (!deliveryDate || !returnDate) return;
+    if (parseDate(returnDate) < parseDate(deliveryDate)) return;
+
+    availabilityAbortRef.current?.abort();
+    const controller = new AbortController();
+    availabilityAbortRef.current = controller;
 
     setLoading(true);
 
@@ -344,19 +369,11 @@ export default function BookingFormClient(props: Props) {
 
     try {
 
-      const res = await fetch(url, { credentials: "same-origin" });
+      const res = await fetch(url, { credentials: "same-origin", signal: controller.signal });
 
       const data = await res.json();
 
-      // #region agent log
-      debugLog("BookingFormClient.tsx:fetchAvailability", "client availability", {
-        ok: res.ok,
-        status: res.status,
-        freeCount: data.free_items?.length ?? 0,
-        deliveryDate,
-        returnDate,
-      }, "C");
-      // #endregion
+      if (controller.signal.aborted) return;
 
       if (!res.ok) {
         setAllFreeItems([]);
@@ -366,21 +383,23 @@ export default function BookingFormClient(props: Props) {
 
       setAllFreeItems(data.free_items || []);
 
-    } catch {
+    } catch (e) {
 
-      // #region agent log
-      debugLog("BookingFormClient.tsx:fetchAvailability", "availability exception", { deliveryDate, returnDate }, "C");
-      // #endregion
+      if (controller.signal.aborted || isAbortError(e)) return;
 
       setAllFreeItems([]);
 
     } finally {
 
-      setLoading(false);
+      if (!controller.signal.aborted) setLoading(false);
 
     }
 
   }, [deliveryDate, returnDate, props.editId]);
+
+
+
+  useEffect(() => () => availabilityAbortRef.current?.abort(), []);
 
 
 
@@ -424,16 +443,6 @@ export default function BookingFormClient(props: Props) {
 
       const results = Array.isArray(data) ? data : (data?.results ?? []);
 
-      // #region agent log
-      debugLog("BookingFormClient.tsx:runDateCheck", "client date-check", {
-        ok: res.ok,
-        status: res.status,
-        isArray: Array.isArray(data),
-        resultCount: results.length,
-        error: !res.ok ? (data?.error ?? "unknown") : undefined,
-      }, "B");
-      // #endregion
-
       if (!res.ok) {
         setDateCheckResults([]);
         if (res.status === 401) setError("Session expired — please log in again.");
@@ -443,10 +452,6 @@ export default function BookingFormClient(props: Props) {
       setDateCheckResults(results);
 
     } catch {
-
-      // #region agent log
-      debugLog("BookingFormClient.tsx:runDateCheck", "date-check exception", {}, "C");
-      // #endregion
 
       setDateCheckResults([]);
 
@@ -478,7 +483,7 @@ export default function BookingFormClient(props: Props) {
 
       fetchAvailability();
 
-    }, props.editId ? 0 : 300);
+    }, props.editId ? 0 : 600);
 
     return () => clearTimeout(t);
 
@@ -509,9 +514,7 @@ export default function BookingFormClient(props: Props) {
     if (categoryFilter) list = list.filter((i) => i.category === categoryFilter);
 
     if (nameSearch) {
-
-      list = list.filter((i) => dressNameMatches(i.name, nameSearch) || dressNameMatches(i.display_name || "", nameSearch));
-
+      list = list.filter((i) => inventoryItemMatches(i, nameSearch));
     }
 
     if (sizeFilter) list = list.filter((i) => i.size?.includes(sizeFilter));
@@ -659,6 +662,11 @@ export default function BookingFormClient(props: Props) {
 
     }
 
+    if (dateCheckLoading) {
+      setError("Please wait — still checking dress availability for these dates.");
+      return;
+    }
+
     setSaving(true);
 
     const payload = {
@@ -717,17 +725,6 @@ export default function BookingFormClient(props: Props) {
 
     const data = await res.json();
 
-    // #region agent log
-    debugLog("BookingFormClient.tsx:save", "client save result", {
-      ok: res.ok,
-      status: res.status,
-      error: data.error,
-      id: data.id,
-      itemCount: selectedDresses.length,
-      hasHardBlock,
-    }, "D");
-    // #endregion
-
     setSaving(false);
 
     if (!res.ok) {
@@ -738,13 +735,19 @@ export default function BookingFormClient(props: Props) {
 
     }
 
-    if (printAfter) router.push(`/booking/${data.id}/print`);
+    const bookingId = data.id;
+    if (!bookingId) {
+      setError("Booking saved but could not open the record. Check the Booking Panel.");
+      return;
+    }
 
-    else if (isProspect) router.push("/prospect-leads");
-
-    else router.push(props.afterSaveHref || `/booking/${data.id}`);
-
-    router.refresh();
+    if (printAfter) router.replace(`/booking/${bookingId}/print`);
+    else if (isProspect) router.replace("/prospect-leads");
+    else if (!props.editId) {
+      const serial = data.serial ?? data.monthly_serial;
+      router.replace(`/booking/new?confirmed=1&serial=${serial ?? ""}`);
+    }
+    else router.replace(props.afterSaveHref || `/booking/${bookingId}`);
 
   }
 
@@ -787,6 +790,16 @@ export default function BookingFormClient(props: Props) {
 
 
       {error && <div className="alert alert-error" style={{ marginBottom: 16 }}>{error}</div>}
+
+      {props.saveConfirmedSerial != null && props.saveConfirmedSerial > 0 && (
+        <div className="alert alert-success" style={{ marginBottom: 16, fontSize: 15 }}>
+          <i className="fa-solid fa-circle-check" style={{ marginRight: 8 }} />
+          <strong>Booking confirmed</strong>
+          {" — Serial "}
+          <strong>#{String(props.saveConfirmedSerial).padStart(2, "0")}</strong>
+          {" saved successfully. Enter the next booking below."}
+        </div>
+      )}
 
       {props.locked && (
         <div className="card" style={{ marginBottom: 16, borderLeft: "4px solid #1565c0", background: "rgba(21,101,192,0.06)" }}>
@@ -1048,10 +1061,12 @@ export default function BookingFormClient(props: Props) {
 
             <DressNameSuggestInput
               className="form-control"
-              placeholder="Search dress name…"
+              placeholder="Search dress name or SKU…"
               value={nameSearch}
               category={categoryFilter}
+              showPhotos
               onChange={(e) => setNameSearch(e.target.value)}
+              onSuggestSelect={(item) => setNameSearch(item.name)}
             />
 
           </div>
@@ -1293,19 +1308,19 @@ export default function BookingFormClient(props: Props) {
         <div className="card-body" style={{ display: "flex", gap: 12, flexWrap: "wrap", alignItems: "center" }}>
           {/* Primary action — one click saves and prints */}
           {!isProspect && !props.editId ? (
-            <button type="button" className="btn btn-primary btn-lg" disabled={saving || !selectedDresses.length || hasHardBlock} onClick={() => save(true)}>
+            <button type="button" className="btn btn-primary btn-lg" disabled={saving || dateCheckLoading || !selectedDresses.length || hasHardBlock} onClick={() => save(true)}>
               <i className="fa-solid fa-print" style={{ marginRight: 8 }} />
-              {hasHardBlock ? "Cannot Save — Dress Booked" : saving ? "Saving…" : "Confirm & Print Bill"}
+              {hasHardBlock ? "Cannot Save — Dress Booked" : saving ? "Saving…" : dateCheckLoading ? "Checking dates…" : "Confirm & Print Bill"}
             </button>
           ) : (
-            <button type="button" className="btn btn-primary btn-lg" disabled={saving || !selectedDresses.length || hasHardBlock} onClick={() => save(false)}>
-              {hasHardBlock ? "Cannot Save — Dress Already Booked" : saving ? "Saving…" : isProspect ? "Save Prospect Lead" : "Update Booking"}
+            <button type="button" className="btn btn-primary btn-lg" disabled={saving || dateCheckLoading || !selectedDresses.length || hasHardBlock} onClick={() => save(false)}>
+              {hasHardBlock ? "Cannot Save — Dress Already Booked" : saving ? "Saving…" : dateCheckLoading ? "Checking dates…" : isProspect ? "Save Prospect Lead" : "Update Booking"}
             </button>
           )}
           {/* Secondary: save without printing */}
           {!isProspect && !props.editId && (
-            <button type="button" className="btn btn-outline btn-lg" disabled={saving || !selectedDresses.length || hasHardBlock} onClick={() => save(false)}>
-              Save Only
+            <button type="button" className="btn btn-outline btn-lg" disabled={saving || dateCheckLoading || !selectedDresses.length || hasHardBlock} onClick={() => save(false)}>
+              {dateCheckLoading ? "Checking dates…" : "Save Booking"}
             </button>
           )}
           <a href={isProspect ? "/prospect-leads" : props.editId ? `/booking/${props.editId}` : "/booking"} className="btn btn-outline">Cancel</a>

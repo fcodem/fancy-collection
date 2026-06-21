@@ -11,7 +11,8 @@ export default function FinanceDailySalePage({ todayIso }: { todayIso: string })
   useEffect(() => {
     fetch(`/api/finance/daily-sale?date=${date}`)
       .then((r) => r.json())
-      .then(setData);
+      .then(setData)
+      .catch(() => {});
   }, [date]);
 
   const d = data as {

@@ -18,7 +18,7 @@ export async function POST(req: Request) {
 
   const item = await prisma.clothingItem.findFirst({
     where: {
-      name: { equals: rawName, mode: "insensitive" },
+      name: { equals: rawName },
     },
     select: { id: true, name: true, sku: true, photo: true },
   });

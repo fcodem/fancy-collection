@@ -25,6 +25,8 @@ export async function GET(req: NextRequest) {
       status: i.status,
       photo: i.photo,
       sub_category: i.subCategory,
+      daily_rate: i.dailyRate,
+      deposit: i.deposit,
     }));
 
   let categoryResults = category

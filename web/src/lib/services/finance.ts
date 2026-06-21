@@ -339,9 +339,12 @@ export async function getSecurityDepositSummary() {
   });
 
   const total_collected = bookings.reduce((s, b) => s + (b.securityCollected || 0), 0);
-  const total_held = bookings
-    .filter((b) => b.status === "incomplete_return")
-    .reduce((s, b) => s + (b.securityHeld || 0), 0);
+  const total_held = bookings.reduce((s, b) => {
+    if (b.status === "returned" || b.status === "cancelled") return s;
+    if (b.status === "incomplete_return") return s + (b.securityHeld || b.securityCollected || 0);
+    if (b.status === "delivered") return s + (b.securityHeld || b.securityCollected || 0);
+    return s;
+  }, 0);
 
   return {
     total_collected,
@@ -352,7 +355,10 @@ export async function getSecurityDepositSummary() {
       customer_name: b.customerName,
       serial: b.monthlySerial,
       security_collected: b.securityCollected,
-      security_held: b.securityHeld,
+      security_held:
+        b.status === "delivered" || b.status === "incomplete_return"
+          ? b.securityHeld || b.securityCollected || 0
+          : b.securityHeld || 0,
       status: b.status,
       delivered_at: b.deliveredAt?.toISOString() || null,
     })),

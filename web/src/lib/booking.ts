@@ -1,9 +1,18 @@
-import prisma, { parseDateQ, startOfMonthQ, endOfMonthQ, dateQ } from "./prisma";
+import prisma, { parseDateQ } from "./prisma";
+import {
+  whereBookingOverlapsPeriod,
+  whereDeliveryInRange,
+  whereDeliveryInMonth,
+  whereReturnInRange,
+} from "./bookingDateQuery";
 import { dressDisplayName, buildDressSearchWhere, serializeBookingItems } from "./dress";
-import { bookingListRecordFrom, bookingWarningRecordFrom } from "./bookingDetails";
-import { serialPositionToValue, generateNumber } from "./serial";
+import { bookingListRecordFrom, bookingWarningRecordFrom, balanceLeftToCollect, securityCurrentlyHeld } from "./bookingDetails";
+import { nextValidSerial, serialPositionToValue, generateNumber } from "./serial";
 import { formatDate } from "./constants";
+import { resolveBookingStatus } from "./bookingStatus";
 import type { Booking, BookingItem, ClothingItem, Prisma } from "@prisma/client";
+
+type DbClient = Prisma.TransactionClient | typeof prisma;
 
 type BookingWithItems = Booking & {
   bookingItems: (BookingItem & { item?: ClothingItem | null })[];
@@ -11,8 +20,8 @@ type BookingWithItems = Booking & {
 };
 
 const bookingWarningInclude = {
-  bookingItems: { include: { item: true } },
-  legacyItem: true,
+  bookingItems: { select: { itemId: true, dressName: true, category: true, size: true, notes: true } },
+  legacyItem: { select: { size: true } },
 } as const;
 
 function bookingItemIds(b: Pick<Booking, "itemId"> & { bookingItems: { itemId: number }[] }): number[] {
@@ -47,6 +56,57 @@ function serializeBookingConflict(b: Booking) {
   };
 }
 
+type BookingWithBookingItems = Booking & { bookingItems: BookingItem[] };
+
+/**
+ * Find an existing booked/delivered booking that blocks these items for the date range.
+ * Allows same-day return→delivery handover (edge dates); blocks true double-booking.
+ */
+export async function findFirstItemConflict(
+  itemIds: number[],
+  deliveryDateStr: string,
+  returnDateStr: string,
+  excludeBookingId?: number,
+  tx?: Prisma.TransactionClient,
+): Promise<{ itemId: number; booking: BookingWithBookingItems } | null> {
+  if (!itemIds.length) return null;
+
+  const db: DbClient = tx ?? prisma;
+  const dIso = deliveryDateStr.slice(0, 10);
+  const rIso = returnDateStr.slice(0, 10);
+
+  const bookings = await db.booking.findMany({
+    where: {
+      ...(await whereBookingOverlapsPeriod(dIso, rIso)),
+      ...(excludeBookingId ? { id: { not: excludeBookingId } } : {}),
+      status: { in: ["booked", "delivered"] },
+      OR: [
+        { itemId: { in: itemIds } },
+        { bookingItems: { some: { itemId: { in: itemIds } } } },
+      ],
+    },
+    include: { bookingItems: true },
+  });
+
+  for (const itemId of itemIds) {
+    for (const b of bookings) {
+      const bD = formatDate(b.deliveryDate, "iso");
+      const bR = formatDate(b.returnDate, "iso");
+      // Same-day handover is allowed (returning morning, delivering afternoon).
+      if (bR === dIso || bD === rIso) continue;
+      if (bookingUsesItem(b, itemId)) return { itemId, booking: b };
+    }
+  }
+  return null;
+}
+
+export function formatItemConflictError(
+  dressName: string,
+  serial: number,
+): string {
+  return `'${dressName || "Dress"}' is already booked (Serial #${String(serial).padStart(2, "0")}).`;
+}
+
 export async function checkItemAvailabilityForDates(
   item: ClothingItem,
   dDate: Date,
@@ -63,11 +123,13 @@ export async function checkItemAvailabilityForDates(
     };
   }
 
+  const dIso = formatDate(dDate, "iso");
+  const rIso = formatDate(rDate, "iso");
+
   const overlapping = await prisma.booking.findMany({
     where: {
+      ...(await whereBookingOverlapsPeriod(dIso, rIso)),
       status: { in: ["booked", "delivered"] },
-      deliveryDate: { lte: dateQ(rDate) },
-      returnDate: { gte: dateQ(dDate) },
       ...(excludeBookingId ? { id: { not: excludeBookingId } } : {}),
     },
     include: bookingWarningInclude,
@@ -156,26 +218,56 @@ export async function searchBookingsByText(queryText: string, extraWhere: Prisma
 
 export function serializeBookingForList(b: BookingWithItems) {
   const record = bookingListRecordFrom({ ...b, id: b.id, monthlySerial: b.monthlySerial });
+  const totalRemaining = b.totalRemaining ?? b.remaining ?? 0;
+  const remainingCollected = b.remainingCollected ?? 0;
+  const status = resolveBookingStatus(b);
+  const deliveryItems = b.bookingItems.map((bi) => ({
+    itemSecurityCollected: bi.itemSecurityCollected,
+    isDelivered: bi.isDelivered,
+  }));
   return {
     ...record,
     id: b.id,
     booking_number: b.bookingNumber,
     serial: b.monthlySerial,
     serial_no: b.monthlySerial,
-    status: b.status,
+    status,
     total_price: b.totalPrice,
-    total_remaining: b.totalRemaining,
+    total_remaining: totalRemaining,
+    remaining_collected: remainingCollected,
+    security_collected: b.securityCollected ?? 0,
+    security_held: securityCurrentlyHeld({
+      status,
+      securityHeld: b.securityHeld,
+      securityCollected: b.securityCollected,
+      securityDeposit: b.securityDeposit,
+      items: deliveryItems,
+    }),
+    delivery_notes: b.deliveryNotes || "",
+    balance_remaining: balanceLeftToCollect(totalRemaining, remainingCollected),
     items: serializeBookingItems(b),
   };
 }
 
-export async function getNextMonthlySerial(deliveryDate: Date) {
-  const monthStart = startOfMonthQ(deliveryDate);
-  const monthEnd = endOfMonthQ(deliveryDate);
-  const count = await prisma.booking.count({
-    where: { deliveryDate: { gte: monthStart, lt: monthEnd } },
-  });
-  return serialPositionToValue(count + 1);
+export async function getNextMonthlySerial(deliveryDate: Date, client: DbClient = prisma) {
+  const monthWhere = await whereDeliveryInMonth(deliveryDate);
+
+  const [count, maxAgg, usedSerials] = await Promise.all([
+    client.booking.count({ where: monthWhere }),
+    client.booking.aggregate({ where: monthWhere, _max: { monthlySerial: true } }),
+    client.booking.findMany({ where: monthWhere, select: { monthlySerial: true } }),
+  ]);
+
+  const used = new Set(usedSerials.map((b) => b.monthlySerial));
+  let candidate = serialPositionToValue(count + 1);
+  const maxSerial = maxAgg._max.monthlySerial ?? 0;
+  if (candidate <= maxSerial) {
+    candidate = nextValidSerial(maxSerial + 1);
+  }
+  while (used.has(candidate)) {
+    candidate = nextValidSerial(candidate + 1);
+  }
+  return candidate;
 }
 
 export async function createBookingNumber() {
@@ -196,7 +288,15 @@ export async function getAvailableItemsApi(
 ) {
   const dDate = parseDateQ(deliveryDateStr);
   const rDate = parseDateQ(returnDateStr);
+  const dIso = formatDate(dDate, "iso");
+  const rIso = formatDate(rDate, "iso");
   const exclude = excludeBookingId ? { id: { not: excludeBookingId } } : {};
+
+  const [overlapWhere, returnOnDeliveryWhere, deliveryOnReturnWhere] = await Promise.all([
+    whereBookingOverlapsPeriod(deliveryDateStr, returnDateStr),
+    whereReturnInRange(deliveryDateStr, deliveryDateStr),
+    whereDeliveryInRange(returnDateStr, returnDateStr),
+  ]);
 
   const [allItems, overlappingBookings, returningOnDeliveryBookings, bookedOnReturnBookings, overlappingRentals] =
     await Promise.all([
@@ -210,25 +310,24 @@ export async function getAvailableItemsApi(
       prisma.booking.findMany({
         where: {
           ...exclude,
+          ...overlapWhere,
           status: { in: ["booked", "delivered"] },
-          deliveryDate: { lte: rDate },
-          returnDate: { gte: dDate },
         },
         include: bookingWarningInclude,
       }),
       prisma.booking.findMany({
         where: {
           ...exclude,
+          ...returnOnDeliveryWhere,
           status: { in: ["booked", "delivered"] },
-          returnDate: dDate,
         },
         include: bookingWarningInclude,
       }),
       prisma.booking.findMany({
         where: {
           ...exclude,
+          ...deliveryOnReturnWhere,
           status: { in: ["booked", "delivered"] },
-          deliveryDate: rDate,
         },
         include: bookingWarningInclude,
       }),
@@ -241,9 +340,6 @@ export async function getAvailableItemsApi(
         include: { items: true },
       }),
     ]);
-
-  const dIso = formatDate(dDate, "iso");
-  const rIso = formatDate(rDate, "iso");
 
   const busyItemIds = new Set<number>();
   const returningInfo: Record<number, ReturnType<typeof warningRecordFromBooking> & { customer?: string; contact?: string }> = {};

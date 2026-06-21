@@ -23,6 +23,14 @@ export async function saveUpload(file: File): Promise<string> {
     return blob.url;
   }
 
+  if (process.env.NODE_ENV === "production") {
+    throw new Error(
+      "BLOB_READ_WRITE_TOKEN is required in production for photo uploads. " +
+      "Add it in your Vercel environment variables."
+    );
+  }
+
+  // Local development only — save to public/uploads/
   const dir = join(process.cwd(), "public", "uploads");
   await mkdir(dir, { recursive: true });
   await writeFile(join(dir, filename), bytes);

@@ -8,6 +8,7 @@ import DeliveredCancelBooking from "@/components/DeliveredCancelBooking";
 import BookingWhatsAppButton from "@/components/BookingWhatsAppButton";
 import { isBookingLocked } from "@/lib/bookingLock";
 import type { BookingForStandardDetails } from "@/lib/bookingDetails";
+import { resolveBookingStatus } from "@/lib/bookingStatus";
 
 function editHref(id: number, status: string) {
   return status === "delivered" ? `/booking-delivery/${id}` : `/booking/${id}/edit`;
@@ -29,6 +30,7 @@ export default function BookingViewClient({
     remainingCollected?: number;
     whatsappNo?: string | null;
     contact1?: string;
+    bookingItems?: Array<{ isDelivered: boolean }>;
   };
   qrSlot?: React.ReactNode;
   isOwner?: boolean;
@@ -36,8 +38,9 @@ export default function BookingViewClient({
   const router = useRouter();
   const [showCancel, setShowCancel] = useState(false);
 
-  const isDelivered = booking.status === "delivered";
-  const locked = isBookingLocked(booking.status);
+  const status = resolveBookingStatus(booking);
+  const isDelivered = status === "delivered";
+  const locked = isBookingLocked(status);
   const canModify = !locked;
   const totalPrice = booking.totalPrice ?? booking.price ?? 0;
   const totalAdvance = booking.totalAdvance ?? booking.advance ?? 0;
@@ -70,7 +73,7 @@ export default function BookingViewClient({
     <div>
       <div style={{ display: "flex", gap: 12, marginBottom: 20, flexWrap: "wrap" }} className="no-print">
         {canModify && (
-          <Link href={editHref(booking.id, booking.status)} className="btn btn-outline">
+          <Link href={editHref(booking.id, status)} className="btn btn-outline">
             {isDelivered ? "Edit (Delivery)" : "Edit"}
           </Link>
         )}
@@ -85,17 +88,17 @@ export default function BookingViewClient({
           bookingId={booking.id}
           hasPhone={!!(booking.whatsappNo || booking.contact1)}
         />
-        {booking.status === "booked" && (
+        {status === "booked" && (
           <Link href={`/booking-delivery/${booking.id}`} className="btn btn-primary">
             <i className="fa-solid fa-truck-fast" /> Delivery
           </Link>
         )}
-        {booking.status === "delivered" && (
+        {status === "delivered" && (
           <Link href={`/return/${booking.id}`} className="btn btn-gold">
             <i className="fa-solid fa-rotate-left" /> Return
           </Link>
         )}
-        {canModify && booking.status !== "cancelled" && !showCancel && (
+        {canModify && status !== "cancelled" && !showCancel && (
           <button type="button" className="btn btn-outline" style={{ color: "var(--danger)" }} onClick={openCancel}>
             Cancel Booking
           </button>
@@ -128,7 +131,7 @@ export default function BookingViewClient({
         />
       )}
 
-      {booking.status === "delivered" && (
+      {status === "delivered" && (
         <div style={{ display: "flex", alignItems: "center", gap: 14, padding: "14px 20px", marginBottom: 16, background: "linear-gradient(135deg,rgba(46,125,50,0.10),rgba(46,125,50,0.04))", border: "2px solid var(--success)", borderRadius: 12 }}>
           <i className="fa-solid fa-circle-check" style={{ fontSize: 28, color: "var(--success)" }} />
           <div>
@@ -137,7 +140,7 @@ export default function BookingViewClient({
           </div>
         </div>
       )}
-      {booking.status === "returned" && (
+      {status === "returned" && (
         <div style={{ display: "flex", alignItems: "center", gap: 14, padding: "14px 20px", marginBottom: 16, background: "linear-gradient(135deg,rgba(21,101,192,0.10),rgba(21,101,192,0.04))", border: "2px solid #1565c0", borderRadius: 12 }}>
           <i className="fa-solid fa-circle-check" style={{ fontSize: 28, color: "#1565c0" }} />
           <div>
@@ -150,8 +153,8 @@ export default function BookingViewClient({
         <div className="card-header" style={{ display: "flex", justifyContent: "space-between", alignItems: "flex-start", flexWrap: "wrap", gap: 16 }}>
           <div style={{ display: "flex", alignItems: "center", gap: 16, flexWrap: "wrap" }}>
             <h3 className="card-title">Booking #{String(booking.monthlySerial).padStart(2, "0")}</h3>
-            <span className={`badge badge-${booking.status === "booked" ? "warning" : booking.status === "delivered" ? "success" : booking.status === "returned" ? "info" : booking.status === "cancelled" ? "danger" : "info"}`} style={{ fontSize: 12, padding: "4px 12px", fontWeight: 700 }}>
-              {booking.status === "delivered" ? "✓ DELIVERED" : booking.status === "returned" ? "✓ RETURNED" : booking.status === "booked" ? "BOOKED" : booking.status === "cancelled" ? "CANCELLED" : booking.status.toUpperCase()}
+            <span className={`badge badge-${status === "booked" ? "warning" : status === "delivered" ? "success" : status === "returned" ? "info" : status === "cancelled" ? "danger" : "info"}`} style={{ fontSize: 12, padding: "4px 12px", fontWeight: 700 }}>
+              {status === "delivered" ? "✓ DELIVERED" : status === "returned" ? "✓ RETURNED" : status === "booked" ? "BOOKED" : status === "cancelled" ? "CANCELLED" : status.toUpperCase()}
             </span>
           </div>
           {qrSlot}

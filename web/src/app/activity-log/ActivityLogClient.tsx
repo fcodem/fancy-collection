@@ -101,6 +101,7 @@ export default function ActivityLogClient() {
   const [entityFilter, setEntityFilter] = useState("");
   const [actionFilter, setActionFilter] = useState("");
   const [searchQ, setSearchQ] = useState("");
+  const [includeOwner, setIncludeOwner] = useState(false);
 
   const fetchLogs = useCallback(async (p: number) => {
     setLoading(true);
@@ -109,6 +110,7 @@ export default function ActivityLogClient() {
       if (entityFilter) params.set("entity", entityFilter);
       if (actionFilter) params.set("action", actionFilter);
       if (searchQ.trim()) params.set("q", searchQ.trim());
+      if (includeOwner) params.set("include_owner", "1");
       const res = await fetch(`/api/admin/activity-log?${params}`);
       if (!res.ok) return;
       const data: LogResponse = await res.json();
@@ -119,7 +121,7 @@ export default function ActivityLogClient() {
     } finally {
       setLoading(false);
     }
-  }, [entityFilter, actionFilter, searchQ]);
+  }, [entityFilter, actionFilter, searchQ, includeOwner]);
 
   useEffect(() => { fetchLogs(1); }, [fetchLogs]);
 
@@ -141,9 +143,48 @@ export default function ActivityLogClient() {
           Activity Log
         </h2>
         <p style={{ fontSize: 13, color: "var(--text-muted)", margin: 0 }}>
-          Track every booking and inventory change made by staff. See who changed what, when, and the exact before/after values.
+          {includeOwner
+            ? "Showing all activity — staff and owner changes."
+            : "Showing staff activity only. Owner changes are hidden unless you enable the option below."}
           <strong style={{ marginLeft: 6 }}>{total} records</strong>
         </p>
+      </div>
+
+      {/* Staff / owner scope */}
+      <div className="card" style={{ marginBottom: 12 }}>
+        <div className="card-body" style={{ display: "flex", alignItems: "center", justifyContent: "space-between", flexWrap: "wrap", gap: 12 }}>
+          <div>
+            <div style={{ fontSize: 14, fontWeight: 700, color: "var(--text)" }}>
+              <i className="fa-solid fa-users" style={{ marginRight: 8, color: "var(--primary)" }} />
+              {includeOwner ? "Staff + owner activity" : "Staff activity only"}
+            </div>
+            <p style={{ fontSize: 12, color: "var(--text-muted)", margin: "4px 0 0" }}>
+              Track changes made by shop staff. Turn on owner view to audit your own work as well.
+            </p>
+          </div>
+          <label
+            style={{
+              display: "inline-flex",
+              alignItems: "center",
+              gap: 10,
+              cursor: "pointer",
+              fontSize: 13,
+              fontWeight: 600,
+              padding: "8px 14px",
+              borderRadius: 8,
+              border: "1px solid var(--border)",
+              background: includeOwner ? "rgba(212,175,55,0.12)" : "var(--cream-dark)",
+            }}
+          >
+            <input
+              type="checkbox"
+              checked={includeOwner}
+              onChange={(e) => setIncludeOwner(e.target.checked)}
+              style={{ width: 16, height: 16, accentColor: "var(--primary)" }}
+            />
+            Also show owner activity
+          </label>
+        </div>
       </div>
 
       {/* Filters */}
@@ -191,7 +232,11 @@ export default function ActivityLogClient() {
         <div className="card">
           <div className="card-body" style={{ textAlign: "center", padding: 40 }}>
             <i className="fa-solid fa-clipboard-list" style={{ fontSize: 36, color: "var(--text-muted)", marginBottom: 12 }} />
-            <p style={{ color: "var(--text-muted)" }}>No activity logs found. Logs will appear here as staff create, edit, or delete bookings and inventory.</p>
+            <p style={{ color: "var(--text-muted)" }}>
+              {includeOwner
+                ? "No activity logs found for the current filters."
+                : "No staff activity found. Enable “Also show owner activity” above if you were looking for your own changes."}
+            </p>
           </div>
         </div>
       )}

@@ -15,11 +15,20 @@ export interface SessionData {
 }
 
 export const sessionOptions: SessionOptions = {
-  password: process.env.SESSION_SECRET || "dev-only-change-in-production-min-32-chars!!",
+  password: (() => {
+    if (process.env.NODE_ENV === "production" && !process.env.SESSION_SECRET) {
+      throw new Error(
+        "SESSION_SECRET environment variable must be set in production. " +
+        "Generate one with: openssl rand -base64 32"
+      );
+    }
+    return process.env.SESSION_SECRET || "dev-only-change-in-production-min-32-chars!!";
+  })(),
   cookieName: "fancy_collection_session",
   cookieOptions: {
-    // Default false so login works over HTTP on shop LAN. Set SESSION_COOKIE_SECURE=true when using HTTPS.
-    secure: process.env.SESSION_COOKIE_SECURE === "true",
+    secure: process.env.NODE_ENV === "production"
+      ? process.env.SESSION_COOKIE_SECURE !== "false"
+      : false,
     httpOnly: true,
     sameSite: "lax",
     maxAge: 60 * 60 * 24 * 7,
@@ -41,7 +50,17 @@ async function resolveSessionUser(updateLastSeen: boolean) {
 
   const userSession = await prisma.userSession.findFirst({
     where: { sessionId: session.sessionId, userId: session.userId, active: true },
-    include: { user: { include: { staff: true } } },
+    include: {
+      user: {
+        select: {
+          id: true,
+          username: true,
+          role: true,
+          staffId: true,
+          staff: { select: { id: true, name: true, active: true } },
+        },
+      },
+    },
   });
   if (!userSession) return null;
 

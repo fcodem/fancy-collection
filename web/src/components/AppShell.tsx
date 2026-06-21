@@ -152,8 +152,6 @@ export default function AppShell({
   }
 
   useEffect(() => {
-    if (initialOverdueDelivery !== undefined) return;
-
     let cancelled = false;
     function loadNavCounts() {
       fetchJson<{ overdue_delivery_count: number }>("/api/dashboard/nav-counts")
@@ -168,12 +166,7 @@ export default function AppShell({
       cancelled = true;
       window.removeEventListener("focus", loadNavCounts);
     };
-  }, [initialOverdueDelivery]);
-
-  useEffect(() => {
-    if (initialOverdueDelivery === undefined) return;
-    setOverdueDelivery(initialOverdueDelivery);
-  }, [initialOverdueDelivery]);
+  }, []);
 
   useEffect(() => {
     function onRealtimeToast(e: Event) {

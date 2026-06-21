@@ -8,8 +8,13 @@ export default function ManageCategoriesClient() {
   const [group, setGroup] = useState("other");
 
   async function load() {
-    const res = await fetch("/api/categories");
-    setData(await res.json());
+    try {
+      const res = await fetch("/api/categories");
+      if (!res.ok) return;
+      setData(await res.json());
+    } catch {
+      /* ignore transient network errors */
+    }
   }
 
   useEffect(() => { load(); }, []);

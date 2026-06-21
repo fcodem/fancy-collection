@@ -8,8 +8,13 @@ export default function CustomersClient() {
   const [rows, setRows] = useState<Array<Record<string, unknown>>>([]);
 
   async function load() {
-    const res = await fetch(`/api/customers?q=${encodeURIComponent(q)}`);
-    setRows(await res.json());
+    try {
+      const res = await fetch(`/api/customers?q=${encodeURIComponent(q)}`);
+      if (!res.ok) return;
+      setRows(await res.json());
+    } catch {
+      /* ignore transient network errors */
+    }
   }
 
   useEffect(() => { load(); }, []);

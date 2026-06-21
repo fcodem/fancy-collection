@@ -12,10 +12,6 @@ export function jsonError(message: string, status = 400) {
 export async function requireUser(): Promise<AuthUser | NextResponse> {
   const user = await getCurrentUser();
   if (!user) {
-    // #region agent log
-    const { debugLog } = await import("./debugLog");
-    debugLog("api.ts:requireUser", "auth missing", {}, "B");
-    // #endregion
     return jsonError("Please log in to continue.", 401);
   }
   return user;

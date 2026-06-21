@@ -29,6 +29,7 @@ export async function GET(req: NextRequest) {
       category: i.category,
       size: i.size || "",
       color: i.color || "",
-    }))
+      photo: i.photo || "",
+    })),
   );
 }

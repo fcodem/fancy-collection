@@ -12,7 +12,7 @@ export default async function SearchBookingPage() {
         title="Search Booking"
         apiPath="/api/search-booking"
         detailHref="/booking/{id}/edit"
-        dateLabel="Date (Month Reference)"
+        dateLabel="Month (pick any date)"
         showStatus
         showCategoryFilter
         monthBased

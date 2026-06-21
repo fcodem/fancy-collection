@@ -1,4 +1,8 @@
-import prisma, { parseDateQ, dateQ } from "@/lib/prisma";
+import prisma, { parseDateQ } from "@/lib/prisma";
+import {
+  whereDeliveryInRange,
+  whereUnavailableDuringPeriod,
+} from "@/lib/bookingDateQuery";
 import { dressDisplayName } from "@/lib/dress";
 import {
   bookingListRecordFrom,
@@ -6,6 +10,7 @@ import {
   type BookingWarningRecord,
 } from "@/lib/bookingDetails";
 import { formatDate, parseDate } from "@/lib/constants";
+import { resolveBookingStatus } from "@/lib/bookingStatus";
 
 type WarningInfo = BookingWarningRecord & { booking_id: number };
 
@@ -64,6 +69,7 @@ const bookingSelect = {
       price: true,
       size: true,
       notes: true,
+      isDelivered: true,
       item: { select: { photo: true, size: true, category: true } },
     },
   },
@@ -175,13 +181,14 @@ function serializeBooking(
   if (!items.length && categoryFilter) return null;
 
   const record = bookingListRecordFrom({ ...b, id: b.id, monthlySerial: b.monthlySerial });
+  const status = resolveBookingStatus(b);
 
   return {
     ...record,
     id: b.id,
     booking_number: b.bookingNumber,
     serial_no: b.monthlySerial,
-    status: b.status,
+    status,
     items,
     reason,
   };
@@ -208,17 +215,21 @@ export async function getBookingListData(
   const fromDisplay = formatDate(dDate, "display");
   const toDisplay = formatDate(rDate, "display");
 
+  const [dateRangeWhere, unavailDateWhere] = await Promise.all([
+    whereDeliveryInRange(deliveryDateStr, returnDateStr || deliveryDateStr),
+    whereUnavailableDuringPeriod(deliveryDateStr, returnDateStr || deliveryDateStr),
+  ]);
+
   const mainWhere = {
     status: { in: ["booked", "delivered"] as string[] },
-    deliveryDate: { gte: dDateQ, lte: rDateQ },
+    ...dateRangeWhere,
     ...(deliveryTimeFilter ? { deliveryTime: deliveryTimeFilter } : {}),
     ...(returnTimeFilter ? { returnTime: returnTimeFilter } : {}),
   };
 
   const unavailWhere = {
     status: { in: ["booked", "delivered"] as string[] },
-    deliveryDate: { lt: dDateQ },
-    returnDate: { gte: dDateQ, lt: rDateQ },
+    ...unavailDateWhere,
     ...(deliveryTimeFilter ? { deliveryTime: deliveryTimeFilter } : {}),
     ...(returnTimeFilter ? { returnTime: returnTimeFilter } : {}),
   };
@@ -236,22 +247,16 @@ export async function getBookingListData(
     }),
   ]);
 
-  const deliveryDates = [...new Set(mainBookings.map((b) => b.deliveryDate.getTime()))].map((t) => new Date(t));
-  const returnDates = [...new Set(mainBookings.map((b) => b.returnDate.getTime()))].map((t) => new Date(t));
-
-  const edgeBookings =
-    deliveryDates.length || returnDates.length
-      ? await prisma.booking.findMany({
-          where: {
-            status: { in: ["booked", "delivered"] },
-            OR: [
-              ...(deliveryDates.length ? [{ returnDate: { in: deliveryDates.map(dateQ) } }] : []),
-              ...(returnDates.length ? [{ deliveryDate: { in: returnDates.map(dateQ) } }] : []),
-            ],
-          },
-          select: bookingSelect,
-        })
-      : [];
+  const edgeBookings = await prisma.booking.findMany({
+    where: {
+      status: { in: ["booked", "delivered"] },
+      OR: [
+        { returnDate: { gte: dDateQ, lte: rDateQ } },
+        { deliveryDate: { gte: dDateQ, lte: rDateQ } },
+      ],
+    },
+    select: bookingSelect,
+  });
 
   const { returning: returningMap, booked: bookedMap } = buildWarningMaps(edgeBookings);
 

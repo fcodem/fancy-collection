@@ -5,7 +5,7 @@ import {
   JEWELLERY_CATEGORIES,
   ACCESSORY_CATEGORIES,
 } from "../constants";
-import { formatUnitName } from "../dress";
+import { dressDisplayName, formatUnitName } from "../dress";
 import { computeAverageHash, hashSimilarity } from "../photoHash";
 import { saveUpload } from "../upload";
 import { broadcastShopEvent } from "../realtime/broadcast";
@@ -235,10 +235,17 @@ export async function photoSearchInventory(photoBuffer: Buffer, category = "") {
   for (const item of allItems) {
     if (!item.photo) continue;
     try {
-      const { readFile } = await import("fs/promises");
-      const { join } = await import("path");
-      const photoPath = join(process.cwd(), "public", "uploads", item.photo);
-      const storedBuffer = await readFile(photoPath);
+      let storedBuffer: Buffer;
+      if (item.photo.startsWith("http://") || item.photo.startsWith("https://")) {
+        const res = await fetch(item.photo);
+        if (!res.ok) continue;
+        storedBuffer = Buffer.from(await res.arrayBuffer());
+      } else {
+        const { readFile } = await import("fs/promises");
+        const { join } = await import("path");
+        const photoPath = join(process.cwd(), "public", "uploads", item.photo);
+        storedBuffer = await readFile(photoPath);
+      }
       const storedHash = await computeAverageHash(storedBuffer);
       const similarity = hashSimilarity(queryHash, storedHash);
       if (similarity >= 40) scored.push({ similarity, item });
@@ -251,6 +258,7 @@ export async function photoSearchInventory(photoBuffer: Buffer, category = "") {
   const toDict = (sim: number, item: (typeof allItems)[0]) => ({
     id: item.id,
     name: item.name,
+    display_name: dressDisplayName(item.name, item.category, item.size),
     sku: item.sku,
     category: item.category,
     status: item.status,

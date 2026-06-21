@@ -9,7 +9,7 @@ type BroadcastOpts = {
   by?: string;
 };
 
-/** Broadcast a change to every connected staff browser on this server. */
+/** Broadcast a change to all connected staff browsers (Ably, SSE, or polling clients). */
 export function broadcastShopEvent(opts: BroadcastOpts) {
   emitShopEvent({
     ...opts,

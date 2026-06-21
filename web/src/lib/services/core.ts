@@ -1,5 +1,14 @@
 import { NextRequest, NextResponse } from "next/server";
-import prisma, { todayStartQ, todayEndQ, dateQ } from "../prisma";
+import { unstable_cache } from "next/cache";
+import prisma, { todayStartQ, dateQ } from "../prisma";
+import {
+  whereDeliveryInRange,
+  whereReturnBefore,
+  whereReturnInRange,
+  whereRemainingToDeliver,
+  whereOverduePendingDelivery,
+} from "../bookingDateQuery";
+import { repairAllBookingStatuses } from "./operations";
 import bcrypt from "bcryptjs";
 import {
   BASE_ACCESSORY,
@@ -55,23 +64,39 @@ export async function initDb() {
     initPromise = (async () => {
       await ensureOwnerExists();
       await seedDatabase();
+      try {
+        await repairAllBookingStatuses();
+      } catch {
+        /* non-fatal */
+      }
     })();
   }
   return initPromise;
 }
 
 export async function getOverdueDeliveryCount() {
-  const today = todayStartQ();
-  return prisma.booking.count({
-    where: { deliveryDate: { lt: today }, status: "booked" },
-  });
+  const today = todayIso();
+  const where = await whereOverduePendingDelivery(today);
+  return prisma.booking.count({ where });
 }
 
-export async function getDashboardData() {
+const _getDashboardDataRaw = async () => {
   const today = todayStartQ();
-  const todayEnd = todayEndQ();
+  const todayStr = todayIso();
   const now = new Date();
   const monthStart = dateQ(new Date(Date.UTC(now.getFullYear(), now.getMonth(), 1)));
+
+  const [
+    deliveryTodayWhere,
+    returnTodayWhere,
+    undeliveredWhere,
+    lateReturnWhere,
+  ] = await Promise.all([
+    whereDeliveryInRange(todayStr, todayStr),
+    whereReturnInRange(todayStr, todayStr),
+    whereRemainingToDeliver(todayStr),
+    whereReturnBefore(todayStr),
+  ]);
 
   const [
     itemStatusCounts,
@@ -84,11 +109,12 @@ export async function getDashboardData() {
     todayDeliveriesList,
     todayReturnsList,
     allUndeliveredList,
+    undeliveredCount,
     overdueList,
   ] = await Promise.all([
     prisma.clothingItem.groupBy({ by: ["status"], _count: { _all: true } }),
     prisma.customer.count(),
-    prisma.booking.count({ where: { returnDate: { lt: today }, status: "delivered" } }),
+    prisma.booking.count({ where: { ...lateReturnWhere, status: "delivered" } }),
     prisma.rental.count({ where: { status: { in: ["active", "overdue"] } } }),
     prisma.rental.count({ where: { status: "active", endDate: { lt: today } } }),
     prisma.payment.aggregate({ _sum: { amount: true }, where: { paidAt: { gte: monthStart } } }),
@@ -97,20 +123,22 @@ export async function getDashboardData() {
       where: { status: { in: ["unpaid", "partial"] } },
     }),
     prisma.booking.findMany({
-      where: { deliveryDate: { gte: today, lt: todayEnd } },
+      where: deliveryTodayWhere,
       include: { bookingItems: true, legacyItem: true },
       orderBy: { deliveryTime: "asc" },
     }),
     prisma.booking.findMany({
-      where: { returnDate: { gte: today, lt: todayEnd }, status: { in: ["booked", "delivered"] } },
+      where: { ...returnTodayWhere, status: { in: ["booked", "delivered"] } },
       include: { bookingItems: true, legacyItem: true },
       orderBy: { returnTime: "asc" },
     }),
     prisma.booking.findMany({
-      where: { deliveryDate: { lte: today }, status: "booked" },
+      where: undeliveredWhere,
       include: { bookingItems: true, legacyItem: true },
       orderBy: [{ deliveryDate: "asc" }, { deliveryTime: "asc" }],
+      take: 200,
     }),
+    prisma.booking.count({ where: undeliveredWhere }),
     prisma.rental.findMany({
       where: { status: "active", endDate: { lt: today } },
       include: { customer: true },
@@ -140,7 +168,7 @@ export async function getDashboardData() {
       delivered: todayDeliveriesList.filter((b) => b.status === "delivered").length,
       remaining_delivery: todayDeliveriesList.filter((b) => b.status === "booked").length,
       returning: todayReturnsList.length,
-      all_undelivered: allUndeliveredList.length,
+      all_undelivered: undeliveredCount,
     },
     today_deliveries_list: todayDeliveriesList,
     today_returns_list: todayReturnsList,
@@ -158,7 +186,13 @@ export async function getDashboardData() {
     today_iso: todayIso(),
     today_display: formatDate(todayIso(), "display"),
   };
-}
+};
+
+export const getDashboardData = unstable_cache(
+  _getDashboardDataRaw,
+  ["dashboard-data"],
+  { revalidate: 20 },
+);
 
 export function readJsonBody<T = Record<string, unknown>>(req: NextRequest): Promise<T> {
   return req.json() as Promise<T>;

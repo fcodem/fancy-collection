@@ -1,4 +1,5 @@
 import prisma, { parseDateQ, startOfMonthQ, endOfMonthQ, dateQ } from "@/lib/prisma";
+import { whereDeliveryInRange } from "@/lib/bookingDateQuery";
 import {
   parseDate,
   todayIso,
@@ -51,7 +52,7 @@ export function customerNameWhere(q: string): Prisma.BookingWhereInput {
   if (!ws.length) return {};
   return {
     AND: ws.map((w) => ({
-      customerName: { contains: w },
+      customerName: { contains: w, mode: "insensitive" as const },
     })),
   };
 }
@@ -62,8 +63,14 @@ export function dressNameWhere(q: string): Prisma.BookingWhereInput {
   return {
     AND: ws.map((w) => ({
       OR: [
-        { dressName: { contains: w } },
-        { bookingItems: { some: { dressName: { contains: w } } } },
+        { dressName: { contains: w, mode: "insensitive" as const } },
+        { bookingItems: { some: { dressName: { contains: w, mode: "insensitive" as const } } } },
+        { legacyItem: { is: { sku: { contains: w, mode: "insensitive" as const } } } },
+        {
+          bookingItems: {
+            some: { item: { is: { sku: { contains: w, mode: "insensitive" as const } } } },
+          },
+        },
       ],
     })),
   };
@@ -73,7 +80,10 @@ export function phoneWhere(q: string): Prisma.BookingWhereInput {
   const d = digitsOnly(q);
   if (!d) return {};
   return {
-    OR: [{ contact1: { contains: d } }, { whatsappNo: { contains: d } }],
+    OR: [
+      { contact1: { contains: d, mode: "insensitive" as const } },
+      { whatsappNo: { contains: d, mode: "insensitive" as const } },
+    ],
   };
 }
 
@@ -93,14 +103,25 @@ export function categoryWhere(category: string): Prisma.BookingWhereInput {
   };
 }
 
-function monthDeliveryWhere(y: number, m: number): Prisma.BookingWhereInput {
-  const anchor = new Date(Date.UTC(y, m, 15));
-  const monthStart = startOfMonthQ(anchor);
-  const monthEnd = endOfMonthQ(anchor);
-  return { deliveryDate: { gte: monthStart, lt: monthEnd } };
+function monthRangeFromRefDate(refDate: Date) {
+  const y = refDate.getUTCFullYear();
+  const m = refDate.getUTCMonth();
+  const fromStr = `${y}-${String(m + 1).padStart(2, "0")}-01`;
+  const lastDay = new Date(Date.UTC(y, m + 1, 0)).getUTCDate();
+  const toStr = `${y}-${String(m + 1).padStart(2, "0")}-${String(lastDay).padStart(2, "0")}`;
+  return { y, m, fromStr, toStr, monthKey: fromStr.slice(0, 7) };
 }
 
-export async function fetchBookings(where: Prisma.BookingWhereInput, orderBy?: Prisma.BookingOrderByWithRelationInput, take?: number) {
+async function monthDeliveryWhereFromRefDate(refDate: Date) {
+  const { fromStr, toStr } = monthRangeFromRefDate(refDate);
+  return whereDeliveryInRange(fromStr, toStr);
+}
+
+export async function fetchBookings(
+  where: Prisma.BookingWhereInput,
+  orderBy?: Prisma.BookingOrderByWithRelationInput | Prisma.BookingOrderByWithRelationInput[],
+  take?: number,
+) {
   return prisma.booking.findMany({
     where: { status: { not: "cancelled" }, ...where },
     include: bookingInclude,
@@ -109,88 +130,122 @@ export async function fetchBookings(where: Prisma.BookingWhereInput, orderBy?: P
   });
 }
 
-/** Dashboard: serial in prev / current / next month. */
+/** Dashboard: serial in prev / current / next month (SQLite-safe). */
 export async function searchBySerialMonths(serial: number, refDate: Date) {
-  const offsets = [-1, 0, 1];
-  const all: BookingWithItems[] = [];
+  const prevAnchor = new Date(Date.UTC(
+    refDate.getUTCFullYear(), refDate.getUTCMonth() - 1, 15
+  ));
+  const nextAnchor = new Date(Date.UTC(
+    refDate.getUTCFullYear(), refDate.getUTCMonth() + 1, 15
+  ));
+  const rangeStart = startOfMonthQ(prevAnchor);
+  const rangeEnd   = endOfMonthQ(nextAnchor);
 
-  for (const offset of offsets) {
-    const anchor = new Date(Date.UTC(refDate.getUTCFullYear(), refDate.getUTCMonth() + offset, 15));
-    const monthStart = startOfMonthQ(anchor);
-    const monthEnd = endOfMonthQ(anchor);
-    const rows = await fetchBookings({
-      monthlySerial: serial,
-      deliveryDate: { gte: monthStart, lt: monthEnd },
-    });
-    all.push(...rows);
-  }
-
-  return dedupeById(all).sort((a, b) => a.deliveryDate.getTime() - b.deliveryDate.getTime());
-}
-
-/** Universal: serial anywhere in reference year. */
-export async function searchBySerialInYear(serial: number, refDate: Date) {
   const rows = await fetchBookings({
     monthlySerial: serial,
-    ...yearDeliveryWhere(refDate),
+    deliveryDate: { gte: rangeStart, lt: rangeEnd },
   });
-  return sortByRelevance(rows);
+  return dedupeById(rows).sort(
+    (a, b) => a.deliveryDate.getTime() - b.deliveryDate.getTime()
+  );
 }
 
-function isPreviousRecord(b: Booking) {
-  const todayStart = parseDate(todayIso());
-  if (["returned", "cancelled", "incomplete_return"].includes(b.status)) {
-    return b.returnDate.getTime() < todayStart.getTime();
+/** Universal: serial anywhere in reference year (SQLite-safe). */
+export async function searchBySerialInYear(serial: number, refDate: Date) {
+  const y = refDate.getUTCFullYear();
+  const yearWhere = await whereDeliveryInRange(`${y}-01-01`, `${y}-12-31`);
+  const rows = await fetchBookings({
+    monthlySerial: serial,
+    ...yearWhere,
+  });
+  return sortByRelevance(rows, refDate);
+}
+
+const DASHBOARD_ACTIVE_STATUSES = ["booked", "delivered"] as const;
+
+function isDashboardActive(b: Pick<Booking, "status">) {
+  return DASHBOARD_ACTIVE_STATUSES.includes(b.status as (typeof DASHBOARD_ACTIVE_STATUSES)[number]);
+}
+
+function filterDashboardActive(rows: BookingWithItems[]) {
+  return rows.filter(isDashboardActive);
+}
+
+function dashboardResults(rows: BookingWithItems[], mode: SearchMode) {
+  return {
+    mode,
+    results: filterDashboardActive(rows).map(serializeBookingForList),
+  };
+}
+
+/** Dashboard serial — direct match first, then month/year windows (active only). */
+async function searchDashboardBySerial(serial: number, refDate: Date) {
+  let results: BookingWithItems[] = await fetchBookings({
+    monthlySerial: serial,
+    status: { in: [...DASHBOARD_ACTIVE_STATUSES] },
+  });
+
+  if (!results.length) {
+    results = filterDashboardActive(await searchBySerialMonths(serial, refDate));
   }
-  return false;
+  if (!results.length) {
+    results = filterDashboardActive(await searchBySerialInYear(serial, refDate));
+  }
+
+  return dedupeById(results).sort((a, b) => a.deliveryDate.getTime() - b.deliveryDate.getTime());
 }
 
 export async function dashboardSearchBookings(queryText: string, refDateStr?: string) {
   const q = queryText.trim();
-  if (q.length < 2) {
+  const isSerialQuery = /^\d+$/.test(q);
+  if (!q || (!isSerialQuery && q.length < 2)) {
     return { mode: "mixed" as SearchMode, results: [] };
   }
 
   const refDate = parseDate(refDateStr || todayIso());
 
-  if (/^\d+$/.test(q)) {
-    const serialFromPrefix = parseInt(q.slice(0, 3), 10);
+  if (isSerialQuery) {
     let results: BookingWithItems[] = [];
-    if (!Number.isNaN(serialFromPrefix)) {
-      results = await searchBySerialMonths(serialFromPrefix, refDate);
+    if (q.length <= 3) {
+      const serial = parseInt(q, 10);
+      if (!Number.isNaN(serial)) {
+        results = await searchDashboardBySerial(serial, refDate);
+      }
+    } else {
+      const serialFromPrefix = parseInt(q.slice(0, 3), 10);
+      if (!Number.isNaN(serialFromPrefix)) {
+        results = await searchDashboardBySerial(serialFromPrefix, refDate);
+      }
+      const phoneRows = await fetchBookings({
+        ...phoneWhere(q),
+        status: { in: [...DASHBOARD_ACTIVE_STATUSES] },
+      });
+      results = dedupeById([...results, ...sortByRelevance(phoneRows, refDate)]);
     }
-    if (q.length > 3) {
-      const phoneRows = await fetchBookings(phoneWhere(q));
-      results = dedupeById([
-        ...results,
-        ...sortByRelevance(phoneRows.filter((b) => !isPreviousRecord(b))),
-      ]);
-    }
-    return {
-      mode: q.length <= 3 ? ("serial" as const) : ("mixed" as const),
-      results: results.map(serializeBookingForList),
-    };
+    return dashboardResults(results, q.length <= 3 ? "serial" : "mixed");
   }
 
   if (digitsOnly(q).length >= 10) {
-    const rows = await fetchBookings(phoneWhere(q));
-    return {
-      mode: "phone" as const,
-      results: sortByRelevance(rows.filter((b) => !isPreviousRecord(b))).map(serializeBookingForList),
-    };
+    const rows = await fetchBookings({
+      ...phoneWhere(q),
+      status: { in: [...DASHBOARD_ACTIVE_STATUSES] },
+    });
+    return dashboardResults(rows, "phone");
   }
 
-  const customerHits = await fetchBookings(customerNameWhere(q));
-  const activeCustomer = sortByRelevance(customerHits.filter((b) => !isPreviousRecord(b)));
-  if (activeCustomer.length) {
-    return { mode: "customer", results: activeCustomer.map(serializeBookingForList) };
+  const customerHits = await fetchBookings({
+    ...customerNameWhere(q),
+    status: { in: [...DASHBOARD_ACTIVE_STATUSES] },
+  });
+  if (customerHits.length) {
+    return dashboardResults(sortByRelevance(customerHits, refDate), "customer");
   }
 
-  const dressRows = await fetchBookings(dressNameWhere(q));
-  return {
-    mode: "dress",
-    results: sortByRelevance(dressRows.filter((b) => !isPreviousRecord(b))).map(serializeBookingForList),
-  };
+  const dressRows = await fetchBookings({
+    ...dressNameWhere(q),
+    status: { in: [...DASHBOARD_ACTIVE_STATUSES] },
+  });
+  return dashboardResults(sortByRelevance(dressRows, refDate), "dress");
 }
 
 /** All Record / Advanced Search — full history in year; customer name = lifetime. */
@@ -217,7 +272,7 @@ export async function universalSearchBookings(queryText: string, refDateStr?: st
       if (category) results = results.filter((b) => matchesCategory(b, category));
     }
     if (q.length > 3) {
-      const phoneRows = await fetchBookings({ ...phoneWhere(q), ...yearFilter, ...catFilter });
+      const phoneRows = await fetchBookings({ ...phoneWhere(q), ...yearFilter, ...catFilter }, undefined, 200);
       results = dedupeById([...results, ...sortByRelevance(phoneRows)]);
     }
     return {
@@ -227,11 +282,11 @@ export async function universalSearchBookings(queryText: string, refDateStr?: st
   }
 
   if (digitsOnly(q).length >= 10) {
-    const rows = await fetchBookings({ ...phoneWhere(q), ...yearFilter, ...catFilter });
+    const rows = await fetchBookings({ ...phoneWhere(q), ...yearFilter, ...catFilter }, undefined, 200);
     return { mode: "phone", results: sortByRelevance(rows).map(serializeBookingForList) };
   }
 
-  const customerRows = await fetchBookings({ ...customerNameWhere(q), ...catFilter });
+  const customerRows = await fetchBookings({ ...customerNameWhere(q), ...catFilter }, undefined, 200);
   if (customerRows.length) {
     return {
       mode: "customer",
@@ -239,7 +294,7 @@ export async function universalSearchBookings(queryText: string, refDateStr?: st
     };
   }
 
-  const dressRows = await fetchBookings({ ...dressNameWhere(q), ...yearFilter, ...catFilter });
+  const dressRows = await fetchBookings({ ...dressNameWhere(q), ...yearFilter, ...catFilter }, undefined, 200);
   return { mode: "dress", results: sortByRelevance(dressRows).map(serializeBookingForList) };
 }
 
@@ -257,10 +312,15 @@ function activeBookingWhere(category: string): Prisma.BookingWhereInput {
 }
 
 async function bookingsInMonth(y: number, m: number, category: string): Promise<BookingWithItems[]> {
-  return fetchBookings({
-    ...monthDeliveryWhere(y, m),
-    ...activeBookingWhere(category),
-  });
+  const anchor = new Date(Date.UTC(y, m, 15));
+  const monthWhere = await monthDeliveryWhereFromRefDate(anchor);
+  return fetchBookings(
+    {
+      ...monthWhere,
+      ...activeBookingWhere(category),
+    },
+    [{ deliveryDate: "asc" }, { monthlySerial: "asc" }],
+  );
 }
 
 /** Strict text match — only rows that match the search term. */
@@ -295,40 +355,20 @@ async function matchBookingsByQuery(
   return { rows: dressRows, mode: "dress" };
 }
 
-async function bookingsNearReferenceDate(refDate: Date, category: string, includeAdjacentMonths: boolean) {
-  const y = refDate.getUTCFullYear();
-  const m = refDate.getUTCMonth();
-  const monthTuples: Array<[number, number]> = [[y, m]];
-
-  if (includeAdjacentMonths) {
-    const prevM = m === 0 ? 11 : m - 1;
-    const prevY = m === 0 ? y - 1 : y;
-    const nextM = m === 11 ? 0 : m + 1;
-    const nextY = m === 11 ? y + 1 : y;
-    monthTuples.unshift([prevY, prevM]);
-    monthTuples.push([nextY, nextM]);
-  }
-
-  let all: BookingWithItems[] = [];
-  for (const [yr, mo] of monthTuples) {
-    all.push(...(await bookingsInMonth(yr, mo, category)));
-  }
-  return dedupeById(all);
-}
-
-/** Search Booking — date shows nearest records; text shows strict matches only. */
+/** Search Booking — empty search shows all records for the selected month. */
 export async function monthBasedSearchBookings(queryText: string, refDateStr?: string, category = "") {
   const q = queryText.trim();
   const refDate = parseDate(refDateStr || todayIso());
+  const { y, m, monthKey } = monthRangeFromRefDate(refDate);
 
-  // Date only (optional category): show active bookings nearest to the entered date.
+  // No search text: booked & delivered only for this delivery month (no returned).
   if (!q) {
-    let results = await bookingsNearReferenceDate(refDate, category, false);
-    if (!results.length) {
-      results = await bookingsNearReferenceDate(refDate, category, true);
-    }
-    results = sortByRelevance(results, refDate);
-    return { mode: "date" as SearchMode, results: results.map(serializeBookingForList) };
+    const results = await bookingsInMonth(y, m, category);
+    return {
+      mode: "month" as SearchMode,
+      month: monthKey,
+      results: results.map(serializeBookingForList),
+    };
   }
 
   if (q.length < 2) {
@@ -347,12 +387,14 @@ export async function monthBasedSearchBookings(queryText: string, refDateStr?: s
     const nextM = m === 11 ? 0 : m + 1;
     const nextY = m === 11 ? y + 1 : y;
 
-    for (const [yr, mo] of [[prevY, prevM], [y, m], [nextY, nextM]] as Array<[number, number]>) {
-      const monthRows = await bookingsInMonth(yr, mo, category);
-      const filtered = monthRows.filter((b) => bookingMatchesQuery(b, q));
-      results.push(...filtered);
-    }
-    results = dedupeById(results);
+    const [r1, r2, r3] = await Promise.all([
+      bookingsInMonth(prevY, prevM, category),
+      bookingsInMonth(y, m, category),
+      bookingsInMonth(nextY, nextM, category),
+    ]);
+    const monthRows = dedupeById([...r1, ...r2, ...r3]);
+    const filtered = monthRows.filter((b) => bookingMatchesQuery(b, q));
+    results = dedupeById([...results, ...filtered]);
   }
 
   results = sortByRelevance(results, refDate);
@@ -378,6 +420,8 @@ function bookingMatchesQuery(b: BookingWithItems, q: string): boolean {
   const dressHay = [
     b.dressName || "",
     ...(b.bookingItems || []).map((bi) => bi.dressName),
+    b.legacyItem?.sku || "",
+    ...(b.bookingItems || []).map((bi) => bi.item?.sku || ""),
   ].join(" ").toLowerCase();
   return words.every((w) => dressHay.includes(w.toLowerCase()));
 }

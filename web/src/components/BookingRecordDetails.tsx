@@ -90,14 +90,20 @@ export function BookingRecordDetails({
         />
         {remDue != null && (
           <Field
-            label="Remaining Due"
+            label="Balance Left to Collect"
             value={
               remDue > 0 ? (
-                <span style={{ fontWeight: 700, color: "var(--danger)" }}>₹{formatInr(remDue)}</span>
+                <span style={{ fontWeight: 700, color: "var(--danger)", fontSize: compact ? 14 : 16 }}>₹{formatInr(remDue)}</span>
               ) : (
                 <span style={{ color: "var(--success)", fontWeight: 600 }}>Paid ✓</span>
               )
             }
+          />
+        )}
+        {remainingCollected != null && remainingCollected > 0 && (
+          <Field
+            label="Collected at Delivery"
+            value={<span style={{ color: "var(--success)", fontWeight: 600 }}>₹{formatInr(remainingCollected)}</span>}
           />
         )}
         <Field label="Security" value={`₹${formatInr(d.security_deposit)}`} />

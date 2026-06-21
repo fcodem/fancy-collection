@@ -1,10 +1,11 @@
 "use client";
 
-import { ReactNode, createContext, useCallback, useContext, useState } from "react";
-import { useRouter } from "next/navigation";
+import { ReactNode, createContext, useCallback, useContext, useRef, useState } from "react";
 import { useShopRealtime } from "@/hooks/useShopRealtime";
 import { fetchJson } from "@/lib/fetchJson";
 import type { ShopEvent } from "@/lib/realtime/types";
+
+let navCountsTimer: ReturnType<typeof setTimeout> | null = null;
 
 type RealtimeContextValue = {
   onlineUsers: number;
@@ -39,9 +40,21 @@ export default function RealtimeProvider({
   username: string;
   onNavRefresh?: (count: number) => void;
 }) {
-  const router = useRouter();
   const [onlineUsers, setOnlineUsers] = useState(0);
   const [lastEvent, setLastEvent] = useState<ShopEvent | null>(null);
+  const onNavRefreshRef = useRef(onNavRefresh);
+  onNavRefreshRef.current = onNavRefresh;
+
+  const scheduleNavCounts = useCallback(() => {
+    if (typeof document !== "undefined" && document.hidden) return;
+    if (navCountsTimer) clearTimeout(navCountsTimer);
+    navCountsTimer = setTimeout(() => {
+      navCountsTimer = null;
+      fetchJson<{ overdue_delivery_count: number }>("/api/dashboard/nav-counts")
+        .then((d) => onNavRefreshRef.current?.(d.overdue_delivery_count || 0))
+        .catch(() => {});
+    }, 1500);
+  }, []);
 
   const handleEvent = useCallback(
     (event: ShopEvent) => {
@@ -52,10 +65,17 @@ export default function RealtimeProvider({
         return;
       }
 
+      // Polling mode only emits nav.refresh — presence badge stays hidden (online < 2).
+
       if (event.type === "nav.refresh") {
-        fetchJson<{ overdue_delivery_count: number }>("/api/dashboard/nav-counts")
-          .then((d) => onNavRefresh?.(d.overdue_delivery_count || 0))
-          .catch(() => {});
+        scheduleNavCounts();
+        window.dispatchEvent(new CustomEvent("shop-realtime", { detail: event }));
+        return;
+      }
+
+      // Own saves/updates navigate away locally — refreshing the current page would reset forms.
+      if (event.by && event.by === username) {
+        window.dispatchEvent(new CustomEvent("shop-realtime", { detail: event }));
         return;
       }
 
@@ -71,9 +91,8 @@ export default function RealtimeProvider({
       }
 
       window.dispatchEvent(new CustomEvent("shop-realtime", { detail: event }));
-      router.refresh();
     },
-    [username, router, onNavRefresh],
+    [username, scheduleNavCounts],
   );
 
   useShopRealtime("all", handleEvent);

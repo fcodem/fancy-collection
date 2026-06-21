@@ -1,6 +1,6 @@
 "use client";
 
-import { useEffect, useState, useCallback } from "react";
+import { useEffect, useState, useCallback, useRef } from "react";
 import CategorySelect from "./CategorySelect";
 import {
   PackingBookingDetailsGrid,
@@ -10,6 +10,7 @@ import {
 import type { StandardBookingDetails } from "@/lib/bookingDetails";
 import { useRealtimeRefresh } from "@/hooks/useRealtimeRefresh";
 import { BOOKING_EVENTS } from "@/lib/realtime/types";
+import DownloadPdfButton from "@/components/DownloadPdfButton";
 
 type PackingItem = {
   bi_id: number | null;
@@ -33,34 +34,58 @@ type PackingBooking = StandardBookingDetails & {
   items: PackingItem[];
 };
 
-export default function PackingListClient({ today }: { today: string }) {
+export default function PackingListClient({
+  today,
+  initialRows = [],
+}: {
+  today: string;
+  initialRows?: PackingBooking[];
+}) {
   const [from, setFrom] = useState(today);
   const [to, setTo] = useState(today);
   const [category, setCategory] = useState("");
-  const [rows, setRows] = useState<PackingBooking[]>([]);
-  const [loaded, setLoaded] = useState(false);
+  const [rows, setRows] = useState<PackingBooking[]>(initialRows);
+  const [loaded, setLoaded] = useState(initialRows.length > 0);
+  const [error, setError] = useState("");
 
-  async function load() {
-    const res = await fetch(
-      `/api/packing-list?delivery_date=${from}&return_date=${to}&category=${encodeURIComponent(category)}`
-    );
-    const data = await res.json();
-    const list = Array.isArray(data) ? data : [];
-    setRows(
-      list.map((b: PackingBooking) => ({
-        ...b,
-        items: Array.isArray(b.items) ? b.items : [],
-      }))
-    );
-    setLoaded(true);
-  }
+  const load = useCallback(async () => {
+    if (!from) return;
+    setError("");
+    try {
+      const res = await fetch(
+        `/api/packing-list?delivery_date=${from}&return_date=${to || from}&category=${encodeURIComponent(category)}`,
+        { credentials: "same-origin" },
+      );
+      if (!res.ok) {
+        const body = await res.json().catch(() => ({}));
+        throw new Error(body.error || "Failed to load packing list");
+      }
+      const data = await res.json();
+      const list = Array.isArray(data) ? data : [];
+      setRows(
+        list.map((b: PackingBooking) => ({
+          ...b,
+          items: Array.isArray(b.items) ? b.items : [],
+        })),
+      );
+    } catch (e) {
+      setRows([]);
+      setError(e instanceof Error ? e.message : "Failed to load packing list");
+    } finally {
+      setLoaded(true);
+    }
+  }, [from, to, category]);
 
-  const reload = useCallback(() => { void load(); }, [from, to, category]);
-  useRealtimeRefresh(BOOKING_EVENTS, reload);
+  useRealtimeRefresh(BOOKING_EVENTS, load);
 
+  const skipInitial = useRef(initialRows.length > 0);
   useEffect(() => {
-    load();
-  }, []);
+    if (skipInitial.current) {
+      skipInitial.current = false;
+      return;
+    }
+    void load();
+  }, [load]);
 
   async function saveItem(biId: number, patch: Partial<PackingItem>) {
     await fetch("/api/packing-list/save-item", {
@@ -73,11 +98,46 @@ export default function PackingListClient({ today }: { today: string }) {
   const allItems = rows.flatMap((b) => (Array.isArray(b.items) ? b.items : []).filter((i) => i.bi_id));
   const packed = allItems.filter((i) => i.is_packed_ready).length;
 
+  const pdfHeaders = [
+    "Serial",
+    "Customer",
+    "Dress",
+    "Delivery",
+    "Return",
+    "Prepared By",
+    "Checked By",
+    "Packing Note",
+    "Ready",
+  ];
+
+  const pdfRows = rows.flatMap((b) =>
+    (b.items || []).map((item) => [
+      String(b.serial_no).padStart(2, "0"),
+      b.customer_name || "—",
+      item.display_name || item.dress_name || "—",
+      `${b.delivery_date || "—"}${b.delivery_time ? ` ${b.delivery_time}` : ""}`,
+      `${b.return_date || "—"}${b.return_time ? ` ${b.return_time}` : ""}`,
+      item.prepared_by || "—",
+      item.checked_by || "—",
+      item.packing_note || "—",
+      item.is_packed_ready ? "Yes" : "No",
+    ]),
+  );
+
   return (
     <div>
       <div className="card no-print" style={{ marginBottom: 24 }}>
         <div className="card-header">
           <h3 className="card-title">Filter Packing List</h3>
+          <DownloadPdfButton
+            title="Packing List"
+            filename={`packing-list-${from}${to !== from ? `-to-${to}` : ""}`}
+            subtitle={`Delivery: ${from}${to !== from ? ` to ${to}` : ""}${category ? ` · ${category}` : ""}`}
+            headers={pdfHeaders}
+            rows={pdfRows}
+            disabled={!loaded || !pdfRows.length}
+            size="sm"
+          />
         </div>
         <div className="card-body">
           <div style={{ display: "grid", gridTemplateColumns: "repeat(auto-fit, minmax(160px, 1fr))", gap: 12, alignItems: "end" }}>
@@ -99,6 +159,12 @@ export default function PackingListClient({ today }: { today: string }) {
           </div>
         </div>
       </div>
+
+      {error && (
+        <div className="alert alert-error" style={{ marginBottom: 16 }}>
+          {error}
+        </div>
+      )}
 
       {loaded && (
         <div style={{ marginBottom: 16, fontSize: 13 }}>

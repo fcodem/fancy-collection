@@ -15,7 +15,7 @@ export function FinanceDailyBooking({ todayIso }: { todayIso: string }) {
   } | null>(null);
 
   useEffect(() => {
-    fetch(`/api/finance/daily-booking?date=${date}`).then((r) => r.json()).then(setData);
+    fetch(`/api/finance/daily-booking?date=${date}`).then((r) => r.json()).then(setData).catch(() => {});
   }, [date]);
 
   const labels = data?.total_by_category ? Object.keys(data.total_by_category) : [];
@@ -70,7 +70,7 @@ export function FinanceMonthlySale({ todayMonthIso }: { todayMonthIso: string })
   const [m, setM] = useState(todayMonthIso);
   const [data, setData] = useState<Record<string, unknown> | null>(null);
   useEffect(() => {
-    fetch(`/api/finance/monthly-sale?month=${m}`).then((r) => r.json()).then(setData);
+    fetch(`/api/finance/monthly-sale?month=${m}`).then((r) => r.json()).then(setData).catch(() => {});
   }, [m]);
 
   const catTotals = (data?.category_totals as Record<string, number>) || {};
@@ -104,7 +104,7 @@ export function FinanceMonthlySale({ todayMonthIso }: { todayMonthIso: string })
 
 export function FinanceYearlySale() {
   const [data, setData] = useState<Record<string, unknown> | null>(null);
-  useEffect(() => { fetch("/api/finance/yearly-sale").then((r) => r.json()).then(setData); }, []);
+  useEffect(() => { fetch("/api/finance/yearly-sale").then((r) => r.json()).then(setData).catch(() => {}); }, []);
 
   const monthly = (data?.monthly_breakdown as Record<string, number>) || {};
   const monthLabels = Object.keys(monthly);
@@ -160,7 +160,7 @@ export function FinanceTopPerformer({
   useEffect(() => {
     const params = new URLSearchParams({ from, to });
     if (category) params.set("category", category);
-    fetch(`/api/finance/top-performer?${params}`).then((r) => r.json()).then(setRows);
+    fetch(`/api/finance/top-performer?${params}`).then((r) => r.json()).then(setRows).catch(() => {});
   }, [from, to, category]);
 
   const top10 = rows.slice(0, 10);
@@ -213,7 +213,7 @@ export function FinanceTopPerformer({
 
 export function FinanceSecurityDeposit() {
   const [data, setData] = useState<{ total_collected: number; total_held: number; total_returned: number; bookings: Array<Record<string, unknown>> } | null>(null);
-  useEffect(() => { fetch("/api/finance/security-deposit").then((r) => r.json()).then(setData); }, []);
+  useEffect(() => { fetch("/api/finance/security-deposit").then((r) => r.json()).then(setData).catch(() => {}); }, []);
 
   const statusCounts: Record<string, number> = {};
   if (data?.bookings) {
@@ -259,7 +259,7 @@ export function FinanceCategoryAnalysis({ monthStartIso, todayIso }: { monthStar
   const [to, setTo] = useState(todayIso);
   const [data, setData] = useState<{ categories: Array<Record<string, unknown>> } | null>(null);
   useEffect(() => {
-    fetch(`/api/finance/category-analysis?from=${from}&to=${to}`).then((r) => r.json()).then(setData);
+    fetch(`/api/finance/category-analysis?from=${from}&to=${to}`).then((r) => r.json()).then(setData).catch(() => {});
   }, [from, to]);
 
   const cats = data?.categories || [];
@@ -337,6 +337,7 @@ export function FinanceInventoryProfitability() {
     fetch("/api/finance/inventory-profitability", { credentials: "same-origin" })
       .then((r) => r.json())
       .then(setData)
+      .catch(() => {})
       .finally(() => setLoading(false));
   }, []);
 

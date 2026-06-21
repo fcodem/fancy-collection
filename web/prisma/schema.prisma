@@ -3,7 +3,7 @@ generator client {
 }
 
 datasource db {
-  provider = "sqlite"
+  provider = "postgresql"
   url      = env("DATABASE_URL")
 }
 
@@ -216,6 +216,10 @@ model Booking {
 
   @@index([deliveryDate, status])
   @@index([returnDate, status])
+  @@index([monthlySerial])
+  @@index([customerName])
+  @@index([contact1])
+  @@index([whatsappNo])
   @@map("bookings")
 }
 
@@ -239,11 +243,19 @@ model BookingItem {
   itemRemainingCollected Float @default(0) @map("item_remaining_collected")
   itemSecurityCollected  Float @default(0) @map("item_security_collected")
   itemDeliveryNotes      String? @map("item_delivery_notes")
-  isReturned    Boolean @default(false) @map("is_returned")
+  isReturned             Boolean @default(false) @map("is_returned")
+  isIncompleteReturn     Boolean @default(false) @map("is_incomplete_return")
+  itemIncompleteNotes    String? @map("item_incomplete_notes")
+  itemIncompletePhoto    String? @map("item_incomplete_photo")
+  itemSecurityHeld       Float   @default(0) @map("item_security_held")
 
   booking Booking      @relation(fields: [bookingId], references: [id], onDelete: Cascade)
   item    ClothingItem @relation(fields: [itemId], references: [id])
 
+  @@index([itemId])
+  @@index([dressName])
+  @@index([category])
+  @@index([bookingId])
   @@map("booking_items")
 }
 

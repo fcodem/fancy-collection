@@ -137,3 +137,67 @@ export function bookingWarningRecordFrom(b: BookingForListRecord): BookingWarnin
 
 export const WARNING_RETURNING_ON_DELIVERY = "Returning on the date of delivery";
 export const WARNING_BOOKED_ON_RETURN = "Booked on the return date";
+
+/** Sum of per-dress remaining collected at delivery. */
+export function sumItemRemainingCollected(
+  items: Array<{ itemRemainingCollected?: number | null }>,
+): number {
+  return items.reduce((s, row) => s + (row.itemRemainingCollected || 0), 0);
+}
+
+/** Booking-level collected amount, or item sum if higher (covers partial sync). */
+export function effectiveRemainingCollected(
+  bookingCollected: number | null | undefined,
+  items: Array<{ itemRemainingCollected?: number | null }> = [],
+): number {
+  return Math.max(bookingCollected || 0, sumItemRemainingCollected(items));
+}
+
+/** Total remaining balance still to collect after delivery collections. */
+export function balanceLeftToCollect(
+  totalRemaining: number | null | undefined,
+  collectedAtDelivery: number | null | undefined,
+): number {
+  return Math.max(0, (totalRemaining || 0) - (collectedAtDelivery || 0));
+}
+
+/** Sum of per-dress security collected at delivery. */
+export function sumItemSecurityCollected(
+  items: Array<{ itemSecurityCollected?: number | null }>,
+): number {
+  return items.reduce((s, row) => s + (row.itemSecurityCollected || 0), 0);
+}
+
+export function effectiveSecurityCollected(
+  bookingCollected: number | null | undefined,
+  items: Array<{ itemSecurityCollected?: number | null }> = [],
+): number {
+  return Math.max(bookingCollected || 0, sumItemSecurityCollected(items));
+}
+
+/** Security still held by the shop until the dress is returned. */
+export function securityCurrentlyHeld(opts: {
+  status: string;
+  securityHeld?: number | null;
+  securityCollected?: number | null;
+  securityDeposit?: number | null;
+  items?: Array<{ itemSecurityCollected?: number | null; isDelivered?: boolean }>;
+  dressIsOut?: boolean;
+}): number {
+  const { status, securityHeld, securityCollected, securityDeposit, items = [], dressIsOut } = opts;
+  if (status === "returned" || status === "cancelled") return 0;
+
+  const collected = effectiveSecurityCollected(securityCollected, items);
+  const isOut =
+    dressIsOut ??
+    (items.length > 0 ? items.some((i) => i.isDelivered) : status === "delivered");
+
+  if (status === "incomplete_return") {
+    return (securityHeld != null && securityHeld > 0) ? securityHeld : collected;
+  }
+
+  if (securityHeld != null && securityHeld > 0) return securityHeld;
+  if (collected > 0) return collected;
+  if (isOut && (securityDeposit || 0) > 0) return securityDeposit || 0;
+  return 0;
+}
