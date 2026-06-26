@@ -1,4 +1,5 @@
 import prisma, { dateQ } from "../prisma";
+import { activeBookingWhere } from "@/lib/bookingActiveStatus";
 import {
   BASE_JEWELLERY,
   BASE_MENS,
@@ -13,6 +14,7 @@ import {
   subtractRefundsFromCategories,
   totalRefundAmount,
 } from "../financeRefunds";
+import { getInactiveBookingStats } from "../financeInactiveBookings";
 
 function dateOnly(d: Date): string {
   return d.toISOString().slice(0, 10);
@@ -43,7 +45,7 @@ export async function getDailySale(targetDateStr: string) {
 
   const bookingsToday = await prisma.booking.findMany({
     where: {
-      status: { not: "cancelled" },
+      ...activeBookingWhere(),
       createdAt: { gte: dayStartQ, lt: dayEndQ },
     },
     include: { bookingItems: true },
@@ -105,6 +107,8 @@ export async function getDailySale(targetDateStr: string) {
   advance_womens -= refundGender.womens;
   advance_jewellery -= refundGender.jewellery;
 
+  const inactive = await getInactiveBookingStats(dayStartQ, dayEndQ);
+
   return {
     date: target.toLocaleDateString("en-GB", { day: "2-digit", month: "short", year: "numeric" }),
     advance_by_category,
@@ -120,6 +124,7 @@ export async function getDailySale(targetDateStr: string) {
     remaining_mens,
     remaining_womens,
     remaining_jewellery,
+    ...inactive,
   };
 }
 
@@ -129,7 +134,7 @@ export async function getDailyBooking(targetDateStr: string) {
   const dayEndQ = endOfDayQ(target);
 
   const bookings = await prisma.booking.findMany({
-    where: { status: { not: "cancelled" }, createdAt: { gte: dayStartQ, lt: dayEndQ } },
+    where: { ...activeBookingWhere(), createdAt: { gte: dayStartQ, lt: dayEndQ } },
     include: { bookingItems: true },
   });
 
@@ -155,6 +160,7 @@ export async function getDailyBooking(targetDateStr: string) {
   const refund_total = totalRefundAmount(refundsToday);
   const refundCats = refundByCategory(refundsToday);
   const refundGender = refundGenderTotals(refundCats);
+  const inactive = await getInactiveBookingStats(dayStartQ, dayEndQ);
 
   return {
     date: target.toLocaleDateString("en-GB", { day: "2-digit", month: "short", year: "numeric" }),
@@ -164,6 +170,7 @@ export async function getDailyBooking(targetDateStr: string) {
     mens_total: mens_total - refundGender.mens,
     womens_total: womens_total - refundGender.womens,
     jewellery_total: jewellery_total - refundGender.jewellery,
+    ...inactive,
   };
 }
 
@@ -174,7 +181,7 @@ export async function getMonthlySale(monthStr: string) {
 
   const bookings = await prisma.booking.findMany({
     where: {
-      status: { not: "cancelled" },
+      ...activeBookingWhere(),
       createdAt: { gte: monthStart, lt: monthEnd },
     },
     include: { bookingItems: true },
@@ -182,19 +189,29 @@ export async function getMonthlySale(monthStr: string) {
 
   const total_advance = bookings.reduce((s, b) => s + (b.totalAdvance || b.advance), 0);
   const total_remaining = bookings.reduce((s, b) => s + (b.totalRemaining || b.remaining), 0);
+  const category_totals: Record<string, number> = {};
   let mens_total = 0, womens_total = 0, jewellery_total = 0;
 
   for (const b of bookings) {
-    for (const bi of b.bookingItems) {
-      if (BASE_MENS.includes(bi.category || "")) mens_total += bi.price;
-      else if (BASE_WOMENS.includes(bi.category || "")) womens_total += bi.price;
-      else if (BASE_JEWELLERY.includes(bi.category || "")) jewellery_total += bi.price;
+    if (b.bookingItems.length) {
+      for (const bi of b.bookingItems) {
+        const cat = bi.category || "Other";
+        category_totals[cat] = (category_totals[cat] || 0) + bi.price;
+        if (BASE_MENS.includes(cat)) mens_total += bi.price;
+        else if (BASE_WOMENS.includes(cat)) womens_total += bi.price;
+        else if (BASE_JEWELLERY.includes(cat)) jewellery_total += bi.price;
+      }
+    } else {
+      category_totals["Other"] = (category_totals["Other"] || 0) + (b.totalPrice || b.price);
     }
   }
 
   const refundsMonth = await getRefundsBetween(monthStart, monthEnd);
   const refund_total = totalRefundAmount(refundsMonth);
-  const refundGender = refundGenderTotals(refundByCategory(refundsMonth));
+  const refundCats = refundByCategory(refundsMonth);
+  const refundGender = refundGenderTotals(refundCats);
+  const category_totals_net = subtractRefundsFromCategories(category_totals, refundCats);
+  const inactive = await getInactiveBookingStats(monthStart, monthEnd);
 
   return {
     month: monthStr,
@@ -203,9 +220,11 @@ export async function getMonthlySale(monthStr: string) {
     total_sale: total_advance + total_remaining - refund_total,
     refund_total,
     booking_count: bookings.length,
+    category_totals: category_totals_net,
     mens_total: mens_total - refundGender.mens,
     womens_total: womens_total - refundGender.womens,
     jewellery_total: jewellery_total - refundGender.jewellery,
+    ...inactive,
   };
 }
 
@@ -227,7 +246,7 @@ export async function getYearlySale(fromStr?: string, toStr?: string) {
 
   const bookings = await prisma.booking.findMany({
     where: {
-      status: { not: "cancelled" },
+      ...activeBookingWhere(),
       createdAt: { gte: dateQ(fromDate), lte: endOfDayQ(toDate) },
     },
     include: { bookingItems: true },
@@ -254,6 +273,7 @@ export async function getYearlySale(fromStr?: string, toStr?: string) {
   const refundsRange = await getRefundsBetween(dateQ(fromDate), endOfDayQ(toDate));
   const refund_total = totalRefundAmount(refundsRange);
   const refundGender = refundGenderTotals(refundByCategory(refundsRange));
+  const inactive = await getInactiveBookingStats(dateQ(fromDate), endOfDayQ(toDate));
 
   return {
     from: dateOnly(fromDate),
@@ -268,16 +288,22 @@ export async function getYearlySale(fromStr?: string, toStr?: string) {
     womens_total: womens_total - refundGender.womens,
     jewellery_total: jewellery_total - refundGender.jewellery,
     booking_count: bookings.length,
+    ...inactive,
   };
 }
 
-export async function getTopPerformers(fromStr: string, toStr: string, categoryFilter = "") {
+export async function getTopPerformers(
+  fromStr: string,
+  toStr: string,
+  categoryFilter = "",
+  dressSearch = "",
+) {
   const fromDate = parseDate(fromStr || new Date().toISOString().slice(0, 10));
   const toDate = parseDate(toStr || new Date().toISOString().slice(0, 10));
 
   const bookings = await prisma.booking.findMany({
     where: {
-      status: { not: "cancelled" },
+      ...activeBookingWhere(),
       createdAt: { gte: dateQ(fromDate), lte: endOfDayQ(toDate) },
     },
     include: { bookingItems: { include: { item: true } } },
@@ -325,7 +351,12 @@ export async function getTopPerformers(fromStr: string, toStr: string, categoryF
     }
   }
 
-  return Object.values(product_stats).sort((a, b) => b.total_earned - a.total_earned);
+  const dressQuery = dressSearch.trim().toLowerCase();
+  let results = Object.values(product_stats).sort((a, b) => b.total_earned - a.total_earned);
+  if (dressQuery) {
+    results = results.filter((r) => r.name.toLowerCase().includes(dressQuery));
+  }
+  return results;
 }
 
 export async function getSecurityDepositSummary() {
@@ -340,7 +371,7 @@ export async function getSecurityDepositSummary() {
 
   const total_collected = bookings.reduce((s, b) => s + (b.securityCollected || 0), 0);
   const total_held = bookings.reduce((s, b) => {
-    if (b.status === "returned" || b.status === "cancelled") return s;
+    if (b.status === "returned" || b.status === "cancelled" || b.status === "postponed") return s;
     if (b.status === "incomplete_return") return s + (b.securityHeld || b.securityCollected || 0);
     if (b.status === "delivered") return s + (b.securityHeld || b.securityCollected || 0);
     return s;
@@ -369,10 +400,9 @@ export async function getCategoryAnalysis(fromStr: string, toStr: string) {
   const fromDate = parseDate(fromStr);
   const toDate = parseDate(toStr);
   const fromDateQ = dateQ(fromDate);
-  const toDateQ = dateQ(toDate);
 
   const purchases = await prisma.supplierPurchase.findMany({
-    where: { date: { gte: fromDateQ, lte: toDateQ } },
+    where: { date: { gte: fromDateQ, lte: endOfDayQ(toDate) } },
   });
 
   const purchase_by_cat: Record<string, number> = {};
@@ -398,27 +428,34 @@ export async function getCategoryAnalysis(fromStr: string, toStr: string) {
 
   const bookingsCreated = await prisma.booking.findMany({
     where: {
-      status: { not: "cancelled" },
+      ...activeBookingWhere(),
       createdAt: { gte: fromDateQ, lte: endOfDayQ(toDate) },
     },
     include: { bookingItems: true },
   });
 
   const advance_by_cat: Record<string, number> = {};
+  const booking_count_by_cat: Record<string, number> = {};
   for (const b of bookingsCreated) {
     if (b.bookingItems.length) {
+      const catsInBooking = new Set<string>();
       for (const bi of b.bookingItems) {
         const cat = (bi.category || "Uncategorized").trim() || "Uncategorized";
+        catsInBooking.add(cat);
         advance_by_cat[cat] = (advance_by_cat[cat] || 0) + (bi.advance || 0);
+      }
+      for (const cat of catsInBooking) {
+        booking_count_by_cat[cat] = (booking_count_by_cat[cat] || 0) + 1;
       }
     } else {
       advance_by_cat["Uncategorized"] = (advance_by_cat["Uncategorized"] || 0) + (b.totalAdvance || b.advance || 0);
+      booking_count_by_cat["Uncategorized"] = (booking_count_by_cat["Uncategorized"] || 0) + 1;
     }
   }
 
   const delivered = await prisma.booking.findMany({
     where: {
-      deliveryDate: { gte: fromDateQ, lte: toDateQ },
+      deliveryDate: { gte: fromDateQ, lt: endOfDayQ(toDate) },
       status: { in: ["delivered", "returned"] },
     },
     include: { bookingItems: true },
@@ -460,6 +497,7 @@ export async function getCategoryAnalysis(fromStr: string, toStr: string) {
       net_purchase: (purchase_by_cat[cat] || 0) - (returns_by_cat[cat] || 0),
       gst: gst_by_cat[cat] || 0,
       stock_count: stock_by_cat[cat] || 0,
+      booking_count: booking_count_by_cat[cat] || 0,
       advance,
       remaining_collected,
       total_sale: advance + remaining_collected,
@@ -576,8 +614,44 @@ export async function getInventoryProfitability() {
 
   const totalRevenue = items.reduce((sum, row) => sum + row.lifetimeRevenue, 0);
 
+  const purchases = await prisma.supplierPurchase.findMany({
+    where: { transactionType: { not: "return" } },
+    select: { category: true, amount: true },
+  });
+  const returns = await prisma.supplierPurchase.findMany({
+    where: { transactionType: "return" },
+    select: { category: true, amount: true },
+  });
+
+  const saleByCategory: Record<string, number> = {};
+  const purchaseByCategory: Record<string, number> = {};
+  const itemCountByCategory: Record<string, number> = {};
+
+  for (const row of items) {
+    const cat = (row.category || "Uncategorized").trim() || "Uncategorized";
+    saleByCategory[cat] = (saleByCategory[cat] || 0) + row.lifetimeRevenue;
+    itemCountByCategory[cat] = (itemCountByCategory[cat] || 0) + 1;
+  }
+  for (const p of purchases) {
+    const cat = (p.category || "Uncategorized").trim() || "Uncategorized";
+    purchaseByCategory[cat] = (purchaseByCategory[cat] || 0) + p.amount;
+  }
+  for (const p of returns) {
+    const cat = (p.category || "Uncategorized").trim() || "Uncategorized";
+    purchaseByCategory[cat] = (purchaseByCategory[cat] || 0) - p.amount;
+  }
+
+  const allCats = new Set([...Object.keys(saleByCategory), ...Object.keys(purchaseByCategory)]);
+  const category_breakdown = [...allCats].sort().map((category) => ({
+    category,
+    total_sale: saleByCategory[category] || 0,
+    total_purchase: purchaseByCategory[category] || 0,
+    item_count: itemCountByCategory[category] || 0,
+  }));
+
   return {
     items,
+    category_breakdown,
     totals: {
       itemCount: items.length,
       itemsWithRevenue: items.filter((row) => row.lifetimeRevenue > 0).length,

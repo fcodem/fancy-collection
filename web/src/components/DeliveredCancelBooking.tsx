@@ -41,7 +41,7 @@ export default function DeliveredCancelBooking({
         alert(data.error || "Could not cancel booking");
         return;
       }
-      router.push("/recycle-bin");
+      router.push("/booking");
     } finally {
       setCancelling(false);
     }

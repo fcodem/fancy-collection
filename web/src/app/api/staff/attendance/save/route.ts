@@ -1,6 +1,6 @@
 import { NextRequest } from "next/server";
 import { saveAttendance, markShopClosed } from "@/lib/services/staffOps";
-import { jsonError, jsonOk, requireOwner, requireUser, isResponse } from "@/lib/api";
+import { jsonError, jsonOk, requireOwner, isResponse } from "@/lib/api";
 
 export async function POST(req: NextRequest) {
   try {
@@ -8,11 +8,11 @@ export async function POST(req: NextRequest) {
     if (body.shop_closed) {
       const user = await requireOwner();
       if (isResponse(user)) return user;
-      await markShopClosed(body.date);
+      await markShopClosed(body.date, user.username);
     } else {
-      const user = await requireUser();
+      const user = await requireOwner();
       if (isResponse(user)) return user;
-      await saveAttendance(body.date, body.statuses || {});
+      await saveAttendance(body.date, body.statuses || {}, user.username);
     }
     return jsonOk({ ok: true });
   } catch (e) {

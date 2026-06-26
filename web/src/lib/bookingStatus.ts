@@ -12,6 +12,7 @@ export type BookingStatusSource = {
  */
 export function resolveBookingStatus(booking: BookingStatusSource): string {
   if (booking.status === "cancelled") return "cancelled";
+  if (booking.status === "postponed") return "postponed";
   if (booking.status === "incomplete_return") return "incomplete_return";
   if (booking.status === "returned") return "returned";
   if (booking.status === "delivered") return "delivered";

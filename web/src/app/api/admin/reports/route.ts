@@ -1,5 +1,6 @@
 import { NextRequest } from "next/server";
 import prisma from "@/lib/prisma";
+import { activeBookingWhere } from "@/lib/bookingActiveStatus";
 import { requireOwner, isResponse } from "@/lib/api";
 import {
   Document, Packer, Paragraph, Table, TableRow, TableCell,
@@ -168,7 +169,7 @@ export async function GET(req: NextRequest) {
     filename = `upcoming-deliveries-${now.toISOString().slice(0, 10)}.docx`;
   } else {
     bookings = await prisma.booking.findMany({
-      where: { status: { not: "cancelled" } },
+      where: activeBookingWhere(),
       include: { bookingItems: true },
       orderBy: [{ deliveryDate: "desc" }, { id: "desc" }],
     });

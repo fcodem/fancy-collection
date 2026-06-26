@@ -1,16 +1,36 @@
 "use client";
 
+/**
+ * BookingFormClient — shared UI for **New Booking**, **Edit Booking**, and **Prospect Lead**.
+ *
+ * Flow (top → bottom):
+ *  1. Customer, contact, venue
+ *  2. Delivery / return dates and times
+ *  3. **Available Dresses** (collapsible) — inventory free for the chosen dates
+ *  4. **Selected Dresses** (collapsible) — chosen lines with rent, advance, notes
+ *  5. Date-conflict summary, grand total, staff, save
+ *
+ * Data sources:
+ *  - GET `/api/booking/available-items` — free inventory when dates change
+ *  - GET `/api/booking/date-check` — hard conflicts / soft warnings per selected item
+ *  - POST `/api/booking` or PUT `/api/booking/[id]` — persist (prospect uses prospect-leads API)
+ *
+ * Dress panels: both **Available** and **Selected** start expanded; staff may collapse
+ * either panel manually via the chevron when the list is long.
+ */
 
-
-import type { CSSProperties } from "react";
+import type { CSSProperties, ReactNode } from "react";
 import { useRouter } from "next/navigation";
 import { useCallback, useEffect, useMemo, useRef, useState } from "react";
 import DressNameSuggestInput from "@/components/DressNameSuggestInput";
+import TypeableDateInput from "@/components/TypeableDateInput";
+import BookingConflictSummary from "@/components/BookingConflictSummary";
 import { inventoryItemMatches } from "@/lib/dress";
 import { todayIso, parseDate, isDateBeforeToday } from "@/lib/constants";
 import { formatInr } from "@/lib/format";
 import { photoUrl } from "@/lib/photoUrl";
 import { isAbortError } from "@/lib/bookingQrClient";
+import { useToast } from "@/components/ui/Toast";
 
 
 
@@ -26,7 +46,7 @@ const TIMES = [
 
 const MENS_SIZES = [...Array.from({ length: 14 }, (_, i) => String(32 + i * 2)), "Free Size", "Custom"];
 
-
+/* ── Types for availability API, date-check warnings, and form state ─────── */
 
 type WarningInfo = {
   customer?: string;
@@ -51,19 +71,7 @@ function warnContact(w: WarningInfo) {
   return w.contact || w.contact_1 || "";
 }
 
-type DateCheckResult = {
-  item_id: number;
-  item_name: string;
-  status: "ok" | "hard_conflict" | "returning_warning" | "booked_on_return_warning" | "both_warnings";
-  conflict?: WarningInfo;
-  returning_warning?: WarningInfo | null;
-  booked_on_return_warning?: WarningInfo | null;
-};
-
-function serialLabel(n: number) {
-  return String(n).padStart(2, "0");
-}
-
+/** Human-readable lines for soft warnings shown on dress rows. */
 function formatReturningWarning(w: WarningInfo) {
   return (
     <>
@@ -88,6 +96,19 @@ function formatBookedWarning(w: WarningInfo) {
       {warnContact(w) ? ` · ${warnContact(w)}` : ""}
     </>
   );
+}
+
+type DateCheckResult = {
+  item_id: number;
+  item_name: string;
+  status: "ok" | "hard_conflict" | "returning_warning" | "booked_on_return_warning" | "both_warnings";
+  conflict?: WarningInfo;
+  returning_warning?: WarningInfo | null;
+  booked_on_return_warning?: WarningInfo | null;
+};
+
+function serialLabel(n: number) {
+  return String(n).padStart(2, "0");
 }
 
 
@@ -210,6 +231,7 @@ type Props = {
 
 
 
+/** Placeholder or thumbnail for a dress photo in list rows. */
 function PhotoThumb({ photo, size = 44 }: { photo?: string; size?: number }) {
 
   const src = photoUrl(photo);
@@ -234,9 +256,56 @@ function PhotoThumb({ photo, size = 44 }: { photo?: string; size?: number }) {
 
 
 
+/** Collapsible card header with chevron — used for Available / Selected dress panels. */
+function DressListAccordionHeader({
+  expanded,
+  onToggle,
+  title,
+  iconClass,
+  iconColor,
+  badge,
+}: {
+  expanded: boolean;
+  onToggle: () => void;
+  title: string;
+  iconClass: string;
+  iconColor: string;
+  badge: ReactNode;
+}) {
+  return (
+    <div
+      className="card-header dress-list-accordion-header"
+      style={{ cursor: "pointer", userSelect: "none" }}
+      onClick={onToggle}
+      title={expanded ? "Click to collapse list" : "Click to expand list"}
+    >
+      <h3 className="card-title">
+        <button
+          type="button"
+          className="dress-list-chevron-btn"
+          aria-expanded={expanded}
+          aria-label={expanded ? "Collapse dress list" : "Expand dress list"}
+          onClick={(e) => {
+            e.stopPropagation();
+            onToggle();
+          }}
+        >
+          <i className={`fa-solid fa-chevron-${expanded ? "up" : "down"}`} />
+        </button>
+        <i className={iconClass} style={{ marginRight: 8, color: iconColor }} />
+        {title}
+      </h3>
+      {badge}
+    </div>
+  );
+}
+
+
+
 export default function BookingFormClient(props: Props) {
 
   const router = useRouter();
+  const toast = useToast();
 
   const isProspect = props.mode === "prospect";
   const readOnly = props.readOnly ?? false;
@@ -281,6 +350,12 @@ export default function BookingFormClient(props: Props) {
 
   const [nameSearch, setNameSearch] = useState("");
 
+  /** Available panel: expanded by default; staff collapse manually if needed. */
+  const [dressListExpanded, setDressListExpanded] = useState(true);
+
+  /** Selected panel: always expanded by default so pricing fields stay visible. */
+  const [selectedListExpanded, setSelectedListExpanded] = useState(true);
+
   const [allFreeItems, setAllFreeItems] = useState<FreeItem[]>([]);
 
   const [selectedDresses, setSelectedDresses] = useState<SelectedDress[]>(props.initial?.items || []);
@@ -296,6 +371,7 @@ export default function BookingFormClient(props: Props) {
   const [dateCheckLoading, setDateCheckLoading] = useState(false);
   const availabilityAbortRef = useRef<AbortController | null>(null);
 
+  /** True when date-check reports a hard double-booking (blocks save unless prospect). */
   const hasHardBlock = useMemo(
     () => !isProspect && dateCheckResults.some((r) => r.status === "hard_conflict"),
     [dateCheckResults, isProspect]
@@ -352,6 +428,7 @@ export default function BookingFormClient(props: Props) {
 
 
 
+  /** Loads free inventory for delivery/return range; aborts stale requests on date change. */
   const fetchAvailability = useCallback(async () => {
 
     if (!deliveryDate || !returnDate) return;
@@ -403,6 +480,7 @@ export default function BookingFormClient(props: Props) {
 
 
 
+  /** Re-checks each selected item for conflicts when dates or selection change. */
   const runDateCheck = useCallback(async () => {
 
     if (!deliveryDate || !returnDate || !selectedDresses.length) {
@@ -503,8 +581,11 @@ export default function BookingFormClient(props: Props) {
 
 
 
+  /* ── Dress list filters (category, size, name) applied client-side ─────── */
+
   const showSizeFilter = props.mensCategories.includes(categoryFilter);
 
+  const dressNameFilter = nameSearch.trim() && !/^\d+$/.test(nameSearch.trim());
 
 
   const filtered = useMemo(() => {
@@ -513,7 +594,7 @@ export default function BookingFormClient(props: Props) {
 
     if (categoryFilter) list = list.filter((i) => i.category === categoryFilter);
 
-    if (nameSearch) {
+    if (dressNameFilter) {
       list = list.filter((i) => inventoryItemMatches(i, nameSearch));
     }
 
@@ -527,10 +608,11 @@ export default function BookingFormClient(props: Props) {
 
     return list;
 
-  }, [allFreeItems, categoryFilter, nameSearch, sizeFilter, props.mensCategories]);
+  }, [allFreeItems, categoryFilter, dressNameFilter, nameSearch, sizeFilter, props.mensCategories]);
 
 
 
+  /** Add/remove a dress from the booking. */
   function toggleDress(item: FreeItem) {
 
     const idx = selectedDresses.findIndex((d) => d.id === item.id);
@@ -620,6 +702,7 @@ export default function BookingFormClient(props: Props) {
 
 
 
+  /** Validates form, POST/PUT booking (or prospect lead), then redirects. */
   async function save(printAfter = false) {
     if (readOnly) return;
 
@@ -739,6 +822,19 @@ export default function BookingFormClient(props: Props) {
     if (!bookingId) {
       setError("Booking saved but could not open the record. Check the Booking Panel.");
       return;
+    }
+
+    if (!isProspect) {
+      const wa = data.whatsapp as { status?: string; phone?: string; customerName?: string } | undefined;
+      const phoneDisplay = wa?.phone ? `+${wa.phone.replace(/^\+/, "")}` : whatsapp || contact1;
+      const name = wa?.customerName || customerName;
+      if (wa?.status === "skipped" || !phoneDisplay?.trim()) {
+        toast("✅ Booking Saved!", "success");
+      } else if (wa?.status === "failed") {
+        toast(`✅ Booking Saved! ⚠️ WhatsApp message failed — check logs`, "error");
+      } else {
+        toast(`✅ Booking Saved! WhatsApp confirmation sent to ${name} on ${phoneDisplay}`, "success");
+      }
     }
 
     if (printAfter) router.replace(`/booking/${bookingId}/print`);
@@ -941,15 +1037,13 @@ export default function BookingFormClient(props: Props) {
 
               <label className="form-label">Delivery Date *</label>
 
-              <input
-                type="date"
-                className="form-control"
+              <TypeableDateInput
                 min={minDate}
                 value={deliveryDate}
-                onChange={(e) => applyDeliveryDate(e.target.value)}
+                onChange={applyDeliveryDate}
               />
 
-              <span className="form-hint">Cannot be before today</span>
+              <span className="form-hint">Type DD-MM-YYYY or use the calendar · cannot be before today</span>
 
             </div>
 
@@ -969,15 +1063,13 @@ export default function BookingFormClient(props: Props) {
 
               <label className="form-label">Return Date *</label>
 
-              <input
-                type="date"
-                className="form-control"
+              <TypeableDateInput
                 min={deliveryDate && deliveryDate >= minDate ? deliveryDate : minDate}
                 value={returnDate}
-                onChange={(e) => applyReturnDate(e.target.value)}
+                onChange={applyReturnDate}
               />
 
-              <span className="form-hint">Cannot be before today or delivery date</span>
+              <span className="form-hint">Type DD-MM-YYYY or use the calendar · cannot be before today or delivery date</span>
 
             </div>
 
@@ -1019,16 +1111,19 @@ export default function BookingFormClient(props: Props) {
 
 
 
+      {/* ── Available dresses: filterable inventory for selected dates (collapsible) ── */}
       <div className="card" style={{ marginBottom: 20 }}>
 
-        <div className="card-header">
+        <DressListAccordionHeader
+          expanded={dressListExpanded}
+          onToggle={() => setDressListExpanded((v) => !v)}
+          title="Available Dresses"
+          iconClass="fa-solid fa-shirt"
+          iconColor="var(--success)"
+          badge={<span className="badge badge-available">{loading ? "…" : `${filtered.length} available`}</span>}
+        />
 
-          <h3 className="card-title"><i className="fa-solid fa-shirt" style={{ marginRight: 8, color: "var(--success)" }} />Available Dresses</h3>
-
-          <span className="badge badge-available">{loading ? "…" : `${filtered.length} available`}</span>
-
-        </div>
-
+        {dressListExpanded && (
         <div className="card-body">
 
           <div className="form-row-flex" style={{ marginBottom: 14, overflow: "visible", position: "relative", zIndex: 10 }}>
@@ -1061,15 +1156,23 @@ export default function BookingFormClient(props: Props) {
 
             <DressNameSuggestInput
               className="form-control"
-              placeholder="Search dress name or SKU…"
+              placeholder="Filter by dress name or SKU…"
               value={nameSearch}
               category={categoryFilter}
               showPhotos
+              suggestions={Boolean(dressNameFilter)}
+              minChars={2}
               onChange={(e) => setNameSearch(e.target.value)}
               onSuggestSelect={(item) => setNameSearch(item.name)}
             />
 
           </div>
+
+          {/^\d+$/.test(nameSearch.trim()) && (
+            <p className="form-hint" style={{ marginTop: -6, marginBottom: 12 }}>
+              This box filters available dresses by name or SKU. For serial # lookup, use Search Booking or All Record Search.
+            </p>
+          )}
 
           {loading ? (
 
@@ -1138,30 +1241,38 @@ export default function BookingFormClient(props: Props) {
           )}
 
         </div>
+        )}
 
       </div>
 
 
 
+      {/* ── Selected dresses: rent / advance / notes per line (collapsible) ── */}
       <div className="card" style={{ marginBottom: 20 }}>
 
-        <div className="card-header" style={{ background: "linear-gradient(135deg, rgba(123,31,69,0.06), rgba(201,168,70,0.06))" }}>
+        <DressListAccordionHeader
+          expanded={selectedListExpanded}
+          onToggle={() => setSelectedListExpanded((v) => !v)}
+          title="Selected Dresses"
+          iconClass="fa-solid fa-check-double"
+          iconColor="var(--success)"
+          badge={<span className="badge badge-available">{selectedDresses.length} selected</span>}
+        />
 
-          <h3 className="card-title"><i className="fa-solid fa-check-double" style={{ marginRight: 8, color: "var(--success)" }} />Selected Dresses</h3>
-
-          <span className="badge badge-available">{selectedDresses.length} selected</span>
-
-        </div>
-
+        {selectedListExpanded && (
         <div className="card-body">
 
           {!selectedDresses.length ? (
 
-            <p style={{ textAlign: "center", color: "var(--text-muted)", padding: 20 }}>Click dresses above to add them to this booking.</p>
+            <p style={{ textAlign: "center", color: "var(--text-muted)", padding: 20 }}>
+              Click dresses above to add them to this booking.
+            </p>
 
           ) : (
 
-            selectedDresses.map((d, i) => {
+            <div className="dress-picker-scroll">
+
+            {selectedDresses.map((d, i) => {
               const warn = allFreeItems.find((f) => f.id === d.id);
               return (
               <div key={d.id} style={{ border: "1.5px solid var(--border)", borderRadius: 12, padding: 16, marginBottom: 14, background: "linear-gradient(135deg, rgba(123,31,69,0.02), rgba(201,168,70,0.02))" }}>
@@ -1236,10 +1347,14 @@ export default function BookingFormClient(props: Props) {
 
               </div>
             );
-            })
+            })}
+
+            </div>
+
           )}
 
         </div>
+        )}
 
       </div>
 
@@ -1247,7 +1362,7 @@ export default function BookingFormClient(props: Props) {
 
       {(dateCheckLoading || dateCheckResults.length > 0) && selectedDresses.length > 0 && (
 
-        <ConflictSummaryPanel loading={dateCheckLoading} results={dateCheckResults} />
+        <BookingConflictSummary loading={dateCheckLoading} results={dateCheckResults} />
 
       )}
 
@@ -1347,172 +1462,7 @@ export default function BookingFormClient(props: Props) {
 
 
 
-function ConflictSummaryPanel({ loading, results }: { loading: boolean; results: DateCheckResult[] }) {
-
-  if (loading) {
-
-    return (
-
-      <div className="card" style={{ marginBottom: 20 }}>
-
-        <div className="card-body" style={{ display: "flex", alignItems: "center", gap: 10, color: "var(--text-muted)" }}>
-
-          <i className="fa-solid fa-spinner fa-spin" /> Checking selected dresses for conflicts…
-
-        </div>
-
-      </div>
-
-    );
-
-  }
-
-  const hardItems = results.filter((r) => r.status === "hard_conflict");
-
-  const warnItems = results.filter((r) =>
-
-    r.status === "returning_warning" || r.status === "booked_on_return_warning" || r.status === "both_warnings"
-
-  );
-
-  const okItems = results.filter((r) => r.status === "ok");
-
-  if (!hardItems.length && !warnItems.length && !okItems.length) return null;
-
-  return (
-
-    <div style={{ marginBottom: 20 }}>
-
-      {hardItems.map((item) => {
-
-        const c = item.conflict!;
-
-        return (
-
-          <div key={`hard-${item.item_id}`} style={{ background: "#7b2d2d44", border: "1.5px solid #e53e3e", borderRadius: 12, padding: "16px 20px", marginBottom: 12 }}>
-
-            <div style={{ fontSize: 14, fontWeight: 800, color: "#fc8181", marginBottom: 8 }}>
-
-              <i className="fa-solid fa-ban" style={{ marginRight: 8 }} />BOOKING BLOCKED — {item.item_name}
-
-            </div>
-
-            <div style={{ fontSize: 12, color: "#feb2b2" }}>
-
-              {warnCustomer(c as WarningInfo)} · Serial #{serialLabel(c.serial_no)} · {c.delivery_date} → {c.return_date}
-
-              {c.delivery_time ? ` · Delivery ${c.delivery_time}` : ""}
-
-              {c.return_time ? ` · Return ${c.return_time}` : ""}
-
-              {c.total_rent ? ` · ₹${formatInr(c.total_rent)}` : ""}
-
-              {c.venue ? ` · ${c.venue}` : ""}
-
-              {warnContact(c as WarningInfo) ? ` · ${warnContact(c as WarningInfo)}` : ""}
-
-            </div>
-
-          </div>
-
-        );
-
-      })}
-
-      {warnItems.length > 0 && (
-
-        <div style={{ background: "#7b4a0044", border: "1.5px solid #ed8936", borderRadius: 12, padding: "16px 20px", marginBottom: 12 }}>
-
-          <div style={{ fontSize: 14, fontWeight: 800, color: "#fbd38d", marginBottom: 8 }}>
-
-            <i className="fa-solid fa-triangle-exclamation" style={{ marginRight: 8 }} />
-
-            WARNING — {warnItems.length} scheduling alert{warnItems.length > 1 ? "s" : ""} (saving is allowed)
-
-          </div>
-
-          <div style={{ fontSize: 12, color: "#fbd38d" }}>
-
-            {warnItems.map((item) => (
-
-              <div key={`warn-${item.item_id}`} style={{ padding: "6px 0", borderBottom: "1px solid #ed893633" }}>
-
-                <strong>{item.item_name}</strong>
-
-                {item.returning_warning && (
-
-                  <div style={{ marginTop: 4 }}>
-
-                    <i className="fa-solid fa-triangle-exclamation" style={{ marginRight: 6 }} />
-
-                    Returning on delivery date — {warnCustomer(item.returning_warning)} · Serial #{serialLabel(item.returning_warning.serial_no)}
-
-                    {item.returning_warning.return_time ? ` · by ${item.returning_warning.return_time}` : ""}
-
-                    {item.returning_warning.return_date ? ` · Return ${item.returning_warning.return_date}` : ""}
-
-                    {item.returning_warning.total_rent ? ` · ₹${formatInr(item.returning_warning.total_rent)}` : ""}
-
-                    {item.returning_warning.venue ? ` · ${item.returning_warning.venue}` : ""}
-
-                    {warnContact(item.returning_warning) ? ` · ${warnContact(item.returning_warning)}` : ""}
-
-                  </div>
-
-                )}
-
-                {item.booked_on_return_warning && (
-
-                  <div style={{ marginTop: 4 }}>
-
-                    <i className="fa-solid fa-circle-exclamation" style={{ marginRight: 6 }} />
-
-                    Booked on return date — {warnCustomer(item.booked_on_return_warning)} · Serial #{serialLabel(item.booked_on_return_warning.serial_no)}
-
-                    {item.booked_on_return_warning.delivery_time ? ` · Pickup ${item.booked_on_return_warning.delivery_time}` : ""}
-
-                    {item.booked_on_return_warning.delivery_date ? ` · Delivery ${item.booked_on_return_warning.delivery_date}` : ""}
-
-                    {item.booked_on_return_warning.total_rent ? ` · ₹${formatInr(item.booked_on_return_warning.total_rent)}` : ""}
-
-                    {item.booked_on_return_warning.venue ? ` · ${item.booked_on_return_warning.venue}` : ""}
-
-                    {warnContact(item.booked_on_return_warning) ? ` · ${warnContact(item.booked_on_return_warning)}` : ""}
-
-                  </div>
-
-                )}
-
-              </div>
-
-            ))}
-
-          </div>
-
-        </div>
-
-      )}
-
-      {okItems.length > 0 && !hardItems.length && !warnItems.length && (
-
-        <div style={{ background: "#1a4731", border: "1.5px solid #38a169", borderRadius: 12, padding: "12px 20px" }}>
-
-          <i className="fa-solid fa-circle-check" style={{ color: "#68d391", marginRight: 8 }} />
-
-          <span style={{ fontSize: 13, color: "#68d391", fontWeight: 700 }}>All selected dresses are available for these dates.</span>
-
-        </div>
-
-      )}
-
-    </div>
-
-  );
-
-}
-
-
-
+/** Top-of-page breadcrumb: Dashboard → Booking list → New / Edit / Prospect. */
 function LinkBreadcrumb({ editId, serial, mode }: { editId?: number; serial?: number; mode?: "booking" | "prospect" }) {
 
   if (mode === "prospect") {

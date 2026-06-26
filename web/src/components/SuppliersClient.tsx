@@ -1,6 +1,6 @@
 "use client";
 
-import { useEffect, useState } from "react";
+import { useEffect, useMemo, useState } from "react";
 import { FinanceChart } from "@/components/finance/FinanceChart";
 import { formatInr } from "@/lib/format";
 
@@ -43,6 +43,11 @@ export default function SuppliersClient({ categories = [] }: { categories?: stri
   function setStockForm(id: number, patch: Partial<{ category: string; amount: string; gst_percent: string; date: string; notes: string }>) {
     setStockForms((prev) => ({ ...prev, [id]: { ...getStockForm(id), ...patch } }));
   }
+  const [compareFrom, setCompareFrom] = useState(() => {
+    const d = new Date();
+    return `${d.getFullYear()}-${String(d.getMonth() + 1).padStart(2, "0")}-01`;
+  });
+  const [compareTo, setCompareTo] = useState(new Date().toISOString().slice(0, 10));
   const [dateFrom, setDateFrom] = useState(() => {
     const d = new Date();
     return `${d.getFullYear()}-${String(d.getMonth() + 1).padStart(2, "0")}-01`;
@@ -115,8 +120,147 @@ export default function SuppliersClient({ categories = [] }: { categories?: stri
   const summaryLabels = summary ? Object.keys(summary.by_category) : [];
   const summaryValues = summary ? Object.values(summary.by_category) : [];
 
+  const vendorComparison = useMemo(() => {
+    return suppliers
+      .map((s) => {
+        const inRange = (s.purchases || []).filter((p) => {
+          if (p.transactionType !== "purchase") return false;
+          const d = typeof p.date === "string" ? p.date.slice(0, 10) : "";
+          return d >= compareFrom && d <= compareTo;
+        });
+        const by_category: Record<string, number> = {};
+        for (const p of inRange) {
+          const cat = (p.category || "Other").trim() || "Other";
+          by_category[cat] = (by_category[cat] || 0) + p.amount;
+        }
+        return {
+          id: s.id,
+          name: s.name,
+          total: inRange.reduce((sum, p) => sum + p.amount, 0),
+          gst: inRange.reduce((sum, p) => sum + (p.gstAmount || 0), 0),
+          count: inRange.length,
+          by_category,
+        };
+      })
+      .filter((v) => v.total > 0)
+      .sort((a, b) => b.total - a.total);
+  }, [suppliers, compareFrom, compareTo]);
+
+  const comparisonTotal = vendorComparison.reduce((s, v) => s + v.total, 0);
+  const comparisonCategories = useMemo(() => {
+    const cats = new Set<string>();
+    for (const v of vendorComparison) {
+      for (const cat of Object.keys(v.by_category)) cats.add(cat);
+    }
+    return [...cats].sort();
+  }, [vendorComparison]);
+
   return (
     <div>
+      <div className="card" style={{ marginBottom: 24 }}>
+        <div className="card-header">
+          <h3 className="card-title">
+            <i className="fa-solid fa-chart-bar" style={{ marginRight: 8 }} />
+            Vendor Purchase Comparison
+          </h3>
+        </div>
+        <div className="card-body">
+          <div style={{ display: "flex", gap: 12, marginBottom: 20, flexWrap: "wrap", alignItems: "flex-end" }}>
+            <div>
+              <label className="form-label">From</label>
+              <input type="date" className="form-control" value={compareFrom} onChange={(e) => setCompareFrom(e.target.value)} />
+            </div>
+            <div>
+              <label className="form-label">To</label>
+              <input type="date" className="form-control" value={compareTo} onChange={(e) => setCompareTo(e.target.value)} />
+            </div>
+            {comparisonTotal > 0 && (
+              <div style={{ marginLeft: "auto", textAlign: "right" }}>
+                <div style={{ fontSize: 20, fontWeight: 800 }}>₹{formatInr(comparisonTotal)}</div>
+                <div style={{ fontSize: 12, color: "var(--text-muted)" }}>Total stock purchased (all vendors)</div>
+              </div>
+            )}
+          </div>
+
+          {vendorComparison.length > 0 ? (
+            <>
+              <div style={{ marginBottom: 24 }}>
+                <FinanceChart
+                  type="bar"
+                  labels={vendorComparison.map((v) => v.name)}
+                  values={vendorComparison.map((v) => v.total)}
+                  title="Stock Purchase by Vendor"
+                  height={Math.max(260, vendorComparison.length * 36)}
+                  horizontal
+                />
+              </div>
+              <table className="data-table" style={{ marginBottom: 24 }}>
+                <thead>
+                  <tr>
+                    <th>Vendor</th>
+                    <th>Purchases</th>
+                    <th>GST</th>
+                    <th>Transactions</th>
+                    <th>Share</th>
+                  </tr>
+                </thead>
+                <tbody>
+                  {vendorComparison.map((v) => (
+                    <tr key={v.id}>
+                      <td><strong>{v.name}</strong></td>
+                      <td>₹{formatInr(v.total)}</td>
+                      <td>₹{formatInr(v.gst)}</td>
+                      <td>{v.count}</td>
+                      <td>{comparisonTotal > 0 ? `${Math.round((v.total / comparisonTotal) * 100)}%` : "—"}</td>
+                    </tr>
+                  ))}
+                </tbody>
+              </table>
+
+              {comparisonCategories.length > 0 && vendorComparison.length > 1 && (
+                <>
+                  <h4 style={{ margin: "0 0 12px", fontSize: 15 }}>Category-wise purchase by vendor</h4>
+                  <div style={{ overflowX: "auto" }}>
+                    <table className="data-table">
+                      <thead>
+                        <tr>
+                          <th>Category</th>
+                          {vendorComparison.map((v) => (
+                            <th key={v.id}>{v.name}</th>
+                          ))}
+                          <th>Total</th>
+                        </tr>
+                      </thead>
+                      <tbody>
+                        {comparisonCategories.map((cat) => {
+                          const rowTotal = vendorComparison.reduce(
+                            (s, v) => s + (v.by_category[cat] || 0),
+                            0,
+                          );
+                          return (
+                            <tr key={cat}>
+                              <td><strong>{cat}</strong></td>
+                              {vendorComparison.map((v) => (
+                                <td key={v.id}>
+                                  {v.by_category[cat] ? `₹${formatInr(v.by_category[cat])}` : "—"}
+                                </td>
+                              ))}
+                              <td><strong>₹{formatInr(rowTotal)}</strong></td>
+                            </tr>
+                          );
+                        })}
+                      </tbody>
+                    </table>
+                  </div>
+                </>
+              )}
+            </>
+          ) : (
+            <p style={{ color: "var(--text-muted)", margin: 0 }}>No vendor purchases in this date range.</p>
+          )}
+        </div>
+      </div>
+
       <div className="card" style={{ marginBottom: 24 }}>
         <div className="card-header"><h3 className="card-title"><i className="fa-solid fa-truck-field" style={{ marginRight: 8 }} />Add Vendor</h3></div>
         <div className="card-body">

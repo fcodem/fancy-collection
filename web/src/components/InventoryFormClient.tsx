@@ -1,10 +1,10 @@
 "use client";
 
 import { useRouter } from "next/navigation";
-import { useState } from "react";
+import { useEffect, useState } from "react";
 import DressNameSuggestInput from "@/components/DressNameSuggestInput";
 import { photoUrl } from "@/lib/photoUrl";
-import { BASE_MENS, BASE_WOMENS, BASE_JEWELLERY, BASE_ACCESSORY, SIZES, SUB_CATEGORIES, MENS_CATEGORIES } from "@/lib/constants";
+import { BASE_MENS, BASE_WOMENS, BASE_JEWELLERY, BASE_ACCESSORY, SIZES, MENS_CATEGORIES } from "@/lib/constants";
 
 const ALL_CATS = [...BASE_MENS, ...BASE_WOMENS, ...BASE_JEWELLERY, ...BASE_ACCESSORY];
 
@@ -15,9 +15,21 @@ export default function InventoryFormClient({ item }: { item?: Record<string, un
   const [selectedSizes, setSelectedSizes] = useState<string[]>([]);
   const [saving, setSaving] = useState(false);
   const [photoPreview, setPhotoPreview] = useState("");
+  const [subCategories, setSubCategories] = useState<string[]>(["Normal"]);
   const isEdit = Boolean(item?.id);
   const isMens = MENS_CATEGORIES.includes(category);
   const existingPhoto = photoUrl(item?.photo as string | undefined);
+
+  useEffect(() => {
+    fetch("/api/sub-categories")
+      .then((r) => (r.ok ? r.json() : null))
+      .then((data) => {
+        if (data?.sub_categories?.length) {
+          setSubCategories(data.sub_categories.map((s: { name: string }) => s.name));
+        }
+      })
+      .catch(() => {});
+  }, []);
 
   function handlePhotoChange(e: React.ChangeEvent<HTMLInputElement>) {
     const file = e.target.files?.[0];
@@ -89,7 +101,7 @@ export default function InventoryFormClient({ item }: { item?: Record<string, un
         <div><label className="form-label">Deposit (₹)</label><input name="deposit" type="number" className="form-control" defaultValue={item?.deposit as number} /></div>
         <div><label className="form-label">Sub-Category</label>
           <select name="sub_category" className="form-control" defaultValue={(item?.subCategory as string) || "Normal"}>
-            {SUB_CATEGORIES.map((s) => <option key={s} value={s}>{s}</option>)}
+            {subCategories.map((s) => <option key={s} value={s}>{s}</option>)}
           </select>
         </div>
         {isEdit && (

@@ -1,8 +1,25 @@
 import prisma from "./prisma";
 
-export type AuditAction = "created" | "updated" | "deleted" | "cancelled" | "delivered" | "returned" | "restored" | "packed";
+export type AuditAction =
+  | "created"
+  | "updated"
+  | "deleted"
+  | "cancelled"
+  | "postponed"
+  | "delivered"
+  | "returned"
+  | "restored"
+  | "packed"
+  | "attendance";
 
-export type AuditEntity = "booking" | "inventory" | "booking_item";
+export type AuditEntity =
+  | "booking"
+  | "inventory"
+  | "booking_item"
+  | "prospect_lead"
+  | "shop_enquiry"
+  | "staff_attendance"
+  | "customer";
 
 interface LogOpts {
   username: string;
@@ -64,11 +81,28 @@ export async function logActivity(opts: LogOpts) {
 }
 
 export function snapshotBooking(b: Record<string, unknown>) {
-  const { bookingItems, legacyItem, ...rest } = b;
-  return rest;
+  const raw = b as {
+    bookingItems?: Array<{ dressName?: string }>;
+    dressName?: string;
+    [key: string]: unknown;
+  };
+  const { bookingItems, legacyItem, ...rest } = raw;
+  const items = Array.isArray(bookingItems) ? bookingItems : [];
+  const dressNames = items
+    .map((bi) => bi.dressName)
+    .filter((n): n is string => Boolean(n && String(n).trim()));
+  if (!dressNames.length && typeof raw.dressName === "string" && raw.dressName.trim()) {
+    dressNames.push(raw.dressName.trim());
+  }
+  return {
+    ...rest,
+    dressNames,
+    dresses: dressNames.length ? dressNames.join(", ") : null,
+  };
 }
 
 export function snapshotInventory(i: Record<string, unknown>) {
   const { rentalItems, bookings, bookingItems, prospectLeadItems, ...rest } = i;
-  return rest;
+  const name = typeof rest.name === "string" ? rest.name : null;
+  return { ...rest, dressName: name, dresses: name };
 }

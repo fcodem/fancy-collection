@@ -6,6 +6,13 @@ import {
 import { todayIso } from "@/lib/constants";
 import ServerAppShell from "@/components/ServerAppShell";
 import DownloadPdfButton from "@/components/DownloadPdfButton";
+import { recordBookingPdfHeaders, recordBookingPdfRow, flattenBookingPdfRows } from "@/lib/standardBookingPdfRows";
+import {
+  buildWarningMaps,
+  dateSpanFromBookings,
+  fetchWarningEdgeBookings,
+  pdfWarningsForBooking,
+} from "@/lib/bookingWarnings";
 import { StandardBookingTableCells, StandardBookingTableHead } from "@/components/BookingDetailsColumns";
 import { serializeStandardBookingDetails } from "@/lib/bookingDetails";
 import { formatInr } from "@/lib/format";
@@ -17,6 +24,15 @@ export default async function RemainingToDeliverPage() {
     orderBy: [{ deliveryDate: "asc" }, { deliveryTime: "asc" }],
   });
 
+  const pdfHeaders = recordBookingPdfHeaders();
+  const span = dateSpanFromBookings(bookings);
+  const edgeBookings = span.from ? await fetchWarningEdgeBookings(span.from, span.to) : [];
+  const { returning: returningMap, booked: bookedMap } = buildWarningMaps(edgeBookings);
+  const pdfResults = bookings.map((b) =>
+    recordBookingPdfRow(b.monthlySerial, b, [], pdfWarningsForBooking(b, returningMap, bookedMap)),
+  );
+  const { rows: pdfRows, warningsBelow } = flattenBookingPdfRows(pdfResults);
+
   return (
     <ServerAppShell>
       <div className="card">
@@ -26,7 +42,9 @@ export default async function RemainingToDeliverPage() {
             <DownloadPdfButton
               title="Remaining to Deliver"
               filename="remaining-to-deliver"
-              tableId="remaining-to-deliver-table"
+              headers={pdfHeaders}
+              rows={pdfRows}
+              warningsBelow={warningsBelow}
               size="sm"
             />
           )}
@@ -36,13 +54,13 @@ export default async function RemainingToDeliverPage() {
             <div style={{ textAlign: "center", padding: 40, color: "var(--text-muted)" }}>All deliveries are complete.</div>
           ) : (
             <div className="table-wrapper">
-              <table id="remaining-to-deliver-table" className="data-table">
+              <table id="remaining-to-deliver-table" className="data-table data-table--booking">
                 <thead>
                   <tr>
-                    <th>S.No</th>
+                    <th className="booking-col-serial">S.No</th>
                     <StandardBookingTableHead />
-                    <th>Remaining</th>
-                    <th>Action</th>
+                    <th className="booking-col-money">Remaining</th>
+                    <th className="booking-col-actions">Action</th>
                   </tr>
                 </thead>
                 <tbody>
@@ -50,12 +68,17 @@ export default async function RemainingToDeliverPage() {
                     const rem = Math.max(0, (b.totalRemaining || b.remaining) - (b.remainingCollected || 0));
                     return (
                       <tr key={b.id}>
-                        <td><strong>{String(b.monthlySerial).padStart(2, "0")}</strong></td>
+                        <td className="booking-col-serial"><strong>{String(b.monthlySerial).padStart(2, "0")}</strong></td>
                         <StandardBookingTableCells d={serializeStandardBookingDetails(b)} />
-                        <td style={{ fontWeight: 700, color: rem > 0 ? "var(--danger)" : "var(--success)" }}>
+                        <td className="booking-col-money" style={{ fontWeight: 700, color: rem > 0 ? "var(--danger)" : "var(--success)" }}>
                           {rem > 0 ? `₹${formatInr(rem)}` : "Paid ✓"}
                         </td>
-                        <td><Link href={`/booking/${b.id}`} className="btn btn-sm btn-outline" style={{ marginRight: 6 }}>View</Link><Link href={`/booking-delivery/${b.id}`} className="btn btn-sm btn-primary">Deliver</Link></td>
+                        <td className="booking-col-actions">
+                          <div className="booking-col-actions-inner">
+                            <Link href={`/booking/${b.id}`} className="btn btn-sm btn-outline">View</Link>
+                            <Link href={`/booking-delivery/${b.id}`} className="btn btn-sm btn-primary">Deliver</Link>
+                          </div>
+                        </td>
                       </tr>
                     );
                   })}

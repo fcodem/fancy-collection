@@ -4,11 +4,13 @@ import { useRouter } from "next/navigation";
 import Link from "next/link";
 import { useState } from "react";
 import { BookingRecordDetails } from "@/components/BookingRecordDetails";
+import { BookingItemWarningsSection } from "@/components/BookingItemWarningsSection";
 import DeliveredCancelBooking from "@/components/DeliveredCancelBooking";
 import BookingWhatsAppButton from "@/components/BookingWhatsAppButton";
 import { isBookingLocked } from "@/lib/bookingLock";
 import type { BookingForStandardDetails } from "@/lib/bookingDetails";
 import { resolveBookingStatus } from "@/lib/bookingStatus";
+import type { ItemWarningSource } from "@/lib/bookingWarningPdf";
 
 function editHref(id: number, status: string) {
   return status === "delivered" ? `/booking-delivery/${id}` : `/booking/${id}/edit`;
@@ -18,6 +20,7 @@ export default function BookingViewClient({
   booking,
   qrSlot,
   isOwner = false,
+  warningItems = [],
 }: {
   booking: BookingForStandardDetails & {
     id: number;
@@ -30,10 +33,13 @@ export default function BookingViewClient({
     remainingCollected?: number;
     whatsappNo?: string | null;
     contact1?: string;
+    whatsappStatus?: string | null;
+    publicBookingId?: string | null;
     bookingItems?: Array<{ isDelivered: boolean }>;
   };
   qrSlot?: React.ReactNode;
   isOwner?: boolean;
+  warningItems?: ItemWarningSource[];
 }) {
   const router = useRouter();
   const [showCancel, setShowCancel] = useState(false);
@@ -58,7 +64,7 @@ export default function BookingViewClient({
       alert(data.error || "Could not cancel booking");
       return;
     }
-    router.push("/recycle-bin");
+    router.push("/booking");
   }
 
   function openCancel() {
@@ -87,11 +93,17 @@ export default function BookingViewClient({
         <BookingWhatsAppButton
           bookingId={booking.id}
           hasPhone={!!(booking.whatsappNo || booking.contact1)}
+          whatsappStatus={booking.whatsappStatus}
         />
         {status === "booked" && (
-          <Link href={`/booking-delivery/${booking.id}`} className="btn btn-primary">
-            <i className="fa-solid fa-truck-fast" /> Delivery
-          </Link>
+          <>
+            <Link href={`/booking-delivery/${booking.id}`} className="btn btn-primary">
+              <i className="fa-solid fa-truck-fast" /> Delivery
+            </Link>
+            <Link href={`/postponed-booking/${booking.id}`} className="btn btn-outline" style={{ color: "#E65100", borderColor: "#E65100" }}>
+              <i className="fa-solid fa-clock" /> Postpone
+            </Link>
+          </>
         )}
         {status === "delivered" && (
           <Link href={`/return/${booking.id}`} className="btn btn-gold">
@@ -162,6 +174,7 @@ export default function BookingViewClient({
         <div className="card-body">
           <BookingRecordDetails
             booking={booking}
+            warningItems={warningItems.length > 1 ? warningItems : undefined}
             extra={
               booking.staffNames ? (
                 <p style={{ marginTop: 12, fontSize: 13, color: "var(--text-muted)" }}>
@@ -170,6 +183,7 @@ export default function BookingViewClient({
               ) : undefined
             }
           />
+          {warningItems.length <= 1 && <BookingItemWarningsSection items={warningItems} />}
         </div>
       </div>
     </div>

@@ -2,7 +2,7 @@
 
 import Link from "next/link";
 import { useEffect, useMemo, useState } from "react";
-import DressNameSuggestInput from "@/components/DressNameSuggestInput";
+import BookingSearchSuggestInput from "@/components/BookingSearchSuggestInput";
 import {
   StandardBookingTableCells,
   StandardBookingTableHead,
@@ -13,8 +13,10 @@ import { filterStatListBookings } from "@/lib/dashboardStatListFilter";
 import type { DashboardStatBookingRow, DashboardStatListType } from "@/lib/services/dashboardStatLists";
 import { formatInr } from "@/lib/format";
 import DownloadPdfButton from "@/components/DownloadPdfButton";
+import StarBookingBadge from "@/components/StarBookingBadge";
 import {
   STANDARD_BOOKING_HEADERS,
+  flattenBookingPdfRows,
   standardBookingPdfRow,
 } from "@/lib/standardBookingPdfRows";
 
@@ -72,34 +74,27 @@ export default function DashboardStatListClient({
 
   const hasFilters = Boolean(appliedQuery || appliedCategory);
 
-  const pdfHeaders =
-    listType === "remaining-to-deliver"
-      ? ["S.No", "Customer", "Dress", "Delivery", "Contact", "Remaining"]
-      : [
-          ...STANDARD_BOOKING_HEADERS,
-          ...(listType === "total-orders" ? ["Status"] : []),
-          ...(listType === "returning-today" ? ["Remaining"] : []),
-        ];
+  const pdfHeaders = [
+    ...STANDARD_BOOKING_HEADERS,
+    ...(listType === "total-orders" ? ["Status"] : []),
+  ];
 
-  const pdfRows =
-    listType === "remaining-to-deliver"
-      ? filtered.map((b) => [
-          String(b.monthlySerial).padStart(2, "0"),
-          b.customer_name || "—",
-          b.dress_names || "—",
-          `${formatDate(b.deliveryDateIso, "display")}${b.delivery_time ? ` ${b.delivery_time}` : ""}`,
-          b.contact1 || "—",
-          (b.totalRemaining || 0) > 0 ? `₹${formatInr(b.totalRemaining || 0)}` : "Paid ✓",
-        ])
-      : filtered.map((b) => {
-          const row = standardBookingPdfRow(b.monthlySerial, b);
-          if (listType === "total-orders") row.push(b.status || "—");
-          if (listType === "returning-today") {
-            const rem = b.totalRemaining || 0;
-            row.push(rem > 0 ? `₹${formatInr(rem)}` : "Paid ✓");
-          }
-          return row;
-        });
+  const pdfResults = filtered.map((b) =>
+    standardBookingPdfRow(
+      b.monthlySerial,
+      {
+        ...b,
+        contact1: b.contact1,
+        whatsapp_no: b.whatsappNo,
+        total_advance: b.totalAdvance,
+        total_remaining: b.totalRemaining,
+        remaining_collected: b.remainingCollected,
+      },
+      listType === "total-orders" ? [b.status || "—"] : [],
+      b.pdfWarningPanels.length ? b.pdfWarningPanels : undefined,
+    ),
+  );
+  const { rows: pdfRows, warningsBelow } = flattenBookingPdfRows(pdfResults);
 
   return (
     <div>
@@ -121,6 +116,7 @@ export default function DashboardStatListClient({
           subtitle={description}
           headers={pdfHeaders}
           rows={pdfRows}
+          warningsBelow={warningsBelow}
           disabled={!pdfRows.length}
           className="btn btn-sm"
           size="sm"
@@ -133,19 +129,20 @@ export default function DashboardStatListClient({
           <div style={{ display: "grid", gridTemplateColumns: "repeat(auto-fit, minmax(200px, 1fr))", gap: 12, alignItems: "end" }}>
             <div>
               <label className="form-label">Search (optional)</label>
-              <DressNameSuggestInput
+              <BookingSearchSuggestInput
                 type="text"
                 className="form-control"
-                placeholder="Customer, serial, phone, dress name…"
+                placeholder="Serial, customer, phone, or dress name…"
                 value={query}
+                searchDate={todayIso}
+                mode="delivery"
                 onChange={(e) => setQuery(e.target.value)}
                 onSuggestSelect={(item) => {
-                  setQuery(item.name);
-                  setAppliedQuery(item.name);
+                  const serial = String(item.serial).padStart(2, "0");
+                  setQuery(serial);
+                  setAppliedQuery(serial);
                 }}
                 onKeyDown={(e) => e.key === "Enter" && applyFilters()}
-                category={category}
-                showPhotos
               />
             </div>
             <div>
@@ -200,39 +197,43 @@ function StandardTable({
 }) {
   return (
     <div className="table-wrapper">
-      <table className="data-table">
+      <table className="data-table data-table--booking">
         <thead>
           <tr>
-            <th>S.No</th>
+            <th className="booking-col-serial">S.No</th>
             <StandardBookingTableHead />
-            {listType === "total-orders" && <th>Status</th>}
-            {(listType === "returning-today" || listType === "remaining-to-deliver") && <th>Remaining</th>}
-            <th>Actions</th>
+            {listType === "total-orders" && <th className="booking-col-date">Status</th>}
+            {(listType === "returning-today" || listType === "remaining-to-deliver") && (
+              <th className="booking-col-money">Remaining</th>
+            )}
+            <th className="booking-col-actions">Actions</th>
           </tr>
         </thead>
         <tbody>
-          {rows.map((b, i) => {
+          {rows.map((b) => {
             const rem = b.totalRemaining || 0;
             return (
               <tr key={b.id}>
-                <td><strong>{String(b.monthlySerial).padStart(2, "0")}</strong></td>
+                <td className="booking-col-serial"><strong>{String(b.monthlySerial).padStart(2, "0")}</strong></td>
                 <StandardBookingTableCells d={b} />
                 {listType === "total-orders" && (
-                  <td><span className={`badge badge-${b.status}`}>{b.status}</span></td>
+                  <td className="booking-col-date"><span className={`badge badge-${b.status}`}>{b.status}</span></td>
                 )}
                 {(listType === "returning-today" || listType === "remaining-to-deliver") && (
-                  <td style={{ fontWeight: 700, color: rem > 0 ? "var(--danger)" : "var(--success)" }}>
+                  <td className="booking-col-money" style={{ fontWeight: 700, color: rem > 0 ? "var(--danger)" : "var(--success)" }}>
                     {rem > 0 ? `₹${formatInr(rem)}` : "Paid ✓"}
                   </td>
                 )}
-                <td style={{ whiteSpace: "nowrap" }}>
-                  <Link href={`/booking/${b.id}`} className="btn btn-sm btn-outline" style={{ marginRight: 6 }}>View</Link>
-                  {listType === "remaining-to-deliver" && b.status === "booked" && (
-                    <Link href={`/booking-delivery/${b.id}`} className="btn btn-sm btn-primary">Deliver</Link>
-                  )}
-                  {listType === "returning-today" && b.status === "delivered" && (
-                    <Link href={`/return/${b.id}`} className="btn btn-sm btn-primary">Return</Link>
-                  )}
+                <td className="booking-col-actions">
+                  <div className="booking-col-actions-inner">
+                    <Link href={`/booking/${b.id}`} className="btn btn-sm btn-outline">View</Link>
+                    {listType === "remaining-to-deliver" && b.status === "booked" && (
+                      <Link href={`/booking-delivery/${b.id}`} className="btn btn-sm btn-primary">Deliver</Link>
+                    )}
+                    {listType === "returning-today" && b.status === "delivered" && (
+                      <Link href={`/return/${b.id}`} className="btn btn-sm btn-primary">Return</Link>
+                    )}
+                  </div>
                 </td>
               </tr>
             );
@@ -293,7 +294,10 @@ function RemainingTable({ rows, todayIso }: { rows: DashboardStatBookingRow[]; t
                 {String(b.monthlySerial).padStart(2, "0")}
               </span>
               <div className="list-row-main" style={{ flex: 1, minWidth: 0 }}>
-                <div style={{ fontWeight: 600, fontSize: 13 }}>{b.customer_name}</div>
+                <div style={{ fontWeight: 600, fontSize: 13, display: "inline-flex", alignItems: "center" }}>
+                  {b.customer_name}
+                  {b.is_star && <StarBookingBadge />}
+                </div>
                 <div style={{ fontSize: 12, color: "var(--text-muted)", wordBreak: "break-word" }}>
                   {b.dress_names} · {b.delivery_time}
                   {b.contact1 ? ` · ${b.contact1}` : ""}

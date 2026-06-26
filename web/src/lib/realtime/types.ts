@@ -5,6 +5,8 @@ export type ShopEventType =
   | "booking.delivered"
   | "booking.returned"
   | "booking.cancelled"
+  | "booking.postponed"
+  | "booking.postponed_resolved"
   | "packing.updated"
   | "inventory.changed"
   | "nav.refresh"
@@ -27,6 +29,8 @@ export const BOOKING_EVENTS: ShopEventType[] = [
   "booking.delivered",
   "booking.returned",
   "booking.cancelled",
+  "booking.postponed",
+  "booking.postponed_resolved",
   "packing.updated",
 ];
 

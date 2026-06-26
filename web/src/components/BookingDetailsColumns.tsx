@@ -1,6 +1,7 @@
 import type { ReactNode } from "react";
 import { formatInr } from "@/lib/format";
 import type { StandardBookingDetails } from "@/lib/bookingDetails";
+import StarBookingBadge from "@/components/StarBookingBadge";
 import {
   WARNING_BOOKED_ON_RETURN,
   WARNING_RETURNING_ON_DELIVERY,
@@ -27,15 +28,15 @@ function NoteCell({ text }: { text?: string }) {
 export function StandardBookingTableHead() {
   return (
     <>
-      <th>Customer</th>
-      <th>Address</th>
-      <th>Total Rent</th>
-      <th>Security</th>
-      <th>Dress</th>
-      <th>Dress Notes</th>
-      <th>Common Note</th>
-      <th>Delivery</th>
-      <th>Return</th>
+      <th className="booking-col-customer">Customer</th>
+      <th className="booking-col-address">Address</th>
+      <th className="booking-col-money">Total Rent</th>
+      <th className="booking-col-money">Security</th>
+      <th className="booking-col-dress">Dress</th>
+      <th className="booking-col-notes">Dress Notes</th>
+      <th className="booking-col-notes">Common Note</th>
+      <th className="booking-col-date">Delivery</th>
+      <th className="booking-col-date">Return</th>
     </>
   );
 }
@@ -44,30 +45,33 @@ export function StandardBookingTableHead() {
 export function StandardBookingTableCells({ d }: { d: StandardBookingDetails }) {
   return (
     <>
-      <td>
-        <div style={{ fontWeight: 600, fontSize: 13 }}>{d.customer_name}</div>
+      <td className="booking-col-customer">
+        <div style={{ fontWeight: 600, fontSize: 13, display: "inline-flex", alignItems: "center" }}>
+          {d.customer_name}
+          {d.is_star && <StarBookingBadge />}
+        </div>
       </td>
-      <td>
+      <td className="booking-col-address">
         <NoteCell text={d.customer_address} />
       </td>
-      <td style={{ fontWeight: 700, color: "var(--primary)", whiteSpace: "nowrap" }}>
+      <td className="booking-col-money" style={{ fontWeight: 700, color: "var(--primary)" }}>
         ₹{formatInr(d.total_rent)}
       </td>
-      <td style={{ whiteSpace: "nowrap" }}>₹{formatInr(d.security_deposit)}</td>
-      <td>
+      <td className="booking-col-money">₹{formatInr(d.security_deposit)}</td>
+      <td className="booking-col-dress">
         <NoteCell text={d.dress_names} />
       </td>
-      <td>
+      <td className="booking-col-notes">
         <NoteCell text={d.item_notes} />
       </td>
-      <td>
+      <td className="booking-col-notes">
         <NoteCell text={d.common_notes} />
       </td>
-      <td style={{ fontSize: 12, whiteSpace: "nowrap" }}>
+      <td className="booking-col-date" style={{ fontSize: 12 }}>
         <div>{d.delivery_date}</div>
         <div style={{ fontSize: 11, color: "var(--text-muted)" }}>{d.delivery_time}</div>
       </td>
-      <td style={{ fontSize: 12, whiteSpace: "nowrap" }}>
+      <td className="booking-col-date" style={{ fontSize: 12 }}>
         <div>{d.return_date}</div>
         <div style={{ fontSize: 11, color: "var(--text-muted)" }}>{d.return_time}</div>
       </td>
@@ -75,10 +79,19 @@ export function StandardBookingTableCells({ d }: { d: StandardBookingDetails }) 
   );
 }
 
+function customerWithStar(d: StandardBookingDetails) {
+  return (
+    <span style={{ display: "inline-flex", alignItems: "center" }}>
+      {d.customer_name}
+      {d.is_star && <StarBookingBadge />}
+    </span>
+  );
+}
+
 /** Compact grid for card layouts (returning today, packing list header, etc.). */
 export function StandardBookingDetailsGrid({ d }: { d: StandardBookingDetails }) {
   const fields: Array<{ label: string; value: ReactNode }> = [
-    { label: "Customer", value: d.customer_name },
+    { label: "Customer", value: customerWithStar(d) },
     { label: "Address", value: d.customer_address || "—" },
     { label: "Total Rent", value: `₹${formatInr(d.total_rent)}` },
     { label: "Security", value: `₹${formatInr(d.security_deposit)}` },
@@ -134,7 +147,7 @@ export function PackingBookingDetailsGrid({
   extras?: PackingBookingExtras;
 }) {
   const fields: Array<{ label: string; value: ReactNode }> = [
-    { label: "Customer", value: d.customer_name },
+    { label: "Customer", value: customerWithStar(d) },
     { label: "Address", value: d.customer_address || "—" },
     { label: "Contact", value: extras?.contact_1 || "—" },
     {

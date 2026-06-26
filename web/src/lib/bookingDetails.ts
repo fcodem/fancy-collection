@@ -1,5 +1,6 @@
 import { formatDate } from "./constants";
 import { bookingDressLabels, dressDisplayName, serializeBookingItems } from "./dress";
+import { isStarBooking } from "./starBooking";
 
 /** Standard customer + booking fields shown on every list/menu. */
 export type StandardBookingDetails = {
@@ -14,6 +15,7 @@ export type StandardBookingDetails = {
   delivery_time: string;
   return_date: string;
   return_time: string;
+  is_star?: boolean;
 };
 
 /** Full record view — standard fields plus contact, venue, and payment breakdown. */
@@ -82,6 +84,7 @@ export function serializeStandardBookingDetails(b: BookingForStandardDetails): S
     delivery_time: b.deliveryTime,
     return_date: formatDate(b.returnDate, "display"),
     return_time: b.returnTime,
+    is_star: isStarBooking(b as Parameters<typeof isStarBooking>[0]),
   };
 }
 
@@ -173,6 +176,42 @@ export function effectiveSecurityCollected(
   items: Array<{ itemSecurityCollected?: number | null }> = [],
 ): number {
   return Math.max(bookingCollected || 0, sumItemSecurityCollected(items));
+}
+
+/** Sum of per-dress security held on incomplete return. */
+export function sumItemSecurityHeld(
+  items: Array<{ itemSecurityHeld?: number | null }>,
+): number {
+  return items.reduce((s, row) => s + (row.itemSecurityHeld || 0), 0);
+}
+
+export type IncompleteSecuritySummary = {
+  totalSecurity: number;
+  securityReturned: number;
+  securityHeld: number;
+};
+
+/** Total security collected at delivery, amount returned to customer, and amount still held. */
+export function incompleteReturnSecuritySummary(opts: {
+  securityHeld?: number | null;
+  securityCollected?: number | null;
+  securityDeposit?: number | null;
+  items?: Array<{
+    itemSecurityCollected?: number | null;
+    itemSecurityHeld?: number | null;
+  }>;
+}): IncompleteSecuritySummary {
+  const totalSecurity = Math.max(
+    effectiveSecurityCollected(opts.securityCollected, opts.items),
+    opts.securityDeposit || 0,
+  );
+  const heldFromItems = sumItemSecurityHeld(opts.items || []);
+  const securityHeld =
+    opts.securityHeld != null && opts.securityHeld > 0
+      ? opts.securityHeld
+      : heldFromItems;
+  const securityReturned = Math.max(0, totalSecurity - securityHeld);
+  return { totalSecurity, securityReturned, securityHeld };
 }
 
 /** Security still held by the shop until the dress is returned. */

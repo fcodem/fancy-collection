@@ -3,11 +3,34 @@ import prisma from "@/lib/prisma";
 import ServerAppShell from "@/components/ServerAppShell";
 import ResolveButton from "@/components/ResolveButton";
 import { StandardBookingTableCells, StandardBookingTableHead } from "@/components/BookingDetailsColumns";
-import { serializeStandardBookingDetails } from "@/lib/bookingDetails";
+import { serializeStandardBookingDetails, incompleteReturnSecuritySummary } from "@/lib/bookingDetails";
+import IncompleteSecuritySummaryBox from "@/components/IncompleteSecuritySummaryBox";
 import { photoUrl } from "@/lib/photoUrl";
-import { formatInr } from "@/lib/format";
+import { pdfCurrency } from "@/lib/pdfFormat";
 import { formatDate } from "@/lib/constants";
 import DownloadPdfButton from "@/components/DownloadPdfButton";
+import { recordBookingPdfHeaders, recordBookingPdfRow, flattenBookingPdfRows } from "@/lib/standardBookingPdfRows";
+import {
+  buildWarningMaps,
+  dateSpanFromBookings,
+  fetchWarningEdgeBookings,
+  pdfWarningsForBooking,
+} from "@/lib/bookingWarnings";
+
+function incompleteMissingNotes(
+  b: {
+    bookingItems: Array<{ isIncompleteReturn: boolean; dressName: string; itemIncompleteNotes: string | null }>;
+    incompleteNotes: string | null;
+  },
+): string {
+  if (b.bookingItems.some((bi) => bi.isIncompleteReturn)) {
+    return b.bookingItems
+      .filter((bi) => bi.isIncompleteReturn)
+      .map((bi) => `${bi.dressName}: ${bi.itemIncompleteNotes || "—"}`)
+      .join("; ");
+  }
+  return b.incompleteNotes || "—";
+}
 
 export default async function IncompleteReturnPage() {
   const bookings = await prisma.booking.findMany({
@@ -15,6 +38,32 @@ export default async function IncompleteReturnPage() {
     include: { bookingItems: { include: { item: true } }, legacyItem: true },
     orderBy: { returnedAt: "desc" },
   });
+
+  const pdfHeaders = recordBookingPdfHeaders("Missing Notes", "Total Security", "Security Returned", "Security Held", "Returned On");
+  const span = dateSpanFromBookings(bookings);
+  const edgeBookings = span.from ? await fetchWarningEdgeBookings(span.from, span.to) : [];
+  const { returning: returningMap, booked: bookedMap } = buildWarningMaps(edgeBookings);
+  const pdfResults = bookings.map((b) => {
+    const security = incompleteReturnSecuritySummary({
+      securityHeld: b.securityHeld,
+      securityCollected: b.securityCollected,
+      securityDeposit: b.securityDeposit,
+      items: b.bookingItems,
+    });
+    return recordBookingPdfRow(
+      b.monthlySerial,
+      b,
+      [
+        incompleteMissingNotes(b),
+        pdfCurrency(security.totalSecurity),
+        pdfCurrency(security.securityReturned),
+        pdfCurrency(security.securityHeld),
+        b.returnedAt ? formatDate(b.returnedAt, "display") : "—",
+      ],
+      pdfWarningsForBooking(b, returningMap, bookedMap),
+    );
+  });
+  const { rows: pdfRows, warningsBelow } = flattenBookingPdfRows(pdfResults);
 
   return (
     <ServerAppShell>
@@ -28,7 +77,9 @@ export default async function IncompleteReturnPage() {
             <DownloadPdfButton
               title="Incomplete Return Records"
               filename="incomplete-returns"
-              tableId="incomplete-return-table"
+              headers={pdfHeaders}
+              rows={pdfRows}
+              warningsBelow={warningsBelow}
               size="sm"
             />
           )}
@@ -41,24 +92,24 @@ export default async function IncompleteReturnPage() {
             </div>
           ) : (
             <div className="table-wrapper">
-              <table id="incomplete-return-table" className="data-table">
+              <table id="incomplete-return-table" className="data-table data-table--booking">
                 <thead>
                   <tr>
-                    <th>S.No</th>
+                    <th className="booking-col-serial">S.No</th>
                     <StandardBookingTableHead />
-                    <th>Missing Notes</th>
-                    <th>Photo</th>
-                    <th>Security Held</th>
-                    <th>Returned On</th>
-                    <th>Action</th>
+                    <th className="booking-col-notes">Missing Notes</th>
+                    <th className="booking-col-actions">Photo</th>
+                    <th className="booking-col-money">Security</th>
+                    <th className="booking-col-date">Returned On</th>
+                    <th className="booking-col-actions">Action</th>
                   </tr>
                 </thead>
                 <tbody>
                   {bookings.map((b) => (
                     <tr key={b.id}>
-                      <td>{String(b.monthlySerial).padStart(2, "0")}</td>
+                      <td className="booking-col-serial">{String(b.monthlySerial).padStart(2, "0")}</td>
                       <StandardBookingTableCells d={serializeStandardBookingDetails(b)} />
-                      <td style={{ maxWidth: 240, wordBreak: "break-word" }}>
+                      <td className="booking-col-notes" style={{ maxWidth: 240 }}>
                         {b.bookingItems.some((bi) => bi.isIncompleteReturn) ? (
                           b.bookingItems
                             .filter((bi) => bi.isIncompleteReturn)
@@ -98,7 +149,17 @@ export default async function IncompleteReturnPage() {
                           <span style={{ color: "var(--text-muted)", fontSize: 12 }}>—</span>
                         )}
                       </td>
-                      <td style={{ fontWeight: 700, color: "var(--danger)" }}>₹{formatInr(b.securityHeld)}</td>
+                      <td className="booking-col-money" style={{ minWidth: 200 }}>
+                        <IncompleteSecuritySummaryBox
+                          compact
+                          summary={incompleteReturnSecuritySummary({
+                            securityHeld: b.securityHeld,
+                            securityCollected: b.securityCollected,
+                            securityDeposit: b.securityDeposit,
+                            items: b.bookingItems,
+                          })}
+                        />
+                      </td>
                       <td>{b.returnedAt ? formatDate(b.returnedAt, "display") : "—"}</td>
                       <td>
                         <div style={{ display: "flex", gap: 6, flexWrap: "wrap" }}>

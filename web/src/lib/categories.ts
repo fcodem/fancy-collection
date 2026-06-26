@@ -6,13 +6,18 @@ import {
   BASE_MENS,
   BASE_WOMENS,
 } from "./constants";
+import { findHiddenCategoryNames } from "./categoryTables";
 
 async function loadAllCategories() {
-  const custom = await prisma.customCategory.findMany({ where: { active: true } });
-  const mens = [...BASE_MENS];
-  const womens = [...BASE_WOMENS];
-  const jewellery = [...BASE_JEWELLERY];
-  const accessory = [...BASE_ACCESSORY];
+  const [custom, hiddenNames] = await Promise.all([
+    prisma.customCategory.findMany({ where: { active: true } }),
+    findHiddenCategoryNames(),
+  ]);
+  const hiddenSet = new Set(hiddenNames);
+  const mens = BASE_MENS.filter((n) => !hiddenSet.has(n));
+  const womens = BASE_WOMENS.filter((n) => !hiddenSet.has(n));
+  const jewellery = BASE_JEWELLERY.filter((n) => !hiddenSet.has(n));
+  const accessory = BASE_ACCESSORY.filter((n) => !hiddenSet.has(n));
   const other = ["Other"];
 
   for (const c of custom) {

@@ -3,13 +3,19 @@
 import { useRouter } from "next/navigation";
 import { useEffect, useState } from "react";
 import { BookingRecordDetails } from "@/components/BookingRecordDetails";
+import BookingItemWarningsBlock, {
+  BookingItemWarningsSection,
+  findItemWarnings,
+} from "@/components/BookingItemWarningsSection";
 import PhotoCaptureButton from "@/components/PhotoCaptureButton";
 import type { BookingForStandardDetails } from "@/lib/bookingDetails";
+import type { ItemWarningSource } from "@/lib/bookingWarningPdf";
 import { formatInr } from "@/lib/format";
 import { photoUrl } from "@/lib/photoUrl";
 
 type ItemRow = {
   id: number;
+  itemId?: number;
   dressName: string;
   category?: string | null;
   size?: string | null;
@@ -53,6 +59,7 @@ type SaveItemResponse = {
 export default function DeliveryDetailClient({
   booking,
   items: initialItems,
+  warningItems = [],
   nextBookings,
   isDelivered = false,
   idPhoto1 = null,
@@ -60,6 +67,7 @@ export default function DeliveryDetailClient({
 }: {
   booking: BookingData;
   items: ItemRow[];
+  warningItems?: ItemWarningSource[];
   nextBookings: Array<{ dress: string; next_customer: string; next_serial: number; next_time: string; next_venue: string }>;
   isDelivered?: boolean;
   idPhoto1?: string | null;
@@ -274,10 +282,11 @@ export default function DeliveryDetailClient({
             <strong>Serial:</strong> #{String(booking.monthlySerial).padStart(2, "0")}
           </p>
           <BookingRecordDetails booking={booking} />
+          {warningItems.length <= 1 && <BookingItemWarningsSection items={warningItems} />}
         </div>
       </div>
 
-      {nextBookings.length > 0 && (
+      {nextBookings.length > 0 && !warningItems.some((w) => w.returning_warning || w.booked_warning) && (
         <div className="card" style={{ marginBottom: 20, borderLeft: "4px solid #f39c12" }}>
           <div className="card-header"><h3 className="card-title" style={{ color: "#f39c12" }}>Warning: Next booking on return date</h3></div>
           <div className="card-body">
@@ -382,6 +391,11 @@ export default function DeliveryDetailClient({
                   {it.packingNote && <div>Note: {it.packingNote}</div>}
                 </div>
               )}
+
+              {warningItems.length > 1 && (() => {
+                const itemWarnings = findItemWarnings(warningItems, { itemId: it.itemId, dressName: it.dressName });
+                return itemWarnings ? <BookingItemWarningsBlock item={itemWarnings} /> : null;
+              })()}
 
               <div style={{ display: "grid", gridTemplateColumns: "1fr 1fr", gap: 12, marginBottom: 12 }}>
                 <div>

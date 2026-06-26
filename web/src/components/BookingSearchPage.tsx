@@ -1,16 +1,19 @@
 "use client";
 
+import Link from "next/link";
 import { useCallback, useEffect, useState } from "react";
 import BookingSearchSuggestInput from "@/components/BookingSearchSuggestInput";
 import { StandardBookingTableCells, StandardBookingTableHead } from "@/components/BookingDetailsColumns";
 import type { StandardBookingDetails } from "@/lib/bookingDetails";
 import { formatInr } from "@/lib/format";
+import { pdfCurrency } from "@/lib/pdfFormat";
 import { useRealtimeRefresh } from "@/hooks/useRealtimeRefresh";
 import { BOOKING_EVENTS } from "@/lib/realtime/types";
 import DownloadPdfButton from "@/components/DownloadPdfButton";
+import { DEFAULT_SEARCH_PAGE_SIZE } from "@/lib/searchPagination";
 import {
   STANDARD_BOOKING_HEADERS,
-  balanceRemainingLabel,
+  flattenBookingPdfRows,
   standardBookingPdfRow,
 } from "@/lib/standardBookingPdfRows";
 
@@ -64,6 +67,7 @@ export default function BookingSearchPage({
   categories,
   actionLabel = "Edit",
   actionIcon = "fa-pen",
+  showRecordActions = false,
 }: {
   title: string;
   apiPath: string;
@@ -79,6 +83,8 @@ export default function BookingSearchPage({
   categories?: Categories;
   actionLabel?: string;
   actionIcon?: string;
+  /** View + Deliver/Return buttons (Search Booking) */
+  showRecordActions?: boolean;
 }) {
   const [searchDate, setSearchDate] = useState(todayIso);
   const [query, setQuery] = useState("");
@@ -87,12 +93,19 @@ export default function BookingSearchPage({
   const [searchMode, setSearchMode] = useState("");
   const [searchMonth, setSearchMonth] = useState("");
   const [loaded, setLoaded] = useState(false);
+  const [page, setPage] = useState(1);
+  const [pageSize, setPageSize] = useState(DEFAULT_SEARCH_PAGE_SIZE);
+  const [total, setTotal] = useState(0);
+  const [hasMore, setHasMore] = useState(false);
 
-  const runSearch = useCallback(async () => {
+  const runSearch = useCallback(async (pageOverride?: number) => {
+    const activePage = pageOverride ?? page;
     try {
       const params = new URLSearchParams({
         date: searchDate,
         q: query,
+        page: String(activePage),
+        pageSize: String(pageSize),
       });
       if (category) params.set("category", category);
       const res = await fetch(`${apiPath}?${params.toString()}`, {
@@ -105,59 +118,82 @@ export default function BookingSearchPage({
         setRows(data);
         setSearchMode("");
         setSearchMonth("");
+        setTotal(data.length);
+        setHasMore(false);
       } else {
         setRows(Array.isArray(data.results) ? data.results : []);
         setSearchMode(data.mode || "");
         setSearchMonth(typeof data.month === "string" ? data.month : "");
+        setTotal(typeof data.total === "number" ? data.total : (data.results?.length ?? 0));
+        setHasMore(Boolean(data.hasMore));
+        if (typeof data.page === "number") setPage(data.page);
+        if (typeof data.pageSize === "number") setPageSize(data.pageSize);
       }
       setLoaded(true);
     } catch {
       /* ignore transient network errors (e.g. dev recompile during poll refresh) */
       setLoaded((prev) => prev || true);
     }
-  }, [apiPath, searchDate, query, category]);
+  }, [apiPath, searchDate, query, category, page, pageSize]);
 
-  useRealtimeRefresh(BOOKING_EVENTS, runSearch);
+  useRealtimeRefresh(BOOKING_EVENTS, () => runSearch());
 
-  // Date or category change: refresh list (nearest to date, or filtered by category).
+  // Date or category change: refresh list from page 1.
   useEffect(() => {
-    void runSearch();
+    setPage(1);
+    void runSearch(1);
     // eslint-disable-next-line react-hooks/exhaustive-deps
-  }, [searchDate, category]);
+  }, [searchDate, category, pageSize]);
+
+  function handleSearchClick() {
+    setPage(1);
+    void runSearch(1);
+  }
+
+  function goToPage(nextPage: number) {
+    if (nextPage < 1) return;
+    setPage(nextPage);
+    void runSearch(nextPage);
+  }
+
+  const pageStart = total === 0 ? 0 : (page - 1) * pageSize + 1;
+  const pageEnd = Math.min(page * pageSize, total);
 
   const colSpan = 10 + (showRemaining ? 1 : 0) + (showStatus ? 1 : 0) + (showDeliveryInfo ? 1 : 0);
   const suggestMode = apiPath.includes("return") ? "return" : "delivery";
   const defaultHint = monthBased
-    ? "Pick any date in a month — booked and delivered records for that month appear below (returned records are hidden). Use Search to filter by customer, dress, phone, or serial."
-    : "Search by customer name, dress, phone, WhatsApp, or serial. Includes booked, delivered, and returned records. Customer name searches full lifetime; other fields search within the selected year.";
+    ? "Pick any date in a month — booked and delivered records for that month appear below (returned records are hidden). Use Search to filter by customer, dress, phone, or serial. Large lists are paginated — use Next/Previous at the bottom."
+    : "Search by customer name, dress, phone, WhatsApp, or serial. Includes booked, delivered, and returned records. Customer name searches full lifetime; other fields search within the selected year. Results are paginated for large datasets.";
 
   const pdfHeaders = [
     ...STANDARD_BOOKING_HEADERS,
     ...(showStatus ? ["Status"] : []),
-    ...(showRemaining ? ["Balance Left"] : []),
     ...(showDeliveryInfo ? ["Delivery Info"] : []),
   ];
 
-  const pdfRows = rows.map((b) => {
+  const pdfResults = rows.map((b) => {
     const serial = b.serial_no ?? b.serial;
-    const row = standardBookingPdfRow(serial, b);
-    if (showStatus) row.push(b.status || "—");
-    if (showRemaining) {
-      row.push(
-        balanceRemainingLabel(b.total_remaining, b.remaining_collected, b.balance_remaining),
-      );
-    }
+    const result = standardBookingPdfRow(serial, {
+      ...b,
+      contact_1: b.contact_1,
+      whatsapp_no: b.whatsapp_no,
+      total_advance: b.total_advance,
+      total_remaining: b.total_remaining,
+      remaining_collected: b.remaining_collected,
+    });
+    if (showStatus) result.cells.push(b.status || "—");
     if (showDeliveryInfo) {
       const parts: string[] = [];
-      if ((b.remaining_collected || 0) > 0) parts.push(`Collected: ₹${formatInr(b.remaining_collected || 0)}`);
+      if ((b.remaining_collected || 0) > 0) parts.push(`Collected: ${pdfCurrency(b.remaining_collected || 0)}`);
       if ((b.security_held || b.security_collected || 0) > 0) {
-        parts.push(`Security held: ₹${formatInr(b.security_held || b.security_collected || 0)}`);
+        parts.push(`Security held: ${pdfCurrency(b.security_held || b.security_collected || 0)}`);
       }
       if (b.delivery_notes) parts.push(b.delivery_notes);
-      row.push(parts.length ? parts.join(" · ") : "—");
+      result.cells.push(parts.length ? parts.join(" · ") : "—");
     }
-    return row;
+    return result;
   });
+  const { rows: pdfRows, warningsBelow } = flattenBookingPdfRows(pdfResults);
 
   return (
     <div>
@@ -170,6 +206,7 @@ export default function BookingSearchPage({
             subtitle={`${dateLabel}: ${searchDate}${query ? ` · Search: ${query}` : ""}`}
             headers={pdfHeaders}
             rows={pdfRows}
+            warningsBelow={warningsBelow}
             disabled={!loaded || !pdfRows.length}
             size="sm"
           />
@@ -240,11 +277,11 @@ export default function BookingSearchPage({
                 searchDate={searchDate}
                 mode={suggestMode}
                 onChange={(e) => setQuery(e.target.value)}
-                onSuggestSelect={() => runSearch()}
-                onKeyDown={(e) => e.key === "Enter" && runSearch()}
+                onSuggestSelect={() => handleSearchClick()}
+                onKeyDown={(e) => e.key === "Enter" && handleSearchClick()}
               />
             </div>
-            <button className="btn btn-primary" type="button" onClick={runSearch}>
+            <button className="btn btn-primary" type="button" onClick={handleSearchClick}>
               <i className="fa-solid fa-search" /> Search
             </button>
           </div>
@@ -266,39 +303,40 @@ export default function BookingSearchPage({
               {searchMode === "month" && searchMonth
                 ? `Delivery month: ${new Date(`${searchMonth}-15T00:00:00.000Z`).toLocaleDateString("en-IN", { month: "long", year: "numeric", timeZone: "UTC" })} · `
                 : ""}
-              {MODE_HINTS[searchMode]} · {rows.length} result{rows.length === 1 ? "" : "s"}
+              {MODE_HINTS[searchMode]} · {total.toLocaleString()} result{total === 1 ? "" : "s"}
+              {total > 0 ? ` · showing ${pageStart.toLocaleString()}–${pageEnd.toLocaleString()}` : ""}
             </div>
           )}
           <div className="card-body p-0">
             <div className="table-wrapper">
-              <table className="data-table">
+              <table className="data-table data-table--booking">
                 <thead>
                   <tr>
-                    <th>S.No</th>
+                    <th className="booking-col-serial">S.No</th>
                     <StandardBookingTableHead />
-                    {showStatus && <th>Status</th>}
-                    {showRemaining && <th>Balance Left</th>}
-                    {showDeliveryInfo && <th>Delivery Info</th>}
-                    <th>Action</th>
+                    {showStatus && <th className="booking-col-date">Status</th>}
+                    {showRemaining && <th className="booking-col-money">Balance Left</th>}
+                    {showDeliveryInfo && <th className="booking-col-notes">Delivery Info</th>}
+                    <th className="booking-col-actions">{showRecordActions ? "Actions" : "Action"}</th>
                   </tr>
                 </thead>
                 <tbody>
                   {rows.length ? (
                     rows.map((b) => (
                       <tr key={b.id}>
-                        <td>
+                        <td className="booking-col-serial">
                           <strong>{String(b.serial_no ?? b.serial).padStart(2, "0")}</strong>
                         </td>
                         <StandardBookingTableCells d={b} />
                         {showStatus && (
-                          <td>
+                          <td className="booking-col-date">
                             <span className={`badge badge-${b.status || "booked"}`}>
                               {b.status || "—"}
                             </span>
                           </td>
                         )}
                         {showRemaining && (
-                          <td>
+                          <td className="booking-col-money">
                             {(() => {
                               const left =
                                 b.balance_remaining ??
@@ -312,7 +350,7 @@ export default function BookingSearchPage({
                           </td>
                         )}
                         {showDeliveryInfo && (
-                          <td style={{ fontSize: 12, maxWidth: 220, wordBreak: "break-word" }}>
+                          <td className="booking-col-notes" style={{ fontSize: 12 }}>
                             {(b.remaining_collected || 0) > 0 && (
                               <div>Collected: ₹{formatInr(b.remaining_collected || 0)}</div>
                             )}
@@ -328,10 +366,28 @@ export default function BookingSearchPage({
                             )}
                           </td>
                         )}
-                        <td>
-                          <a href={detailHref.replace("{id}", String(b.id))} className="btn btn-sm btn-primary">
-                            <i className={`fa-solid ${actionIcon}`} /> {actionLabel}
-                          </a>
+                        <td className="booking-col-actions">
+                          {showRecordActions ? (
+                            <div className="booking-col-actions-inner">
+                              <Link href={`/booking/${b.id}`} className="btn btn-sm btn-outline">
+                                <i className="fa-solid fa-eye" /> View
+                              </Link>
+                              {b.status === "booked" && (
+                                <Link href={`/booking-delivery/${b.id}`} className="btn btn-sm btn-primary">
+                                  <i className="fa-solid fa-truck-fast" /> Deliver
+                                </Link>
+                              )}
+                              {b.status === "delivered" && (
+                                <Link href={`/return/${b.id}`} className="btn btn-sm btn-primary">
+                                  <i className="fa-solid fa-rotate-left" /> Return
+                                </Link>
+                              )}
+                            </div>
+                          ) : (
+                            <a href={detailHref.replace("{id}", String(b.id))} className="btn btn-sm btn-primary">
+                              <i className={`fa-solid ${actionIcon}`} /> {actionLabel}
+                            </a>
+                          )}
                         </td>
                       </tr>
                     ))
@@ -345,6 +401,55 @@ export default function BookingSearchPage({
                 </tbody>
               </table>
             </div>
+            {total > 0 && (
+              <div
+                style={{
+                  display: "flex",
+                  flexWrap: "wrap",
+                  gap: 12,
+                  alignItems: "center",
+                  justifyContent: "space-between",
+                  padding: "12px 16px",
+                  borderTop: "1px solid var(--border)",
+                  background: "var(--cream-dark)",
+                }}
+              >
+                <div style={{ fontSize: 12, color: "var(--text-muted)" }}>
+                  Page {page} · {pageStart.toLocaleString()}–{pageEnd.toLocaleString()} of {total.toLocaleString()}
+                </div>
+                <div style={{ display: "flex", gap: 8, alignItems: "center", flexWrap: "wrap" }}>
+                  <label style={{ fontSize: 12, color: "var(--text-muted)" }}>
+                    Per page
+                    <select
+                      className="form-control"
+                      style={{ marginLeft: 8, width: 80, display: "inline-block", padding: "4px 8px" }}
+                      value={pageSize}
+                      onChange={(e) => setPageSize(Number(e.target.value))}
+                    >
+                      <option value={50}>50</option>
+                      <option value={100}>100</option>
+                      <option value={200}>200</option>
+                    </select>
+                  </label>
+                  <button
+                    type="button"
+                    className="btn btn-sm btn-outline"
+                    disabled={page <= 1}
+                    onClick={() => goToPage(page - 1)}
+                  >
+                    Previous
+                  </button>
+                  <button
+                    type="button"
+                    className="btn btn-sm btn-outline"
+                    disabled={!hasMore}
+                    onClick={() => goToPage(page + 1)}
+                  >
+                    Next
+                  </button>
+                </div>
+              </div>
+            )}
           </div>
         </div>
       )}

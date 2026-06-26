@@ -2,6 +2,7 @@ import { NextRequest } from "next/server";
 import prisma from "@/lib/prisma";
 import { jsonError, jsonOk, requireUser, requireUserReadOnly, isResponse } from "@/lib/api";
 import { parseDate, formatDate } from "@/lib/constants";
+import { logActivity } from "@/lib/activityLog";
 
 export async function GET() {
   const user = await requireUserReadOnly();
@@ -45,6 +46,18 @@ export async function POST(req: NextRequest) {
           ? body.staff_names.join(", ")
           : null,
         visitDate: body.visit_date ? new Date(body.visit_date + "T00:00:00.000Z") : new Date(),
+      },
+    });
+
+    logActivity({
+      username: user.username,
+      action: "created",
+      entity: "shop_enquiry",
+      entityId: enquiry.id,
+      label: `Shop enquiry — ${enquiry.customerName}`,
+      after: {
+        customerName: enquiry.customerName,
+        visitDate: body.visit_date || formatDate(new Date(), "iso"),
       },
     });
 

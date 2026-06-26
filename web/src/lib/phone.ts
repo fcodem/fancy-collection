@@ -12,3 +12,16 @@ export function normalizeIndianPhone(phone: string): string | null {
   if (digits.length >= 10 && digits.length <= 15) return `+${digits}`;
   return null;
 }
+
+/** Last 10 digits — used to match contact numbers across formatting differences. */
+export function phoneMatchKey(phone: string): string {
+  const d = digitsOnly(phone);
+  return d.length >= 10 ? d.slice(-10) : d;
+}
+
+/** AiSensy / bulk CSV: 91 + 10-digit mobile, no plus sign. */
+export function aisensyCsvPhone(phone: string): string | null {
+  const normalized = normalizeIndianPhone(phone);
+  if (!normalized) return null;
+  return normalized.replace(/^\+/, "");
+}

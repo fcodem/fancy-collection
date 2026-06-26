@@ -22,6 +22,7 @@ cloth-rental-web/out/
 *.db-shm
 *.db-wal
 prisma/*.db
+web/backups/
 
 # OS
 .DS_Store

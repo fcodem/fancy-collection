@@ -4,6 +4,7 @@ import ServerAppShell from "@/components/ServerAppShell";
 import ReturnDetailClient from "@/components/ReturnDetailClient";
 import { serializeBookingItemRows } from "@/lib/dress";
 import { formatDate } from "@/lib/constants";
+import { loadWarningItemsForBooking } from "@/lib/bookingWarnings";
 export default async function ReturnDetailPage({ params }: { params: Promise<{ id: string }> }) {
   const { id } = await params;
   const booking = await prisma.booking.findUnique({
@@ -17,15 +18,18 @@ export default async function ReturnDetailPage({ params }: { params: Promise<{ i
   });
   if (!booking) notFound();
 
+  const warningItems = await loadWarningItemsForBooking(booking);
+
   const items = serializeBookingItemRows(booking);
   const itemDelivery = booking.bookingItems.length
     ? booking.bookingItems.map((bi) => ({
         id: bi.id,
+        itemId: bi.itemId,
         dressName: bi.dressName,
         category: bi.category,
         size: bi.size || bi.item?.size || "",
         photo: bi.item?.photo || "",
-        isDelivered: bi.isDelivered,
+        isDelivered: bi.isDelivered || booking.status === "delivered",
         isReturned: bi.isReturned,
         isIncompleteReturn: bi.isIncompleteReturn,
         isPackedReady: bi.isPackedReady,
@@ -71,6 +75,7 @@ export default async function ReturnDetailPage({ params }: { params: Promise<{ i
         }}
         items={items}
         itemDelivery={itemDelivery}
+        warningItems={warningItems}
       />
     </ServerAppShell>
   );

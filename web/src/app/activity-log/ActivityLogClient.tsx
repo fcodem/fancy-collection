@@ -26,10 +26,12 @@ const ACTION_COLORS: Record<string, { bg: string; text: string; icon: string }> 
   updated:   { bg: "rgba(21,101,192,0.10)", text: "#1565C0", icon: "fa-pen" },
   deleted:   { bg: "rgba(198,40,40,0.10)", text: "#C62828", icon: "fa-trash" },
   cancelled: { bg: "rgba(198,40,40,0.10)", text: "#C62828", icon: "fa-ban" },
+  postponed: { bg: "rgba(230,81,0,0.10)", text: "#E65100", icon: "fa-clock" },
   delivered: { bg: "rgba(230,81,0,0.10)", text: "#E65100", icon: "fa-truck" },
   returned:  { bg: "rgba(21,101,192,0.10)", text: "#1565C0", icon: "fa-rotate-left" },
   restored:  { bg: "rgba(46,125,50,0.10)", text: "#2E7D32", icon: "fa-undo" },
   packed:    { bg: "rgba(106,27,154,0.10)", text: "#6A1B9A", icon: "fa-box" },
+  attendance:{ bg: "rgba(0,105,92,0.10)", text: "#00695C", icon: "fa-clipboard-check" },
 };
 
 function ActionBadge({ action }: { action: string }) {
@@ -54,22 +56,97 @@ function EntityBadge({ entity }: { entity: string }) {
   );
 }
 
+function dressTextFromSnapshot(snap: Record<string, unknown> | null | undefined): string | null {
+  if (!snap) return null;
+  if (typeof snap.dresses === "string" && snap.dresses.trim()) return snap.dresses.trim();
+  if (Array.isArray(snap.dressNames) && snap.dressNames.length) {
+    return snap.dressNames.map(String).join(", ");
+  }
+  if (typeof snap.dressName === "string" && snap.dressName.trim()) return snap.dressName.trim();
+  return null;
+}
+
+function dressInfoFromLog(log: LogEntry): { current: string | null; change: string | null } {
+  const afterDress = dressTextFromSnapshot(log.dataAfter);
+  const beforeDress = dressTextFromSnapshot(log.dataBefore);
+  const fromLabel = log.label?.match(/\(([^)]+)\)/)?.[1]?.trim() || null;
+
+  let change: string | null = null;
+  if (beforeDress && afterDress && beforeDress !== afterDress) {
+    change = `${beforeDress} → ${afterDress}`;
+  } else if (log.label?.includes("Dress change:")) {
+    const m = log.label.match(/Dress change:\s*(.+)$/);
+    if (m) change = m[1];
+  }
+
+  return {
+    current: afterDress || beforeDress || fromLabel,
+    change,
+  };
+}
+
+function DressInfoRow({ log }: { log: LogEntry }) {
+  const { current, change } = dressInfoFromLog(log);
+  if (!current && !change) return null;
+  return (
+    <div style={{ marginTop: 8, display: "flex", flexWrap: "wrap", gap: 8, alignItems: "center" }}>
+      {current && (
+        <span
+          style={{
+            display: "inline-flex",
+            alignItems: "center",
+            gap: 6,
+            fontSize: 12,
+            fontWeight: 600,
+            color: "#6A1B9A",
+            background: "rgba(106,27,154,0.08)",
+            padding: "4px 10px",
+            borderRadius: 6,
+          }}
+        >
+          <i className="fa-solid fa-shirt" style={{ fontSize: 11 }} />
+          {current}
+        </span>
+      )}
+      {change && (
+        <span
+          style={{
+            fontSize: 11,
+            fontWeight: 600,
+            color: "#E65100",
+            background: "rgba(230,81,0,0.08)",
+            padding: "4px 10px",
+            borderRadius: 6,
+          }}
+        >
+          Dress change: {change}
+        </span>
+      )}
+    </div>
+  );
+}
+
 function DiffView({ before, after }: { before: Record<string, unknown> | null; after: Record<string, unknown> | null }) {
   if (!before && !after) return null;
   const allKeys = [...new Set([...Object.keys(before || {}), ...Object.keys(after || {})])];
-  if (!allKeys.length) return <span style={{ fontSize: 11, color: "var(--text-muted)" }}>No field changes</span>;
+  const dressPriority = new Set(["dresses", "dressNames", "dressName", "name"]);
+  const sortedKeys = [
+    ...allKeys.filter((k) => dressPriority.has(k)),
+    ...allKeys.filter((k) => !dressPriority.has(k)),
+  ];
+  if (!sortedKeys.length) return <span style={{ fontSize: 11, color: "var(--text-muted)" }}>No field changes</span>;
 
   return (
     <div style={{ fontSize: 12, lineHeight: 1.8, fontFamily: "monospace" }}>
-      {allKeys.map((key) => {
+      {sortedKeys.map((key) => {
         const bVal = before?.[key] ?? "—";
         const aVal = after?.[key] ?? "—";
         const bStr = typeof bVal === "object" ? JSON.stringify(bVal) : String(bVal);
         const aStr = typeof aVal === "object" ? JSON.stringify(aVal) : String(aVal);
         const changed = bStr !== aStr;
         return (
-          <div key={key} style={{ display: "flex", gap: 8, padding: "2px 0", borderBottom: "1px solid var(--border)" }}>
-            <span style={{ minWidth: 150, fontWeight: 600, color: "var(--text-muted)" }}>{key}</span>
+          <div key={key} style={{ display: "flex", gap: 8, padding: "2px 0", borderBottom: "1px solid var(--border)", ...(dressPriority.has(key) ? { background: "rgba(106,27,154,0.04)" } : {}) }}>
+            <span style={{ minWidth: 150, fontWeight: 600, color: dressPriority.has(key) ? "#6A1B9A" : "var(--text-muted)" }}>{key}</span>
             {before && after ? (
               <>
                 <span style={{ flex: 1, color: changed ? "#C62828" : "var(--text-muted)", textDecoration: changed ? "line-through" : "none" }}>
@@ -102,6 +179,11 @@ export default function ActivityLogClient() {
   const [actionFilter, setActionFilter] = useState("");
   const [searchQ, setSearchQ] = useState("");
   const [includeOwner, setIncludeOwner] = useState(false);
+
+  useEffect(() => {
+    const q = new URLSearchParams(window.location.search).get("q");
+    if (q) setSearchQ(q);
+  }, []);
 
   const fetchLogs = useCallback(async (p: number) => {
     setLoading(true);
@@ -195,6 +277,9 @@ export default function ActivityLogClient() {
             <option value="booking">Booking</option>
             <option value="inventory">Inventory</option>
             <option value="booking_item">Booking Item</option>
+            <option value="prospect_lead">Prospect Lead</option>
+            <option value="shop_enquiry">Shop Enquiry</option>
+            <option value="staff_attendance">Staff Attendance</option>
           </select>
           <select className="form-control" style={{ maxWidth: 160 }} value={actionFilter} onChange={(e) => setActionFilter(e.target.value)}>
             <option value="">All Actions</option>
@@ -202,9 +287,12 @@ export default function ActivityLogClient() {
             <option value="updated">Updated</option>
             <option value="deleted">Deleted</option>
             <option value="cancelled">Cancelled</option>
+            <option value="postponed">Postponed</option>
             <option value="delivered">Delivered</option>
             <option value="returned">Returned</option>
+            <option value="restored">Restored</option>
             <option value="packed">Packed</option>
+            <option value="attendance">Attendance</option>
           </select>
           <input
             type="text"
@@ -278,6 +366,8 @@ export default function ActivityLogClient() {
                       )}
                     </div>
                   </div>
+
+                  <DressInfoRow log={log} />
 
                   {/* Expanded diff */}
                   {expanded && hasDiff && (

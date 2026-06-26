@@ -12,22 +12,22 @@ const NAV_MAIN = [
   { href: "/", label: "Dashboard", icon: "fa-house-chimney" },
   { href: "/booking", label: "Booking Panel", icon: "fa-calendar-plus" },
   { href: "/search-booking", label: "Search Booking", icon: "fa-magnifying-glass-plus" },
-  { href: "/booking-delivery", label: "Booking Delivery", icon: "fa-truck-fast" },
-  { href: "/remaining-to-deliver", label: "Remaining to Deliver", icon: "fa-clock", badgeKey: "overdue_delivery" as const },
-  { href: "/return", label: "Return", icon: "fa-rotate-left" },
-  { href: "/booking-list", label: "Booked Items", icon: "fa-list-check" },
-  { href: "/packing-list", label: "Packing List", icon: "fa-boxes-packing" },
   { href: "/free-items", label: "Free Item List", icon: "fa-magnifying-glass" },
+  { href: "/booking-delivery", label: "Booking Delivery", icon: "fa-truck-fast" },
+  { href: "/return", label: "Return", icon: "fa-rotate-left" },
+  { href: "/packing-list", label: "Packing List", icon: "fa-boxes-packing" },
+  { href: "/booking-list", label: "Booked Items", icon: "fa-list-check" },
   { href: "/returning-today", label: "Alternate Booking", icon: "fa-arrows-rotate" },
-  { href: "/inventory", label: "Manage Inventory", icon: "fa-layer-group" },
   { href: "/inventory/search", label: "Dress Search", icon: "fa-shirt" },
+  { href: "/inventory", label: "Manage Inventory", icon: "fa-layer-group" },
   { href: "/all-record-search", label: "All Record Search", icon: "fa-database" },
+  { href: "/postponed-booking", label: "Postponed Bookings", icon: "fa-clock" },
+  { href: "/remaining-to-deliver", label: "Remaining to Deliver", icon: "fa-clock", badgeKey: "overdue_delivery" as const },
   { href: "/incomplete-return", label: "Incomplete Return", icon: "fa-circle-exclamation" },
 ];
 
 const NAV_COMMON = [
   { href: "/prospect-leads", label: "Prospect & Enquiries", icon: "fa-user-clock" },
-  { href: "/staff-attendance", label: "Staff Attendance", icon: "fa-clipboard-check" },
   { href: "/manage-categories", label: "Manage Categories", icon: "fa-tags" },
 ];
 
@@ -45,14 +45,15 @@ const NAV_FINANCE = [
 
 const NAV_OWNER = [
   { href: "/admin/calendar", label: "Booking Calendar", icon: "fa-calendar-days" },
-  { href: "/admin/image-sync", label: "Bulk Image Sync", icon: "fa-images" },
   { href: "/customers", label: "Customers", icon: "fa-users" },
+  { href: "/staff-attendance", label: "Staff Attendance", icon: "fa-clipboard-check" },
   { href: "/staff-work", label: "Staff Work", icon: "fa-user-tie" },
   { href: "/users", label: "Manage Users", icon: "fa-user-shield" },
-  { href: "/recycle-bin", label: "Recycle Bin", icon: "fa-trash-can" },
   { href: "/activity-log", label: "Activity Log", icon: "fa-clock-rotate-left" },
+  { href: "/recycle-bin", label: "Recycle Bin", icon: "fa-trash-can" },
   { href: "/reports", label: "Reports & Backup", icon: "fa-file-export" },
   { href: "/admin/restore", label: "Restore Database", icon: "fa-upload" },
+  { href: "/admin/image-sync", label: "Bulk Image Sync", icon: "fa-images" },
   { href: "/admin/reset-data", label: "Reset All Data", icon: "fa-triangle-exclamation", danger: true },
 ];
 
@@ -72,6 +73,7 @@ function pageTitle(pathname: string) {
   if (pathname.startsWith("/booking/") && pathname.endsWith("/edit")) return "Edit Booking";
   if (pathname.startsWith("/booking/") && pathname.endsWith("/print")) return "Print Bill";
   if (pathname.startsWith("/booking/")) return "Booking Details";
+  if (pathname.startsWith("/postponed-booking")) return "Postponed Booking";
   if (pathname.startsWith("/finance/")) return "Finance";
   if (pathname.startsWith("/inventory/")) return "Inventory";
   if (pathname.startsWith("/customers/")) return "Customer";
@@ -311,7 +313,7 @@ function AppLayoutInner({
             </Link>
           ))}
           <div className="nav-section-label" style={{ marginTop: 8 }}>Other</div>
-          {NAV_COMMON.map((item) => (
+          {NAV_COMMON.filter((item) => isOwner || item.href !== "/manage-categories").map((item) => (
             <Link
               key={item.href}
               href={item.href}

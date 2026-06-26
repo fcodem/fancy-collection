@@ -1,6 +1,8 @@
 import prisma, { dateQ, parseDateQ } from "../prisma";
+import { activeBookingWhere } from "@/lib/bookingActiveStatus";
 import { hashPassword } from "../auth";
 import { parseDate } from "../constants";
+import { logActivity } from "../activityLog";
 
 export async function getStaffWork(fromStr: string, toStr: string) {
   const fromDate = parseDate(fromStr);
@@ -11,7 +13,7 @@ export async function getStaffWork(fromStr: string, toStr: string) {
   const bookings = await prisma.booking.findMany({
     where: {
       createdAt: { gte: dateQ(fromDate), lt: dateQ(toEnd) },
-      status: { not: "cancelled" },
+      ...activeBookingWhere(),
     },
     include: { bookingItems: true },
   });
@@ -106,8 +108,12 @@ export async function removeStaff(staffId: number) {
   });
 }
 
-export async function saveAttendance(dateStr: string, statuses: Record<number, string>) {
+export async function saveAttendance(dateStr: string, statuses: Record<number, string>, by?: string) {
   const date = parseDateQ(dateStr);
+  const staffList = await prisma.staff.findMany({ where: { active: true }, select: { id: true, name: true } });
+  const nameById = new Map(staffList.map((s) => [s.id, s.name]));
+  const saved: Record<string, string> = {};
+
   for (const [staffIdStr, status] of Object.entries(statuses)) {
     const staffId = parseInt(staffIdStr, 10);
     if (!status) continue;
@@ -116,10 +122,22 @@ export async function saveAttendance(dateStr: string, statuses: Record<number, s
       create: { staffId, date, status },
       update: { status },
     });
+    const staffName = nameById.get(staffId);
+    if (staffName) saved[staffName] = status;
+  }
+
+  if (Object.keys(saved).length) {
+    logActivity({
+      username: by || "system",
+      action: "attendance",
+      entity: "staff_attendance",
+      label: `Attendance saved for ${dateStr.slice(0, 10)}`,
+      after: { date: dateStr.slice(0, 10), statuses: saved },
+    });
   }
 }
 
-export async function markShopClosed(dateStr: string) {
+export async function markShopClosed(dateStr: string, by?: string) {
   const date = parseDateQ(dateStr);
   const staffList = await prisma.staff.findMany({ where: { active: true } });
   for (const s of staffList) {
@@ -129,4 +147,11 @@ export async function markShopClosed(dateStr: string) {
       update: { status: "shop_closed" },
     });
   }
+  logActivity({
+    username: by || "system",
+    action: "attendance",
+    entity: "staff_attendance",
+    label: `Shop closed — ${dateStr.slice(0, 10)} (all staff)`,
+    after: { date: dateStr.slice(0, 10), status: "shop_closed", staff_count: staffList.length },
+  });
 }

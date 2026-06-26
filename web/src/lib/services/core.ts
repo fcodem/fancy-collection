@@ -16,10 +16,10 @@ import {
   BASE_MENS,
   BASE_WOMENS,
   SIZES,
-  SUB_CATEGORIES,
   todayIso,
   formatDate,
 } from "../constants";
+import { getAllSubCategories } from "../subCategories";
 
 const SEED_ITEMS = [
   { name: "Red Bridal Lehenga", sku: "LRG-001", category: "Lehenga", itemType: "clothing", size: "M", color: "Red", dailyRate: 2500, deposit: 10000 },
@@ -151,6 +151,7 @@ const _getDashboardDataRaw = async () => {
   const totalItems = itemStatusCounts.reduce((sum, row) => sum + row._count._all, 0);
   const outstanding =
     (outstandingAgg._sum.total || 0) - (outstandingAgg._sum.amountPaid || 0);
+  const subCategories = await getAllSubCategories();
 
   return {
     stats: {
@@ -181,7 +182,7 @@ const _getDashboardDataRaw = async () => {
       jewellery: BASE_JEWELLERY,
       accessory: BASE_ACCESSORY,
       sizes: SIZES,
-      sub_categories: SUB_CATEGORIES,
+      sub_categories: subCategories,
     },
     today_iso: todayIso(),
     today_display: formatDate(todayIso(), "display"),
@@ -191,8 +192,41 @@ const _getDashboardDataRaw = async () => {
 export const getDashboardData = unstable_cache(
   _getDashboardDataRaw,
   ["dashboard-data"],
-  { revalidate: 20 },
+  { revalidate: 20, tags: ["dashboard-data"] },
 );
+
+/** Uncached dashboard payload for live refresh (API + realtime). */
+export async function getDashboardDataFresh() {
+  return _getDashboardDataRaw();
+}
+
+function iso(d: Date | null | undefined) {
+  return d ? d.toISOString() : null;
+}
+
+/** JSON-safe dashboard shape for client fetch. */
+export function serializeDashboardData(raw: Awaited<ReturnType<typeof _getDashboardDataRaw>>) {
+  const booking = (b: (typeof raw.today_deliveries_list)[number]) => ({
+    ...b,
+    deliveryDate: iso(b.deliveryDate) ?? b.deliveryDate,
+    returnDate: iso(b.returnDate) ?? b.returnDate,
+    deliveredAt: iso(b.deliveredAt),
+    returnedAt: iso(b.returnedAt),
+    refundedAt: iso(b.refundedAt),
+    createdAt: iso(b.createdAt) ?? b.createdAt,
+  });
+  return {
+    ...raw,
+    today_deliveries_list: raw.today_deliveries_list.map(booking),
+    today_returns_list: raw.today_returns_list.map(booking),
+    all_undelivered_list: raw.all_undelivered_list.map(booking),
+    overdue_list: raw.overdue_list.map((r) => ({
+      ...r,
+      startDate: iso(r.startDate),
+      endDate: iso(r.endDate),
+    })),
+  };
+}
 
 export function readJsonBody<T = Record<string, unknown>>(req: NextRequest): Promise<T> {
   return req.json() as Promise<T>;

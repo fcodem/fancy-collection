@@ -10,7 +10,9 @@ export async function GET(req: NextRequest) {
   const queryText = req.nextUrl.searchParams.get("q")?.trim() || "";
   const date = req.nextUrl.searchParams.get("date") || todayIso();
   const category = req.nextUrl.searchParams.get("category")?.trim() || "";
+  const page = req.nextUrl.searchParams.get("page");
+  const pageSize = req.nextUrl.searchParams.get("pageSize");
 
-  const { mode, results } = await monthBasedSearchBookings(queryText, date, category);
-  return jsonOk({ mode, results });
+  const result = await monthBasedSearchBookings(queryText, date, category, page, pageSize);
+  return jsonOk(result);
 }

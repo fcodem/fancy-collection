@@ -4,6 +4,7 @@ import DeliveryDetailClient from "@/components/DeliveryDetailClient";
 import DeliveredBookingEditSection from "@/components/DeliveredBookingEditSection";
 import { getDeliveryDetail } from "@/lib/services/operations";
 import { formatDate } from "@/lib/constants";
+import { loadWarningItemsForBooking } from "@/lib/bookingWarnings";
 
 export const dynamic = "force-dynamic";
 
@@ -13,9 +14,11 @@ export default async function DeliveryDetailPage({ params }: { params: Promise<{
   const detail = await getDeliveryDetail(bookingId);
   if (!detail) notFound();
   const { booking, next_bookings } = detail;
+  const warningItems = await loadWarningItemsForBooking(booking);
 
   const items = booking.bookingItems.map((bi) => ({
     id: bi.id,
+    itemId: bi.itemId,
     dressName: bi.dressName,
     category: bi.category,
     size: bi.size || bi.item?.size,
@@ -43,6 +46,7 @@ export default async function DeliveryDetailPage({ params }: { params: Promise<{
           returnDate: formatDate(booking.returnDate),
         }}
         items={items}
+        warningItems={warningItems}
         nextBookings={next_bookings}
         isDelivered={isDelivered}
         idPhoto1={booking.idPhoto1}

@@ -1,10 +1,24 @@
 import prisma from "../prisma";
+import { activeBookingWhere } from "@/lib/bookingActiveStatus";
 import { dressDisplayName } from "../dress";
 import { hashPassword } from "../auth";
+import {
+  BASE_ACCESSORY,
+  BASE_JEWELLERY,
+  BASE_MENS,
+  BASE_WOMENS,
+} from "../constants";
 
+export type CategoryEntry = {
+  name: string;
+  group: string;
+  id?: number;
+  source: "base" | "custom";
+  editable: boolean;
+};
 export async function exportBookingsCsv() {
   const bookings = await prisma.booking.findMany({
-    where: { status: { not: "cancelled" } },
+    where: activeBookingWhere(),
     include: { bookingItems: true },
     orderBy: { deliveryDate: "desc" },
   });
@@ -135,6 +149,89 @@ export async function removeCustomCategory(id: number) {
   return prisma.customCategory.update({ where: { id }, data: { active: false } });
 }
 
+export async function updateCustomCategory(id: number, name: string, group: string) {
+  const trimmed = name.trim();
+  if (!trimmed) throw new Error("Category name is required.");
+  const conflict = await prisma.customCategory.findFirst({
+    where: { name: trimmed, active: true, NOT: { id } },
+  });
+  if (conflict) throw new Error("Category already exists.");
+  return prisma.customCategory.update({
+    where: { id },
+    data: { name: trimmed, group: group || "other" },
+  });
+}
+
+export async function hideCategory(name: string) {
+  const trimmed = name.trim();
+  if (!trimmed) throw new Error("Category name is required.");
+  const { hideCategoryName } = await import("../categoryTables");
+  await hideCategoryName(trimmed);
+  return { name: trimmed };
+}
+
+export async function getManagedCategoryGroups(): Promise<Record<string, CategoryEntry[]>> {
+  const { findHiddenCategoryNames } = await import("../categoryTables");
+  const [custom, hiddenNames] = await Promise.all([
+    listCustomCategories(),
+    findHiddenCategoryNames(),
+  ]);
+  const hiddenSet = new Set(hiddenNames);
+  const groups: Record<string, CategoryEntry[]> = {
+    mens: [],
+    womens: [],
+    jewellery: [],
+    accessory: [],
+    other: [],
+  };
+  const baseMap: Record<string, string[]> = {
+    mens: BASE_MENS,
+    womens: BASE_WOMENS,
+    jewellery: BASE_JEWELLERY,
+    accessory: BASE_ACCESSORY,
+  };
+  for (const [group, names] of Object.entries(baseMap)) {
+    for (const n of names) {
+      if (!hiddenSet.has(n)) {
+        groups[group].push({ name: n, group, source: "base", editable: false });
+      }
+    }
+  }
+  for (const c of custom) {
+    const g = c.group in groups ? c.group : "other";
+    if (!groups[g].some((x) => x.name === c.name)) {
+      groups[g].push({ name: c.name, group: g, id: c.id, source: "custom", editable: true });
+    }
+  }
+  for (const g of Object.keys(groups)) {
+    groups[g].sort((a, b) => a.name.localeCompare(b.name));
+  }
+  return groups;
+}
+
+export async function listSubCategories() {
+  const { findActiveSubCategories } = await import("../categoryTables");
+  return findActiveSubCategories();
+}
+
+export async function addSubCategory(name: string) {
+  const trimmed = name.trim();
+  if (!trimmed) throw new Error("Sub-category name is required.");
+  const { addSubCategoryRow } = await import("../categoryTables");
+  return addSubCategoryRow(trimmed);
+}
+
+export async function updateSubCategory(id: number, name: string) {
+  const trimmed = name.trim();
+  if (!trimmed) throw new Error("Sub-category name is required.");
+  const { updateSubCategoryRow } = await import("../categoryTables");
+  return updateSubCategoryRow(id, trimmed);
+}
+
+export async function removeSubCategory(id: number) {
+  const { removeSubCategoryRow } = await import("../categoryTables");
+  await removeSubCategoryRow(id);
+}
 export async function listSuppliers() {
   return prisma.supplier.findMany({
     include: { purchases: { orderBy: { date: "desc" } } },
@@ -245,6 +342,8 @@ export async function resetAllData() {
     prisma.supplierPurchase.deleteMany(),
     prisma.supplier.deleteMany(),
     prisma.customCategory.deleteMany(),
+    prisma.hiddenCategory.deleteMany(),
+    prisma.customSubCategory.deleteMany(),
     prisma.clothingItem.deleteMany(),
     prisma.customer.deleteMany(),
   ]);

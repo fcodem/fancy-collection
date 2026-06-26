@@ -11,6 +11,7 @@ export async function GET(req: NextRequest) {
   return jsonOk(await getTopPerformers(
     sp.get("from") || monthStart,
     sp.get("to") || today,
-    sp.get("category") || ""
+    sp.get("category") || "",
+    sp.get("dress") || sp.get("q") || "",
   ));
 }

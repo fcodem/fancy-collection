@@ -6,7 +6,7 @@ export async function DELETE(_req: Request, { params }: { params: Promise<{ id: 
   if (isResponse(user)) return user;
   const { id } = await params;
   try {
-    await deleteBookingPermanent(parseInt(id, 10));
+    await deleteBookingPermanent(parseInt(id, 10), user.username);
     return jsonOk({ ok: true });
   } catch (e) {
     return jsonError(e instanceof Error ? e.message : "Failed");

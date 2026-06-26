@@ -3,6 +3,7 @@
 import type { CSSProperties } from "react";
 import { downloadTablePdf, type PdfTableOptions } from "@/lib/exportTablePdf";
 import { pdfDataFromTable } from "@/lib/pdfTableExtract";
+import type { PdfWarningPanel } from "@/lib/pdfWarningDraw";
 
 type Props = {
   title: string;
@@ -10,6 +11,7 @@ type Props = {
   subtitle?: string;
   headers?: string[];
   rows?: string[][];
+  warningsBelow?: (PdfWarningPanel[] | undefined)[];
   tableId?: string;
   excludeLastColumn?: boolean;
   disabled?: boolean;
@@ -25,6 +27,7 @@ export default function DownloadPdfButton({
   subtitle,
   headers,
   rows,
+  warningsBelow,
   tableId,
   excludeLastColumn = true,
   disabled,
@@ -50,7 +53,14 @@ export default function DownloadPdfButton({
 
     if (!pdfHeaders?.length || !pdfRows?.length) return;
 
-    const opts: PdfTableOptions = { title, filename, subtitle, headers: pdfHeaders, rows: pdfRows };
+    const opts: PdfTableOptions = {
+      title,
+      filename,
+      subtitle,
+      headers: pdfHeaders,
+      rows: pdfRows,
+      warningsBelow,
+    };
     downloadTablePdf(opts);
   }
 

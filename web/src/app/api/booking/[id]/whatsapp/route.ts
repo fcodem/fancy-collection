@@ -1,14 +1,15 @@
 import { NextRequest } from "next/server";
 import prisma from "@/lib/prisma";
-import { ensureBookingQrToken, bookingQrScanUrl } from "@/lib/bookingQr";
+import { runBookingWhatsAppFlow } from "@/lib/services/bookingWhatsAppFlow";
 import {
+  buildFullBookingConfirmationText,
   bookingConfirmationTemplateParams,
-  buildBookingConfirmationMessage,
-  deliverWhatsApp,
-  buildWhatsAppUrl,
-} from "@/lib/whatsapp";
+} from "@/lib/services/aisensy.service";
+import { buildWhatsAppUrl } from "@/lib/whatsapp";
 import { formatDate } from "@/lib/constants";
 import { dressDisplayName } from "@/lib/dress";
+import { ensureBookingQrToken, bookingQrScanUrl } from "@/lib/bookingQr";
+import { resolveQrPublicUrl } from "@/lib/services/qrcode.service";
 import { jsonError, jsonOk, requireUser, isResponse } from "@/lib/api";
 
 async function buildBookingWhatsAppPayload(bookingId: number, origin: string) {
@@ -25,16 +26,20 @@ async function buildBookingWhatsAppPayload(bookingId: number, origin: string) {
   const qrToken = await ensureBookingQrToken(booking.id);
   const qrUrl = bookingQrScanUrl(qrToken, origin);
   const billUrl = `${origin}/booking/${booking.id}/print`;
+  const qrCodeUrl = resolveQrPublicUrl(booking.qrCodeUrl, origin) || undefined;
 
   const dressNames = booking.bookingItems.length
     ? booking.bookingItems.map((bi) =>
-        dressDisplayName(bi.dressName, bi.category, bi.size || bi.item?.size)
+        dressDisplayName(bi.dressName, bi.category, bi.size || bi.item?.size),
       )
     : booking.dressName
       ? [booking.dressName]
       : [];
 
   const messageOpts = {
+    bookingId: booking.id,
+    publicBookingId: booking.publicBookingId || `BK-${String(booking.id).padStart(6, "0")}`,
+    phone,
     customerName: booking.customerName,
     serialNo: booking.monthlySerial,
     deliveryDate: formatDate(booking.deliveryDate, "display"),
@@ -46,18 +51,19 @@ async function buildBookingWhatsAppPayload(bookingId: number, origin: string) {
     advancePaid: booking.totalAdvance,
     remaining: booking.totalRemaining,
     dressNames,
-    qrUrl,
+    qrCodeUrl,
     billUrl,
   };
 
   return {
     booking,
     phone,
-    message: buildBookingConfirmationMessage(messageOpts),
-    templateParams: bookingConfirmationTemplateParams({ ...messageOpts, billUrl }),
+    message: buildFullBookingConfirmationText(messageOpts),
+    templateParams: bookingConfirmationTemplateParams(messageOpts),
   };
 }
 
+/** Legacy preview endpoint — GET returns message text and wa.me link. */
 export async function GET(req: NextRequest, { params }: { params: Promise<{ id: string }> }) {
   const user = await requireUser();
   if (isResponse(user)) return user;
@@ -68,7 +74,7 @@ export async function GET(req: NextRequest, { params }: { params: Promise<{ id: 
   if (!payload) return jsonError("Booking not found", 404);
   if ("error" in payload) return jsonError("No WhatsApp number on this booking");
 
-  const { phone, message, templateParams, booking } = payload;
+  const { phone, message } = payload;
 
   return jsonOk({
     message,
@@ -76,6 +82,7 @@ export async function GET(req: NextRequest, { params }: { params: Promise<{ id: 
   });
 }
 
+/** Legacy send endpoint — delegates to full omni-channel flow. */
 export async function POST(req: NextRequest, { params }: { params: Promise<{ id: string }> }) {
   const user = await requireUser();
   if (isResponse(user)) return user;
@@ -86,36 +93,27 @@ export async function POST(req: NextRequest, { params }: { params: Promise<{ id:
   if (!payload) return jsonError("Booking not found", 404);
   if ("error" in payload) return jsonError("No WhatsApp number on this booking");
 
-  const { phone, message, templateParams, booking } = payload;
+  const result = await runBookingWhatsAppFlow(bookingId, req.nextUrl.origin, { force: true });
 
-  const result = await deliverWhatsApp({
-    phone,
-    userName: booking.customerName,
-    message,
-    campaignType: "booking",
-    templateParams,
-    source: `booking-${bookingId}`,
-  });
-
-  if (result.delivered) {
+  if (result.status === "sent") {
     return jsonOk({
       ok: true,
       delivered: true,
-      via: result.via,
-      messageId: result.messageId,
-      message: result.message,
+      via: "aisensy",
+      message: payload.message,
     });
   }
 
-  if (result.error) {
-    return jsonError(result.error, 502);
+  if (result.status === "skipped") {
+    return jsonOk({
+      ok: true,
+      delivered: false,
+      via: "manual",
+      whatsappUrl: buildWhatsAppUrl(payload.phone, payload.message),
+      message: payload.message,
+      error: result.error,
+    });
   }
 
-  return jsonOk({
-    ok: true,
-    delivered: false,
-    via: result.via,
-    whatsappUrl: result.whatsappUrl,
-    message: result.message,
-  });
+  return jsonError(result.error || "WhatsApp send failed", 502);
 }

@@ -3,6 +3,7 @@ import prisma, { parseDateQ } from "@/lib/prisma";
 import { jsonError, jsonOk, requireUser, requireUserReadOnly, isResponse } from "@/lib/api";
 import { formatDate } from "@/lib/constants";
 import { dressDisplayName } from "@/lib/dress";
+import { logActivity } from "@/lib/activityLog";
 
 export async function GET() {
   const user = await requireUserReadOnly();
@@ -72,6 +73,20 @@ export async function POST(req: NextRequest) {
             rent: item.price || 0,
           })),
         },
+      },
+    });
+
+    logActivity({
+      username: user.username,
+      action: "created",
+      entity: "prospect_lead",
+      entityId: lead.id,
+      label: `Prospect lead — ${lead.customerName}`,
+      after: {
+        customerName: lead.customerName,
+        deliveryDate: body.delivery_date,
+        returnDate: body.return_date,
+        itemCount: body.items.length,
       },
     });
 

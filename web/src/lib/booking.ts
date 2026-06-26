@@ -7,6 +7,7 @@ import {
 } from "./bookingDateQuery";
 import { dressDisplayName, buildDressSearchWhere, serializeBookingItems } from "./dress";
 import { bookingListRecordFrom, bookingWarningRecordFrom, balanceLeftToCollect, securityCurrentlyHeld } from "./bookingDetails";
+import { isStarBooking } from "./starBooking";
 import { nextValidSerial, serialPositionToValue, generateNumber } from "./serial";
 import { formatDate } from "./constants";
 import { resolveBookingStatus } from "./bookingStatus";
@@ -246,6 +247,7 @@ export function serializeBookingForList(b: BookingWithItems) {
     delivery_notes: b.deliveryNotes || "",
     balance_remaining: balanceLeftToCollect(totalRemaining, remainingCollected),
     items: serializeBookingItems(b),
+    is_star: isStarBooking(b),
   };
 }
 

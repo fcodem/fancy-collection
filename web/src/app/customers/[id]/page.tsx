@@ -6,7 +6,11 @@ import ServerAppShell from "@/components/ServerAppShell";
 import CustomerFormClient from "@/components/CustomerFormClient";
 
 export default async function CustomerDetailPage({ params }: { params: Promise<{ id: string }> }) {
-const { id } = await params;
+  const user = await getCurrentUser();
+  if (!user) redirect("/login");
+  if (!isOwner(user)) redirect("/");
+
+  const { id } = await params;
   const customer = await getCustomer(parseInt(id, 10));
   if (!customer) notFound();
 

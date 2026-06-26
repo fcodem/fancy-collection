@@ -1,10 +1,13 @@
 import type { ReactNode } from "react";
+import { Fragment } from "react";
 import { BookingNotesFromBooking } from "@/components/BookingNotesBlock";
+import BookingItemWarningsBlock, { findItemWarnings } from "@/components/BookingItemWarningsSection";
 import type { BookingForStandardDetails } from "@/lib/bookingDetails";
 import { serializeRecordBookingDetails } from "@/lib/bookingDetails";
 import type { BookingItemPricingRow } from "@/lib/dress";
 import { serializeBookingItemRows } from "@/lib/dress";
 import { formatInr } from "@/lib/format";
+import type { ItemWarningSource } from "@/lib/bookingWarningPdf";
 
 const labelStyle = {
   fontSize: 11,
@@ -29,6 +32,7 @@ export function BookingRecordDetails({
   showItemsTable = true,
   compact = false,
   remainingCollected,
+  warningItems,
   extra,
 }: {
   booking: BookingForStandardDetails;
@@ -37,6 +41,8 @@ export function BookingRecordDetails({
   compact?: boolean;
   /** When set, shows remaining due after partial collection. */
   remainingCollected?: number;
+  /** Per-dress alternate booking warnings (shown under each dress row when multi-item). */
+  warningItems?: ItemWarningSource[];
   extra?: ReactNode;
 }) {
   const d = serializeRecordBookingDetails(booking);
@@ -123,15 +129,29 @@ export function BookingRecordDetails({
             </tr>
           </thead>
           <tbody>
-            {items.map((item, i) => (
-              <tr key={i}>
-                <td>{item.display_name}</td>
-                <td>₹{formatInr(item.price)}</td>
-                <td>₹{formatInr(item.advance)}</td>
-                <td>₹{formatInr(item.remaining)}</td>
-                <td style={{ fontSize: 12, wordBreak: "break-word" }}>{item.notes || "—"}</td>
-              </tr>
-            ))}
+            {items.map((item, i) => {
+              const dressWarnings = warningItems?.length
+                ? findItemWarnings(warningItems, { dressName: item.display_name })
+                : undefined;
+              return (
+                <Fragment key={i}>
+                  <tr>
+                    <td>{item.display_name}</td>
+                    <td>₹{formatInr(item.price)}</td>
+                    <td>₹{formatInr(item.advance)}</td>
+                    <td>₹{formatInr(item.remaining)}</td>
+                    <td style={{ fontSize: 12, wordBreak: "break-word" }}>{item.notes || "—"}</td>
+                  </tr>
+                  {dressWarnings && (
+                    <tr>
+                      <td colSpan={5} style={{ paddingTop: 0, paddingBottom: 12, borderTop: "none" }}>
+                        <BookingItemWarningsBlock item={dressWarnings} />
+                      </td>
+                    </tr>
+                  )}
+                </Fragment>
+              );
+            })}
           </tbody>
         </table>
       )}

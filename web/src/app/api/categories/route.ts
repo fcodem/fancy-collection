@@ -1,16 +1,19 @@
 import { NextRequest } from "next/server";
-import { listCustomCategories, addCustomCategory } from "@/lib/services/adminOps";
-import { BASE_MENS, BASE_WOMENS, BASE_JEWELLERY, BASE_ACCESSORY } from "@/lib/constants";
+import {
+  listCustomCategories,
+  addCustomCategory,
+  getManagedCategoryGroups,
+} from "@/lib/services/adminOps";
 import { jsonError, jsonOk, requireOwner, requireUser, isResponse } from "@/lib/api";
 
 export async function GET() {
   const user = await requireUser();
   if (isResponse(user)) return user;
-  const custom_cats = await listCustomCategories();
-  return jsonOk({
-    custom_cats,
-    base: { mens: BASE_MENS, womens: BASE_WOMENS, jewellery: BASE_JEWELLERY, accessory: BASE_ACCESSORY },
-  });
+  const [groups, custom_cats] = await Promise.all([
+    getManagedCategoryGroups(),
+    listCustomCategories(),
+  ]);
+  return jsonOk({ groups, custom_cats });
 }
 
 export async function POST(req: NextRequest) {

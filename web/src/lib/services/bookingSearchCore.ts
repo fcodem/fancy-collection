@@ -1,18 +1,46 @@
-import prisma, { parseDateQ, startOfMonthQ, endOfMonthQ, dateQ } from "@/lib/prisma";
+import { activeBookingWhere } from "@/lib/bookingActiveStatus";
 import { whereDeliveryInRange } from "@/lib/bookingDateQuery";
 import {
   parseDate,
   todayIso,
 } from "@/lib/constants";
 import { serializeBookingForList } from "@/lib/booking";
+import {
+  DASHBOARD_SEARCH_LIMIT,
+  parseSearchPageParams,
+  searchPageMeta,
+  type SearchPageMeta,
+} from "@/lib/searchPagination";
 import type { Booking, BookingItem, ClothingItem, Prisma } from "@prisma/client";
 
 export type BookingWithItems = Booking & {
-  bookingItems: (BookingItem & { item?: ClothingItem | null })[];
-  legacyItem?: ClothingItem | null;
+  bookingItems: (BookingItem & { item?: Pick<ClothingItem, "size" | "sku"> | null })[];
+  legacyItem?: Pick<ClothingItem, "size" | "category" | "sku"> | null;
 };
 
 export type SearchMode = "serial" | "customer" | "phone" | "dress" | "mixed" | "year" | "month" | "date";
+
+export type SearchResponse = {
+  mode: SearchMode;
+  month?: string;
+  results: ReturnType<typeof serializeBookingForList>[];
+} & SearchPageMeta;
+
+/** Lean include for list/search — avoids loading full inventory rows. */
+const bookingListInclude = {
+  bookingItems: {
+    select: {
+      dressName: true,
+      category: true,
+      size: true,
+      notes: true,
+      itemSecurityCollected: true,
+      isDelivered: true,
+      item: { select: { size: true, sku: true } },
+    },
+  },
+  legacyItem: { select: { size: true, category: true, sku: true } },
+} as const;
 
 const bookingInclude = {
   bookingItems: { include: { item: true } },
@@ -121,13 +149,40 @@ export async function fetchBookings(
   where: Prisma.BookingWhereInput,
   orderBy?: Prisma.BookingOrderByWithRelationInput | Prisma.BookingOrderByWithRelationInput[],
   take?: number,
+  skip?: number,
+  lean = true,
 ) {
   return prisma.booking.findMany({
-    where: { status: { not: "cancelled" }, ...where },
-    include: bookingInclude,
+    where: { ...activeBookingWhere(), ...where },
+    include: lean ? bookingListInclude : bookingInclude,
     ...(orderBy ? { orderBy } : {}),
     ...(take ? { take } : {}),
-  });
+    ...(skip ? { skip } : {}),
+  }) as Promise<BookingWithItems[]>;
+}
+
+export async function fetchBookingsPage(
+  where: Prisma.BookingWhereInput,
+  orderBy: Prisma.BookingOrderByWithRelationInput | Prisma.BookingOrderByWithRelationInput[],
+  page: number,
+  pageSize: number,
+) {
+  const fullWhere = { ...activeBookingWhere(), ...where };
+  const skip = (page - 1) * pageSize;
+  const [total, rows] = await Promise.all([
+    prisma.booking.count({ where: fullWhere }),
+    prisma.booking.findMany({
+      where: fullWhere,
+      include: bookingListInclude,
+      orderBy,
+      skip,
+      take: pageSize,
+    }),
+  ]);
+  return {
+    rows: rows as BookingWithItems[],
+    ...searchPageMeta(total, page, pageSize),
+  };
 }
 
 /** Dashboard: serial in prev / current / next month (SQLite-safe). */
@@ -171,10 +226,15 @@ function filterDashboardActive(rows: BookingWithItems[]) {
   return rows.filter(isDashboardActive);
 }
 
-function dashboardResults(rows: BookingWithItems[], mode: SearchMode) {
+function dashboardResults(rows: BookingWithItems[], mode: SearchMode, meta?: SearchPageMeta) {
+  const active = filterDashboardActive(rows).map(serializeBookingForList);
   return {
     mode,
-    results: filterDashboardActive(rows).map(serializeBookingForList),
+    results: active,
+    total: meta?.total ?? active.length,
+    page: meta?.page ?? 1,
+    pageSize: meta?.pageSize ?? active.length,
+    hasMore: meta?.hasMore ?? false,
   };
 }
 
@@ -199,10 +259,14 @@ export async function dashboardSearchBookings(queryText: string, refDateStr?: st
   const q = queryText.trim();
   const isSerialQuery = /^\d+$/.test(q);
   if (!q || (!isSerialQuery && q.length < 2)) {
-    return { mode: "mixed" as SearchMode, results: [] };
+    return { mode: "mixed" as SearchMode, results: [], total: 0, page: 1, pageSize: DASHBOARD_SEARCH_LIMIT, hasMore: false };
   }
 
   const refDate = parseDate(refDateStr || todayIso());
+  const orderBy: Prisma.BookingOrderByWithRelationInput[] = [
+    { deliveryDate: "desc" },
+    { monthlySerial: "asc" },
+  ];
 
   if (isSerialQuery) {
     let results: BookingWithItems[] = [];
@@ -216,92 +280,155 @@ export async function dashboardSearchBookings(queryText: string, refDateStr?: st
       if (!Number.isNaN(serialFromPrefix)) {
         results = await searchDashboardBySerial(serialFromPrefix, refDate);
       }
-      const phoneRows = await fetchBookings({
-        ...phoneWhere(q),
-        status: { in: [...DASHBOARD_ACTIVE_STATUSES] },
-      });
-      results = dedupeById([...results, ...sortByRelevance(phoneRows, refDate)]);
+      const phoneRows = await fetchBookings(
+        { ...phoneWhere(q), status: { in: [...DASHBOARD_ACTIVE_STATUSES] } },
+        orderBy,
+        DASHBOARD_SEARCH_LIMIT,
+      );
+      results = dedupeById([...results, ...phoneRows]);
     }
-    return dashboardResults(results, q.length <= 3 ? "serial" : "mixed");
+    const active = filterDashboardActive(results).slice(0, DASHBOARD_SEARCH_LIMIT);
+    return dashboardResults(active, q.length <= 3 ? "serial" : "mixed");
   }
 
   if (digitsOnly(q).length >= 10) {
-    const rows = await fetchBookings({
-      ...phoneWhere(q),
-      status: { in: [...DASHBOARD_ACTIVE_STATUSES] },
-    });
-    return dashboardResults(rows, "phone");
+    const page = await fetchBookingsPage(
+      { ...phoneWhere(q), status: { in: [...DASHBOARD_ACTIVE_STATUSES] } },
+      orderBy,
+      1,
+      DASHBOARD_SEARCH_LIMIT,
+    );
+    return dashboardResults(page.rows, "phone", page);
   }
 
-  const customerHits = await fetchBookings({
-    ...customerNameWhere(q),
-    status: { in: [...DASHBOARD_ACTIVE_STATUSES] },
-  });
-  if (customerHits.length) {
-    return dashboardResults(sortByRelevance(customerHits, refDate), "customer");
+  const customerPage = await fetchBookingsPage(
+    { ...customerNameWhere(q), status: { in: [...DASHBOARD_ACTIVE_STATUSES] } },
+    orderBy,
+    1,
+    DASHBOARD_SEARCH_LIMIT,
+  );
+  if (customerPage.total) {
+    return dashboardResults(sortByRelevance(customerPage.rows, refDate), "customer", customerPage);
   }
 
-  const dressRows = await fetchBookings({
-    ...dressNameWhere(q),
-    status: { in: [...DASHBOARD_ACTIVE_STATUSES] },
-  });
-  return dashboardResults(sortByRelevance(dressRows, refDate), "dress");
+  const dressPage = await fetchBookingsPage(
+    { ...dressNameWhere(q), status: { in: [...DASHBOARD_ACTIVE_STATUSES] } },
+    orderBy,
+    1,
+    DASHBOARD_SEARCH_LIMIT,
+  );
+  return dashboardResults(sortByRelevance(dressPage.rows, refDate), "dress", dressPage);
 }
 
 /** All Record / Advanced Search — full history in year; customer name = lifetime. */
-export async function universalSearchBookings(queryText: string, refDateStr?: string, category = "") {
+export async function universalSearchBookings(
+  queryText: string,
+  refDateStr?: string,
+  category = "",
+  pageRaw?: string | null,
+  pageSizeRaw?: string | null,
+): Promise<SearchResponse> {
   const q = queryText.trim();
   const refDate = parseDate(refDateStr || todayIso());
   const yearFilter = yearDeliveryWhere(refDate);
   const catFilter = categoryWhere(category);
+  const { page, pageSize } = parseSearchPageParams(pageRaw, pageSizeRaw);
+  const orderBy: Prisma.BookingOrderByWithRelationInput[] = [
+    { deliveryDate: "desc" },
+    { monthlySerial: "asc" },
+  ];
 
   if (!q) {
-    const rows = await fetchBookings({ ...yearFilter, ...catFilter }, { deliveryDate: "desc" }, 150);
-    return { mode: "year" as SearchMode, results: rows.map(serializeBookingForList) };
+    const pageResult = await fetchBookingsPage(
+      { ...yearFilter, ...catFilter },
+      orderBy,
+      page,
+      pageSize,
+    );
+    return {
+      mode: "year",
+      results: pageResult.rows.map(serializeBookingForList),
+      total: pageResult.total,
+      page: pageResult.page,
+      pageSize: pageResult.pageSize,
+      hasMore: pageResult.hasMore,
+    };
   }
 
   if (q.length < 2) {
-    return { mode: "year" as SearchMode, results: [] };
+    return { mode: "year", results: [], total: 0, page, pageSize, hasMore: false };
   }
 
   if (/^\d+$/.test(q)) {
     const serialFromPrefix = parseInt(q.slice(0, 3), 10);
-    let results: BookingWithItems[] = [];
+    let where: Prisma.BookingWhereInput = { ...yearFilter, ...catFilter };
+    let mode: SearchMode = q.length <= 3 ? "serial" : "mixed";
     if (!Number.isNaN(serialFromPrefix)) {
-      results = await searchBySerialInYear(serialFromPrefix, refDate);
-      if (category) results = results.filter((b) => matchesCategory(b, category));
+      where = { ...where, monthlySerial: serialFromPrefix };
     }
     if (q.length > 3) {
-      const phoneRows = await fetchBookings({ ...phoneWhere(q), ...yearFilter, ...catFilter }, undefined, 200);
-      results = dedupeById([...results, ...sortByRelevance(phoneRows)]);
+      where = { ...where, OR: [{ monthlySerial: serialFromPrefix }, phoneWhere(q)] };
+      mode = "mixed";
     }
+    const pageResult = await fetchBookingsPage(where, orderBy, page, pageSize);
     return {
-      mode: q.length <= 3 ? ("serial" as const) : ("mixed" as const),
-      results: results.map(serializeBookingForList),
+      mode,
+      results: pageResult.rows.map(serializeBookingForList),
+      total: pageResult.total,
+      page: pageResult.page,
+      pageSize: pageResult.pageSize,
+      hasMore: pageResult.hasMore,
     };
   }
 
   if (digitsOnly(q).length >= 10) {
-    const rows = await fetchBookings({ ...phoneWhere(q), ...yearFilter, ...catFilter }, undefined, 200);
-    return { mode: "phone", results: sortByRelevance(rows).map(serializeBookingForList) };
-  }
-
-  const customerRows = await fetchBookings({ ...customerNameWhere(q), ...catFilter }, undefined, 200);
-  if (customerRows.length) {
+    const pageResult = await fetchBookingsPage(
+      { ...phoneWhere(q), ...yearFilter, ...catFilter },
+      orderBy,
+      page,
+      pageSize,
+    );
     return {
-      mode: "customer",
-      results: sortByRelevance(customerRows).map(serializeBookingForList),
+      mode: "phone",
+      results: sortByRelevance(pageResult.rows, refDate).map(serializeBookingForList),
+      total: pageResult.total,
+      page: pageResult.page,
+      pageSize: pageResult.pageSize,
+      hasMore: pageResult.hasMore,
     };
   }
 
-  const dressRows = await fetchBookings({ ...dressNameWhere(q), ...yearFilter, ...catFilter }, undefined, 200);
-  return { mode: "dress", results: sortByRelevance(dressRows).map(serializeBookingForList) };
-}
+  const customerPage = await fetchBookingsPage(
+    { ...customerNameWhere(q), ...catFilter },
+    orderBy,
+    page,
+    pageSize,
+  );
+  if (customerPage.total) {
+    return {
+      mode: "customer",
+      results: sortByRelevance(customerPage.rows, refDate).map(serializeBookingForList),
+      total: customerPage.total,
+      page: customerPage.page,
+      pageSize: customerPage.pageSize,
+      hasMore: customerPage.hasMore,
+    };
+  }
 
-function matchesCategory(b: BookingWithItems, category: string) {
-  if (!category) return true;
-  if (b.bookingItems?.some((bi) => bi.category === category)) return true;
-  return b.legacyItem?.category === category;
+  const dressPage = await fetchBookingsPage(
+    { ...dressNameWhere(q), ...yearFilter, ...catFilter },
+    orderBy,
+    page,
+    pageSize,
+  );
+  return {
+    mode: "dress",
+    results: sortByRelevance(dressPage.rows, refDate).map(serializeBookingForList),
+    total: dressPage.total,
+    page: dressPage.page,
+    pageSize: dressPage.pageSize,
+    hasMore: dressPage.hasMore,
+  };
 }
 
 function activeBookingWhere(category: string): Prisma.BookingWhereInput {
@@ -311,119 +438,115 @@ function activeBookingWhere(category: string): Prisma.BookingWhereInput {
   };
 }
 
-async function bookingsInMonth(y: number, m: number, category: string): Promise<BookingWithItems[]> {
-  const anchor = new Date(Date.UTC(y, m, 15));
-  const monthWhere = await monthDeliveryWhereFromRefDate(anchor);
-  return fetchBookings(
-    {
-      ...monthWhere,
-      ...activeBookingWhere(category),
-    },
-    [{ deliveryDate: "asc" }, { monthlySerial: "asc" }],
-  );
-}
-
-/** Strict text match — only rows that match the search term. */
-async function matchBookingsByQuery(
-  q: string,
-  category: string,
-): Promise<{ rows: BookingWithItems[]; mode: SearchMode }> {
+function buildActiveQueryWhere(q: string, category: string): { where: Prisma.BookingWhereInput; mode: SearchMode } {
   const base = activeBookingWhere(category);
 
   if (/^\d+$/.test(q)) {
     const serial = parseInt(q.slice(0, 3), 10);
-    let results: BookingWithItems[] = [];
+    if (q.length > 3 && !Number.isNaN(serial)) {
+      return {
+        where: { ...base, OR: [{ monthlySerial: serial }, phoneWhere(q)] },
+        mode: "mixed",
+      };
+    }
     if (!Number.isNaN(serial)) {
-      results = await fetchBookings({ ...base, monthlySerial: serial });
+      return { where: { ...base, monthlySerial: serial }, mode: "serial" };
     }
-    if (q.length > 3) {
-      const phoneRows = await fetchBookings({ ...base, ...phoneWhere(q) });
-      results = dedupeById([...results, ...phoneRows]);
-    }
-    return { rows: results, mode: q.length <= 3 ? "serial" : "mixed" };
+    return { where: { ...base, ...phoneWhere(q) }, mode: "phone" };
   }
 
   if (digitsOnly(q).length >= 10) {
-    const rows = await fetchBookings({ ...base, ...phoneWhere(q) });
-    return { rows, mode: "phone" };
+    return { where: { ...base, ...phoneWhere(q) }, mode: "phone" };
   }
 
-  const customerRows = await fetchBookings({ ...base, ...customerNameWhere(q) });
-  if (customerRows.length) return { rows: customerRows, mode: "customer" };
+  return { where: { ...base, ...customerNameWhere(q) }, mode: "customer" };
+}
 
-  const dressRows = await fetchBookings({ ...base, ...dressNameWhere(q) });
-  return { rows: dressRows, mode: "dress" };
+async function nearMonthDeliveryWhere(refDate: Date) {
+  const y = refDate.getUTCFullYear();
+  const m = refDate.getUTCMonth();
+  const prevY = m === 0 ? y - 1 : y;
+  const prevM = m === 0 ? 11 : m - 1;
+  const nextY = m === 11 ? y + 1 : y;
+  const nextM = m === 11 ? 0 : m + 1;
+  const fromStr = `${prevY}-${String(prevM + 1).padStart(2, "0")}-01`;
+  const lastDay = new Date(Date.UTC(nextY, nextM + 1, 0)).getUTCDate();
+  const toStr = `${nextY}-${String(nextM + 1).padStart(2, "0")}-${String(lastDay).padStart(2, "0")}`;
+  return whereDeliveryInRange(fromStr, toStr);
 }
 
 /** Search Booking — empty search shows all records for the selected month. */
-export async function monthBasedSearchBookings(queryText: string, refDateStr?: string, category = "") {
+export async function monthBasedSearchBookings(
+  queryText: string,
+  refDateStr?: string,
+  category = "",
+  pageRaw?: string | null,
+  pageSizeRaw?: string | null,
+): Promise<SearchResponse> {
   const q = queryText.trim();
   const refDate = parseDate(refDateStr || todayIso());
   const { y, m, monthKey } = monthRangeFromRefDate(refDate);
+  const { page, pageSize } = parseSearchPageParams(pageRaw, pageSizeRaw);
+  const orderBy: Prisma.BookingOrderByWithRelationInput[] = [
+    { deliveryDate: "asc" },
+    { monthlySerial: "asc" },
+  ];
 
-  // No search text: booked & delivered only for this delivery month (no returned).
   if (!q) {
-    const results = await bookingsInMonth(y, m, category);
+    const monthWhere = await monthDeliveryWhereFromRefDate(new Date(Date.UTC(y, m, 15)));
+    const pageResult = await fetchBookingsPage(
+      { ...monthWhere, ...activeBookingWhere(category) },
+      orderBy,
+      page,
+      pageSize,
+    );
     return {
-      mode: "month" as SearchMode,
+      mode: "month",
       month: monthKey,
-      results: results.map(serializeBookingForList),
+      results: pageResult.rows.map(serializeBookingForList),
+      total: pageResult.total,
+      page: pageResult.page,
+      pageSize: pageResult.pageSize,
+      hasMore: pageResult.hasMore,
     };
   }
 
   if (q.length < 2) {
-    return { mode: "date" as SearchMode, results: [] };
+    return { mode: "date", results: [], total: 0, page, pageSize, hasMore: false };
   }
 
-  // Text entered: only matching records, sorted nearest to the entered date.
-  let { rows: results, mode } = await matchBookingsByQuery(q, category);
+  let { where, mode } = buildActiveQueryWhere(q, category);
+  let pageResult = await fetchBookingsPage(where, orderBy, page, pageSize);
 
-  // If nothing matched globally, try prev/current/next month before giving up.
-  if (!results.length) {
-    const y = refDate.getUTCFullYear();
-    const m = refDate.getUTCMonth();
-    const prevM = m === 0 ? 11 : m - 1;
-    const prevY = m === 0 ? y - 1 : y;
-    const nextM = m === 11 ? 0 : m + 1;
-    const nextY = m === 11 ? y + 1 : y;
-
-    const [r1, r2, r3] = await Promise.all([
-      bookingsInMonth(prevY, prevM, category),
-      bookingsInMonth(y, m, category),
-      bookingsInMonth(nextY, nextM, category),
-    ]);
-    const monthRows = dedupeById([...r1, ...r2, ...r3]);
-    const filtered = monthRows.filter((b) => bookingMatchesQuery(b, q));
-    results = dedupeById([...results, ...filtered]);
+  if (!pageResult.total && mode === "customer") {
+    ({ where, mode } = { where: { ...activeBookingWhere(category), ...dressNameWhere(q) }, mode: "dress" });
+    pageResult = await fetchBookingsPage(where, orderBy, page, pageSize);
   }
 
-  results = sortByRelevance(results, refDate);
-  return { mode, results: results.map(serializeBookingForList) };
-}
-
-function bookingMatchesQuery(b: BookingWithItems, q: string): boolean {
-  if (/^\d+$/.test(q)) {
-    const serial = parseInt(q.slice(0, 3), 10);
-    if (!Number.isNaN(serial) && b.monthlySerial === serial) return true;
-    if (q.length > 3) {
-      const d = digitsOnly(q);
-      return (b.contact1 || "").includes(d) || (b.whatsappNo || "").includes(d);
+  if (!pageResult.total) {
+    const nearMonth = await nearMonthDeliveryWhere(refDate);
+    ({ where, mode } = buildActiveQueryWhere(q, category));
+    pageResult = await fetchBookingsPage({ ...where, ...nearMonth }, orderBy, page, pageSize);
+    if (!pageResult.total && mode === "customer") {
+      pageResult = await fetchBookingsPage(
+        { ...activeBookingWhere(category), ...dressNameWhere(q), ...nearMonth },
+        orderBy,
+        page,
+        pageSize,
+      );
+      mode = "dress";
     }
-    return false;
   }
-  if (digitsOnly(q).length >= 10) {
-    const d = digitsOnly(q);
-    return (b.contact1 || "").includes(d) || (b.whatsappNo || "").includes(d);
-  }
-  const words = q.trim().split(/\s+/).filter(Boolean);
-  if (words.every((w) => b.customerName.toLowerCase().includes(w.toLowerCase()))) return true;
-  const dressHay = [
-    b.dressName || "",
-    ...(b.bookingItems || []).map((bi) => bi.dressName),
-    b.legacyItem?.sku || "",
-    ...(b.bookingItems || []).map((bi) => bi.item?.sku || ""),
-  ].join(" ").toLowerCase();
-  return words.every((w) => dressHay.includes(w.toLowerCase()));
+
+  const sorted = sortByRelevance(pageResult.rows, refDate);
+  return {
+    mode,
+    results: sorted.map(serializeBookingForList),
+    total: pageResult.total,
+    page: pageResult.page,
+    pageSize: pageResult.pageSize,
+    hasMore: pageResult.hasMore,
+  };
 }
 
 export async function suggestDashboardSerial(prefix: string, refDateStr?: string) {

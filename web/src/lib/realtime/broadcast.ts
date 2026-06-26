@@ -1,3 +1,4 @@
+import { revalidateTag } from "next/cache";
 import { emitShopEvent } from "./bus";
 import type { ShopEventType } from "./types";
 
@@ -21,5 +22,10 @@ export function broadcastShopEvent(opts: BroadcastOpts) {
     opts.type === "inventory.changed"
   ) {
     emitShopEvent({ type: "nav.refresh", at: new Date().toISOString() });
+    try {
+      revalidateTag("dashboard-data");
+    } catch {
+      /* ignore when cache API unavailable */
+    }
   }
 }

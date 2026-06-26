@@ -7,10 +7,10 @@ export async function GET(req: NextRequest) {
   if (isResponse(user)) return user;
   const category = req.nextUrl.searchParams.get("category") || "";
   const csv = await exportCustomersWhatsapp(category);
-  return new Response(csv, {
+  return new Response("\uFEFF" + csv, {
     headers: {
-      "Content-Type": "text/csv",
-      "Content-Disposition": 'attachment; filename="customers_whatsapp.csv"',
+      "Content-Type": "text/csv; charset=utf-8",
+      "Content-Disposition": 'attachment; filename="customers_aisensy.csv"',
     },
   });
 }

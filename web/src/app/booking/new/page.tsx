@@ -4,6 +4,7 @@ import BookingFormClient from "@/components/BookingFormClient";
 import { getAllCategories } from "@/lib/categories";
 import { todayIso } from "@/lib/constants";
 
+/** Server page for creating a new booking — loads categories/staff and renders BookingFormClient. */
 export const dynamic = "force-dynamic";
 
 export default async function NewBookingPage({

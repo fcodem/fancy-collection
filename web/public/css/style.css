@@ -778,6 +778,7 @@ table.data-table {
 .badge-returned         { background: var(--success-bg); color: var(--success); }
 .badge-overdue          { background: var(--danger-bg); color: var(--danger); }
 .badge-cancelled        { background: #F3F4F6; color: #6B7280; }
+.badge-postponed        { background: #FFF3E0; color: #E65100; }
 .badge-booked           { background: #EEF2FF; color: #4F46E5; }
 .badge-delivered        { background: #FFF3E0; color: #E65100; }
 .badge-paid             { background: var(--success-bg); color: var(--success); }
@@ -1424,6 +1425,40 @@ textarea.form-control { resize: vertical; min-height: 80px; }
 .dress-suggest-meta {
   font-size: 11px;
   color: var(--text-muted);
+}
+
+/* ── Postponed slip (photo / print) ─────────────────────────── */
+.postponed-slip-root {
+  min-height: 100vh;
+  background: #f5f0eb;
+  padding: 12px 0 32px;
+}
+
+.postponed-slip-page .postponed-slip-content {
+  background: #fff;
+  border: 2px solid #E65100;
+  border-radius: 12px;
+  padding: 20px 18px;
+  box-shadow: 0 8px 32px rgba(90, 20, 51, 0.12);
+}
+
+@media (max-width: 640px) {
+  .postponed-slip-page {
+    padding: 12px !important;
+  }
+  .postponed-slip-page .postponed-slip-content {
+    padding: 16px 12px;
+  }
+}
+
+@media print {
+  .postponed-slip-root { background: white; padding: 0; }
+  .postponed-slip-page .postponed-slip-content {
+    border: none;
+    box-shadow: none;
+    border-radius: 0;
+    padding: 0;
+  }
 }
 
 /* ── Print ──────────────────────────────────────────────────── */

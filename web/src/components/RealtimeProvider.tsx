@@ -27,6 +27,8 @@ const EVENT_LABELS: Partial<Record<ShopEvent["type"], string>> = {
   "booking.delivered": "Dress delivered",
   "booking.returned": "Dress returned",
   "booking.cancelled": "Booking cancelled",
+  "booking.postponed": "Booking postponed",
+  "booking.postponed_resolved": "Postponed booking resolved",
   "packing.updated": "Packing list updated",
   "inventory.changed": "Inventory updated",
 };

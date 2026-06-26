@@ -7,6 +7,7 @@ import BookingViewClient from "@/components/BookingViewClient";
 import BookingQrDisplay from "@/components/BookingQrDisplay";
 import BookingQrSkeleton from "@/components/BookingQrSkeleton";
 import { formatDate } from "@/lib/constants";
+import { loadWarningItemsForBooking } from "@/lib/bookingWarnings";
 
 export const dynamic = "force-dynamic";
 
@@ -26,10 +27,13 @@ export default async function BookingViewPage({ params }: { params: Promise<{ id
   });
   if (!booking) notFound();
 
+  const warningItems = await loadWarningItemsForBooking(booking);
+
   return (
     <ServerAppShell>
       <BookingViewClient
         isOwner={isOwner(user)}
+        warningItems={warningItems}
         booking={{
           ...booking,
           deliveryDate: formatDate(booking.deliveryDate),

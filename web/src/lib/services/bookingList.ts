@@ -6,13 +6,12 @@ import {
 import { dressDisplayName } from "@/lib/dress";
 import {
   bookingListRecordFrom,
-  bookingWarningRecordFrom,
   type BookingWarningRecord,
 } from "@/lib/bookingDetails";
 import { formatDate, parseDate } from "@/lib/constants";
 import { resolveBookingStatus } from "@/lib/bookingStatus";
-
-type WarningInfo = BookingWarningRecord & { booking_id: number };
+import { buildWarningMaps, pickWarning } from "@/lib/bookingWarnings";
+import { isStarBooking } from "@/lib/starBooking";
 
 type ItemRow = {
   dress_name: string;
@@ -78,57 +77,11 @@ const bookingSelect = {
 
 type BookingLite = Awaited<ReturnType<typeof prisma.booking.findMany<{ select: typeof bookingSelect }>>>[number];
 
-function itemIds(b: Pick<BookingLite, "itemId" | "bookingItems">): number[] {
-  if (b.bookingItems.length) return b.bookingItems.map((bi) => bi.itemId);
-  if (b.itemId) return [b.itemId];
-  return [];
-}
-
-function warningFrom(b: BookingLite): WarningInfo {
-  const rec = bookingWarningRecordFrom({ ...b, id: b.id, monthlySerial: b.monthlySerial });
-  return { ...rec, booking_id: b.id };
-}
-
-function buildWarningMaps(edgeBookings: BookingLite[]) {
-  const returning = new Map<string, WarningInfo[]>();
-  const booked = new Map<string, WarningInfo[]>();
-
-  for (const b of edgeBookings) {
-    const ids = itemIds(b);
-    const retKey = formatDate(b.returnDate, "iso");
-    const delKey = formatDate(b.deliveryDate, "iso");
-    const w = warningFrom(b);
-    for (const id of ids) {
-      const rk = `${retKey}-${id}`;
-      const dk = `${delKey}-${id}`;
-      if (!returning.has(rk)) returning.set(rk, []);
-      if (!booked.has(dk)) booked.set(dk, []);
-      returning.get(rk)!.push(w);
-      booked.get(dk)!.push(w);
-    }
-  }
-  return { returning, booked };
-}
-
-function pickWarning(
-  map: Map<string, WarningInfo[]>,
-  dateIso: string,
-  itemId: number,
-  excludeBookingId: number
-): BookingWarningRecord | null {
-  const list = map.get(`${dateIso}-${itemId}`);
-  if (!list?.length) return null;
-  const hit = list.find((w) => w.booking_id !== excludeBookingId);
-  if (!hit) return null;
-  const { booking_id: _, ...rest } = hit;
-  return rest;
-}
-
 function buildItems(
   b: BookingLite,
   categoryFilter: string,
-  returningMap: Map<string, WarningInfo[]>,
-  bookedMap: Map<string, WarningInfo[]>
+  returningMap: ReturnType<typeof buildWarningMaps>["returning"],
+  bookedMap: ReturnType<typeof buildWarningMaps>["booked"],
 ): ItemRow[] {
   const delIso = formatDate(b.deliveryDate, "iso");
   const retIso = formatDate(b.returnDate, "iso");
@@ -190,6 +143,7 @@ function serializeBooking(
     serial_no: b.monthlySerial,
     status,
     items,
+    is_star: isStarBooking(b),
     reason,
   };
 }

@@ -11,6 +11,9 @@ import type { StandardBookingDetails } from "@/lib/bookingDetails";
 import { useRealtimeRefresh } from "@/hooks/useRealtimeRefresh";
 import { BOOKING_EVENTS } from "@/lib/realtime/types";
 import DownloadPdfButton from "@/components/DownloadPdfButton";
+import { panelsForItemWarnings } from "@/lib/bookingWarningPdf";
+import { STANDARD_BOOKING_HEADERS, flattenBookingPdfRows, standardBookingPdfRow } from "@/lib/standardBookingPdfRows";
+import StarBookingBadge from "@/components/StarBookingBadge";
 
 type PackingItem = {
   bi_id: number | null;
@@ -31,6 +34,7 @@ type PackingBooking = StandardBookingDetails & {
   venue?: string;
   staff_names?: string;
   total_advance?: number;
+  is_star?: boolean;
   items: PackingItem[];
 };
 
@@ -99,30 +103,36 @@ export default function PackingListClient({
   const packed = allItems.filter((i) => i.is_packed_ready).length;
 
   const pdfHeaders = [
-    "Serial",
-    "Customer",
-    "Dress",
-    "Delivery",
-    "Return",
+    ...STANDARD_BOOKING_HEADERS,
     "Prepared By",
     "Checked By",
     "Packing Note",
     "Ready",
   ];
 
-  const pdfRows = rows.flatMap((b) =>
-    (b.items || []).map((item) => [
-      String(b.serial_no).padStart(2, "0"),
-      b.customer_name || "—",
-      item.display_name || item.dress_name || "—",
-      `${b.delivery_date || "—"}${b.delivery_time ? ` ${b.delivery_time}` : ""}`,
-      `${b.return_date || "—"}${b.return_time ? ` ${b.return_time}` : ""}`,
-      item.prepared_by || "—",
-      item.checked_by || "—",
-      item.packing_note || "—",
-      item.is_packed_ready ? "Yes" : "No",
-    ]),
+  const pdfResults = rows.flatMap((b) =>
+    (b.items || []).map((item) =>
+      standardBookingPdfRow(
+        b.serial_no,
+        {
+          ...b,
+          dress_names: item.display_name || item.dress_name || b.dress_names,
+        },
+        [
+          item.prepared_by || "—",
+          item.checked_by || "—",
+          item.packing_note || "—",
+          item.is_packed_ready ? "Yes" : "No",
+        ],
+        panelsForItemWarnings(
+          item.returning_warning,
+          null,
+          item.display_name || item.dress_name,
+        ),
+      ),
+    ),
   );
+  const { rows: pdfRows, warningsBelow } = flattenBookingPdfRows(pdfResults);
 
   return (
     <div>
@@ -135,6 +145,7 @@ export default function PackingListClient({
             subtitle={`Delivery: ${from}${to !== from ? ` to ${to}` : ""}${category ? ` · ${category}` : ""}`}
             headers={pdfHeaders}
             rows={pdfRows}
+            warningsBelow={warningsBelow}
             disabled={!loaded || !pdfRows.length}
             size="sm"
           />
@@ -176,8 +187,9 @@ export default function PackingListClient({
       {rows.map((b) => (
         <div key={b.id} className="card" style={{ marginBottom: 16 }}>
           <div className="card-header" style={{ flexWrap: "wrap", gap: 12 }}>
-            <h3 className="card-title">
+            <h3 className="card-title" style={{ display: "inline-flex", alignItems: "center", flexWrap: "wrap", gap: 4 }}>
               #{String(b.serial_no).padStart(2, "0")} — {b.customer_name}
+              {b.is_star && <StarBookingBadge />}
             </h3>
           </div>
           <div className="card-body packing-booking-details" style={{ paddingTop: 0, paddingBottom: 16 }}>

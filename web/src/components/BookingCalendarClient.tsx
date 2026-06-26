@@ -6,28 +6,25 @@ import dayGridPlugin from "@fullcalendar/daygrid";
 import interactionPlugin from "@fullcalendar/interaction";
 import type { EventClickArg } from "@fullcalendar/core";
 
-type CalendarEvent = {
-  id: string;
-  title: string;
-  start: string;
-  end: string;
-  status: string;
+type DayBooking = {
+  id: number;
   serial: number;
   customer: string;
   phone: string;
   whatsapp: string;
-  venue: string;
-  dresses: string;
-  totalPrice: number;
-  totalAdvance: number;
-  totalRemaining: number;
+  status: string;
   deliveryTime: string;
-  returnTime: string;
-  deliveryDate: string;
-  returnDate: string;
-  priceDisplay: string;
+  dressCount: number;
+};
+
+type CalendarDayEvent = {
+  id: string;
+  title: string;
+  start: string;
+  count: number;
+  bookings: DayBooking[];
   advanceDisplay: string;
-  remainingDisplay: string;
+  priceDisplay: string;
 };
 
 const STATUS_COLORS: Record<string, { bg: string; border: string; text: string }> = {
@@ -50,9 +47,9 @@ function statusBadge(s: string): string {
 }
 
 export default function BookingCalendarClient() {
-  const [events, setEvents] = useState<CalendarEvent[]>([]);
+  const [events, setEvents] = useState<CalendarDayEvent[]>([]);
   const [loading, setLoading] = useState(true);
-  const [selected, setSelected] = useState<CalendarEvent | null>(null);
+  const [selected, setSelected] = useState<CalendarDayEvent | null>(null);
   const modalRef = useRef<HTMLDivElement>(null);
 
   useEffect(() => {
@@ -66,12 +63,16 @@ export default function BookingCalendarClient() {
   }, []);
 
   const calendarEvents = events.map((e) => {
-    const color = STATUS_COLORS[e.status] || STATUS_COLORS.booked;
+    const dominant =
+      e.bookings.find((b) => b.status === "booked")?.status ||
+      e.bookings[0]?.status ||
+      "booked";
+    const color = STATUS_COLORS[dominant] || STATUS_COLORS.booked;
     return {
       id: e.id,
       title: e.title,
       start: e.start,
-      end: e.end,
+      allDay: true,
       backgroundColor: color.bg,
       borderColor: color.border,
       textColor: color.text,
@@ -80,7 +81,7 @@ export default function BookingCalendarClient() {
   });
 
   const handleEventClick = useCallback((info: EventClickArg) => {
-    const evt = info.event.extendedProps as CalendarEvent;
+    const evt = info.event.extendedProps as CalendarDayEvent;
     setSelected(evt);
   }, []);
 
@@ -129,9 +130,8 @@ export default function BookingCalendarClient() {
                   right: "dayGridMonth,dayGridWeek",
                 }}
                 height="auto"
-                dayMaxEvents={4}
+                dayMaxEvents={6}
                 eventDisplay="block"
-                eventTimeFormat={{ hour: "numeric", minute: "2-digit", meridiem: "short" }}
                 firstDay={1}
                 fixedWeekCount={false}
               />
@@ -159,16 +159,16 @@ export default function BookingCalendarClient() {
             style={{
               background: "#fff",
               borderRadius: 16,
-              maxWidth: 480,
+              maxWidth: 520,
               width: "100%",
+              maxHeight: "85vh",
+              overflow: "auto",
               boxShadow: "0 20px 60px rgba(0,0,0,0.25)",
-              overflow: "hidden",
-              animation: "fadeIn .2s ease",
             }}
           >
             <div style={{
               padding: "20px 24px 16px",
-              background: (STATUS_COLORS[selected.status] || STATUS_COLORS.booked).bg,
+              background: "linear-gradient(135deg, var(--primary-dark), var(--primary))",
               color: "#fff",
               display: "flex",
               justifyContent: "space-between",
@@ -176,10 +176,10 @@ export default function BookingCalendarClient() {
             }}>
               <div>
                 <div style={{ fontSize: 18, fontWeight: 800 }}>
-                  Booking #{String(selected.serial).padStart(2, "0")}
+                  {selected.start}
                 </div>
-                <div style={{ fontSize: 13, opacity: 0.85, marginTop: 2 }}>
-                  {statusLabel(selected.status)}
+                <div style={{ fontSize: 14, opacity: 0.9, marginTop: 4 }}>
+                  {selected.count} {selected.count === 1 ? "booking" : "bookings"} scheduled for delivery
                 </div>
               </div>
               <button
@@ -192,59 +192,53 @@ export default function BookingCalendarClient() {
               </button>
             </div>
             <div style={{ padding: "20px 24px 24px" }}>
-              <div style={{ marginBottom: 16 }}>
-                <div style={{ fontSize: 16, fontWeight: 700, marginBottom: 4 }}>{selected.customer}</div>
-                <div style={{ fontSize: 13, color: "var(--text-muted)" }}>
-                  <i className="fa-solid fa-phone" style={{ marginRight: 6 }} />{selected.phone}
-                  {selected.whatsapp && selected.whatsapp !== selected.phone && (
-                    <span style={{ marginLeft: 12 }}>
-                      <i className="fa-brands fa-whatsapp" style={{ marginRight: 4 }} />{selected.whatsapp}
-                    </span>
-                  )}
+              <div style={{ display: "grid", gridTemplateColumns: "1fr 1fr", gap: 12, marginBottom: 20, textAlign: "center" }}>
+                <div style={{ padding: "12px", background: "#f5f5f5", borderRadius: 10 }}>
+                  <div style={{ fontSize: 18, fontWeight: 800 }}>{selected.priceDisplay}</div>
+                  <div style={{ fontSize: 11, color: "var(--text-muted)" }}>Total booking value</div>
+                </div>
+                <div style={{ padding: "12px", background: "rgba(46,125,50,0.08)", borderRadius: 10 }}>
+                  <div style={{ fontSize: 18, fontWeight: 800, color: "var(--success)" }}>{selected.advanceDisplay}</div>
+                  <div style={{ fontSize: 11, color: "var(--text-muted)" }}>Total advance</div>
                 </div>
               </div>
 
-              <div style={{ display: "grid", gridTemplateColumns: "1fr 1fr", gap: "10px 20px", fontSize: 13, marginBottom: 16 }}>
-                <div>
-                  <span style={{ color: "var(--text-muted)", fontWeight: 600, fontSize: 11, textTransform: "uppercase" }}>Delivery</span>
-                  <div style={{ fontWeight: 600 }}>{selected.deliveryDate} · {selected.deliveryTime}</div>
-                </div>
-                <div>
-                  <span style={{ color: "var(--text-muted)", fontWeight: 600, fontSize: 11, textTransform: "uppercase" }}>Return</span>
-                  <div style={{ fontWeight: 600 }}>{selected.returnDate} · {selected.returnTime}</div>
-                </div>
-                {selected.venue && (
-                  <div style={{ gridColumn: "1 / -1" }}>
-                    <span style={{ color: "var(--text-muted)", fontWeight: 600, fontSize: 11, textTransform: "uppercase" }}>Venue</span>
-                    <div style={{ fontWeight: 600 }}>{selected.venue}</div>
-                  </div>
-                )}
-              </div>
+              <table className="data-table">
+                <thead>
+                  <tr>
+                    <th>#</th>
+                    <th>Customer</th>
+                    <th>Time</th>
+                    <th>Dresses</th>
+                    <th>Status</th>
+                    <th></th>
+                  </tr>
+                </thead>
+                <tbody>
+                  {selected.bookings.map((b) => (
+                    <tr key={b.id}>
+                      <td><strong>{String(b.serial).padStart(2, "0")}</strong></td>
+                      <td>
+                        <div><strong>{b.customer}</strong></div>
+                        <div style={{ fontSize: 11, color: "var(--text-muted)" }}>
+                          {b.phone}
+                          {b.whatsapp && b.whatsapp !== b.phone && (
+                            <span style={{ marginLeft: 8 }}>WA: {b.whatsapp}</span>
+                          )}
+                        </div>
+                      </td>
+                      <td>{b.deliveryTime}</td>
+                      <td>{b.dressCount}</td>
+                      <td><span className={`badge ${statusBadge(b.status)}`}>{statusLabel(b.status)}</span></td>
+                      <td>
+                        <a href={`/booking/${b.id}`} className="btn btn-sm btn-outline">View</a>
+                      </td>
+                    </tr>
+                  ))}
+                </tbody>
+              </table>
 
-              <div style={{ padding: "12px 14px", background: "var(--info-bg, #f0f7ff)", borderRadius: 10, marginBottom: 16, fontSize: 13 }}>
-                <div style={{ fontWeight: 700, marginBottom: 6, fontSize: 11, color: "var(--text-muted)", textTransform: "uppercase" }}>Dresses</div>
-                <div style={{ fontWeight: 600 }}>{selected.dresses}</div>
-              </div>
-
-              <div style={{ display: "grid", gridTemplateColumns: "1fr 1fr 1fr", gap: 12, textAlign: "center", marginBottom: 20 }}>
-                <div style={{ padding: "10px 8px", background: "#f5f5f5", borderRadius: 10 }}>
-                  <div style={{ fontSize: 16, fontWeight: 800 }}>{selected.priceDisplay}</div>
-                  <div style={{ fontSize: 11, color: "var(--text-muted)" }}>Total</div>
-                </div>
-                <div style={{ padding: "10px 8px", background: "rgba(46,125,50,0.08)", borderRadius: 10 }}>
-                  <div style={{ fontSize: 16, fontWeight: 800, color: "var(--success)" }}>{selected.advanceDisplay}</div>
-                  <div style={{ fontSize: 11, color: "var(--text-muted)" }}>Advance</div>
-                </div>
-                <div style={{ padding: "10px 8px", background: "rgba(198,40,40,0.08)", borderRadius: 10 }}>
-                  <div style={{ fontSize: 16, fontWeight: 800, color: "var(--danger)" }}>{selected.remainingDisplay}</div>
-                  <div style={{ fontSize: 11, color: "var(--text-muted)" }}>Remaining</div>
-                </div>
-              </div>
-
-              <div style={{ display: "flex", gap: 10 }}>
-                <a href={`/booking/${selected.id}`} className="btn btn-primary" style={{ flex: 1, textAlign: "center" }}>
-                  <i className="fa-solid fa-eye" style={{ marginRight: 6 }} />View Booking
-                </a>
+              <div style={{ display: "flex", gap: 10, marginTop: 20 }}>
                 <button type="button" className="btn btn-outline" style={{ flex: 1 }} onClick={closeModal}>
                   Close
                 </button>
@@ -286,12 +280,13 @@ export default function BookingCalendarClient() {
         }
         .fc-wrapper .fc .fc-daygrid-event {
           border-radius: 6px;
-          padding: 2px 6px;
-          font-size: 11px;
-          font-weight: 600;
+          padding: 3px 8px;
+          font-size: 12px;
+          font-weight: 700;
           cursor: pointer;
           border: none;
           line-height: 1.4;
+          text-align: center;
         }
         .fc-wrapper .fc .fc-daygrid-day-number {
           font-weight: 700;
@@ -309,10 +304,6 @@ export default function BookingCalendarClient() {
           font-weight: 700;
           font-size: 11px;
           color: var(--primary, #7b1f45);
-        }
-        @keyframes fadeIn {
-          from { opacity: 0; transform: translateY(10px); }
-          to { opacity: 1; transform: translateY(0); }
         }
       `}</style>
     </div>

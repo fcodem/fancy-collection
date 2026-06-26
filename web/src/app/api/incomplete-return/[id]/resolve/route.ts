@@ -5,7 +5,7 @@ export async function POST(_req: Request, { params }: { params: Promise<{ id: st
   const user = await requireUser();
   if (isResponse(user)) return user;
   const { id } = await params;
-  const booking = await resolveIncompleteReturn(parseInt(id, 10));
+  const booking = await resolveIncompleteReturn(parseInt(id, 10), user.username);
   if (!booking) return jsonError("Booking not found or not incomplete", 404);
   return jsonOk({ ok: true, id: booking.id, security_held: booking.securityHeld });
 }

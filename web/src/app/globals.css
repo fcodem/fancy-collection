@@ -103,6 +103,55 @@ html {
   padding-left: 42px;
 }
 
+.typeable-date-input {
+  position: relative;
+  display: flex;
+  align-items: stretch;
+}
+
+.typeable-date-input > .form-control {
+  flex: 1;
+  min-width: 0;
+  padding-right: 42px;
+}
+
+.typeable-date-input__picker-btn {
+  position: absolute;
+  right: 0;
+  top: 0;
+  bottom: 0;
+  width: 40px;
+  display: flex;
+  align-items: center;
+  justify-content: center;
+  border: none;
+  background: transparent;
+  color: var(--text-muted);
+  cursor: pointer;
+  border-radius: 0 8px 8px 0;
+}
+
+.typeable-date-input__picker-btn:hover:not(:disabled) {
+  color: var(--primary);
+  background: rgba(0, 0, 0, 0.04);
+}
+
+.typeable-date-input__picker-btn:disabled {
+  cursor: not-allowed;
+  opacity: 0.5;
+}
+
+.typeable-date-input__native {
+  position: absolute;
+  width: 1px;
+  height: 1px;
+  opacity: 0;
+  pointer-events: none;
+  border: 0;
+  padding: 0;
+  margin: 0;
+}
+
 /* App loading */
 .app-loading {
   min-height: 100vh;
@@ -154,6 +203,7 @@ body {
 .page-content .table-wrapper {
   max-width: 100%;
   overflow-x: auto;
+  -webkit-overflow-scrolling: touch;
 }
 
 .page-content .table-wrapper .data-table,
@@ -161,6 +211,60 @@ body {
   min-width: 0;
   width: 100%;
   table-layout: fixed;
+}
+
+/* Booking detail tables — auto column sizing, horizontal scroll on small screens */
+.page-content .table-wrapper .data-table.data-table--booking,
+.page-content .card-body .data-table.data-table--booking {
+  table-layout: auto;
+  width: max-content;
+  min-width: 100%;
+}
+
+.page-content .data-table--booking .booking-col-customer {
+  min-width: 7.5rem;
+}
+
+.page-content .data-table--booking .booking-col-address {
+  min-width: 8.5rem;
+  max-width: 16rem;
+}
+
+.page-content .data-table--booking .booking-col-money {
+  white-space: nowrap;
+  width: 1%;
+}
+
+.page-content .data-table--booking .booking-col-dress {
+  min-width: 8rem;
+  max-width: 15rem;
+}
+
+.page-content .data-table--booking .booking-col-notes {
+  min-width: 9rem;
+  max-width: 18rem;
+}
+
+.page-content .data-table--booking .booking-col-date {
+  white-space: nowrap;
+  min-width: 5.5rem;
+}
+
+.page-content .data-table--booking .booking-col-serial {
+  white-space: nowrap;
+  width: 1%;
+}
+
+.page-content .data-table--booking .booking-col-actions {
+  white-space: nowrap;
+  width: 1%;
+}
+
+.page-content .data-table--booking .booking-col-actions-inner {
+  display: flex;
+  gap: 4px;
+  align-items: center;
+  flex-wrap: nowrap;
 }
 
 .page-content .data-table thead th,
@@ -863,5 +967,44 @@ a.stat-card:hover {
 .inv-form-photo-label {
   font-size: 12px;
   color: var(--text-muted, #777);
+}
+
+/* Booking form — scrollable dress pickers (available + selected panels) */
+.dress-picker-scroll {
+  max-height: min(420px, 52vh);
+  overflow-y: auto;
+  padding-right: 4px;
+}
+
+.dress-list-accordion-header .card-title {
+  display: flex;
+  align-items: center;
+  gap: 0;
+}
+
+.dress-list-chevron-btn {
+  display: inline-flex;
+  align-items: center;
+  justify-content: center;
+  width: 28px;
+  height: 28px;
+  margin-right: 6px;
+  padding: 0;
+  border: 1px solid var(--border);
+  border-radius: 6px;
+  background: var(--cream-dark, #f5f0e8);
+  color: var(--text-muted);
+  cursor: pointer;
+  flex-shrink: 0;
+  transition: background 0.15s var(--ease-out, ease), color 0.15s var(--ease-out, ease);
+}
+
+.dress-list-chevron-btn:hover {
+  background: rgba(123, 31, 69, 0.08);
+  color: var(--primary);
+}
+
+.dress-list-chevron-btn i {
+  font-size: 11px;
 }
 

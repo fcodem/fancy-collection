@@ -8,6 +8,7 @@ import { formatInr } from "@/lib/format";
 import { useRealtimeRefresh } from "@/hooks/useRealtimeRefresh";
 import { BOOKING_EVENTS } from "@/lib/realtime/types";
 import DownloadPdfButton from "@/components/DownloadPdfButton";
+import StarBookingBadge from "@/components/StarBookingBadge";
 
 type BookingSide = {
   id: number;
@@ -29,6 +30,7 @@ type BookingSide = {
   security_collected: number;
   item_notes: string;
   common_notes: string;
+  is_star?: boolean;
   items: string[];
 };
 
@@ -74,6 +76,7 @@ function mapSide(raw: Record<string, unknown>, items: string[]): BookingSide {
     security_collected: Number(raw.security_collected ?? 0),
     item_notes: String(raw.item_notes || ""),
     common_notes: String(raw.common_notes || ""),
+    is_star: Boolean(raw.is_star),
     items,
   };
 }
@@ -132,7 +135,10 @@ function CustomerRecordPanel({
         <table className="alternate-booking-table">
           <tbody>
             <DetailRow label="Customer Name">
-              <strong>{side.customer_name || "—"}</strong>
+              <strong style={{ display: "inline-flex", alignItems: "center" }}>
+                {side.customer_name || "—"}
+                {side.is_star && <StarBookingBadge />}
+              </strong>
             </DetailRow>
             <DetailRow label="Dress(es)">
               {side.items.join(", ") || "—"}
@@ -257,13 +263,18 @@ export default function ReturningTodayClient({
   const pdfHeaders = [
     "S.No",
     "Returning Customer",
-    "Dresses",
-    "Contact",
+    "Returning Dresses",
+    "Returning Dress Notes",
+    "Returning Common Note",
+    "Returning Contact",
     "Return Date/Time",
     "Next Customer",
     "Next Dresses",
+    "Next Dress Notes",
+    "Next Common Note",
     "Next Contact",
     "Delivery Date/Time",
+    "Delivery Notes",
   ];
 
   const pdfRows = useMemo(
@@ -275,14 +286,19 @@ export default function ReturningTodayClient({
           serialLabel(ret.serial),
           ret.customer_name || "—",
           ret.items.join(", ") || "—",
+          ret.item_notes || "—",
+          ret.common_notes || "—",
           ret.contact_1 || "—",
           `${displayDate(ret.return_date)}${ret.return_time ? ` ${ret.return_time}` : ""}`,
           nxt?.customer_name || "—",
           nxt?.items.join(", ") || "—",
+          nxt?.item_notes || "—",
+          nxt?.common_notes || "—",
           nxt?.contact_1 || "—",
           nxt
             ? `${displayDate(nxt.delivery_date)}${nxt.delivery_time ? ` ${nxt.delivery_time}` : ""}`
             : "—",
+          r.delivery_notes || "—",
         ];
       }),
     [filtered],

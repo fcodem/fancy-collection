@@ -12,7 +12,7 @@ type SuggestItem = {
 
 type Props = Omit<React.InputHTMLAttributes<HTMLInputElement>, "onSelect"> & {
   searchDate?: string;
-  mode?: "delivery" | "return";
+  mode?: "delivery" | "return" | "postponed";
   onSuggestSelect?: (item: SuggestItem) => void;
 };
 

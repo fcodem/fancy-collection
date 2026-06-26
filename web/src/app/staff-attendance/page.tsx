@@ -8,16 +8,14 @@ import { todayIso } from "@/lib/constants";
 export default async function StaffAttendancePage() {
   const user = await getCurrentUser();
   if (!user) redirect("/login");
+  if (!isOwner(user)) redirect("/");
 
-  const owner = isOwner(user);
   const [staffList, allUsers] = await Promise.all([
     prisma.staff.findMany({ where: { active: true }, orderBy: { name: "asc" } }),
-    owner
-      ? prisma.user.findMany({
-          orderBy: { username: "asc" },
-          select: { id: true, username: true, role: true, staffId: true },
-        })
-      : Promise.resolve([]),
+    prisma.user.findMany({
+      orderBy: { username: "asc" },
+      select: { id: true, username: true, role: true, staffId: true },
+    }),
   ]);
 
   return (
@@ -25,7 +23,7 @@ export default async function StaffAttendancePage() {
       <StaffAttendanceClient
         staffList={staffList}
         allUsers={allUsers}
-        isOwner={owner}
+        isOwner
         initialToday={todayIso()}
       />
     </ServerAppShell>

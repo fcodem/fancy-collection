@@ -210,12 +210,21 @@ model Booking {
   qrToken            String?   @unique @map("qr_token")
   refundAmount       Float     @default(0) @map("refund_amount")
   refundedAt         DateTime? @map("refunded_at")
+  postponedAt        DateTime? @map("postponed_at")
+  publicBookingId    String?   @unique @map("public_booking_id")
+  qrCodeUrl          String?   @map("qr_code_url")
+  whatsappSentAt     DateTime? @map("whatsapp_sent_at")
+  whatsappStatus     String?   @map("whatsapp_status")
+  whatsappError      String?   @map("whatsapp_error")
 
-  legacyItem   ClothingItem? @relation("LegacyBookingItem", fields: [itemId], references: [id])
-  bookingItems BookingItem[]
+  legacyItem       ClothingItem?        @relation("LegacyBookingItem", fields: [itemId], references: [id])
+  bookingItems     BookingItem[]
+  whatsappQueue    WhatsAppMessageQueue[]
 
   @@index([deliveryDate, status])
   @@index([returnDate, status])
+  @@index([status, deliveryDate])
+  @@index([status, monthlySerial])
   @@index([monthlySerial])
   @@index([customerName])
   @@index([contact1])
@@ -267,6 +276,23 @@ model CustomCategory {
   createdAt DateTime @default(now()) @map("created_at")
 
   @@map("custom_categories")
+}
+
+model HiddenCategory {
+  id        Int      @id @default(autoincrement())
+  name      String   @unique
+  createdAt DateTime @default(now()) @map("created_at")
+
+  @@map("hidden_categories")
+}
+
+model CustomSubCategory {
+  id        Int      @id @default(autoincrement())
+  name      String   @unique
+  active    Boolean  @default(true)
+  createdAt DateTime @default(now()) @map("created_at")
+
+  @@map("custom_sub_categories")
 }
 
 model Staff {
@@ -398,4 +424,25 @@ model LoginAttempt {
 
   @@index([ip, createdAt])
   @@map("login_attempts")
+}
+
+model WhatsAppMessageQueue {
+  id          Int       @id @default(autoincrement())
+  bookingId   Int       @map("booking_id")
+  step        String
+  stepIndex   Int       @default(0) @map("step_index")
+  payload     String
+  status      String    @default("pending")
+  attempts    Int       @default(0)
+  maxAttempts Int       @default(5) @map("max_attempts")
+  lastError   String?   @map("last_error")
+  nextRetryAt DateTime? @map("next_retry_at")
+  createdAt   DateTime  @default(now()) @map("created_at")
+  updatedAt   DateTime  @updatedAt @map("updated_at")
+
+  booking Booking @relation(fields: [bookingId], references: [id], onDelete: Cascade)
+
+  @@index([status, nextRetryAt])
+  @@index([bookingId])
+  @@map("whatsapp_message_queue")
 }

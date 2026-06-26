@@ -1,13 +1,16 @@
 "use client";
 
 import Link from "next/link";
-import { useCallback, useEffect, useState } from "react";
+import { useCallback, useEffect, useRef, useState } from "react";
 import DressNameSuggestInput from "@/components/DressNameSuggestInput";
 import { formatDate } from "@/lib/constants";
 import { formatInr } from "@/lib/format";
 import { fetchJson } from "@/lib/fetchJson";
 import { useToast } from "@/components/ui/Toast";
 import { BookingNotesBlock } from "@/components/BookingNotesBlock";
+import StarBookingBadge from "@/components/StarBookingBadge";
+import { useRealtimeRefresh } from "@/hooks/useRealtimeRefresh";
+import { BOOKING_EVENTS, INVENTORY_EVENTS } from "@/lib/realtime/types";
 
 type BookingRow = {
   id: number;
@@ -109,8 +112,16 @@ function serialLabel(n: number) {
   return String(n || 0).padStart(2, "0");
 }
 
-export default function DashboardView({ data, isOwner, pendingStaff, activeStaff }: DashboardProps) {
+export default function DashboardView({ data: initialData, isOwner, pendingStaff, activeStaff }: DashboardProps) {
   const toast = useToast();
+  const [data, setData] = useState(initialData);
+  const showFreePanelRef = useRef(false);
+  const refreshTimerRef = useRef<ReturnType<typeof setTimeout> | null>(null);
+
+  useEffect(() => {
+    setData(initialData);
+  }, [initialData]);
+
   const [showDressChecker, setShowDressChecker] = useState(false);
   const [showFreePanel, setShowFreePanel] = useState(false);
   const [dashQuery, setDashQuery] = useState("");
@@ -181,6 +192,34 @@ export default function DashboardView({ data, isOwner, pendingStaff, activeStaff
       /* ignore transient network errors */
     }
   }, [fiDelivery, fiReturn, fiCategory]);
+
+  useEffect(() => {
+    showFreePanelRef.current = showFreePanel;
+  }, [showFreePanel]);
+
+  const refreshDashboard = useCallback(() => {
+    if (refreshTimerRef.current) clearTimeout(refreshTimerRef.current);
+    refreshTimerRef.current = setTimeout(async () => {
+      refreshTimerRef.current = null;
+      try {
+        const fresh = await fetchJson<DashboardProps["data"]>("/api/dashboard/data");
+        setData(fresh);
+        if (showFreePanelRef.current) {
+          searchFreeItems();
+        }
+      } catch {
+        /* ignore transient network errors */
+      }
+    }, 350);
+  }, [searchFreeItems]);
+
+  useRealtimeRefresh([...BOOKING_EVENTS, ...INVENTORY_EVENTS], refreshDashboard);
+
+  useEffect(() => {
+    return () => {
+      if (refreshTimerRef.current) clearTimeout(refreshTimerRef.current);
+    };
+  }, []);
 
   useEffect(() => {
     if (showFreePanel) searchFreeItems();
@@ -297,11 +336,8 @@ export default function DashboardView({ data, isOwner, pendingStaff, activeStaff
                 className="form-control"
                 placeholder="Quick search: Customer name, serial no, phone, dress name..."
                 value={dashQuery}
+                suggestions={false}
                 onChange={(e) => setDashQuery(e.target.value)}
-                onSuggestSelect={(item) => {
-                  setDashQuery(item.name);
-                  setShowDashResults(true);
-                }}
                 onFocus={() => {
                   if (dashResults.length > 0) setShowDashResults(true);
                 }}
@@ -340,7 +376,10 @@ export default function DashboardView({ data, isOwner, pendingStaff, activeStaff
                       {String(b.serial || 0).padStart(2, "0")}
                     </span>
                     <div style={{ flex: 1, minWidth: 0 }}>
-                      <div style={{ fontWeight: 700, fontSize: 13 }}>{String(b.customer_name)}</div>
+                      <div style={{ fontWeight: 700, fontSize: 13, display: "inline-flex", alignItems: "center" }}>
+                        {String(b.customer_name)}
+                        {Boolean(b.is_star) && <StarBookingBadge />}
+                      </div>
                       <div style={{ fontSize: 11, color: "var(--text-muted)", wordBreak: "break-word" }}>
                         {String(b.dress_names || "")}
                         {(b.contact_1 as string) ? ` · ${b.contact_1}` : ""}

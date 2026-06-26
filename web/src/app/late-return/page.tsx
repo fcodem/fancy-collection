@@ -4,6 +4,13 @@ import { whereReturnBefore } from "@/lib/bookingDateQuery";
 import { todayIso } from "@/lib/constants";
 import ServerAppShell from "@/components/ServerAppShell";
 import DownloadPdfButton from "@/components/DownloadPdfButton";
+import { recordBookingPdfHeaders, recordBookingPdfRow, flattenBookingPdfRows } from "@/lib/standardBookingPdfRows";
+import {
+  buildWarningMaps,
+  dateSpanFromBookings,
+  fetchWarningEdgeBookings,
+  pdfWarningsForBooking,
+} from "@/lib/bookingWarnings";
 import { StandardBookingTableCells, StandardBookingTableHead } from "@/components/BookingDetailsColumns";
 import { serializeStandardBookingDetails } from "@/lib/bookingDetails";
 import { localTodayStart } from "@/lib/constants";
@@ -18,6 +25,21 @@ export default async function LateReturnPage() {
     orderBy: { returnDate: "asc" },
   });
 
+  const pdfHeaders = recordBookingPdfHeaders("Days Late");
+  const span = dateSpanFromBookings(bookings);
+  const edgeBookings = span.from ? await fetchWarningEdgeBookings(span.from, span.to) : [];
+  const { returning: returningMap, booked: bookedMap } = buildWarningMaps(edgeBookings);
+  const pdfResults = bookings.map((b) => {
+    const daysLate = Math.floor((today.getTime() - b.returnDate.getTime()) / 86400000);
+    return recordBookingPdfRow(
+      b.monthlySerial,
+      b,
+      [`${daysLate} days`],
+      pdfWarningsForBooking(b, returningMap, bookedMap),
+    );
+  });
+  const { rows: pdfRows, warningsBelow } = flattenBookingPdfRows(pdfResults);
+
   return (
     <ServerAppShell>
       <div className="card">
@@ -27,7 +49,9 @@ export default async function LateReturnPage() {
             <DownloadPdfButton
               title="Late Returns"
               filename="late-returns"
-              tableId="late-return-table"
+              headers={pdfHeaders}
+              rows={pdfRows}
+              warningsBelow={warningsBelow}
               size="sm"
             />
           )}
@@ -37,13 +61,13 @@ export default async function LateReturnPage() {
             <div style={{ textAlign: "center", padding: 40, color: "var(--text-muted)" }}>No late returns.</div>
           ) : (
             <div className="table-wrapper">
-              <table id="late-return-table" className="data-table">
+              <table id="late-return-table" className="data-table data-table--booking">
                 <thead>
                   <tr>
-                    <th>S.No</th>
+                    <th className="booking-col-serial">S.No</th>
                     <StandardBookingTableHead />
-                    <th>Days Late</th>
-                    <th>Action</th>
+                    <th className="booking-col-date">Days Late</th>
+                    <th className="booking-col-actions">Action</th>
                   </tr>
                 </thead>
                 <tbody>
@@ -51,10 +75,10 @@ export default async function LateReturnPage() {
                     const daysLate = Math.floor((today.getTime() - b.returnDate.getTime()) / 86400000);
                     return (
                       <tr key={b.id}>
-                        <td><strong>{String(b.monthlySerial).padStart(2, "0")}</strong></td>
+                        <td className="booking-col-serial"><strong>{String(b.monthlySerial).padStart(2, "0")}</strong></td>
                         <StandardBookingTableCells d={serializeStandardBookingDetails(b)} />
-                        <td><span className="badge badge-overdue">{daysLate} days</span></td>
-                        <td><Link href={`/return/${b.id}`} className="btn btn-sm btn-primary">Process Return</Link></td>
+                        <td className="booking-col-date"><span className="badge badge-overdue">{daysLate} days</span></td>
+                        <td className="booking-col-actions"><Link href={`/return/${b.id}`} className="btn btn-sm btn-primary">Process Return</Link></td>
                       </tr>
                     );
                   })}

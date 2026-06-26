@@ -7,6 +7,13 @@ import {
 } from "@/lib/bookingDateQuery";
 import { serializeStandardBookingDetails } from "@/lib/bookingDetails";
 import { bookingCategories, type StatListBooking } from "@/lib/dashboardStatListFilter";
+import {
+  buildWarningMaps,
+  dateSpanFromBookings,
+  fetchWarningEdgeBookings,
+  warningItemsForBooking,
+} from "@/lib/bookingWarnings";
+import { warningPanelsFromItems } from "@/lib/bookingWarningPdf";
 
 export type DashboardStatListType =
   | "total-orders"
@@ -48,8 +55,11 @@ const bookingInclude = {
 
 export type DashboardStatBookingRow = StatListBooking &
   ReturnType<typeof serializeStandardBookingDetails> & {
+    totalAdvance: number;
     totalRemaining: number;
+    remainingCollected: number;
     deliveryDateIso: string;
+    pdfWarningPanels: PdfWarningPanel[];
   };
 
 function serializeRow(b: Awaited<ReturnType<typeof fetchStatListRaw>>[number]): DashboardStatBookingRow {
@@ -64,7 +74,9 @@ function serializeRow(b: Awaited<ReturnType<typeof fetchStatListRaw>>[number]): 
     dressName: b.dressName,
     bookingItems: b.bookingItems,
     legacyItem: b.legacyItem,
+    totalAdvance: b.totalAdvance ?? b.advance ?? 0,
     totalRemaining: b.totalRemaining ?? b.remaining ?? 0,
+    remainingCollected: b.remainingCollected ?? 0,
     deliveryDateIso: b.deliveryDate.toISOString().slice(0, 10),
     ...std,
   };
@@ -106,7 +118,17 @@ async function fetchStatListRaw(listType: DashboardStatListType) {
 
 export async function getDashboardStatList(listType: DashboardStatListType) {
   const rows = await fetchStatListRaw(listType);
-  return rows.map(serializeRow);
+  const span = dateSpanFromBookings(rows);
+  const edgeBookings = span.from ? await fetchWarningEdgeBookings(span.from, span.to) : [];
+  const { returning: returningMap, booked: bookedMap } = buildWarningMaps(edgeBookings);
+
+  return rows.map((b) => {
+    const items = warningItemsForBooking(b, returningMap, bookedMap);
+    return {
+      ...serializeRow(b),
+      pdfWarningPanels: warningPanelsFromItems(items),
+    };
+  });
 }
 
 /** All categories present in a list (for filter dropdown). */

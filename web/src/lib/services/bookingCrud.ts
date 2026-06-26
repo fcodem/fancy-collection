@@ -6,6 +6,7 @@ import {
   getNextMonthlySerial,
 } from "../booking";
 import { parseDate, assertBookingDatesNotPast } from "../constants";
+import { shouldSkipCustomerCreate } from "./customersOps";
 import { broadcastShopEvent } from "../realtime/broadcast";
 import { logActivity, snapshotBooking } from "../activityLog";
 
@@ -77,6 +78,7 @@ export async function createBooking(input: BookingFormInput, by?: string) {
   }
 
   const bookingNumber = await createBookingNumber();
+  const skipCustomer = await shouldSkipCustomerCreate(input.contact_1, input.whatsapp_no);
 
   const booking = await prisma.$transaction(async (tx) => {
     throwIfConflict(
@@ -134,8 +136,7 @@ export async function createBooking(input: BookingFormInput, by?: string) {
       await tx.clothingItem.update({ where: { id: item.id }, data: { status: "rented" } });
     }
 
-    const existing = await tx.customer.findFirst({ where: { phone: input.contact_1.trim() } });
-    if (!existing) {
+    if (!skipCustomer) {
       await tx.customer.create({
         data: {
           name: input.customer_name.trim(),
@@ -271,13 +272,21 @@ export async function updateBooking(bookingId: number, input: BookingFormInput, 
 
   const updated = await prisma.booking.findUnique({ where: { id: bookingId }, include: { bookingItems: true } });
   if (updated) {
+    const beforeDresses = booking.bookingItems.map((bi) => bi.dressName).filter(Boolean);
+    const afterDresses = input.items.map((i) => i.dress_name).filter(Boolean);
+    const dressList = afterDresses.join(", ");
+    let label = `Booking #${String(updated.monthlySerial).padStart(2, "0")} — ${updated.customerName}`;
+    if (dressList) label += ` (${dressList})`;
+    if (beforeDresses.join("|") !== afterDresses.join("|")) {
+      label += ` · Dress change: ${beforeDresses.join(", ") || "—"} → ${afterDresses.join(", ") || "—"}`;
+    }
     broadcastShopEvent({ type: "booking.updated", bookingId, status: updated.status, by });
     logActivity({
       username: by || "system",
       action: "updated",
       entity: "booking",
       entityId: bookingId,
-      label: `Booking #${String(updated.monthlySerial).padStart(2, "0")} — ${updated.customerName}`,
+      label,
       before: beforeSnapshot,
       after: snapshotBooking(updated as unknown as Record<string, unknown>),
     });

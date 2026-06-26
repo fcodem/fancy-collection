@@ -27,6 +27,10 @@ export function FinanceChart({
   const [ready, setReady] = useState(false);
 
   useEffect(() => {
+    if ((window as unknown as { Chart?: unknown }).Chart) setReady(true);
+  }, []);
+
+  useEffect(() => {
     if (!ready || !labels.length) return;
     const Chart = (window as unknown as { Chart?: { new(el: HTMLCanvasElement, cfg: object): { destroy(): void } } }).Chart;
     if (!Chart) return;
@@ -91,6 +95,10 @@ export function FinanceCompareChart({
   const id = useId().replace(/:/g, "");
   const canvasId = `compare-${id}`;
   const [ready, setReady] = useState(false);
+
+  useEffect(() => {
+    if ((window as unknown as { Chart?: unknown }).Chart) setReady(true);
+  }, []);
 
   useEffect(() => {
     if (!ready || !labels.length) return;

@@ -2,22 +2,30 @@
 
 import Link from "next/link";
 import { useRouter } from "next/navigation";
-import { useState } from "react";
+import { useEffect, useMemo, useState } from "react";
 import { BookingRecordDetails } from "@/components/BookingRecordDetails";
+import BookingItemWarningsBlock, {
+  BookingItemWarningsSection,
+  findItemWarnings,
+} from "@/components/BookingItemWarningsSection";
 import DeliveredCancelBooking from "@/components/DeliveredCancelBooking";
 import PhotoCaptureButton from "@/components/PhotoCaptureButton";
 import {
   balanceLeftToCollect,
   effectiveRemainingCollected,
+  incompleteReturnSecuritySummary,
   securityCurrentlyHeld,
   type BookingForStandardDetails,
 } from "@/lib/bookingDetails";
 import type { BookingItemPricingRow } from "@/lib/dress";
 import { formatInr } from "@/lib/format";
 import { photoUrl } from "@/lib/photoUrl";
+import IncompleteSecuritySummaryBox from "@/components/IncompleteSecuritySummaryBox";
+import type { ItemWarningSource } from "@/lib/bookingWarningPdf";
 
 type ItemDeliveryRow = {
   id: number;
+  itemId?: number;
   dressName: string;
   category?: string | null;
   size?: string;
@@ -45,6 +53,21 @@ type IncompleteDressForm = {
   photoPreview: string | null;
 };
 
+function defaultIncompleteForm(row: ItemDeliveryRow, autoSelect: boolean): IncompleteDressForm {
+  return {
+    selected: autoSelect,
+    notes: "",
+    securityHeld: String(row.itemSecurityCollected || ""),
+    photoFile: null,
+    photoPreview: null,
+  };
+}
+
+function isItemReturnable(row: ItemDeliveryRow, bookingDelivered: boolean) {
+  if (row.isReturned) return false;
+  return row.isDelivered || bookingDelivered;
+}
+
 function hasItemDeliveryInfo(d: ItemDeliveryRow) {
   return (
     d.isDelivered ||
@@ -58,6 +81,7 @@ export default function ReturnDetailClient({
   booking,
   items,
   itemDelivery = [],
+  warningItems = [],
 }: {
   booking: BookingForStandardDetails & {
     id: number;
@@ -81,6 +105,7 @@ export default function ReturnDetailClient({
   };
   items: BookingItemPricingRow[];
   itemDelivery?: ItemDeliveryRow[];
+  warningItems?: ItemWarningSource[];
 }) {
   const router = useRouter();
   const allItemsDelivered = itemDelivery.length > 0 ? itemDelivery.every((d) => d.isDelivered) : false;
@@ -94,21 +119,36 @@ export default function ReturnDetailClient({
     dressIsOut: isDelivered,
   });
 
-  const returnableItems = itemDelivery.filter((d) => d.isDelivered && !d.isReturned);
+  const bookingIsDelivered = booking.status === "delivered";
+  const returnableItems = useMemo(
+    () => itemDelivery.filter((d) => isItemReturnable(d, bookingIsDelivered)),
+    [itemDelivery, bookingIsDelivered],
+  );
 
-  const [incompleteForms, setIncompleteForms] = useState<Record<number, IncompleteDressForm>>(() => {
-    const init: Record<number, IncompleteDressForm> = {};
-    for (const row of itemDelivery.filter((d) => d.isDelivered && !d.isReturned)) {
-      init[row.id] = {
-        selected: false,
-        notes: "",
-        securityHeld: String(row.itemSecurityCollected || ""),
-        photoFile: null,
-        photoPreview: null,
-      };
-    }
-    return init;
-  });
+  const deliveredItems = useMemo(
+    () => itemDelivery.filter((d) => d.isDelivered || bookingIsDelivered),
+    [itemDelivery, bookingIsDelivered],
+  );
+  const returnedItems = useMemo(
+    () => deliveredItems.filter((d) => d.isReturned),
+    [deliveredItems],
+  );
+  const pendingReturnCount = returnableItems.length;
+  const multiDress = deliveredItems.length > 1;
+
+  const [incompleteForms, setIncompleteForms] = useState<Record<number, IncompleteDressForm>>({});
+  const [returnError, setReturnError] = useState("");
+
+  useEffect(() => {
+    setIncompleteForms((prev) => {
+      const next: Record<number, IncompleteDressForm> = {};
+      const autoSelect = returnableItems.length === 1;
+      for (const row of returnableItems) {
+        next[row.id] = prev[row.id] ?? defaultIncompleteForm(row, autoSelect);
+      }
+      return next;
+    });
+  }, [returnableItems]);
   const [saving, setSaving] = useState(false);
   const [showCancel, setShowCancel] = useState(false);
   const [incompleteError, setIncompleteError] = useState("");
@@ -121,11 +161,25 @@ export default function ReturnDetailClient({
   const collectedAtDelivery = effectiveRemainingCollected(booking.remainingCollected, itemDelivery);
   const balanceLeft = balanceLeftToCollect(totalRemaining, collectedAtDelivery);
 
+  const incompleteSecurity = incompleteReturnSecuritySummary({
+    securityHeld: booking.securityHeld,
+    securityCollected: booking.securityCollected,
+    securityDeposit: booking.securityDeposit,
+    items: itemDelivery,
+  });
+
   function toggleIncompleteDress(id: number, selected: boolean) {
-    setIncompleteForms((prev) => ({
-      ...prev,
-      [id]: { ...prev[id], selected },
-    }));
+    setIncompleteForms((prev) => {
+      const row = returnableItems.find((r) => r.id === id);
+      const base = prev[id] ?? (row ? defaultIncompleteForm(row, false) : {
+        selected: false,
+        notes: "",
+        securityHeld: "",
+        photoFile: null,
+        photoPreview: null,
+      });
+      return { ...prev, [id]: { ...base, selected } };
+    });
     setIncompleteError("");
   }
 
@@ -151,14 +205,23 @@ export default function ReturnDetailClient({
     });
   }
 
-  async function act(action: string) {
+  async function act(action: string, bookingItemId?: number) {
+    setReturnError("");
     setSaving(true);
     try {
-      await fetch(`/api/return/${booking.id}/save`, {
+      const res = await fetch(`/api/return/${booking.id}/save`, {
         method: "POST",
         headers: { "Content-Type": "application/json" },
-        body: JSON.stringify({ action }),
+        body: JSON.stringify({
+          action,
+          ...(bookingItemId ? { booking_item_id: bookingItemId } : {}),
+        }),
       });
+      const data = await res.json().catch(() => ({}));
+      if (!res.ok) {
+        setReturnError(typeof data.error === "string" ? data.error : "Save failed");
+        return;
+      }
       router.refresh();
     } finally {
       setSaving(false);
@@ -265,6 +328,7 @@ export default function ReturnDetailClient({
             booking={booking}
             items={items}
             remainingCollected={collectedAtDelivery}
+            warningItems={warningItems.length > 1 ? warningItems : undefined}
             extra={
             <>
               <div
@@ -384,10 +448,24 @@ export default function ReturnDetailClient({
                         )}
                       </div>
                       <span
-                        className={`badge ${d.isDelivered ? "badge-success" : "badge-info"}`}
+                        className={`badge ${
+                          d.isReturned
+                            ? "badge-success"
+                            : d.isIncompleteReturn
+                              ? "badge-incomplete_return"
+                              : d.isDelivered
+                                ? "badge-success"
+                                : "badge-info"
+                        }`}
                         style={{ marginLeft: "auto" }}
                       >
-                        {d.isDelivered ? "Delivered" : "Delivery Saved"}
+                        {d.isReturned
+                          ? "Returned"
+                          : d.isIncompleteReturn
+                            ? "Incomplete"
+                            : d.isDelivered
+                              ? "Delivered"
+                              : "Delivery Saved"}
                       </span>
                     </div>
                     {(d.preparedBy || d.checkedBy || d.packingNote || d.isPackedReady) && (
@@ -416,16 +494,97 @@ export default function ReturnDetailClient({
               </>
             }
           />
+          {warningItems.length <= 1 && <BookingItemWarningsSection items={warningItems} />}
         </div>
       </div>
 
       {isDelivered && booking.status !== "returned" && booking.status !== "cancelled" && booking.status !== "incomplete_return" && (
-        <div className="card">
+        <div className="card" style={{ overflow: "visible" }}>
           <div className="card-header"><h3 className="card-title">Mark Return</h3></div>
-          <div className="card-body">
-            <button className="btn btn-primary" style={{ marginRight: 12 }} disabled={saving} onClick={() => act("mark_returned")}>
+          <div className="card-body" style={{ overflow: "visible" }}>
+            {returnError && (
+              <div className="alert alert-error" style={{ marginBottom: 16 }}>{returnError}</div>
+            )}
+
+            {multiDress && (
+              <p style={{ fontSize: 13, color: "var(--text-muted)", marginBottom: 16 }}>
+                {returnedItems.length > 0
+                  ? `${returnedItems.length} of ${deliveredItems.length} dress${deliveredItems.length === 1 ? "" : "es"} returned — mark each remaining dress as it comes back.`
+                  : `${deliveredItems.length} dresses on this booking — mark each one returned individually as they are received.`}
+              </p>
+            )}
+
+            {multiDress && pendingReturnCount > 0 && (
+              <div style={{ marginBottom: 20 }}>
+                <h4 style={{ marginBottom: 12, fontSize: 14 }}>Return dress by dress</h4>
+                {returnableItems.map((row) => {
+                  const itemWarnings = findItemWarnings(warningItems, { itemId: row.itemId, dressName: row.dressName });
+                  return (
+                  <div
+                    key={row.id}
+                    style={{
+                      marginBottom: 10,
+                      padding: "12px 14px",
+                      border: "1px solid var(--border)",
+                      borderRadius: 10,
+                      background: "var(--cream-dark, #fafafa)",
+                    }}
+                  >
+                    <div
+                      style={{
+                        display: "flex",
+                        alignItems: "center",
+                        gap: 12,
+                        flexWrap: "wrap",
+                      }}
+                    >
+                    {row.photo && (
+                      <img
+                        src={photoUrl(row.photo)}
+                        alt=""
+                        style={{ width: 48, height: 48, borderRadius: 8, objectFit: "cover" }}
+                      />
+                    )}
+                    <div style={{ flex: 1, minWidth: 140 }}>
+                      <strong>{row.dressName}</strong>
+                      {(row.category || row.size) && (
+                        <div style={{ fontSize: 12, color: "var(--text-muted)" }}>
+                          {[row.category, row.size].filter(Boolean).join(" · ")}
+                        </div>
+                      )}
+                    </div>
+                    <button
+                      type="button"
+                      className="btn btn-sm btn-primary"
+                      disabled={saving}
+                      onClick={() => void act("mark_item_returned", row.id)}
+                    >
+                      <i className="fa-solid fa-circle-check" style={{ marginRight: 6 }} />
+                      Mark Returned
+                    </button>
+                    </div>
+                    {itemWarnings && <BookingItemWarningsBlock item={itemWarnings} />}
+                  </div>
+                  );
+                })}
+              </div>
+            )}
+
+            {returnedItems.length > 0 && pendingReturnCount > 0 && (
+              <div style={{ marginBottom: 16, fontSize: 13, color: "var(--success)" }}>
+                <i className="fa-solid fa-circle-check" style={{ marginRight: 6 }} />
+                Already returned: {returnedItems.map((d) => d.dressName).join(", ")}
+              </div>
+            )}
+
+            <button
+              className="btn btn-primary"
+              style={{ marginRight: 12 }}
+              disabled={saving || pendingReturnCount === 0}
+              onClick={() => void act("mark_returned")}
+            >
               <i className="fa-solid fa-circle-check" style={{ marginRight: 6 }} />
-              Mark All Returned (Complete)
+              {multiDress ? "Mark All Remaining Returned" : "Mark Returned (Complete)"}
             </button>
 
             <div style={{ marginTop: 24, paddingTop: 24, borderTop: "1px solid var(--border)" }}>
@@ -434,7 +593,8 @@ export default function ReturnDetailClient({
                 Incomplete Return
               </h4>
               <p style={{ fontSize: 13, color: "var(--text-muted)", marginBottom: 16 }}>
-                Select the dress(es) that are missing or not fully returned. Other delivered dresses will be marked as returned.
+                Check each dress that is missing or damaged, then add notes, security held, and a photo below.
+                {returnableItems.length === 1 ? " This dress is pre-selected." : ""}
               </p>
 
               {incompleteError && (
@@ -480,36 +640,38 @@ export default function ReturnDetailClient({
                             </div>
                           )}
                         </div>
-                        <span className="badge badge-warning">Select if incomplete</span>
+                        <span className="badge badge-warning">Mark incomplete</span>
                       </label>
 
-                      {selected && (
-                        <div style={{ marginTop: 16, paddingTop: 16, borderTop: "1px dashed rgba(243,156,18,0.4)" }}>
-                          <div style={{ marginBottom: 12 }}>
-                            <label className="form-label">What is missing / notes for this dress</label>
-                            <textarea
-                              className="form-control"
-                              rows={2}
-                              value={form?.notes ?? ""}
-                              onChange={(e) => updateIncompleteForm(row.id, { notes: e.target.value })}
-                              placeholder="e.g. Dupatta missing, dress damaged…"
-                            />
-                          </div>
-                          <div style={{ marginBottom: 12 }}>
-                            <label className="form-label">Security to hold for this dress (₹)</label>
-                            <input
-                              type="number"
-                              className="form-control"
-                              value={form?.securityHeld ?? ""}
-                              onChange={(e) => updateIncompleteForm(row.id, { securityHeld: e.target.value })}
-                              min={0}
-                              step="0.01"
-                            />
-                          </div>
-                          <div>
-                            <label className="form-label">
-                              Photo <span style={{ fontWeight: 400, color: "var(--text-muted)" }}>(optional)</span>
-                            </label>
+                      <div style={{ marginTop: 16, paddingTop: 16, borderTop: "1px dashed rgba(243,156,18,0.4)" }}>
+                        <div style={{ marginBottom: 12 }}>
+                          <label className="form-label">What is missing / notes for this dress</label>
+                          <textarea
+                            className="form-control"
+                            rows={2}
+                            value={form?.notes ?? ""}
+                            onChange={(e) => updateIncompleteForm(row.id, { notes: e.target.value })}
+                            placeholder="e.g. Dupatta missing, dress damaged…"
+                            disabled={!selected}
+                          />
+                        </div>
+                        <div style={{ marginBottom: 12 }}>
+                          <label className="form-label">Security to hold for this dress (₹)</label>
+                          <input
+                            type="number"
+                            className="form-control"
+                            value={form?.securityHeld ?? ""}
+                            onChange={(e) => updateIncompleteForm(row.id, { securityHeld: e.target.value })}
+                            min={0}
+                            step="0.01"
+                            disabled={!selected}
+                          />
+                        </div>
+                        <div>
+                          <label className="form-label">
+                            Photo <span style={{ fontWeight: 400, color: "var(--text-muted)" }}>(optional)</span>
+                          </label>
+                          {selected ? (
                             <PhotoCaptureButton
                               label={`Incomplete photo — ${row.dressName}`}
                               modalTitle={`Capture photo — ${row.dressName}`}
@@ -517,9 +679,13 @@ export default function ReturnDetailClient({
                               onCapture={(file) => onIncompletePhotoChange(row.id, file)}
                               emptyHeight={100}
                             />
-                          </div>
+                          ) : (
+                            <p style={{ fontSize: 12, color: "var(--text-muted)", margin: 0 }}>
+                              Check the dress above to enable photo capture.
+                            </p>
+                          )}
                         </div>
-                      )}
+                      </div>
                     </div>
                   );
                 })
@@ -557,6 +723,9 @@ export default function ReturnDetailClient({
             <h3 style={{ color: "#f39c12", marginBottom: 12 }}>
               <i className="fa-solid fa-circle-exclamation" /> Incomplete Return
             </h3>
+
+            <IncompleteSecuritySummaryBox summary={incompleteSecurity} />
+
             {itemDelivery.filter((d) => d.isIncompleteReturn).length > 0 ? (
               itemDelivery
                 .filter((d) => d.isIncompleteReturn)
@@ -581,6 +750,11 @@ export default function ReturnDetailClient({
                     <p style={{ margin: "4px 0", fontSize: 13 }}>
                       <strong>Notes:</strong> {d.itemIncompleteNotes || booking.incompleteNotes || "—"}
                     </p>
+                    {(d.itemSecurityCollected ?? 0) > 0 && (
+                      <p style={{ margin: "4px 0", fontSize: 12, color: "var(--text-muted)" }}>
+                        Security collected at delivery: ₹{formatInr(d.itemSecurityCollected || 0)}
+                      </p>
+                    )}
                     {(d.itemSecurityHeld ?? 0) > 0 && (
                       <p style={{ margin: "4px 0", fontSize: 13 }}>
                         <strong>Security held:</strong> ₹{formatInr(d.itemSecurityHeld || 0)}
@@ -600,7 +774,6 @@ export default function ReturnDetailClient({
             ) : (
               <>
                 <p><strong>Missing Items:</strong> {booking.incompleteNotes || "—"}</p>
-                <p><strong>Security Held:</strong> ₹{formatInr(booking.securityHeld || 0)}</p>
                 {booking.incompletePhoto && (
                   <div style={{ marginTop: 16 }}>
                     <p style={{ fontWeight: 600, marginBottom: 8 }}>Photo</p>

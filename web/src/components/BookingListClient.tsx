@@ -11,6 +11,13 @@ import { formatInr } from "@/lib/format";
 import { useRealtimeRefresh } from "@/hooks/useRealtimeRefresh";
 import { BOOKING_EVENTS } from "@/lib/realtime/types";
 import DownloadPdfButton from "@/components/DownloadPdfButton";
+import StarBookingBadge from "@/components/StarBookingBadge";
+import { warningPanelsFromItems } from "@/lib/bookingWarningPdf";
+import {
+  STANDARD_BOOKING_HEADERS,
+  flattenBookingPdfRows,
+  standardBookingPdfRow,
+} from "@/lib/standardBookingPdfRows";
 
 const TIME_SLOTS = [
   "9:00 AM", "10:00 AM", "11:00 AM", "12:00 Noon", "1:00 PM", "2:00 PM",
@@ -50,6 +57,7 @@ type BookingRow = {
   return_date: string;
   return_time: string;
   items: ItemRow[];
+  is_star?: boolean;
   reason?: string;
 };
 
@@ -105,7 +113,10 @@ function BookingCard({ booking, idx, isUnavailable }: { booking: BookingRow; idx
             {serialLabel(booking.serial_no || idx + 1)}
           </span>
           <div style={{ minWidth: 0 }}>
-            <strong>{booking.customer_name}</strong>
+            <strong style={{ display: "inline-flex", alignItems: "center" }}>
+              {booking.customer_name}
+              {booking.is_star && <StarBookingBadge />}
+            </strong>
             <div style={{ fontSize: 11, color: "var(--text-muted)", wordBreak: "break-word" }}>
               Serial #{serialLabel(booking.serial_no)} · {formatInr(booking.total_rent)}
               {booking.venue ? ` · ${booking.venue}` : ""}
@@ -263,37 +274,40 @@ export default function BookingListClient({
   const { bookings, unavailable } = data;
   const empty = !bookings.length && !unavailable.length;
 
-  const pdfHeaders = [
-    "S.No",
-    "Customer",
-    "Status",
-    "Dresses",
-    "Delivery",
-    "Return",
-    "Total Rent",
-    "Advance",
-    "Venue",
-    "Contact",
-    "Notes",
+  const pdfHeaders = [...STANDARD_BOOKING_HEADERS, "Status"];
+
+  const pdfResults = [
+    ...bookings.map((b, idx) => bookingPdfRow(b, idx, false)),
+    ...unavailable.map((b, idx) => bookingPdfRow(b, idx, true)),
   ];
+  const { rows: pdfRows, warningsBelow } = flattenBookingPdfRows(pdfResults);
 
-  function bookingPdfRows(list: BookingRow[], unavailableFlag = false) {
-    return list.map((b, idx) => [
+  function bookingPdfRow(b: BookingRow, idx: number, unavailableFlag: boolean) {
+    const itemPanels = warningPanelsFromItems(b.items || []);
+    return standardBookingPdfRow(
       serialLabel(b.serial_no || idx + 1),
-      b.customer_name || "—",
-      unavailableFlag ? `Unavailable — ${b.reason || "—"}` : statusLabel(b.status),
-      b.dress_names || b.items?.map((i) => i.display_name || i.dress_name).join(", ") || "—",
-      `${b.delivery_date || "—"}${b.delivery_time ? ` ${b.delivery_time}` : ""}`,
-      `${b.return_date || "—"}${b.return_time ? ` ${b.return_time}` : ""}`,
-      `₹${formatInr(b.total_rent)}`,
-      `₹${formatInr(b.total_advance)}`,
-      b.venue || "—",
-      b.contact_1 || "—",
-      [b.item_notes, b.common_notes].filter(Boolean).join(" · ") || "—",
-    ]);
+      {
+        customer_name: b.customer_name,
+        customer_address: b.customer_address || "",
+        contact_1: b.contact_1,
+        whatsapp_no: b.whatsapp_no,
+        venue: b.venue,
+        total_rent: b.total_rent,
+        total_advance: b.total_advance,
+        security_deposit: b.security_deposit,
+        dress_names:
+          b.dress_names || b.items?.map((i) => i.display_name || i.dress_name).join(", ") || "",
+        item_notes: b.item_notes,
+        common_notes: b.common_notes,
+        delivery_date: b.delivery_date,
+        delivery_time: b.delivery_time,
+        return_date: b.return_date,
+        return_time: b.return_time,
+      },
+      [unavailableFlag ? `Unavailable — ${b.reason || "—"}` : statusLabel(b.status)],
+      itemPanels.length ? itemPanels : undefined,
+    );
   }
-
-  const pdfRows = [...bookingPdfRows(bookings), ...bookingPdfRows(unavailable, true)];
 
   return (
     <div>
@@ -309,6 +323,7 @@ export default function BookingListClient({
             subtitle={`Period: ${data.from_date} to ${data.to_date}`}
             headers={pdfHeaders}
             rows={pdfRows}
+            warningsBelow={warningsBelow}
             disabled={!pdfRows.length}
             size="sm"
           />

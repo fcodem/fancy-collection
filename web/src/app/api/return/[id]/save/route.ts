@@ -67,8 +67,9 @@ export async function POST(req: NextRequest, { params }: { params: Promise<{ id:
     const body = await req.json();
     const booking = await saveReturn(
       bookingId,
-      body.action,
+      String(body.action || ""),
       {
+        booking_item_id: body.booking_item_id ? Number(body.booking_item_id) : undefined,
         incomplete_notes: body.incomplete_notes,
         security_held: Number(body.security_held || 0),
         items: Array.isArray(body.items) ? body.items : undefined,

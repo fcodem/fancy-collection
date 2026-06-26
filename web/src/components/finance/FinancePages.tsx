@@ -2,7 +2,15 @@
 
 import { useEffect, useState } from "react";
 import { FinanceChart, FinanceCompareChart } from "@/components/finance/FinanceChart";
+import { fetchFinanceJson } from "@/components/finance/financeFetch";
+import { FinanceInactiveStats } from "@/components/finance/FinanceInactiveStats";
 import { formatInr } from "@/lib/format";
+
+function FinanceStatus({ loading, error }: { loading: boolean; error: string }) {
+  if (loading) return <p style={{ color: "var(--text-muted)" }}>Loading report…</p>;
+  if (error) return <p className="alert alert-danger" style={{ marginBottom: 16 }}>{error}</p>;
+  return null;
+}
 
 export function FinanceDailyBooking({ todayIso }: { todayIso: string }) {
   const [date, setDate] = useState(todayIso);
@@ -12,10 +20,24 @@ export function FinanceDailyBooking({ todayIso }: { todayIso: string }) {
     womens_total?: number;
     jewellery_total?: number;
     total_by_category?: Record<string, number>;
+    cancelled_count?: number;
+    cancelled_amount?: number;
+    postponed_count?: number;
+    postponed_amount?: number;
   } | null>(null);
+  const [loading, setLoading] = useState(true);
+  const [error, setError] = useState("");
 
   useEffect(() => {
-    fetch(`/api/finance/daily-booking?date=${date}`).then((r) => r.json()).then(setData).catch(() => {});
+    setLoading(true);
+    setError("");
+    fetchFinanceJson<typeof data>(`/api/finance/daily-booking?date=${date}`)
+      .then(setData)
+      .catch((e) => {
+        setData(null);
+        setError(e instanceof Error ? e.message : "Failed to load");
+      })
+      .finally(() => setLoading(false));
   }, [date]);
 
   const labels = data?.total_by_category ? Object.keys(data.total_by_category) : [];
@@ -26,7 +48,8 @@ export function FinanceDailyBooking({ todayIso }: { todayIso: string }) {
       <div className="card-header"><h3 className="card-title"><i className="fa-solid fa-receipt" style={{ marginRight: 8 }} />Daily Booking Amount</h3></div>
       <div className="card-body">
         <input type="date" className="form-control" style={{ maxWidth: 200, marginBottom: 20 }} value={date} onChange={(e) => setDate(e.target.value)} />
-        {data && (
+        <FinanceStatus loading={loading} error={error} />
+        {data && !loading && (
           <>
             <div style={{ display: "grid", gridTemplateColumns: "repeat(auto-fit, minmax(160px, 1fr))", gap: 16, marginBottom: 24 }}>
               <div className="stat-card primary" style={{ padding: 20 }}>
@@ -46,7 +69,8 @@ export function FinanceDailyBooking({ todayIso }: { todayIso: string }) {
                 <div className="stat-label">Jewellery Total</div>
               </div>
             </div>
-            {labels.length > 0 && (
+            <FinanceInactiveStats data={data} />
+            {labels.length > 0 ? (
               <div className="two-col">
                 <FinanceChart type="pie" labels={labels} values={values} title="Category Breakdown" />
                 <table className="data-table">
@@ -54,6 +78,75 @@ export function FinanceDailyBooking({ todayIso }: { todayIso: string }) {
                   <tbody>
                     {labels.map((cat, i) => (
                       <tr key={cat}><td>{cat}</td><td><strong>₹{formatInr(values[i])}</strong></td></tr>
+                    ))}
+                  </tbody>
+                </table>
+              </div>
+            ) : (
+              <p style={{ color: "var(--text-muted)" }}>No bookings on this date.</p>
+            )}
+          </>
+        )}
+      </div>
+    </div>
+  );
+}
+
+export function FinanceMonthlySale({ todayMonthIso }: { todayMonthIso: string }) {
+  const [m, setM] = useState(todayMonthIso);
+  const [data, setData] = useState<Record<string, unknown> | null>(null);
+  const [loading, setLoading] = useState(true);
+  const [error, setError] = useState("");
+
+  useEffect(() => {
+    setLoading(true);
+    setError("");
+    fetchFinanceJson<Record<string, unknown>>(`/api/finance/monthly-sale?month=${m}`)
+      .then(setData)
+      .catch((e) => {
+        setData(null);
+        setError(e instanceof Error ? e.message : "Failed to load");
+      })
+      .finally(() => setLoading(false));
+  }, [m]);
+
+  const catTotals = (data?.category_totals as Record<string, number>) || {};
+  const catLabels = Object.keys(catTotals);
+  const catValues = Object.values(catTotals);
+
+  return (
+    <div className="card">
+      <div className="card-header"><h3 className="card-title"><i className="fa-solid fa-calendar-days" style={{ marginRight: 8 }} />Monthly Sale</h3></div>
+      <div className="card-body">
+        <input type="month" className="form-control" style={{ maxWidth: 200, marginBottom: 20 }} value={m} onChange={(e) => setM(e.target.value)} />
+        <FinanceStatus loading={loading} error={error} />
+        {data && !loading && (
+          <>
+            <div className="stats-grid">
+              <div className="stat-card gold"><div className="stat-value">₹{formatInr(Number(data.total_sale))}</div><div className="stat-label">Total Sale</div></div>
+              <div className="stat-card primary"><div className="stat-value">₹{formatInr(Number(data.total_advance))}</div><div className="stat-label">Advance</div></div>
+              <div className="stat-card info"><div className="stat-value">₹{formatInr(Number(data.total_remaining))}</div><div className="stat-label">Remaining</div></div>
+              <div className="stat-card"><div className="stat-value">{String(data.booking_count)}</div><div className="stat-label">Bookings</div></div>
+              <div className="stat-card success"><div className="stat-value">₹{formatInr(Number(data.mens_total))}</div><div className="stat-label">Men&apos;s</div></div>
+              <div className="stat-card"><div className="stat-value">₹{formatInr(Number(data.womens_total))}</div><div className="stat-label">Women&apos;s</div></div>
+              <div className="stat-card gold"><div className="stat-value">₹{formatInr(Number(data.jewellery_total))}</div><div className="stat-label">Jewellery</div></div>
+            </div>
+            <FinanceInactiveStats
+              data={{
+                cancelled_count: Number(data.cancelled_count),
+                cancelled_amount: Number(data.cancelled_amount),
+                postponed_count: Number(data.postponed_count),
+                postponed_amount: Number(data.postponed_amount),
+              }}
+            />
+            {catLabels.length > 0 && (
+              <div style={{ marginTop: 24 }}>
+                <FinanceChart type="bar" labels={catLabels} values={catValues} title="Category Revenue" height={300} />
+                <table className="data-table" style={{ marginTop: 20 }}>
+                  <thead><tr><th>Category</th><th>Revenue</th></tr></thead>
+                  <tbody>
+                    {catLabels.map((cat) => (
+                      <tr key={cat}><td>{cat}</td><td>₹{formatInr(catTotals[cat])}</td></tr>
                     ))}
                   </tbody>
                 </table>
@@ -66,45 +159,22 @@ export function FinanceDailyBooking({ todayIso }: { todayIso: string }) {
   );
 }
 
-export function FinanceMonthlySale({ todayMonthIso }: { todayMonthIso: string }) {
-  const [m, setM] = useState(todayMonthIso);
-  const [data, setData] = useState<Record<string, unknown> | null>(null);
-  useEffect(() => {
-    fetch(`/api/finance/monthly-sale?month=${m}`).then((r) => r.json()).then(setData).catch(() => {});
-  }, [m]);
-
-  const catTotals = (data?.category_totals as Record<string, number>) || {};
-  const catLabels = Object.keys(catTotals);
-  const catValues = Object.values(catTotals);
-
-  return (
-    <div className="card">
-      <div className="card-header"><h3 className="card-title">Monthly Sale</h3></div>
-      <div className="card-body">
-        <input type="month" className="form-control" style={{ maxWidth: 200, marginBottom: 20 }} value={m} onChange={(e) => setM(e.target.value)} />
-        {data && (
-          <>
-            <div className="stats-grid">
-              <div className="stat-card"><div className="stat-value">₹{formatInr(Number(data.total_sale))}</div><div className="stat-label">Total Sale</div></div>
-              <div className="stat-card"><div className="stat-value">{String(data.booking_count)}</div><div className="stat-label">Bookings</div></div>
-              <div className="stat-card"><div className="stat-value">₹{formatInr(Number(data.mens_total))}</div><div className="stat-label">Men&apos;s</div></div>
-              <div className="stat-card"><div className="stat-value">₹{formatInr(Number(data.womens_total))}</div><div className="stat-label">Women&apos;s</div></div>
-            </div>
-            {catLabels.length > 0 && (
-              <div style={{ marginTop: 24 }}>
-                <FinanceChart type="bar" labels={catLabels} values={catValues} title="Category Revenue" height={300} />
-              </div>
-            )}
-          </>
-        )}
-      </div>
-    </div>
-  );
-}
-
 export function FinanceYearlySale() {
   const [data, setData] = useState<Record<string, unknown> | null>(null);
-  useEffect(() => { fetch("/api/finance/yearly-sale").then((r) => r.json()).then(setData).catch(() => {}); }, []);
+  const [loading, setLoading] = useState(true);
+  const [error, setError] = useState("");
+
+  useEffect(() => {
+    setLoading(true);
+    setError("");
+    fetchFinanceJson<Record<string, unknown>>("/api/finance/yearly-sale")
+      .then(setData)
+      .catch((e) => {
+        setData(null);
+        setError(e instanceof Error ? e.message : "Failed to load");
+      })
+      .finally(() => setLoading(false));
+  }, []);
 
   const monthly = (data?.monthly_breakdown as Record<string, number>) || {};
   const monthLabels = Object.keys(monthly);
@@ -114,13 +184,22 @@ export function FinanceYearlySale() {
     <div className="card">
       <div className="card-header"><h3 className="card-title">Yearly Sale (Apr–Mar)</h3></div>
       <div className="card-body">
-        {data && (
+        <FinanceStatus loading={loading} error={error} />
+        {data && !loading && (
           <>
             <p style={{ marginBottom: 16, color: "var(--text-muted)" }}>{String(data.from)} to {String(data.to)}</p>
             <div className="stats-grid">
               <div className="stat-card gold"><div className="stat-value">₹{formatInr(Number(data.total_sale))}</div><div className="stat-label">Total Sale</div></div>
               <div className="stat-card"><div className="stat-value">{String(data.booking_count)}</div><div className="stat-label">Bookings</div></div>
             </div>
+            <FinanceInactiveStats
+              data={{
+                cancelled_count: Number(data.cancelled_count),
+                cancelled_amount: Number(data.cancelled_amount),
+                postponed_count: Number(data.postponed_count),
+                postponed_amount: Number(data.postponed_amount),
+              }}
+            />
             {monthLabels.length > 0 && (
               <div style={{ marginTop: 24 }}>
                 <FinanceChart type="bar" labels={monthLabels} values={monthValues} title="Monthly Revenue" height={320} />
@@ -130,8 +209,8 @@ export function FinanceYearlySale() {
               <table className="data-table" style={{ marginTop: 24 }}>
                 <thead><tr><th>Month</th><th>Revenue</th></tr></thead>
                 <tbody>
-                  {monthLabels.map((m) => (
-                    <tr key={m}><td>{m}</td><td>₹{formatInr(monthly[m])}</td></tr>
+                  {monthLabels.map((mo) => (
+                    <tr key={mo}><td>{mo}</td><td>₹{formatInr(monthly[mo])}</td></tr>
                   ))}
                 </tbody>
               </table>
@@ -155,19 +234,33 @@ export function FinanceTopPerformer({
   const [from, setFrom] = useState(monthStartIso);
   const [to, setTo] = useState(todayIso);
   const [category, setCategory] = useState("");
+  const [dressSearch, setDressSearch] = useState("");
   const [rows, setRows] = useState<Array<{ name: string; category: string; bookings: number; total_earned: number }>>([]);
+  const [loading, setLoading] = useState(true);
+  const [error, setError] = useState("");
 
   useEffect(() => {
+    setLoading(true);
+    setError("");
     const params = new URLSearchParams({ from, to });
     if (category) params.set("category", category);
-    fetch(`/api/finance/top-performer?${params}`).then((r) => r.json()).then(setRows).catch(() => {});
-  }, [from, to, category]);
+    if (dressSearch.trim()) params.set("dress", dressSearch.trim());
+    fetchFinanceJson<Array<{ name: string; category: string; bookings: number; total_earned: number }>>(
+      `/api/finance/top-performer?${params}`,
+    )
+      .then((data) => setRows(Array.isArray(data) ? data : []))
+      .catch((e) => {
+        setRows([]);
+        setError(e instanceof Error ? e.message : "Failed to load");
+      })
+      .finally(() => setLoading(false));
+  }, [from, to, category, dressSearch]);
 
   const top10 = rows.slice(0, 10);
 
   return (
     <div className="card">
-      <div className="card-header"><h3 className="card-title">Top Performer</h3></div>
+      <div className="card-header"><h3 className="card-title"><i className="fa-solid fa-trophy" style={{ marginRight: 8 }} />Top Performer</h3></div>
       <div className="card-body">
         <div style={{ display: "flex", gap: 12, marginBottom: 20, flexWrap: "wrap", alignItems: "flex-end" }}>
           <div>
@@ -185,8 +278,20 @@ export function FinanceTopPerformer({
               {categories.map((c) => <option key={c} value={c}>{c}</option>)}
             </select>
           </div>
+          <div>
+            <label className="form-label">Dress name search</label>
+            <input
+              type="search"
+              className="form-control"
+              style={{ minWidth: 200 }}
+              placeholder="Search dress name…"
+              value={dressSearch}
+              onChange={(e) => setDressSearch(e.target.value)}
+            />
+          </div>
         </div>
-        {top10.length > 0 && (
+        <FinanceStatus loading={loading} error={error} />
+        {!loading && !error && top10.length > 0 && (
           <div style={{ marginBottom: 24 }}>
             <FinanceChart
               type="bar"
@@ -198,14 +303,19 @@ export function FinanceTopPerformer({
             />
           </div>
         )}
-        <table className="data-table">
-          <thead><tr><th>#</th><th>Dress</th><th>Category</th><th>Bookings</th><th>Earned</th></tr></thead>
-          <tbody>
-            {rows.slice(0, 50).map((r, i) => (
-              <tr key={i}><td>{i + 1}</td><td><strong>{r.name}</strong></td><td>{r.category}</td><td>{r.bookings}</td><td>₹{formatInr(r.total_earned)}</td></tr>
-            ))}
-          </tbody>
-        </table>
+        {!loading && !error && rows.length === 0 && (
+          <p style={{ color: "var(--text-muted)" }}>No performers found for this range.</p>
+        )}
+        {!loading && rows.length > 0 && (
+          <table className="data-table">
+            <thead><tr><th>#</th><th>Dress</th><th>Category</th><th>Bookings</th><th>Earned</th></tr></thead>
+            <tbody>
+              {rows.slice(0, 50).map((r, i) => (
+                <tr key={`${r.name}-${i}`}><td>{i + 1}</td><td><strong>{r.name}</strong></td><td>{r.category}</td><td>{r.bookings}</td><td>₹{formatInr(r.total_earned)}</td></tr>
+              ))}
+            </tbody>
+          </table>
+        )}
       </div>
     </div>
   );
@@ -213,7 +323,20 @@ export function FinanceTopPerformer({
 
 export function FinanceSecurityDeposit() {
   const [data, setData] = useState<{ total_collected: number; total_held: number; total_returned: number; bookings: Array<Record<string, unknown>> } | null>(null);
-  useEffect(() => { fetch("/api/finance/security-deposit").then((r) => r.json()).then(setData).catch(() => {}); }, []);
+  const [loading, setLoading] = useState(true);
+  const [error, setError] = useState("");
+
+  useEffect(() => {
+    setLoading(true);
+    setError("");
+    fetchFinanceJson<typeof data>("/api/finance/security-deposit")
+      .then(setData)
+      .catch((e) => {
+        setData(null);
+        setError(e instanceof Error ? e.message : "Failed to load");
+      })
+      .finally(() => setLoading(false));
+  }, []);
 
   const statusCounts: Record<string, number> = {};
   if (data?.bookings) {
@@ -227,7 +350,8 @@ export function FinanceSecurityDeposit() {
     <div className="card">
       <div className="card-header"><h3 className="card-title">Security Deposit</h3></div>
       <div className="card-body">
-        {data && (
+        <FinanceStatus loading={loading} error={error} />
+        {data && !loading && (
           <>
             <div className="stats-grid" style={{ marginBottom: 24 }}>
               <div className="stat-card success"><div className="stat-value">₹{formatInr(data.total_collected)}</div><div className="stat-label">Collected</div></div>
@@ -258,20 +382,36 @@ export function FinanceCategoryAnalysis({ monthStartIso, todayIso }: { monthStar
   const [from, setFrom] = useState(monthStartIso);
   const [to, setTo] = useState(todayIso);
   const [data, setData] = useState<{ categories: Array<Record<string, unknown>> } | null>(null);
+  const [loading, setLoading] = useState(true);
+  const [error, setError] = useState("");
+
   useEffect(() => {
-    fetch(`/api/finance/category-analysis?from=${from}&to=${to}`).then((r) => r.json()).then(setData).catch(() => {});
+    setLoading(true);
+    setError("");
+    fetchFinanceJson<{ categories: Array<Record<string, unknown>> }>(
+      `/api/finance/category-analysis?from=${from}&to=${to}`,
+    )
+      .then(setData)
+      .catch((e) => {
+        setData(null);
+        setError(e instanceof Error ? e.message : "Failed to load");
+      })
+      .finally(() => setLoading(false));
   }, [from, to]);
 
   const cats = data?.categories || [];
   const labels = cats.map((c) => String(c.category));
   const revenue = cats.map((c) => Number(c.total_sale));
   const purchases = cats.map((c) => Number(c.net_purchase));
+  const pieCats = cats.filter((c) => Number(c.total_sale) > 0);
+  const pieLabels = pieCats.map((c) => String(c.category));
+  const pieRevenue = pieCats.map((c) => Number(c.total_sale));
 
   return (
     <div className="card">
-      <div className="card-header"><h3 className="card-title">Category Analysis — Revenue vs Stock</h3></div>
+      <div className="card-header"><h3 className="card-title"><i className="fa-solid fa-chart-pie" style={{ marginRight: 8 }} />Category Analysis — Revenue vs Stock</h3></div>
       <div className="card-body">
-        <div style={{ display: "flex", gap: 12, marginBottom: 20 }}>
+        <div style={{ display: "flex", gap: 12, marginBottom: 20, flexWrap: "wrap" }}>
           <div>
             <label className="form-label">From</label>
             <input type="date" className="form-control" value={from} onChange={(e) => setFrom(e.target.value)} />
@@ -281,18 +421,32 @@ export function FinanceCategoryAnalysis({ monthStartIso, todayIso }: { monthStar
             <input type="date" className="form-control" value={to} onChange={(e) => setTo(e.target.value)} />
           </div>
         </div>
-        {cats.length > 0 && (
+        <FinanceStatus loading={loading} error={error} />
+        {!loading && !error && cats.length > 0 && (
           <div style={{ marginBottom: 28 }}>
-            <FinanceCompareChart labels={labels} revenue={revenue} purchases={purchases} />
+            <div className="two-col">
+              <FinanceChart
+                type="pie"
+                labels={pieLabels}
+                values={pieRevenue}
+                title="Revenue by Category"
+                height={300}
+              />
+              <FinanceCompareChart labels={labels} revenue={revenue} purchases={purchases} />
+            </div>
           </div>
         )}
-        {data && (
+        {!loading && !error && cats.length === 0 && (
+          <p style={{ color: "var(--text-muted)" }}>No category data for this date range.</p>
+        )}
+        {data && !loading && cats.length > 0 && (
           <table className="data-table">
-            <thead><tr><th>Category</th><th>Stock Purchased</th><th>Advance</th><th>Remaining</th><th>Revenue</th><th>Stock Count</th></tr></thead>
+            <thead><tr><th>Category</th><th>Bookings</th><th>Stock Purchased</th><th>Advance</th><th>Remaining</th><th>Revenue</th><th>Stock Count</th></tr></thead>
             <tbody>
               {cats.map((c) => (
                 <tr key={String(c.category)}>
-                  <td>{String(c.category)}</td>
+                  <td><strong>{String(c.category)}</strong></td>
+                  <td>{String(c.booking_count ?? 0)}</td>
                   <td>₹{formatInr(Number(c.net_purchase))}</td>
                   <td>₹{formatInr(Number(c.advance))}</td>
                   <td>₹{formatInr(Number(c.remaining_collected))}</td>
@@ -310,17 +464,11 @@ export function FinanceCategoryAnalysis({ monthStartIso, todayIso }: { monthStar
 
 export function FinanceInventoryProfitability() {
   const [data, setData] = useState<{
-    items: Array<{
-      rank: number;
-      itemId: number;
-      sku: string;
-      name: string;
+    category_breakdown?: Array<{
       category: string;
-      size: string | null;
-      photo: string | null;
-      status: string;
-      bookingCount: number;
-      lifetimeRevenue: number;
+      total_sale: number;
+      total_purchase: number;
+      item_count: number;
     }>;
     totals: {
       itemCount: number;
@@ -330,28 +478,25 @@ export function FinanceInventoryProfitability() {
     };
   } | null>(null);
   const [loading, setLoading] = useState(true);
-  const [query, setQuery] = useState("");
+  const [error, setError] = useState("");
 
   useEffect(() => {
     setLoading(true);
-    fetch("/api/finance/inventory-profitability", { credentials: "same-origin" })
-      .then((r) => r.json())
+    setError("");
+    fetchFinanceJson<NonNullable<typeof data>>("/api/finance/inventory-profitability")
       .then(setData)
-      .catch(() => {})
+      .catch((e) => {
+        setData(null);
+        setError(e instanceof Error ? e.message : "Failed to load");
+      })
       .finally(() => setLoading(false));
   }, []);
 
-  const filtered = (data?.items || []).filter((row) => {
-    if (!query.trim()) return true;
-    const q = query.toLowerCase();
-    return (
-      row.name.toLowerCase().includes(q) ||
-      row.sku.toLowerCase().includes(q) ||
-      row.category.toLowerCase().includes(q)
-    );
-  });
-
-  const top10 = (data?.items || []).slice(0, 10);
+  const categoryRows = data?.category_breakdown || [];
+  const catLabels = categoryRows.map((r) => r.category);
+  const catSales = categoryRows.map((r) => r.total_sale);
+  const catPurchases = categoryRows.map((r) => r.total_purchase);
+  const totalPurchase = categoryRows.reduce((s, r) => s + r.total_purchase, 0);
 
   return (
     <div className="card">
@@ -363,102 +508,78 @@ export function FinanceInventoryProfitability() {
       </div>
       <div className="card-body">
         <p style={{ margin: "0 0 20px", color: "var(--text-muted)", fontSize: 14 }}>
-          Lifetime revenue per dress from completed bookings (returned), ranked highest to lowest.
+          Category-wise lifetime rental revenue vs stock purchased (all inventory).
         </p>
 
-        {data && (
+        <FinanceStatus loading={loading} error={error} />
+
+        {data && !loading && (
           <div className="stats-grid" style={{ marginBottom: 24 }}>
             <div className="stat-card primary" style={{ padding: 20 }}>
               <div className="stat-value">₹{formatInr(data.totals.totalRevenue)}</div>
-              <div className="stat-label">Total Lifetime Revenue</div>
+              <div className="stat-label">Total Lifetime Sale</div>
+            </div>
+            <div className="stat-card gold" style={{ padding: 20 }}>
+              <div className="stat-value">₹{formatInr(totalPurchase)}</div>
+              <div className="stat-label">Total Purchase</div>
             </div>
             <div className="stat-card success" style={{ padding: 20 }}>
-              <div className="stat-value">{data.totals.itemsWithRevenue}</div>
-              <div className="stat-label">Items With Revenue</div>
+              <div className="stat-value">₹{formatInr(data.totals.totalRevenue - totalPurchase)}</div>
+              <div className="stat-label">Net (Sale − Purchase)</div>
             </div>
             <div className="stat-card info" style={{ padding: 20 }}>
               <div className="stat-value">{data.totals.totalBookings}</div>
               <div className="stat-label">Completed Rentals</div>
             </div>
-            <div className="stat-card" style={{ padding: 20 }}>
-              <div className="stat-value">{data.totals.itemCount}</div>
-              <div className="stat-label">Inventory Items</div>
+          </div>
+        )}
+
+        {!loading && !error && categoryRows.length > 0 && (
+          <>
+            <div className="two-col" style={{ marginBottom: 24 }}>
+              <FinanceChart
+                type="pie"
+                labels={catLabels}
+                values={catSales}
+                title="Sale by Category"
+                height={300}
+              />
+              <FinanceCompareChart
+                labels={catLabels}
+                revenue={catSales}
+                purchases={catPurchases}
+                title="Category Sale vs Purchase"
+              />
             </div>
-          </div>
-        )}
-
-        {top10.length > 0 && (
-          <div style={{ marginBottom: 28 }}>
-            <FinanceChart
-              type="bar"
-              labels={top10.map((r) => r.name)}
-              values={top10.map((r) => r.lifetimeRevenue)}
-              title="Top 10 Earners (Lifetime)"
-              height={320}
-              horizontal
-            />
-          </div>
-        )}
-
-        <div style={{ marginBottom: 16, maxWidth: 360 }}>
-          <input
-            type="search"
-            className="form-control"
-            placeholder="Search name, SKU, or category…"
-            value={query}
-            onChange={(e) => setQuery(e.target.value)}
-          />
-        </div>
-
-        {loading ? (
-          <p style={{ color: "var(--text-muted)" }}>Loading profitability data…</p>
-        ) : (
-          <div style={{ overflowX: "auto" }}>
             <table className="data-table">
               <thead>
                 <tr>
-                  <th>Rank</th>
-                  <th>Item</th>
-                  <th>SKU</th>
                   <th>Category</th>
-                  <th>Size</th>
-                  <th>Completed Rentals</th>
-                  <th>Lifetime Revenue</th>
+                  <th>Items in Stock</th>
+                  <th>Total Sale</th>
+                  <th>Total Purchase</th>
+                  <th>Net (Sale − Purchase)</th>
                 </tr>
               </thead>
               <tbody>
-                {filtered.map((row) => (
-                  <tr key={row.itemId}>
+                {categoryRows.map((row) => (
+                  <tr key={row.category}>
+                    <td><strong>{row.category}</strong></td>
+                    <td>{row.item_count}</td>
+                    <td>₹{formatInr(row.total_sale)}</td>
+                    <td>₹{formatInr(row.total_purchase)}</td>
                     <td>
-                      <strong>#{row.rank}</strong>
-                    </td>
-                    <td>
-                      <strong>{row.name}</strong>
-                      {row.status !== "available" && (
-                        <span className="badge badge-warning" style={{ marginLeft: 8, fontSize: 10 }}>
-                          {row.status}
-                        </span>
-                      )}
-                    </td>
-                    <td>{row.sku}</td>
-                    <td>{row.category}</td>
-                    <td>{row.size || "—"}</td>
-                    <td>{row.bookingCount}</td>
-                    <td>
-                      <strong>₹{formatInr(row.lifetimeRevenue)}</strong>
+                      <strong>₹{formatInr(row.total_sale - row.total_purchase)}</strong>
                     </td>
                   </tr>
                 ))}
-                {!filtered.length && (
-                  <tr>
-                    <td colSpan={7} style={{ textAlign: "center", color: "var(--text-muted)" }}>
-                      No items match your search.
-                    </td>
-                  </tr>
-                )}
               </tbody>
             </table>
-          </div>
+          </>
+        )}
+
+        {!loading && !error && categoryRows.length === 0 && (
+          <p style={{ color: "var(--text-muted)" }}>No category data available.</p>
         )}
       </div>
     </div>
