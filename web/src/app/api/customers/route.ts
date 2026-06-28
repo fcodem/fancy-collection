@@ -1,6 +1,6 @@
 import { NextRequest } from "next/server";
 import { listCustomers, createCustomer } from "@/lib/services/customersOps";
-import { jsonError, jsonOk, requireUser, requireUserReadOnly, isResponse } from "@/lib/api";
+import { jsonError, jsonOk, requireUser, requireUserReadOnly, isResponse, requireJsonContentType } from "@/lib/api";
 
 export async function GET(req: NextRequest) {
   const user = await requireUserReadOnly();
@@ -12,6 +12,9 @@ export async function GET(req: NextRequest) {
 }
 
 export async function POST(req: NextRequest) {
+  const _ct = requireJsonContentType(req);
+  if (_ct) return _ct;
+
   const user = await requireUser();
   if (isResponse(user)) return user;
   try {

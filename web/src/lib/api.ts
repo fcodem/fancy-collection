@@ -33,3 +33,11 @@ export async function requireOwner(): Promise<AuthUser | NextResponse> {
 export function isResponse(v: unknown): v is NextResponse {
   return v instanceof NextResponse;
 }
+
+export function requireJsonContentType(req: import("next/server").NextRequest): Response | null {
+  const ct = req.headers.get("content-type") ?? "";
+  if (!ct.includes("application/json")) {
+    return jsonError("Unsupported Media Type", 415);
+  }
+  return null;
+}

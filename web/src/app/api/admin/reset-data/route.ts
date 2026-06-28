@@ -1,7 +1,11 @@
 import { resetAllData } from "@/lib/services/adminOps";
-import { jsonError, jsonOk, requireOwner, isResponse } from "@/lib/api";
+import { jsonError, jsonOk, requireOwner, isResponse, requireJsonContentType } from "@/lib/api";
+import { NextRequest } from "next/server";
 
-export async function POST(req: Request) {
+export async function POST(req: NextRequest) {
+  const _ct = requireJsonContentType(req);
+  if (_ct) return _ct;
+
   const user = await requireOwner();
   if (isResponse(user)) return user;
   try {

@@ -4,7 +4,7 @@ import { updateBooking } from "@/lib/services/bookingCrud";
 import { cancelBooking } from "@/lib/services/operations";
 import { serializeBookingForList } from "@/lib/booking";
 import { bookingLockedMessage, isBookingLocked } from "@/lib/bookingLock";
-import { jsonError, jsonOk, requireUser, isResponse } from "@/lib/api";
+import { jsonError, jsonOk, requireUser, isResponse, requireJsonContentType } from "@/lib/api";
 import { isOwner } from "@/lib/auth";
 import { formatDate } from "@/lib/constants";
 import {
@@ -26,6 +26,9 @@ export async function GET(_req: NextRequest, { params }: { params: Promise<{ id:
 }
 
 export async function PUT(req: NextRequest, { params }: { params: Promise<{ id: string }> }) {
+  const _ct = requireJsonContentType(req);
+  if (_ct) return _ct;
+
   const user = await requireUser();
   if (isResponse(user)) return user;
   const { id } = await params;

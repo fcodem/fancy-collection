@@ -1,12 +1,15 @@
 import { NextRequest } from "next/server";
 import prisma from "@/lib/prisma";
-import { jsonOk, jsonError, requireOwner, isResponse } from "@/lib/api";
+import { jsonOk, jsonError, requireOwner, isResponse, requireJsonContentType } from "@/lib/api";
 import { sendWhatsAppText } from "@/lib/services/whatsapp/metaApi";
 
 export async function POST(
   req: NextRequest,
   { params }: { params: Promise<{ id: string }> },
 ) {
+  const _ct = requireJsonContentType(req);
+  if (_ct) return _ct;
+
   const user = await requireOwner();
   if (isResponse(user)) return user;
 

@@ -1,15 +1,17 @@
 import { NextRequest } from "next/server";
 import prisma from "@/lib/prisma";
 import { createBooking } from "@/lib/services/bookingCrud";
-import { jsonError, jsonOk, requireUser, isResponse } from "@/lib/api";
+import { jsonError, jsonOk, requireUser, isResponse, requireJsonContentType } from "@/lib/api";
 import {
   scheduleBookingBill,
   scheduleBookingReminder,
-  processWhatsAppJobQueue,
 } from "@/lib/services/whatsapp/jobQueue";
 import { BookingFormSchema } from "@/lib/validation";
 
 export async function POST(req: NextRequest) {
+  const _ct = requireJsonContentType(req);
+  if (_ct) return _ct;
+
   const user = await requireUser();
   if (isResponse(user)) return user;
   try {
@@ -25,9 +27,6 @@ export async function POST(req: NextRequest) {
     try {
       await scheduleBookingBill(booking.id, req.nextUrl.origin, user.username);
       console.log("[booking POST] scheduleBookingBill queued for:", booking.id);
-      void processWhatsAppJobQueue(10).catch((e) => {
-        console.error("[booking POST] WhatsApp queue processing failed:", e);
-      });
     } catch (e) {
       console.error("[booking POST] scheduleBookingBill failed:", e);
     }

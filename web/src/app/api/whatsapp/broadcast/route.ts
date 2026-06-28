@@ -1,5 +1,5 @@
 import { NextRequest } from "next/server";
-import { jsonOk, jsonError, requireOwner, isResponse } from "@/lib/api";
+import { jsonOk, jsonError, requireOwner, isResponse, requireJsonContentType } from "@/lib/api";
 import prisma from "@/lib/prisma";
 import { sendWhatsAppTemplate } from "@/lib/services/whatsapp/metaApi";
 
@@ -16,6 +16,9 @@ export async function GET(req: NextRequest) {
 }
 
 export async function POST(req: NextRequest) {
+  const _ct = requireJsonContentType(req);
+  if (_ct) return _ct;
+
   const user = await requireOwner();
   if (isResponse(user)) return user;
 

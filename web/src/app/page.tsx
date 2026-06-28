@@ -2,7 +2,7 @@ import { redirect } from "next/navigation";
 import { getCurrentUser } from "@/lib/auth";
 import ServerAppShell from "@/components/ServerAppShell";
 import DashboardView from "@/components/DashboardView";
-import { getDashboardDataFresh, serializeDashboardData } from "@/lib/services/core";
+import { getDashboardData, getDashboardDataFresh, serializeDashboardData } from "@/lib/services/core";
 import { getPendingStaffLoginRequests, getActiveStaffSessions, isOwner } from "@/lib/auth";
 
 export default async function DashboardPage() {
@@ -11,7 +11,7 @@ export default async function DashboardPage() {
 
   const owner = isOwner(user);
   const [data, pendingStaff, activeStaff] = await Promise.all([
-    getDashboardDataFresh().then(serializeDashboardData),
+    getDashboardData().then(serializeDashboardData),
     owner ? getPendingStaffLoginRequests() : Promise.resolve([]),
     owner ? getActiveStaffSessions() : Promise.resolve([]),
   ]);

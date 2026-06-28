@@ -64,11 +64,7 @@ export async function initDb() {
     initPromise = (async () => {
       await ensureOwnerExists();
       await seedDatabase();
-      try {
-        await repairAllBookingStatuses();
-      } catch {
-        /* non-fatal */
-      }
+      // repairAllBookingStatuses skipped on cold start — run via admin panel if needed
     })();
   }
   return initPromise;

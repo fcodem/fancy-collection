@@ -2,10 +2,13 @@ import { NextRequest } from "next/server";
 import prisma from "@/lib/prisma";
 import { cancelBooking } from "@/lib/services/operations";
 import { bookingLockedMessage, isBookingLocked } from "@/lib/bookingLock";
-import { jsonError, jsonOk, requireUser, isResponse } from "@/lib/api";
+import { jsonError, jsonOk, requireUser, isResponse, requireJsonContentType } from "@/lib/api";
 import { isOwner } from "@/lib/auth";
 
 export async function POST(req: NextRequest, { params }: { params: Promise<{ id: string }> }) {
+  const _ct = requireJsonContentType(req);
+  if (_ct) return _ct;
+
   const user = await requireUser();
   if (isResponse(user)) return user;
   const { id } = await params;

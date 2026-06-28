@@ -1,6 +1,6 @@
 import { NextRequest } from "next/server";
 import prisma from "@/lib/prisma";
-import { requireOwner, isResponse, jsonOk, jsonError } from "@/lib/api";
+import { requireOwner, isResponse, jsonOk, jsonError, requireJsonContentType } from "@/lib/api";
 import { establishUserLogin } from "@/lib/auth";
 import { boolParam, ph, resetAutoincrement, dateParam, dateParamReq } from "@/lib/restoreSql";
 
@@ -32,6 +32,9 @@ interface BackupData {
 }
 
 export async function POST(req: NextRequest) {
+  const _ct = requireJsonContentType(req);
+  if (_ct) return _ct;
+
   const user = await requireOwner();
   if (isResponse(user)) return user;
 

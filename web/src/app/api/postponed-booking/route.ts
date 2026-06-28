@@ -5,7 +5,7 @@ import {
   resolvePostponedBooking,
   searchBookingsToPostpone,
 } from "@/lib/services/postponedBooking";
-import { jsonOk, jsonError, requireUser, isResponse } from "@/lib/api";
+import { jsonOk, jsonError, requireUser, isResponse, requireJsonContentType } from "@/lib/api";
 
 export async function GET(req: NextRequest) {
   const user = await requireUser();
@@ -27,6 +27,9 @@ export async function GET(req: NextRequest) {
 }
 
 export async function POST(req: NextRequest) {
+  const _ct = requireJsonContentType(req);
+  if (_ct) return _ct;
+
   const user = await requireUser();
   if (isResponse(user)) return user;
 

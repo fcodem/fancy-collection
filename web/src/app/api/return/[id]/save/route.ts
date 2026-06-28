@@ -1,7 +1,7 @@
 import { NextRequest } from "next/server";
 import { saveReturn } from "@/lib/services/operations";
 import { saveUpload } from "@/lib/upload";
-import { jsonError, jsonOk, requireUser, isResponse } from "@/lib/api";
+import { jsonError, jsonOk, requireUser, isResponse, requireJsonContentType } from "@/lib/api";
 import { triggerWhatsAppSlipJobs } from "@/lib/services/whatsapp/slipScheduling";
 
 type IncompleteItemPayload = {
@@ -73,6 +73,8 @@ export async function POST(req: NextRequest, { params }: { params: Promise<{ id:
       return jsonOk({ ok: true, id: booking?.id, status: booking?.status });
     }
 
+    const _ct = requireJsonContentType(req);
+    if (_ct) return _ct;
     const body = await req.json();
     const action = String(body.action || "");
     const booking = await saveReturn(

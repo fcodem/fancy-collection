@@ -1,5 +1,6 @@
 import { NextRequest, NextResponse } from "next/server";
 import prisma from "@/lib/prisma";
+import { requireJsonContentType } from "@/lib/api";
 
 export async function GET(req: NextRequest) {
   const { searchParams } = req.nextUrl;
@@ -16,6 +17,9 @@ export async function GET(req: NextRequest) {
 }
 
 export async function POST(req: NextRequest) {
+  const _ct = requireJsonContentType(req);
+  if (_ct) return _ct;
+
   let body: WhatsAppWebhookPayload;
   try {
     body = (await req.json()) as WhatsAppWebhookPayload;
