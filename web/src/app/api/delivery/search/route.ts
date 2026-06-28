@@ -85,5 +85,5 @@ export async function GET(req: NextRequest) {
     if (!seen.has(b.id)) { seen.add(b.id); all.push(b as BookingWithItems); }
   }
 
-  return jsonOk(all.map((b) => serializeBookingForList(b)));
+  return jsonOk(all.map((b) => serializeBookingForList(b as Parameters<typeof serializeBookingForList>[0])));
 }
