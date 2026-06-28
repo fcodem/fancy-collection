@@ -1,15 +1,13 @@
 import { redirect, notFound } from "next/navigation";
 import prisma from "@/lib/prisma";
 import { getCurrentUser, isOwner } from "@/lib/auth";
-import ServerAppShell from "@/components/ServerAppShell";
 
 export default async function BillingViewPage({ params }: { params: Promise<{ id: string }> }) {
 const { id } = await params;
   const invoice = await prisma.invoice.findUnique({ where: { id: parseInt(id, 10) }, include: { rental: { include: { customer: true } }, payments: true } });
   if (!invoice) notFound();
   return (
-    <ServerAppShell>
-      <div className="card">
+    <div className="card">
         <div className="card-header">
           <h3 className="card-title">{invoice.invoiceNumber}</h3>
           <a href={`/billing/${invoice.id}/print`} className="btn btn-primary btn-sm">Print</a>
@@ -19,6 +17,5 @@ const { id } = await params;
           <p>Total: ₹{invoice.total.toLocaleString()} · Paid: ₹{invoice.amountPaid.toLocaleString()}</p>
         </div>
       </div>
-    </ServerAppShell>
   );
 }

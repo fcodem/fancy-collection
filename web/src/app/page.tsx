@@ -1,6 +1,5 @@
 import { redirect } from "next/navigation";
 import { getCurrentUser } from "@/lib/auth";
-import ServerAppShell from "@/components/ServerAppShell";
 import DashboardView from "@/components/DashboardView";
 import { getDashboardData, getDashboardDataFresh, serializeDashboardData } from "@/lib/services/core";
 import { getPendingStaffLoginRequests, getActiveStaffSessions, isOwner } from "@/lib/auth";
@@ -17,8 +16,7 @@ export default async function DashboardPage() {
   ]);
 
   return (
-    <ServerAppShell>
-      <DashboardView
+    <DashboardView
         data={data}
         isOwner={owner}
         pendingStaff={pendingStaff.map((p) => ({
@@ -34,6 +32,5 @@ export default async function DashboardPage() {
           loginAt: s.loginAt.toISOString(),
         }))}
       />
-    </ServerAppShell>
   );
 }

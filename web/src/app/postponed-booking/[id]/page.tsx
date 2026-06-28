@@ -1,7 +1,6 @@
 import { redirect, notFound } from "next/navigation";
 import prisma from "@/lib/prisma";
 import { getCurrentUser } from "@/lib/auth";
-import ServerAppShell from "@/components/ServerAppShell";
 import PostponedBookingDetailClient from "@/components/PostponedBookingDetailClient";
 import { formatDate } from "@/lib/constants";
 
@@ -40,8 +39,7 @@ export default async function PostponedBookingDetailPage({ params }: { params: P
   }
 
   return (
-    <ServerAppShell>
-      <PostponedBookingDetailClient
+    <PostponedBookingDetailClient
         status={booking.status}
         totalAdvance={booking.totalAdvance || booking.advance || 0}
         postponedAt={postponedAtDisplay}
@@ -51,6 +49,5 @@ export default async function PostponedBookingDetailPage({ params }: { params: P
           returnDate: formatDate(booking.returnDate),
         }}
       />
-    </ServerAppShell>
   );
 }

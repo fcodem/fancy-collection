@@ -4,24 +4,22 @@ import { whereDeliveryInRange } from "@/lib/bookingDateQuery";
 import { serializeBookingForList } from "@/lib/booking";
 import type { BookingWithItems } from "@/lib/services/bookingSearchCore";
 import { parseDate } from "@/lib/constants";
-import { categoryWhere, words } from "@/lib/services/bookingSearchCore";
+import { categoryWhere, phoneWhere, words, bookingListInclude } from "@/lib/services/bookingSearchCore";
 import { jsonOk, requireUser, isResponse } from "@/lib/api";
 import type { Prisma } from "@prisma/client";
 
-const bookingInclude = {
-  bookingItems: { include: { item: true } },
-  legacyItem: true,
-} as const;
-
 function textWhere(q: string): Prisma.BookingWhereInput {
   if (!q) return {};
+  if (/^\d+$/.test(q)) {
+    if (q.length <= 3) {
+      const serial = parseInt(q, 10);
+      if (!Number.isNaN(serial)) return { monthlySerial: serial };
+    } else {
+      return phoneWhere(q);
+    }
+  }
   const digits = q.replace(/\D/g, "");
-  if (/^\d+$/.test(q) && q.length <= 4) {
-    return { monthlySerial: parseInt(q, 10) };
-  }
-  if (digits.length >= 7) {
-    return { OR: [{ contact1: { contains: digits } }, { whatsappNo: { contains: digits } }] };
-  }
+  if (digits.length > 3) return phoneWhere(q);
   const ws = words(q);
   return {
     AND: ws.map((w) => ({
@@ -65,9 +63,9 @@ export async function GET(req: NextRequest) {
   };
 
   const [exact, before, after, rest] = await Promise.all([
-    prisma.booking.findMany({ where: { ...base, ...exactWhere }, include: bookingInclude, orderBy: { deliveryTime: "asc" }, take: 100 }),
-    prisma.booking.findMany({ where: { ...base, ...beforeWhere }, include: bookingInclude, orderBy: { deliveryTime: "asc" }, take: 100 }),
-    prisma.booking.findMany({ where: { ...base, ...afterWhere }, include: bookingInclude, orderBy: { deliveryTime: "asc" }, take: 100 }),
+    prisma.booking.findMany({ where: { ...base, ...exactWhere }, include: bookingListInclude, orderBy: { deliveryTime: "asc" }, take: 100 }),
+    prisma.booking.findMany({ where: { ...base, ...beforeWhere }, include: bookingListInclude, orderBy: { deliveryTime: "asc" }, take: 100 }),
+    prisma.booking.findMany({ where: { ...base, ...afterWhere }, include: bookingListInclude, orderBy: { deliveryTime: "asc" }, take: 100 }),
     prisma.booking.findMany({
       where: {
         ...base,
@@ -75,7 +73,7 @@ export async function GET(req: NextRequest) {
           OR: [exactWhere, beforeWhere, afterWhere],
         },
       },
-      include: bookingInclude,
+      include: bookingListInclude,
       orderBy: { deliveryDate: "asc" },
       take: 80,
     }),

@@ -2,7 +2,6 @@ import { redirect } from "next/navigation";
 import Link from "next/link";
 import prisma from "@/lib/prisma";
 import { getCurrentUser, isOwner } from "@/lib/auth";
-import ServerAppShell from "@/components/ServerAppShell";
 import InventoryFilterBar from "@/components/InventoryFilterBar";
 import InventoryDeleteButton from "@/components/InventoryDeleteButton";
 import { dressDisplayName, stripUnitSuffix, buildDressSearchWhere } from "@/lib/dress";
@@ -68,7 +67,7 @@ export default async function InventoryPage({
   const owner = isOwner(user);
 
   return (
-    <ServerAppShell>
+    <>
       <InventoryFilterBar q={q} status={status} showAdd={isOwner(user)} />
       <div className="card">
         <div className="card-body p-0">
@@ -193,6 +192,6 @@ export default async function InventoryPage({
           </table>
         </div>
       </div>
-    </ServerAppShell>
+    </>
   );
 }

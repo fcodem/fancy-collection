@@ -1,5 +1,4 @@
 import prisma from "@/lib/prisma";
-import ServerAppShell from "@/components/ServerAppShell";
 import BookingFormClient from "@/components/BookingFormClient";
 import { getAllCategories } from "@/lib/categories";
 import { todayIso } from "@/lib/constants";
@@ -9,8 +8,7 @@ export default async function NewProspectLeadPage() {
   const staff = await prisma.staff.findMany({ where: { active: true }, orderBy: { name: "asc" } });
 
   return (
-    <ServerAppShell>
-      <BookingFormClient
+    <BookingFormClient
         mode="prospect"
         today={todayIso()}
         staffList={staff.map((s) => s.name)}
@@ -19,6 +17,5 @@ export default async function NewProspectLeadPage() {
         jewelleryCategories={cats.jewellery_categories}
         accessoryCategories={cats.accessory_categories}
       />
-    </ServerAppShell>
   );
 }

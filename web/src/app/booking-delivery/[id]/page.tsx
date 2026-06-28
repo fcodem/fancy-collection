@@ -1,5 +1,4 @@
 import { notFound } from "next/navigation";
-import ServerAppShell from "@/components/ServerAppShell";
 import DeliveryDetailClient from "@/components/DeliveryDetailClient";
 import DeliveredBookingEditSection from "@/components/DeliveredBookingEditSection";
 import { getDeliveryDetail } from "@/lib/services/operations";
@@ -38,7 +37,7 @@ export default async function DeliveryDetailPage({ params }: { params: Promise<{
   const isDelivered = allDelivered;
 
   return (
-    <ServerAppShell>
+    <>
       <DeliveryDetailClient
         booking={{
           ...booking,
@@ -53,6 +52,6 @@ export default async function DeliveryDetailPage({ params }: { params: Promise<{
         idPhoto2={booking.idPhoto2}
       />
       {isDelivered && <DeliveredBookingEditSection bookingId={booking.id} />}
-    </ServerAppShell>
+    </>
   );
 }

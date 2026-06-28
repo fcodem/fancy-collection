@@ -61,15 +61,30 @@ export async function GET(req: NextRequest) {
   let bookings: SuggestBooking[] = [];
 
   if (/^\d+$/.test(q)) {
-    const serial = parseInt(q, 10);
-    if (!Number.isNaN(serial)) {
-      bookings = await prisma.booking.findMany({
-        where: { ...statusWhere, monthlySerial: serial },
-        include: listInclude,
-        take: limit,
-      });
-    }
-    if (!bookings.length && q.length > 3) {
+    if (q.length <= 3) {
+      const serial = parseInt(q, 10);
+      if (!Number.isNaN(serial)) {
+        bookings = await prisma.booking.findMany({
+          where: { ...statusWhere, monthlySerial: serial },
+          include: listInclude,
+          take: limit,
+        });
+      }
+      if (!bookings.length) {
+        const pool = await prisma.booking.findMany({
+          where: statusWhere,
+          include: listInclude,
+          orderBy: [{ monthlySerial: "desc" }],
+          take: 400,
+        });
+        bookings = pool
+          .filter((b) =>
+            String(b.monthlySerial).padStart(2, "0").startsWith(q) ||
+            String(b.monthlySerial).startsWith(q),
+          )
+          .slice(0, limit);
+      }
+    } else {
       bookings = await prisma.booking.findMany({
         where: { ...statusWhere, ...phoneWhere(q) },
         include: listInclude,
@@ -77,21 +92,7 @@ export async function GET(req: NextRequest) {
         take: limit,
       });
     }
-    if (!bookings.length) {
-      const pool = await prisma.booking.findMany({
-        where: statusWhere,
-        include: listInclude,
-        orderBy: [{ monthlySerial: "desc" }],
-        take: 400,
-      });
-      bookings = pool
-        .filter((b) =>
-          String(b.monthlySerial).padStart(2, "0").startsWith(q) ||
-          String(b.monthlySerial).startsWith(q),
-        )
-        .slice(0, limit);
-    }
-  } else if (q.replace(/\D/g, "").length >= 7) {
+  } else if (q.replace(/\D/g, "").length > 3) {
     bookings = await prisma.booking.findMany({
       where: { ...statusWhere, ...phoneWhere(q) },
       include: listInclude,

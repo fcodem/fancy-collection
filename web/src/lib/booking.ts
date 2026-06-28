@@ -339,6 +339,17 @@ export async function getAvailableItemsApi(
           status: { not: "maintenance" },
           ...(categoryFilter ? { category: categoryFilter } : {}),
         },
+        select: {
+          id: true,
+          name: true,
+          sku: true,
+          category: true,
+          color: true,
+          size: true,
+          itemType: true,
+          subCategory: true,
+          photo: true,
+        },
         orderBy: [{ category: "asc" }, { name: "asc" }],
       }),
       prisma.booking.findMany({

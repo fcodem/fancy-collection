@@ -169,10 +169,7 @@ export async function getPostponedPrintDetail(bookingId: number) {
         }]
       : [];
 
-  const dateRows = await prisma.$queryRaw<{ postponed_at: Date | null }[]>`
-    SELECT postponed_at FROM bookings WHERE id = ${bookingId}
-  `;
-  const postponedAtRaw = dateRows[0]?.postponed_at;
+  const postponedAtRaw = booking.postponedAt;
 
   return {
     booking,

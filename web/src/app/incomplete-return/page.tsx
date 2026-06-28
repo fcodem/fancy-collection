@@ -1,6 +1,5 @@
 import Link from "next/link";
 import prisma from "@/lib/prisma";
-import ServerAppShell from "@/components/ServerAppShell";
 import ResolveButton from "@/components/ResolveButton";
 import { StandardBookingTableCells, StandardBookingTableHead } from "@/components/BookingDetailsColumns";
 import { serializeStandardBookingDetails, incompleteReturnSecuritySummary } from "@/lib/bookingDetails";
@@ -66,8 +65,7 @@ export default async function IncompleteReturnPage() {
   const { rows: pdfRows, warningsBelow } = flattenBookingPdfRows(pdfResults);
 
   return (
-    <ServerAppShell>
-      <div className="card">
+    <div className="card">
         <div className="card-header">
           <h3 className="card-title">
             <i className="fa-solid fa-circle-exclamation" style={{ marginRight: 8, color: "#f39c12" }} />
@@ -178,6 +176,5 @@ export default async function IncompleteReturnPage() {
           )}
         </div>
       </div>
-    </ServerAppShell>
   );
 }

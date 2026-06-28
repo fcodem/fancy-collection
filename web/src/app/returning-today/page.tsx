@@ -1,4 +1,3 @@
-import ServerAppShell from "@/components/ServerAppShell";
 import ReturningTodayClient from "@/components/ReturningTodayClient";
 import {
   BASE_ACCESSORY,
@@ -11,8 +10,6 @@ import {
 export default async function ReturningTodayPage() {
   const categories = [...BASE_MENS, ...BASE_WOMENS, ...BASE_JEWELLERY, ...BASE_ACCESSORY];
   return (
-    <ServerAppShell>
-      <ReturningTodayClient today={todayIso()} categories={categories} />
-    </ServerAppShell>
+    <ReturningTodayClient today={todayIso()} categories={categories} />
   );
 }

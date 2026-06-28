@@ -1,4 +1,5 @@
 import type { Metadata, Viewport } from "next";
+import AuthShellGate from "@/components/AuthShellGate";
 import ClientProviders from "@/components/ClientProviders";
 import SessionHeartbeat from "@/components/SessionHeartbeat";
 import "./globals.css";
@@ -53,7 +54,7 @@ export default function RootLayout({ children }: { children: React.ReactNode }) 
       <body suppressHydrationWarning>
         <ClientProviders>
           <SessionHeartbeat />
-          {children}
+          <AuthShellGate>{children}</AuthShellGate>
         </ClientProviders>
       </body>
     </html>

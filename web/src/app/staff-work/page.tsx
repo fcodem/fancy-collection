@@ -1,6 +1,5 @@
 import { redirect } from "next/navigation";
 import { getCurrentUser, isOwner } from "@/lib/auth";
-import ServerAppShell from "@/components/ServerAppShell";
 import StaffWorkClient from "@/components/StaffWorkClient";
 import { todayIso } from "@/lib/constants";
 
@@ -9,8 +8,6 @@ export default async function StaffWorkPage() {
   if (!user) redirect("/login");
   if (!isOwner(user)) redirect("/");
   return (
-    <ServerAppShell>
-      <StaffWorkClient todayIso={todayIso()} />
-    </ServerAppShell>
+    <StaffWorkClient todayIso={todayIso()} />
   );
 }

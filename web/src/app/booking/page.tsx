@@ -2,7 +2,6 @@ import Link from "next/link";
 import { activeBookingWhere } from "@/lib/bookingActiveStatus";
 import type { ReactNode } from "react";
 import prisma from "@/lib/prisma";
-import ServerAppShell from "@/components/ServerAppShell";
 import BookingPanelFilters from "@/components/BookingPanelFilters";
 import { bookingPanelDateRange, parseBookingPanelFilters } from "@/lib/bookingPanelFilter";
 import {
@@ -135,11 +134,11 @@ export default async function BookingPanelPage({
   const { rows: pdfRows, warningsBelow } = flattenBookingPdfRows(pdfResults);
 
   return (
-    <ServerAppShell>
+    <>
       <div style={{ display: "flex", justifyContent: "flex-end", marginBottom: 16 }}>
-        <a href="/booking/new" className="btn btn-primary">
+        <Link href="/booking/new" className="btn btn-primary">
           <i className="fa-solid fa-plus" /> New Booking
-        </a>
+        </Link>
       </div>
 
       <div className="stats-grid" style={{ marginBottom: 24 }}>
@@ -329,6 +328,6 @@ export default async function BookingPanelPage({
           </div>
         )}
       </div>
-    </ServerAppShell>
+    </>
   );
 }

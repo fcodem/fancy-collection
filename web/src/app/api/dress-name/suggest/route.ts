@@ -16,6 +16,15 @@ export async function GET(req: NextRequest) {
       ...where,
       ...(category ? { category } : {}),
     },
+    select: {
+      id: true,
+      name: true,
+      sku: true,
+      category: true,
+      size: true,
+      color: true,
+      photo: true,
+    },
     take: limit,
     orderBy: [{ name: "asc" }, { size: "asc" }],
   });

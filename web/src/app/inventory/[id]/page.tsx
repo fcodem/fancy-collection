@@ -2,7 +2,6 @@ import Link from "next/link";
 import { redirect, notFound } from "next/navigation";
 import prisma from "@/lib/prisma";
 import { getCurrentUser, isOwner } from "@/lib/auth";
-import ServerAppShell from "@/components/ServerAppShell";
 import InventoryDeleteButton from "@/components/InventoryDeleteButton";
 import { dressDisplayName } from "@/lib/dress";
 import { photoUrl } from "@/lib/photoUrl";
@@ -45,8 +44,7 @@ export default async function InventoryDetailPage({ params }: { params: Promise<
   ];
 
   return (
-    <ServerAppShell>
-      <div className="card" style={{ marginBottom: 16 }}>
+    <div className="card" style={{ marginBottom: 16 }}>
         <div
           className="card-header"
           style={{
@@ -92,6 +90,5 @@ export default async function InventoryDetailPage({ params }: { params: Promise<
           </div>
         </div>
       </div>
-    </ServerAppShell>
   );
 }

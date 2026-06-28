@@ -1,4 +1,5 @@
 import prisma, { parseDateQ } from "../prisma";
+import { unstable_cache } from "next/cache";
 import { activeBookingWhere } from "@/lib/bookingActiveStatus";
 import { whereBookingOverlapsPeriod, whereDeliveryInRange, whereReturnInRange, whereReturnOnAnyDates } from "../bookingDateQuery";
 import { formatDate, parseDate } from "../constants";
@@ -618,6 +619,14 @@ export async function getPackingList(deliveryDateStr: string, returnDateStr: str
   }
   results.sort((a, b) => Number(b.is_star) - Number(a.is_star));
   return results;
+}
+
+export function getPackingListCached(deliveryDateStr: string, returnDateStr: string, categoryFilter = "") {
+  return unstable_cache(
+    () => getPackingList(deliveryDateStr, returnDateStr, categoryFilter),
+    ["packing-list", deliveryDateStr, returnDateStr, categoryFilter],
+    { revalidate: 30, tags: ["packing-list"] },
+  )();
 }
 
 export async function savePackingItem(

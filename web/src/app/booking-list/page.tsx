@@ -1,4 +1,3 @@
-import ServerAppShell from "@/components/ServerAppShell";
 import BookingListClient from "@/components/BookingListClient";
 import { getBookingListData } from "@/lib/services/bookingList";
 import { getAllCategories } from "@/lib/categories";
@@ -12,13 +11,11 @@ export default async function BookingListPage() {
   ]);
 
   return (
-    <ServerAppShell>
-      <BookingListClient
+    <BookingListClient
         initialFrom={today}
         initialTo={today}
         initialData={initialData}
         categories={categories}
       />
-    </ServerAppShell>
   );
 }

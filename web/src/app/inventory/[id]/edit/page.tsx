@@ -1,7 +1,6 @@
 import { redirect, notFound } from "next/navigation";
 import prisma from "@/lib/prisma";
 import { getCurrentUser, isOwner } from "@/lib/auth";
-import ServerAppShell from "@/components/ServerAppShell";
 import InventoryFormClient from "@/components/InventoryFormClient";
 
 export default async function InventoryEditPage({ params }: { params: Promise<{ id: string }> }) {
@@ -13,8 +12,6 @@ export default async function InventoryEditPage({ params }: { params: Promise<{ 
   const item = await prisma.clothingItem.findUnique({ where: { id: parseInt(id, 10) } });
   if (!item) notFound();
   return (
-    <ServerAppShell>
-      <InventoryFormClient item={item as unknown as Record<string, unknown>} />
-    </ServerAppShell>
+    <InventoryFormClient item={item as unknown as Record<string, unknown>} />
   );
 }

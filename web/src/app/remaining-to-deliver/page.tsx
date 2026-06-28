@@ -4,7 +4,6 @@ import {
   whereRemainingToDeliver,
 } from "@/lib/bookingDateQuery";
 import { todayIso } from "@/lib/constants";
-import ServerAppShell from "@/components/ServerAppShell";
 import DownloadPdfButton from "@/components/DownloadPdfButton";
 import { recordBookingPdfHeaders, recordBookingPdfRow, flattenBookingPdfRows } from "@/lib/standardBookingPdfRows";
 import {
@@ -34,8 +33,7 @@ export default async function RemainingToDeliverPage() {
   const { rows: pdfRows, warningsBelow } = flattenBookingPdfRows(pdfResults);
 
   return (
-    <ServerAppShell>
-      <div className="card">
+    <div className="card">
         <div className="card-header">
           <h3 className="card-title">Remaining to Deliver ({bookings.length})</h3>
           {bookings.length > 0 && (
@@ -88,6 +86,5 @@ export default async function RemainingToDeliverPage() {
           )}
         </div>
       </div>
-    </ServerAppShell>
   );
 }

@@ -1,5 +1,4 @@
 import { notFound, redirect } from "next/navigation";
-import ServerAppShell from "@/components/ServerAppShell";
 import DashboardStatListClient from "@/components/DashboardStatListClient";
 import { getCurrentUser } from "@/lib/auth";
 import {
@@ -42,8 +41,7 @@ export default async function DashboardStatListPage({
   ].sort((a, b) => a.localeCompare(b));
 
   return (
-    <ServerAppShell>
-      <DashboardStatListClient
+    <DashboardStatListClient
         listType={listType}
         title={meta.title}
         description={meta.description}
@@ -51,6 +49,5 @@ export default async function DashboardStatListPage({
         categories={categories}
         todayIso={todayIso()}
       />
-    </ServerAppShell>
   );
 }

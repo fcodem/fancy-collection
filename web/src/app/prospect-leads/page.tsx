@@ -1,6 +1,5 @@
 import Link from "next/link";
 import prisma from "@/lib/prisma";
-import ServerAppShell from "@/components/ServerAppShell";
 import ProspectLeadActions from "@/components/ProspectLeadActions";
 import ShopEnquiryDeleteButton from "@/components/ShopEnquiryDeleteButton";
 import { dressDisplayName } from "@/lib/dress";
@@ -19,7 +18,7 @@ export default async function ProspectLeadsPage() {
   ]);
 
   return (
-    <ServerAppShell>
+    <>
       <div className="card" style={{ marginBottom: 24 }}>
         <div className="card-header" style={{ display: "flex", justifyContent: "space-between", alignItems: "center", flexWrap: "wrap", gap: 12 }}>
           <h3 className="card-title">
@@ -171,6 +170,6 @@ export default async function ProspectLeadsPage() {
           )}
         </div>
       </div>
-    </ServerAppShell>
+    </>
   );
 }

@@ -1,15 +1,13 @@
-import ServerAppShell from "@/components/ServerAppShell";
 import BookingSearchPage from "@/components/BookingSearchPage";
 import { getAllCategories } from "@/lib/categories";
 import { todayIso } from "@/lib/constants";
 
-export const dynamic = "force-dynamic";
+export const revalidate = 30;
 
 export default async function ReturnPage() {
   const categories = await getAllCategories();
   return (
-    <ServerAppShell>
-      <BookingSearchPage
+    <BookingSearchPage
         title="Booking Return"
         apiPath="/api/return/search"
         detailHref="/return/{id}"
@@ -24,6 +22,5 @@ export default async function ReturnPage() {
         todayIso={todayIso()}
         hint="Shows bookings for the selected date first, then ±1 day, then other dates. Category is optional."
       />
-    </ServerAppShell>
   );
 }

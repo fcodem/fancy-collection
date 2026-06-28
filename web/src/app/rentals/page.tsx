@@ -2,13 +2,11 @@ import { redirect } from "next/navigation";
 import Link from "next/link";
 import prisma from "@/lib/prisma";
 import { getCurrentUser, isOwner } from "@/lib/auth";
-import ServerAppShell from "@/components/ServerAppShell";
 
 export default async function RentalsPage() {
 const rentals = await prisma.rental.findMany({ include: { customer: true }, orderBy: { createdAt: "desc" }, take: 100 });
   return (
-    <ServerAppShell>
-      <div className="card">
+    <div className="card">
         <div className="card-header"><h3 className="card-title">Rentals (Legacy)</h3></div>
         <div className="card-body p-0">
           <table className="data-table">
@@ -27,6 +25,5 @@ const rentals = await prisma.rental.findMany({ include: { customer: true }, orde
           </table>
         </div>
       </div>
-    </ServerAppShell>
   );
 }

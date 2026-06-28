@@ -2,7 +2,6 @@ import { Suspense } from "react";
 import { redirect, notFound } from "next/navigation";
 import prisma from "@/lib/prisma";
 import { getCurrentUser, isOwner } from "@/lib/auth";
-import ServerAppShell from "@/components/ServerAppShell";
 import BookingViewClient from "@/components/BookingViewClient";
 import BookingQrDisplay from "@/components/BookingQrDisplay";
 import BookingQrSkeleton from "@/components/BookingQrSkeleton";
@@ -30,8 +29,7 @@ export default async function BookingViewPage({ params }: { params: Promise<{ id
   const warningItems = await loadWarningItemsForBooking(booking);
 
   return (
-    <ServerAppShell>
-      <BookingViewClient
+    <BookingViewClient
         isOwner={isOwner(user)}
         warningItems={warningItems}
         booking={{
@@ -45,6 +43,5 @@ export default async function BookingViewPage({ params }: { params: Promise<{ id
           </Suspense>
         }
       />
-    </ServerAppShell>
   );
 }

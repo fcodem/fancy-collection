@@ -2,7 +2,6 @@ import { redirect, notFound } from "next/navigation";
 import Link from "next/link";
 import { getCustomer } from "@/lib/services/customersOps";
 import { getCurrentUser, isOwner } from "@/lib/auth";
-import ServerAppShell from "@/components/ServerAppShell";
 import CustomerFormClient from "@/components/CustomerFormClient";
 
 export default async function CustomerDetailPage({ params }: { params: Promise<{ id: string }> }) {
@@ -15,7 +14,7 @@ export default async function CustomerDetailPage({ params }: { params: Promise<{
   if (!customer) notFound();
 
   return (
-    <ServerAppShell>
+    <>
       <div style={{ marginBottom: 16 }}><Link href="/customers" className="btn btn-outline btn-sm">← Back</Link></div>
       <CustomerFormClient customer={customer as unknown as Record<string, unknown>} />
       {customer.rentals.length > 0 && (
@@ -33,6 +32,6 @@ export default async function CustomerDetailPage({ params }: { params: Promise<{
           </div>
         </div>
       )}
-    </ServerAppShell>
+    </>
   );
 }

@@ -2,7 +2,6 @@ import Link from "next/link";
 import prisma from "@/lib/prisma";
 import { whereReturnBefore } from "@/lib/bookingDateQuery";
 import { todayIso } from "@/lib/constants";
-import ServerAppShell from "@/components/ServerAppShell";
 import DownloadPdfButton from "@/components/DownloadPdfButton";
 import { recordBookingPdfHeaders, recordBookingPdfRow, flattenBookingPdfRows } from "@/lib/standardBookingPdfRows";
 import {
@@ -41,8 +40,7 @@ export default async function LateReturnPage() {
   const { rows: pdfRows, warningsBelow } = flattenBookingPdfRows(pdfResults);
 
   return (
-    <ServerAppShell>
-      <div className="card">
+    <div className="card">
         <div className="card-header">
           <h3 className="card-title" style={{ color: "var(--danger)" }}>Late Returns ({bookings.length})</h3>
           {bookings.length > 0 && (
@@ -88,6 +86,5 @@ export default async function LateReturnPage() {
           )}
         </div>
       </div>
-    </ServerAppShell>
   );
 }

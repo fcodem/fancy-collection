@@ -14,6 +14,12 @@ const PWA_ASSET_PATHS = [
 export async function middleware(request: NextRequest) {
   const { pathname } = request.nextUrl;
 
+  const passThrough = () => {
+    const res = NextResponse.next();
+    res.headers.set("x-pathname", pathname);
+    return res;
+  };
+
   if (
     PUBLIC_PATHS.some((p) => pathname === p || pathname.startsWith(p + "/")) ||
     PWA_ASSET_PATHS.includes(pathname) ||
@@ -25,7 +31,7 @@ export async function middleware(request: NextRequest) {
     pathname.startsWith("/uploads") ||
     pathname === "/favicon.ico"
   ) {
-    return NextResponse.next();
+    return passThrough();
   }
 
   const sessionCookie = request.cookies.get("fancy_collection_session");
@@ -33,7 +39,7 @@ export async function middleware(request: NextRequest) {
     return NextResponse.redirect(new URL("/login", request.url));
   }
 
-  return NextResponse.next();
+  return passThrough();
 }
 
 export const config = {

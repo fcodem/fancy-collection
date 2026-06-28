@@ -1,5 +1,6 @@
 import { activeBookingWhere } from "@/lib/bookingActiveStatus";
 import { whereDeliveryInRange } from "@/lib/bookingDateQuery";
+import prisma, { dateQ, endOfMonthQ, startOfMonthQ } from "@/lib/prisma";
 import {
   parseDate,
   todayIso,
@@ -27,7 +28,7 @@ export type SearchResponse = {
 } & SearchPageMeta;
 
 /** Lean include for list/search — avoids loading full inventory rows. */
-const bookingListInclude = {
+export const bookingListInclude = {
   bookingItems: {
     select: {
       dressName: true,
@@ -53,6 +54,16 @@ export function words(q: string) {
 
 export function digitsOnly(q: string) {
   return q.replace(/\D/g, "");
+}
+
+/** <=3 digits = monthly serial; >3 digits = phone / WhatsApp (contact1, whatsappNo). */
+export function classifyNumericSearch(q: string): "serial" | "phone" | null {
+  const trimmed = q.trim();
+  if (/^\d+$/.test(trimmed)) {
+    return trimmed.length <= 3 ? "serial" : "phone";
+  }
+  if (digitsOnly(trimmed).length > 3) return "phone";
+  return null;
 }
 
 export function relevanceScore(b: Booking, refDate?: Date) {
@@ -269,29 +280,24 @@ export async function dashboardSearchBookings(queryText: string, refDateStr?: st
   ];
 
   if (isSerialQuery) {
-    let results: BookingWithItems[] = [];
     if (q.length <= 3) {
       const serial = parseInt(q, 10);
       if (!Number.isNaN(serial)) {
-        results = await searchDashboardBySerial(serial, refDate);
+        const results = await searchDashboardBySerial(serial, refDate);
+        return dashboardResults(results, "serial");
       }
-    } else {
-      const serialFromPrefix = parseInt(q.slice(0, 3), 10);
-      if (!Number.isNaN(serialFromPrefix)) {
-        results = await searchDashboardBySerial(serialFromPrefix, refDate);
-      }
-      const phoneRows = await fetchBookings(
-        { ...phoneWhere(q), status: { in: [...DASHBOARD_ACTIVE_STATUSES] } },
-        orderBy,
-        DASHBOARD_SEARCH_LIMIT,
-      );
-      results = dedupeById([...results, ...phoneRows]);
+      return dashboardResults([], "serial");
     }
-    const active = filterDashboardActive(results).slice(0, DASHBOARD_SEARCH_LIMIT);
-    return dashboardResults(active, q.length <= 3 ? "serial" : "mixed");
+    const page = await fetchBookingsPage(
+      { ...phoneWhere(q), status: { in: [...DASHBOARD_ACTIVE_STATUSES] } },
+      orderBy,
+      1,
+      DASHBOARD_SEARCH_LIMIT,
+    );
+    return dashboardResults(page.rows, "phone", page);
   }
 
-  if (digitsOnly(q).length >= 10) {
+  if (classifyNumericSearch(q) === "phone") {
     const page = await fetchBookingsPage(
       { ...phoneWhere(q), status: { in: [...DASHBOARD_ACTIVE_STATUSES] } },
       orderBy,
@@ -360,20 +366,35 @@ export async function universalSearchBookings(
   }
 
   if (/^\d+$/.test(q)) {
-    const serialFromPrefix = parseInt(q.slice(0, 3), 10);
-    let where: Prisma.BookingWhereInput = { ...yearFilter, ...catFilter };
-    let mode: SearchMode = q.length <= 3 ? "serial" : "mixed";
-    if (!Number.isNaN(serialFromPrefix)) {
-      where = { ...where, monthlySerial: serialFromPrefix };
+    if (q.length <= 3) {
+      const serial = parseInt(q, 10);
+      if (Number.isNaN(serial)) {
+        return { mode: "serial", results: [], total: 0, page, pageSize, hasMore: false };
+      }
+      const pageResult = await fetchBookingsPage(
+        { ...yearFilter, ...catFilter, monthlySerial: serial },
+        orderBy,
+        page,
+        pageSize,
+      );
+      return {
+        mode: "serial",
+        results: pageResult.rows.map(serializeBookingForList),
+        total: pageResult.total,
+        page: pageResult.page,
+        pageSize: pageResult.pageSize,
+        hasMore: pageResult.hasMore,
+      };
     }
-    if (q.length > 3) {
-      where = { ...where, OR: [{ monthlySerial: serialFromPrefix }, phoneWhere(q)] };
-      mode = "mixed";
-    }
-    const pageResult = await fetchBookingsPage(where, orderBy, page, pageSize);
+    const pageResult = await fetchBookingsPage(
+      { ...phoneWhere(q), ...yearFilter, ...catFilter },
+      orderBy,
+      page,
+      pageSize,
+    );
     return {
-      mode,
-      results: pageResult.rows.map(serializeBookingForList),
+      mode: "phone",
+      results: sortByRelevance(pageResult.rows, refDate).map(serializeBookingForList),
       total: pageResult.total,
       page: pageResult.page,
       pageSize: pageResult.pageSize,
@@ -381,7 +402,7 @@ export async function universalSearchBookings(
     };
   }
 
-  if (digitsOnly(q).length >= 10) {
+  if (classifyNumericSearch(q) === "phone") {
     const pageResult = await fetchBookingsPage(
       { ...phoneWhere(q), ...yearFilter, ...catFilter },
       orderBy,
@@ -431,7 +452,7 @@ export async function universalSearchBookings(
   };
 }
 
-function activeBookingWhere(category: string): Prisma.BookingWhereInput {
+function activeStatusBookingWhere(category: string): Prisma.BookingWhereInput {
   return {
     status: { in: ["booked", "delivered"] },
     ...categoryWhere(category),
@@ -439,23 +460,20 @@ function activeBookingWhere(category: string): Prisma.BookingWhereInput {
 }
 
 function buildActiveQueryWhere(q: string, category: string): { where: Prisma.BookingWhereInput; mode: SearchMode } {
-  const base = activeBookingWhere(category);
+  const base = activeStatusBookingWhere(category);
 
   if (/^\d+$/.test(q)) {
-    const serial = parseInt(q.slice(0, 3), 10);
-    if (q.length > 3 && !Number.isNaN(serial)) {
-      return {
-        where: { ...base, OR: [{ monthlySerial: serial }, phoneWhere(q)] },
-        mode: "mixed",
-      };
+    if (q.length <= 3) {
+      const serial = parseInt(q, 10);
+      if (!Number.isNaN(serial)) {
+        return { where: { ...base, monthlySerial: serial }, mode: "serial" };
+      }
+    } else {
+      return { where: { ...base, ...phoneWhere(q) }, mode: "phone" };
     }
-    if (!Number.isNaN(serial)) {
-      return { where: { ...base, monthlySerial: serial }, mode: "serial" };
-    }
-    return { where: { ...base, ...phoneWhere(q) }, mode: "phone" };
   }
 
-  if (digitsOnly(q).length >= 10) {
+  if (classifyNumericSearch(q) === "phone") {
     return { where: { ...base, ...phoneWhere(q) }, mode: "phone" };
   }
 
@@ -495,7 +513,7 @@ export async function monthBasedSearchBookings(
   if (!q) {
     const monthWhere = await monthDeliveryWhereFromRefDate(new Date(Date.UTC(y, m, 15)));
     const pageResult = await fetchBookingsPage(
-      { ...monthWhere, ...activeBookingWhere(category) },
+      { ...monthWhere, ...activeStatusBookingWhere(category) },
       orderBy,
       page,
       pageSize,
@@ -519,7 +537,7 @@ export async function monthBasedSearchBookings(
   let pageResult = await fetchBookingsPage(where, orderBy, page, pageSize);
 
   if (!pageResult.total && mode === "customer") {
-    ({ where, mode } = { where: { ...activeBookingWhere(category), ...dressNameWhere(q) }, mode: "dress" });
+    ({ where, mode } = { where: { ...activeStatusBookingWhere(category), ...dressNameWhere(q) }, mode: "dress" });
     pageResult = await fetchBookingsPage(where, orderBy, page, pageSize);
   }
 
@@ -529,7 +547,7 @@ export async function monthBasedSearchBookings(
     pageResult = await fetchBookingsPage({ ...where, ...nearMonth }, orderBy, page, pageSize);
     if (!pageResult.total && mode === "customer") {
       pageResult = await fetchBookingsPage(
-        { ...activeBookingWhere(category), ...dressNameWhere(q), ...nearMonth },
+        { ...activeStatusBookingWhere(category), ...dressNameWhere(q), ...nearMonth },
         orderBy,
         page,
         pageSize,

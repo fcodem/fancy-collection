@@ -21,8 +21,11 @@ const nextConfig: NextConfig = {
     serverActions: {
       bodySizeLimit: "50mb",
     },
-    proxyClientMaxBodySize: "50mb",
-    optimizePackageImports: ["@prisma/client"],
+    optimizePackageImports: ["@prisma/client", "@fullcalendar/react", "@fullcalendar/daygrid", "@fullcalendar/interaction"],
+    staleTimes: {
+      dynamic: 30,
+      static: 180,
+    },
   },
   async headers() {
     return [

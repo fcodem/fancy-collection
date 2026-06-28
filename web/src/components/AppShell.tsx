@@ -400,14 +400,15 @@ function AppLayoutInner({
           )}
           <div className="nav-section-label" style={{ marginTop: 8 }}>Quick Actions</div>
           {NAV_QUICK.filter((item) => item.href !== "/inventory/add" || isOwner).map((item) => (
-            <a
+            <Link
               key={item.href}
               href={item.href}
+              prefetch
               className={`nav-item ${pathname === item.href ? "active" : ""}`}
               onClick={onCloseMobile}
             >
               <i className={`fa-solid ${item.icon}`} /> <span className="nav-label">{item.label}</span>
-            </a>
+            </Link>
           ))}
         </nav>
         <div className="sidebar-footer">
@@ -442,9 +443,9 @@ function AppLayoutInner({
           </div>
           <div className="header-actions">
             <OnlineIndicator />
-            <a href="/booking/new" className="btn btn-primary btn-sm">
+            <Link href="/booking/new" prefetch className="btn btn-primary btn-sm">
               <i className="fa-solid fa-plus" /> New Booking
-            </a>
+            </Link>
           </div>
         </header>
         <div className="page-content page-body">{children}</div>

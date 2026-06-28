@@ -1,6 +1,5 @@
 import { notFound } from "next/navigation";
 import prisma from "@/lib/prisma";
-import ServerAppShell from "@/components/ServerAppShell";
 import ReturnDetailClient from "@/components/ReturnDetailClient";
 import { serializeBookingItemRows } from "@/lib/dress";
 import { formatDate } from "@/lib/constants";
@@ -63,8 +62,7 @@ export default async function ReturnDetailPage({ params }: { params: Promise<{ i
       : [];
 
   return (
-    <ServerAppShell>
-      <ReturnDetailClient
+    <ReturnDetailClient
         booking={{
           ...booking,
           deliveryDate: formatDate(booking.deliveryDate),
@@ -77,6 +75,5 @@ export default async function ReturnDetailPage({ params }: { params: Promise<{ i
         itemDelivery={itemDelivery}
         warningItems={warningItems}
       />
-    </ServerAppShell>
   );
 }

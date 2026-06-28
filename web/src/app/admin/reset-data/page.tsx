@@ -1,6 +1,5 @@
 import { redirect } from "next/navigation";
 import { getCurrentUser, isOwner } from "@/lib/auth";
-import ServerAppShell from "@/components/ServerAppShell";
 import ResetDataClient from "@/components/ResetDataClient";
 
 export default async function ResetDataPage() {
@@ -8,8 +7,6 @@ export default async function ResetDataPage() {
   if (!user) redirect("/login");
   if (!isOwner(user)) redirect("/");
   return (
-    <ServerAppShell>
-      <ResetDataClient />
-    </ServerAppShell>
+    <ResetDataClient />
   );
 }

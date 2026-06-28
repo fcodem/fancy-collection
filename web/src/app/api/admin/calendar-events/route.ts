@@ -53,23 +53,27 @@ export async function GET() {
 
 
   const bookings = await prisma.booking.findMany({
-
     where: {
-
       ...activeBookingWhere(),
-
       deliveryDate: { gte: rangeStart, lte: rangeEnd },
-
     },
-
-    include: {
-
-      bookingItems: { select: { id: true } },
-
+    select: {
+      id: true,
+      monthlySerial: true,
+      customerName: true,
+      contact1: true,
+      whatsappNo: true,
+      deliveryDate: true,
+      deliveryTime: true,
+      totalAdvance: true,
+      advance: true,
+      totalPrice: true,
+      price: true,
+      dressName: true,
+      status: true,
+      bookingItems: { select: { id: true, isDelivered: true } },
     },
-
     orderBy: [{ deliveryDate: "asc" }, { deliveryTime: "asc" }],
-
   });
 
 

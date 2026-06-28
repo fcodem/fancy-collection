@@ -1,7 +1,6 @@
 import { redirect } from "next/navigation";
 import prisma from "@/lib/prisma";
 import { getCurrentUser, isOwner } from "@/lib/auth";
-import ServerAppShell from "@/components/ServerAppShell";
 import StaffAttendanceClient from "@/components/StaffAttendanceClient";
 import { todayIso } from "@/lib/constants";
 
@@ -19,13 +18,11 @@ export default async function StaffAttendancePage() {
   ]);
 
   return (
-    <ServerAppShell>
-      <StaffAttendanceClient
+    <StaffAttendanceClient
         staffList={staffList}
         allUsers={allUsers}
         isOwner
         initialToday={todayIso()}
       />
-    </ServerAppShell>
   );
 }

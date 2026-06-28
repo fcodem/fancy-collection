@@ -1,5 +1,4 @@
 import prisma from "@/lib/prisma";
-import ServerAppShell from "@/components/ServerAppShell";
 import BookingFormClient from "@/components/BookingFormClient";
 import { getAllCategories } from "@/lib/categories";
 import { todayIso } from "@/lib/constants";
@@ -22,8 +21,7 @@ export default async function NewBookingPage({
   ]);
 
   return (
-    <ServerAppShell>
-      <BookingFormClient
+    <BookingFormClient
         today={todayIso()}
         saveConfirmedSerial={saveConfirmedSerial}
         staffList={staff.map((s) => s.name)}
@@ -32,6 +30,5 @@ export default async function NewBookingPage({
         jewelleryCategories={cats.jewellery_categories}
         accessoryCategories={cats.accessory_categories}
       />
-    </ServerAppShell>
   );
 }

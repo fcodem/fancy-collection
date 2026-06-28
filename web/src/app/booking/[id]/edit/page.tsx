@@ -2,7 +2,6 @@ import { redirect, notFound } from "next/navigation";
 import prisma from "@/lib/prisma";
 import { getCurrentUser, isOwner } from "@/lib/auth";
 import { isBookingLocked } from "@/lib/bookingLock";
-import ServerAppShell from "@/components/ServerAppShell";
 import BookingFormClient from "@/components/BookingFormClient";
 import { getAllCategories } from "@/lib/categories";
 import { todayIso } from "@/lib/constants";
@@ -45,8 +44,7 @@ export default async function EditBookingPage({
   const staff = await prisma.staff.findMany({ where: { active: true }, orderBy: { name: "asc" } });
 
   return (
-    <ServerAppShell>
-      <BookingFormClient
+    <BookingFormClient
         today={todayIso()}
         editId={booking.id}
         readOnly={readOnly}
@@ -84,6 +82,5 @@ export default async function EditBookingPage({
         jewelleryCategories={cats.jewellery_categories}
         accessoryCategories={cats.accessory_categories}
       />
-    </ServerAppShell>
   );
 }

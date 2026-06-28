@@ -71,6 +71,7 @@ model Customer {
 
   rentals Rental[]
 
+  @@index([phone])
   @@map("customers")
 }
 
@@ -95,6 +96,8 @@ model ClothingItem {
   bookingItems      BookingItem[]
   prospectLeadItems ProspectLeadItem[]
 
+  @@index([status])
+  @@index([category, status])
   @@map("clothing_items")
 }
 
@@ -119,6 +122,8 @@ model Rental {
   items    RentalItem[]
   invoices Invoice[]
 
+  @@index([customerId])
+  @@index([status, endDate])
   @@map("rentals")
 }
 
