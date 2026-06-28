@@ -240,6 +240,8 @@ model Booking {
   @@index([customerName])
   @@index([contact1])
   @@index([whatsappNo])
+  @@index([createdAt])
+  @@index([customerName, deliveryDate])
   @@map("bookings")
 }
 
@@ -276,6 +278,7 @@ model BookingItem {
   @@index([dressName])
   @@index([category])
   @@index([bookingId])
+  @@index([bookingId, dressName])
   @@map("booking_items")
 }
 

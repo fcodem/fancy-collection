@@ -172,7 +172,7 @@ export default function AppShell({
         })
         .catch(() => {});
     }
-    loadNavCounts();
+    // RealtimeProvider updates badge every poll cycle; focus listener refreshes on tab return.
     window.addEventListener("focus", loadNavCounts);
     return () => {
       cancelled = true;
@@ -197,8 +197,12 @@ export default function AppShell({
         })
         .catch(() => {});
     }
-    loadWhatsappUnread();
-    const interval = setInterval(loadWhatsappUnread, 30000);
+    function loadWhatsappUnreadIfVisible() {
+      if (document.hidden) return;
+      loadWhatsappUnread();
+    }
+    loadWhatsappUnreadIfVisible();
+    const interval = setInterval(loadWhatsappUnreadIfVisible, 120_000);
     return () => {
       cancelled = true;
       clearInterval(interval);

@@ -1,6 +1,7 @@
 "use client";
 
 import Link from "next/link";
+import { useRouter } from "next/navigation";
 import { useCallback, useEffect, useRef, useState } from "react";
 import DressNameSuggestInput from "@/components/DressNameSuggestInput";
 import { formatDate } from "@/lib/constants";
@@ -114,6 +115,7 @@ function serialLabel(n: number) {
 
 export default function DashboardView({ data: initialData, isOwner, pendingStaff, activeStaff }: DashboardProps) {
   const toast = useToast();
+  const router = useRouter();
   const [data, setData] = useState(initialData);
   const showFreePanelRef = useRef(false);
   const refreshTimerRef = useRef<ReturnType<typeof setTimeout> | null>(null);
@@ -151,7 +153,7 @@ export default function DashboardView({ data: initialData, isOwner, pendingStaff
     try {
       await fetchJson(`/api/staff-login-request/${id}/approve`, { method: "POST" });
       toast("Staff login approved", "success");
-      window.location.reload();
+      router.refresh();
     } catch (e) {
       toast(e instanceof Error ? e.message : "Failed", "error");
     }
@@ -161,7 +163,7 @@ export default function DashboardView({ data: initialData, isOwner, pendingStaff
     try {
       await fetchJson(`/api/staff-login-request/${id}/reject`, { method: "POST" });
       toast("Request denied", "info");
-      window.location.reload();
+      router.refresh();
     } catch (e) {
       toast(e instanceof Error ? e.message : "Failed", "error");
     }
@@ -172,7 +174,7 @@ export default function DashboardView({ data: initialData, isOwner, pendingStaff
     try {
       await fetchJson(`/api/staff-session/${id}/force-logout`, { method: "POST" });
       toast("Staff logged out", "success");
-      window.location.reload();
+      router.refresh();
     } catch (e) {
       toast(e instanceof Error ? e.message : "Failed", "error");
     }

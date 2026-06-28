@@ -1,7 +1,6 @@
 "use client";
 
 import type { CSSProperties } from "react";
-import { downloadTablePdf, type PdfTableOptions } from "@/lib/exportTablePdf";
 import { pdfDataFromTable } from "@/lib/pdfTableExtract";
 import type { PdfWarningPanel } from "@/lib/pdfWarningDraw";
 
@@ -39,7 +38,7 @@ export default function DownloadPdfButton({
   const sizeClass = size === "sm" ? " btn-sm" : "";
   const noData = rows ? rows.length === 0 : false;
 
-  function handleClick() {
+  async function handleClick() {
     let pdfHeaders = headers;
     let pdfRows = rows;
 
@@ -53,15 +52,16 @@ export default function DownloadPdfButton({
 
     if (!pdfHeaders?.length || !pdfRows?.length) return;
 
-    const opts: PdfTableOptions = {
+    const { downloadTablePdf } = await import("@/lib/exportTablePdf");
+
+    downloadTablePdf({
       title,
       filename,
       subtitle,
       headers: pdfHeaders,
       rows: pdfRows,
       warningsBelow,
-    };
-    downloadTablePdf(opts);
+    });
   }
 
   return (

@@ -49,7 +49,6 @@ export default function RootLayout({ children }: { children: React.ReactNode }) 
         <meta name="apple-mobile-web-app-title" content={APP_NAME} />
         <link rel="apple-touch-icon" href="/icon-192x192.png" />
         <link rel="stylesheet" href="/css/style.css" />
-        <link rel="stylesheet" href="https://cdnjs.cloudflare.com/ajax/libs/font-awesome/6.5.0/css/all.min.css" />
       </head>
       <body suppressHydrationWarning>
         <ClientProviders>

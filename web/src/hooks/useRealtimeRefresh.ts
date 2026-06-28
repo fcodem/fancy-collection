@@ -30,7 +30,8 @@ export function useRealtimeRefresh(types: ShopEventType[], refresh: () => void) 
       const event = (e as CustomEvent<ShopEvent>).detail;
       if (!event) return;
       if (event.type === "nav.refresh" || typesRef.current.includes(event.type)) {
-        safeRefresh(() => refreshRef.current());
+        const jitter = Math.floor(Math.random() * 800);
+        setTimeout(() => safeRefresh(() => refreshRef.current()), jitter);
       }
     };
 
