@@ -113,6 +113,18 @@ html {
   flex: 1;
   min-width: 0;
   padding-right: 42px;
+  text-transform: none;
+}
+
+input.form-control:not([type="password"]):not([type="number"]):not([type="email"]):not([type="date"]),
+textarea.form-control,
+select.form-control {
+  text-transform: uppercase;
+}
+
+.preserve-case,
+[data-preserve-case] .form-control {
+  text-transform: none !important;
 }
 
 .typeable-date-input__picker-btn {

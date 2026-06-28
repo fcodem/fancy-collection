@@ -1,6 +1,7 @@
 "use client";
 
 import { useRouter } from "next/navigation";
+import Link from "next/link";
 import { useEffect, useState } from "react";
 import { BookingRecordDetails } from "@/components/BookingRecordDetails";
 import BookingItemWarningsBlock, {
@@ -8,10 +9,12 @@ import BookingItemWarningsBlock, {
   findItemWarnings,
 } from "@/components/BookingItemWarningsSection";
 import PhotoCaptureButton from "@/components/PhotoCaptureButton";
+import PaymentModePicker, { type PaymentMode } from "@/components/PaymentModePicker";
 import type { BookingForStandardDetails } from "@/lib/bookingDetails";
 import type { ItemWarningSource } from "@/lib/bookingWarningPdf";
 import { formatInr } from "@/lib/format";
 import { photoUrl } from "@/lib/photoUrl";
+import { deliverySlipHref, hasPartialDelivery } from "@/lib/bookingStatus";
 
 type ItemRow = {
   id: number;
@@ -40,6 +43,8 @@ type BookingData = BookingForStandardDetails & {
   deliveryNotes?: string | null;
   totalRemaining?: number;
   remaining?: number;
+  remainingPaymentMode?: string | null;
+  securityPaymentMode?: string | null;
 };
 
 type ItemFormState = {
@@ -98,6 +103,12 @@ export default function DeliveryDetailClient({
   const [savedIdPhoto2, setSavedIdPhoto2] = useState(idPhoto2);
   const [savingIdPhotos, setSavingIdPhotos] = useState(false);
   const [idPhotoMessage, setIdPhotoMessage] = useState("");
+  const [paymentMode, setPaymentMode] = useState<PaymentMode>(
+    booking.remainingPaymentMode === "online" ? "online" : "cash",
+  );
+  const [securityPaymentMode, setSecurityPaymentMode] = useState<PaymentMode>(
+    booking.securityPaymentMode === "online" ? "online" : "cash",
+  );
 
   useEffect(() => {
     setLocalItems(initialItems);
@@ -110,6 +121,10 @@ export default function DeliveryDetailClient({
   }, [idPhoto1, idPhoto2]);
 
   const allDelivered = localItems.length > 0 ? localItems.every((it) => it.isDelivered) : bookingStatus === "delivered";
+  const partialDelivery = hasPartialDelivery({
+    status: bookingStatus,
+    bookingItems: localItems.map((it) => ({ id: it.id, isDelivered: it.isDelivered })),
+  });
   const hasMultiple = localItems.length > 1;
 
   function applySaveResponse(data: { status?: string; items?: SaveItemResponse[] }) {
@@ -149,6 +164,8 @@ export default function DeliveryDetailClient({
     if (!it) { setSaving(false); return; }
 
     const payload = {
+      payment_mode: paymentMode,
+      security_payment_mode: securityPaymentMode,
       items: [{
         booking_item_id: itemId,
         remaining_collected: Number(itemForms[itemId]?.remaining) || 0,
@@ -181,6 +198,8 @@ export default function DeliveryDetailClient({
     const pending = localItems.filter((it) => !it.isDelivered);
     if (!pending.length) { setSaving(false); return; }
     const payload = {
+      payment_mode: paymentMode,
+      security_payment_mode: securityPaymentMode,
       items: pending.map((it) => ({
         booking_item_id: it.id,
         remaining_collected: Number(itemForms[it.id]?.remaining) || 0,
@@ -258,6 +277,18 @@ export default function DeliveryDetailClient({
   return (
     <div>
       {allDelivered && (
+        <div style={{ display: "flex", gap: 12, marginBottom: 16, flexWrap: "wrap" }} className="no-print">
+          <Link
+            href={`/booking/${booking.id}/delivery-slip`}
+            className="btn btn-primary"
+            style={{ background: "#1565c0", border: "none" }}
+          >
+            <i className="fa-solid fa-truck-fast" style={{ marginRight: 6 }} />
+            View Delivery Slip
+          </Link>
+        </div>
+      )}
+      {allDelivered && (
         <div className="alert alert-info" style={{ marginBottom: 16 }}>
           <i className="fa-solid fa-circle-check" style={{ marginRight: 8 }} />
           All dresses delivered. Scroll down to edit booking details if needed.
@@ -266,7 +297,7 @@ export default function DeliveryDetailClient({
       {!allDelivered && isDelivered && (
         <div className="alert alert-warning" style={{ marginBottom: 16 }}>
           <i className="fa-solid fa-triangle-exclamation" style={{ marginRight: 8 }} />
-          Some dresses are not yet delivered. Mark each dress individually below.
+          Some dresses are not yet delivered. Mark each dress below — use the Delivery Slip button on each delivered dress.
         </div>
       )}
 
@@ -355,6 +386,22 @@ export default function DeliveryDetailClient({
           </h3>
         </div>
         <div className="card-body">
+          {!allDelivered && (
+            <div style={{ marginBottom: 16, padding: 16, background: "var(--cream-dark)", borderRadius: 10, display: "flex", flexDirection: "column", gap: 16 }}>
+              <PaymentModePicker
+                value={paymentMode}
+                onChange={setPaymentMode}
+                label="Balance Payment Mode *"
+                name="deliveryPaymentMode"
+              />
+              <PaymentModePicker
+                value={securityPaymentMode}
+                onChange={setSecurityPaymentMode}
+                label="Security Deposit Payment Mode *"
+                name="deliverySecurityPaymentMode"
+              />
+            </div>
+          )}
           {localItems.map((it) => (
             <div
               key={it.id}
@@ -441,13 +488,31 @@ export default function DeliveryDetailClient({
                 </button>
               )}
               {it.isDelivered && !editingDelivered[it.id] && (
-                <button
-                  className="btn btn-outline btn-sm"
-                  onClick={() => setEditingDelivered((prev) => ({ ...prev, [it.id]: true }))}
-                >
-                  <i className="fa-solid fa-pen" style={{ marginRight: 6 }} />
-                  Edit Delivered Record
-                </button>
+                <div style={{ display: "flex", gap: 8, flexWrap: "wrap" }}>
+                  <button
+                    className="btn btn-outline btn-sm"
+                    onClick={() => setEditingDelivered((prev) => ({ ...prev, [it.id]: true }))}
+                  >
+                    <i className="fa-solid fa-pen" style={{ marginRight: 6 }} />
+                    Edit Delivered Record
+                  </button>
+                  {partialDelivery && (
+                    <Link
+                      href={deliverySlipHref(booking.id, {
+                        status: booking.status,
+                        bookingItems: localItems.map((row) => ({
+                          id: row.id,
+                          isDelivered: row.isDelivered,
+                        })),
+                      }, it.id)}
+                      className="btn btn-outline btn-sm"
+                      style={{ color: "#1565c0", borderColor: "#1565c0" }}
+                    >
+                      <i className="fa-solid fa-truck-fast" style={{ marginRight: 6 }} />
+                      Delivery Slip
+                    </Link>
+                  )}
+                </div>
               )}
               {it.isDelivered && editingDelivered[it.id] && (
                 <div style={{ display: "flex", gap: 8 }}>

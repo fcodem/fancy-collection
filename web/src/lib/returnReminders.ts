@@ -1,35 +1,33 @@
 import prisma from "@/lib/prisma";
 import { todayIso } from "@/lib/constants";
 import { whereReturnInRange } from "@/lib/bookingDateQuery";
-import { formatDate } from "@/lib/constants";
-import { isAisensyConfigured, aisensyCampaign } from "@/lib/aisensy";
-import {
-  buildReturnReminderMessage,
-  deliverWhatsApp,
-  returnReminderTemplateParams,
-} from "@/lib/whatsapp";
-import { sendTwilioSms } from "@/lib/twilio";
+import { sendBookingReminderWhatsApp } from "@/lib/services/whatsapp/automatedMessages";
 
 const EXCLUDED_STATUSES = ["returned", "completed", "cancelled"] as const;
 
+/**
+ * Safety-net daily cron (9 AM IST) that sends return reminders for bookings
+ * due today via the Meta WhatsApp Cloud API.
+ *
+ * The job queue (/api/cron/whatsapp-jobs, every 15 min) handles reminders
+ * scheduled in advance. This cron catches any that were missed.
+ */
 export async function sendDailyReturnReminders() {
   const todayStr = todayIso();
-  const useAisensy = isAisensyConfigured() && Boolean(aisensyCampaign("return"));
 
   const bookings = await prisma.booking.findMany({
     where: {
       ...(await whereReturnInRange(todayStr, todayStr)),
       status: { notIn: [...EXCLUDED_STATUSES] },
     },
-    include: { bookingItems: { select: { dressName: true } } },
-    orderBy: { returnTime: "asc" },
+    select: { id: true },
+    orderBy: { returnDate: "asc" },
   });
 
   const results: Array<{
     bookingId: number;
-    phone: string;
     ok: boolean;
-    channel?: "aisensy" | "twilio" | "manual";
+    channel?: "meta_whatsapp";
     error?: string;
     skipped?: boolean;
   }> = [];
@@ -39,49 +37,15 @@ export async function sendDailyReturnReminders() {
     const batch = bookings.slice(i, i + BATCH_SIZE);
     const batchResults = await Promise.all(
       batch.map(async (booking) => {
-        const phone = (booking.whatsappNo || booking.contact1 || "").trim();
-        if (!phone) {
-          return { bookingId: booking.id, phone: "", ok: false, error: "No phone number", skipped: true };
-        }
-
-        const reminderOpts = {
-          customerName: booking.customerName,
-          serialNo: booking.monthlySerial,
-          returnDate: formatDate(booking.returnDate, "display"),
-          returnTime: booking.returnTime,
-        };
-
-        if (useAisensy) {
-          const message = buildReturnReminderMessage(reminderOpts);
-          const sent = await deliverWhatsApp({
-            phone,
-            userName: booking.customerName,
-            message,
-            campaignType: "return",
-            templateParams: returnReminderTemplateParams(reminderOpts),
-            source: `return-reminder-${booking.id}`,
-          });
-          return {
-            bookingId: booking.id,
-            phone,
-            ok: sent.delivered,
-            channel: sent.delivered ? ("aisensy" as const) : ("manual" as const),
-            error: sent.delivered ? undefined : sent.error || "AiSensy send failed",
-            skipped: !sent.delivered && !sent.error,
-          };
-        }
-
-        const smsBody = buildReturnReminderMessage(reminderOpts);
-        const sent = await sendTwilioSms(phone, smsBody);
+        const result = await sendBookingReminderWhatsApp(booking.id);
         return {
           bookingId: booking.id,
-          phone,
-          ok: sent.ok,
-          channel: sent.ok ? ("twilio" as const) : undefined,
-          error: sent.ok ? undefined : sent.error,
-          skipped: !sent.ok && "skipped" in sent ? sent.skipped : undefined,
+          ok: result.ok,
+          channel: result.ok ? ("meta_whatsapp" as const) : undefined,
+          error: result.ok ? undefined : result.error,
+          skipped: result.skipped,
         };
-      })
+      }),
     );
     results.push(...batchResults);
   }
@@ -92,7 +56,7 @@ export async function sendDailyReturnReminders() {
 
   return {
     date: todayStr,
-    channel: useAisensy ? "aisensy" : "twilio",
+    channel: "meta_whatsapp",
     total: bookings.length,
     sent,
     failed,

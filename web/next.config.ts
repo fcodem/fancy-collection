@@ -24,6 +24,19 @@ const nextConfig: NextConfig = {
     proxyClientMaxBodySize: "50mb",
     optimizePackageImports: ["@prisma/client"],
   },
+  async headers() {
+    return [
+      {
+        source: "/(.*)",
+        headers: [
+          {
+            key: "Permissions-Policy",
+            value: "camera=(self), microphone=(self)",
+          },
+        ],
+      },
+    ];
+  },
 };
 
 const configWithPwa = withPWA(nextConfig);

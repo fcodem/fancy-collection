@@ -9,7 +9,7 @@ import DeliveredCancelBooking from "@/components/DeliveredCancelBooking";
 import BookingWhatsAppButton from "@/components/BookingWhatsAppButton";
 import { isBookingLocked } from "@/lib/bookingLock";
 import type { BookingForStandardDetails } from "@/lib/bookingDetails";
-import { resolveBookingStatus } from "@/lib/bookingStatus";
+import { isDeliverySlipEligible, isCommonDeliverySlipEligible, isIncompleteSlipEligible, isReturnSlipEligible, isCommonReturnSlipEligible, resolveBookingStatus, hasPartialDelivery, hasPartialReturn, deliverySlipHref, returnSlipHref } from "@/lib/bookingStatus";
 import type { ItemWarningSource } from "@/lib/bookingWarningPdf";
 
 function editHref(id: number, status: string) {
@@ -33,9 +33,7 @@ export default function BookingViewClient({
     remainingCollected?: number;
     whatsappNo?: string | null;
     contact1?: string;
-    whatsappStatus?: string | null;
-    publicBookingId?: string | null;
-    bookingItems?: Array<{ isDelivered: boolean }>;
+    bookingItems?: Array<{ id?: number; isDelivered: boolean; isReturned?: boolean; isIncompleteReturn?: boolean }>;
   };
   qrSlot?: React.ReactNode;
   isOwner?: boolean;
@@ -77,7 +75,7 @@ export default function BookingViewClient({
 
   return (
     <div>
-      <div style={{ display: "flex", gap: 12, marginBottom: 20, flexWrap: "wrap" }} className="no-print">
+      <div style={{ display: "flex", gap: 8, marginBottom: 20, flexWrap: "wrap" }} className="no-print">
         {canModify && (
           <Link href={editHref(booking.id, status)} className="btn btn-outline">
             {isDelivered ? "Edit (Delivery)" : "Edit"}
@@ -89,11 +87,73 @@ export default function BookingViewClient({
             Unlock &amp; Edit
           </Link>
         )}
-        <Link href={`/booking/${booking.id}/print`} className="btn btn-primary">Print Bill</Link>
+        <Link
+          href={`/booking/${booking.id}/slip`}
+          className="btn btn-outline slip-action-btn"
+          style={{ color: "#1a5c2a", borderColor: "#1a5c2a", minHeight: 44, display: "inline-flex", alignItems: "center", gap: 6 }}
+          title="Booking Slip"
+        >
+          <i className="fa-solid fa-receipt" />
+          <span className="slip-btn-label">Booking Slip</span>
+        </Link>
+        {isDeliverySlipEligible(booking) && isCommonDeliverySlipEligible(booking) && (
+          <Link
+            href={deliverySlipHref(booking.id, booking)}
+            className="btn btn-outline slip-action-btn"
+            style={{ color: "#1565c0", borderColor: "#1565c0", minHeight: 44, display: "inline-flex", alignItems: "center", gap: 6 }}
+            title="Delivery Slip"
+          >
+            <i className="fa-solid fa-truck-fast" />
+            <span className="slip-btn-label">Delivery Slip</span>
+          </Link>
+        )}
+        {isDeliverySlipEligible(booking) && hasPartialDelivery(booking) && (
+          <Link
+            href={`/booking-delivery/${booking.id}`}
+            className="btn btn-outline slip-action-btn"
+            style={{ color: "#1565c0", borderColor: "#1565c0", minHeight: 44, display: "inline-flex", alignItems: "center", gap: 6 }}
+            title="Per-dress delivery slips"
+          >
+            <i className="fa-solid fa-truck-fast" />
+            <span className="slip-btn-label">Delivery Slips</span>
+          </Link>
+        )}
+        {isReturnSlipEligible(booking) && isCommonReturnSlipEligible(booking) && (
+          <Link
+            href={returnSlipHref(booking.id, booking)}
+            className="btn btn-outline slip-action-btn"
+            style={{ color: "#b8860b", borderColor: "#c9a84c", minHeight: 44, display: "inline-flex", alignItems: "center", gap: 6 }}
+            title="Return Receipt"
+          >
+            <i className="fa-solid fa-circle-check" />
+            <span className="slip-btn-label">Return Receipt</span>
+          </Link>
+        )}
+        {isReturnSlipEligible(booking) && hasPartialReturn(booking) && (
+          <Link
+            href={`/return/${booking.id}`}
+            className="btn btn-outline slip-action-btn"
+            style={{ color: "#b8860b", borderColor: "#c9a84c", minHeight: 44, display: "inline-flex", alignItems: "center", gap: 6 }}
+            title="Return receipts for returned dresses"
+          >
+            <i className="fa-solid fa-circle-check" />
+            <span className="slip-btn-label">Return Receipts</span>
+          </Link>
+        )}
+        {isIncompleteSlipEligible(booking) && (
+          <Link
+            href={`/booking/${booking.id}/incomplete-slip`}
+            className="btn btn-outline slip-action-btn"
+            style={{ color: "#c2410c", borderColor: "#f39c12", minHeight: 44, display: "inline-flex", alignItems: "center", gap: 6 }}
+            title="Incomplete Return Slip"
+          >
+            <i className="fa-solid fa-circle-exclamation" />
+            <span className="slip-btn-label">Incomplete Slip</span>
+          </Link>
+        )}
         <BookingWhatsAppButton
           bookingId={booking.id}
           hasPhone={!!(booking.whatsappNo || booking.contact1)}
-          whatsappStatus={booking.whatsappStatus}
         />
         {status === "booked" && (
           <>

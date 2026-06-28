@@ -102,9 +102,13 @@ export async function findBookingByQrToken(qrToken: string) {
   return booking;
 }
 
-export async function bookingQrDataUrl(qrToken: string, requestOrigin?: string) {
+export async function bookingQrDataUrl(
+  qrToken: string,
+  requestOrigin?: string,
+  width = 160,
+) {
   const url = bookingQrScanUrl(qrToken, requestOrigin);
-  return QRCode.toDataURL(url, { width: 160, margin: 1, errorCorrectionLevel: "M" });
+  return QRCode.toDataURL(url, { width, margin: 1, errorCorrectionLevel: "M" });
 }
 
 export async function backfillMissingQrTokens(limit = 500) {

@@ -24,7 +24,9 @@ import { useRouter } from "next/navigation";
 import { useCallback, useEffect, useMemo, useRef, useState } from "react";
 import DressNameSuggestInput from "@/components/DressNameSuggestInput";
 import TypeableDateInput from "@/components/TypeableDateInput";
+import { addDaysIso } from "@/lib/dateInput";
 import BookingConflictSummary from "@/components/BookingConflictSummary";
+import PaymentModePicker from "@/components/PaymentModePicker";
 import { inventoryItemMatches } from "@/lib/dress";
 import { todayIso, parseDate, isDateBeforeToday } from "@/lib/constants";
 import { formatInr } from "@/lib/format";
@@ -312,11 +314,15 @@ export default function BookingFormClient(props: Props) {
   const today = props.today || todayIso();
   const [minDate, setMinDate] = useState(today);
 
+  const initialDelivery = props.initial?.delivery_date || today;
+
   const [nowDisplay, setNowDisplay] = useState("");
 
-  const [deliveryDate, setDeliveryDate] = useState(props.initial?.delivery_date || today);
+  const [deliveryDate, setDeliveryDate] = useState(initialDelivery);
 
-  const [returnDate, setReturnDate] = useState(props.initial?.return_date || today);
+  const [returnDate, setReturnDate] = useState(
+    props.initial?.return_date || addDaysIso(initialDelivery, 1),
+  );
 
   const [deliveryTime, setDeliveryTime] = useState(props.initial?.delivery_time || "12:00 Noon");
 
@@ -333,6 +339,8 @@ export default function BookingFormClient(props: Props) {
   const [venue, setVenue] = useState(props.initial?.venue || "");
 
   const [securityDeposit, setSecurityDeposit] = useState(props.initial?.security_deposit || 0);
+
+  const [paymentMode, setPaymentMode] = useState<"cash" | "online">("cash");
 
   const [commonNotes, setCommonNotes] = useState(props.initial?.common_notes || "");
 
@@ -686,7 +694,12 @@ export default function BookingFormClient(props: Props) {
     }
     const next = isDateBeforeToday(value) ? minDate : value.slice(0, 10);
     setDeliveryDate(next);
-    if (returnDate && returnDate < next) setReturnDate(next);
+    const nextReturn = addDaysIso(next, 1);
+    if (!props.editId) {
+      setReturnDate(nextReturn);
+    } else if (!returnDate || returnDate < next) {
+      setReturnDate(nextReturn);
+    }
   }
 
   function applyReturnDate(value: string) {
@@ -778,6 +791,8 @@ export default function BookingFormClient(props: Props) {
 
       staff_names: staffNames,
 
+      ...(!props.editId ? { payment_mode: paymentMode } : {}),
+
       items: selectedDresses.map((d) => ({
 
         item_id: d.id,
@@ -825,19 +840,10 @@ export default function BookingFormClient(props: Props) {
     }
 
     if (!isProspect) {
-      const wa = data.whatsapp as { status?: string; phone?: string; customerName?: string } | undefined;
-      const phoneDisplay = wa?.phone ? `+${wa.phone.replace(/^\+/, "")}` : whatsapp || contact1;
-      const name = wa?.customerName || customerName;
-      if (wa?.status === "skipped" || !phoneDisplay?.trim()) {
-        toast("✅ Booking Saved!", "success");
-      } else if (wa?.status === "failed") {
-        toast(`✅ Booking Saved! ⚠️ WhatsApp message failed — check logs`, "error");
-      } else {
-        toast(`✅ Booking Saved! WhatsApp confirmation sent to ${name} on ${phoneDisplay}`, "success");
-      }
+      toast("✅ Booking Saved!", "success");
     }
 
-    if (printAfter) router.replace(`/booking/${bookingId}/print`);
+    if (printAfter) router.replace(`/booking/${bookingId}/slip?print=1`);
     else if (isProspect) router.replace("/prospect-leads");
     else if (!props.editId) {
       const serial = data.serial ?? data.monthly_serial;
@@ -1420,12 +1426,21 @@ export default function BookingFormClient(props: Props) {
 
       {!readOnly && (
       <div className="card">
-        <div className="card-body" style={{ display: "flex", gap: 12, flexWrap: "wrap", alignItems: "center" }}>
+        <div className="card-body" style={{ display: "flex", flexDirection: "column", gap: 16 }}>
+          {!props.editId && (
+            <PaymentModePicker
+              value={paymentMode}
+              onChange={setPaymentMode}
+              label="Advance Payment Mode *"
+              name="bookingPaymentMode"
+            />
+          )}
+          <div style={{ display: "flex", gap: 12, flexWrap: "wrap", alignItems: "center" }}>
           {/* Primary action — one click saves and prints */}
           {!isProspect && !props.editId ? (
             <button type="button" className="btn btn-primary btn-lg" disabled={saving || dateCheckLoading || !selectedDresses.length || hasHardBlock} onClick={() => save(true)}>
               <i className="fa-solid fa-print" style={{ marginRight: 8 }} />
-              {hasHardBlock ? "Cannot Save — Dress Booked" : saving ? "Saving…" : dateCheckLoading ? "Checking dates…" : "Confirm & Print Bill"}
+              {hasHardBlock ? "Cannot Save — Dress Booked" : saving ? "Saving…" : dateCheckLoading ? "Checking dates…" : "Confirm & Print Slip"}
             </button>
           ) : (
             <button type="button" className="btn btn-primary btn-lg" disabled={saving || dateCheckLoading || !selectedDresses.length || hasHardBlock} onClick={() => save(false)}>
@@ -1439,6 +1454,7 @@ export default function BookingFormClient(props: Props) {
             </button>
           )}
           <a href={isProspect ? "/prospect-leads" : props.editId ? `/booking/${props.editId}` : "/booking"} className="btn btn-outline">Cancel</a>
+          </div>
         </div>
       </div>
       )}

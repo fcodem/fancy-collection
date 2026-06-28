@@ -1,4 +1,4 @@
-import { normalizeIndianPhone } from "@/lib/phone";
+import { aisensyCsvPhone } from "@/lib/phone";
 
 const AISENSY_API_URL = "https://backend.aisensy.com/campaign/t1/api/v2";
 
@@ -37,7 +37,7 @@ export async function sendAisensyCampaign(opts: {
     return { ok: false, error: "AiSensy API key is not configured.", skipped: true };
   }
 
-  const destination = normalizeIndianPhone(opts.phone);
+  const destination = aisensyCsvPhone(opts.phone);
   if (!destination) {
     return { ok: false, error: `Invalid phone number: ${opts.phone}` };
   }

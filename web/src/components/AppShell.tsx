@@ -8,6 +8,13 @@ import { useToast } from "@/components/ui/Toast";
 import { useMounted } from "@/lib/useMounted";
 import RealtimeProvider, { useRealtime } from "@/components/RealtimeProvider";
 
+const NAV_WHATSAPP = [
+  { href: "/whatsapp", label: "Inbox", icon: "fa-comment-dots" },
+  { href: "/whatsapp/broadcast", label: "Broadcast", icon: "fa-bullhorn" },
+  { href: "/whatsapp/templates", label: "Templates", icon: "fa-file-lines" },
+  { href: "/whatsapp/jobs", label: "Job Queue", icon: "fa-list-ul" },
+];
+
 const NAV_MAIN = [
   { href: "/", label: "Dashboard", icon: "fa-house-chimney" },
   { href: "/booking", label: "Booking Panel", icon: "fa-calendar-plus" },
@@ -62,7 +69,7 @@ const NAV_QUICK = [
   { href: "/inventory/add", label: "Add Inventory", icon: "fa-shirt" },
 ];
 
-const ALL_NAV = [...NAV_MAIN, ...NAV_COMMON, ...NAV_FINANCE, ...NAV_OWNER, ...NAV_QUICK];
+const ALL_NAV = [...NAV_MAIN, ...NAV_COMMON, ...NAV_FINANCE, ...NAV_OWNER, ...NAV_QUICK, ...NAV_WHATSAPP];
 
 function pageTitle(pathname: string) {
   const exact = ALL_NAV.find((n) => n.href === pathname);
@@ -71,7 +78,8 @@ function pageTitle(pathname: string) {
   if (pathname.startsWith("/search-booking")) return "Search Booking";
   if (pathname.startsWith("/booking/new")) return "New Booking";
   if (pathname.startsWith("/booking/") && pathname.endsWith("/edit")) return "Edit Booking";
-  if (pathname.startsWith("/booking/") && pathname.endsWith("/print")) return "Print Bill";
+  if (pathname.startsWith("/booking/") && pathname.endsWith("/slip")) return "Booking Slip";
+  if (pathname.startsWith("/booking/") && pathname.endsWith("/print")) return "Booking Slip";
   if (pathname.startsWith("/booking/")) return "Booking Details";
   if (pathname.startsWith("/postponed-booking")) return "Postponed Booking";
   if (pathname.startsWith("/finance/")) return "Finance";
@@ -81,6 +89,7 @@ function pageTitle(pathname: string) {
   if (pathname.startsWith("/admin/")) return "Admin";
   if (pathname.startsWith("/prospect-leads")) return "Prospect & Enquiries";
   if (pathname.startsWith("/shop-enquiries")) return "Shop Enquiry";
+  if (pathname.startsWith("/whatsapp")) return "WhatsApp";
   return "Fancy Collection";
 }
 
@@ -101,6 +110,7 @@ export default function AppShell({
   const [collapsed, setCollapsed] = useState(false);
   const [mobileOpen, setMobileOpen] = useState(false);
   const [overdueDelivery, setOverdueDelivery] = useState(initialOverdueDelivery ?? 0);
+  const [whatsappUnread, setWhatsappUnread] = useState(0);
   const [navigating, setNavigating] = useState(false);
   const skipNavProgress = useRef(true);
 
@@ -171,6 +181,31 @@ export default function AppShell({
   }, []);
 
   useEffect(() => {
+    if (!isOwner) return;
+    let cancelled = false;
+    function loadWhatsappUnread() {
+      fetch("/api/whatsapp/conversations")
+        .then((r) => r.json())
+        .then((d: { conversations?: Array<{ unreadCount: number }> }) => {
+          if (!cancelled) {
+            const total = (d.conversations || []).reduce(
+              (sum: number, c: { unreadCount: number }) => sum + (c.unreadCount || 0),
+              0,
+            );
+            setWhatsappUnread(total);
+          }
+        })
+        .catch(() => {});
+    }
+    loadWhatsappUnread();
+    const interval = setInterval(loadWhatsappUnread, 30000);
+    return () => {
+      cancelled = true;
+      clearInterval(interval);
+    };
+  }, [isOwner]);
+
+  useEffect(() => {
     function onRealtimeToast(e: Event) {
       const detail = (e as CustomEvent<{ message: string; type: "info" | "success" | "error" }>).detail;
       if (detail?.message) toast(detail.message, detail.type || "info");
@@ -205,6 +240,7 @@ export default function AppShell({
         isOwner={isOwner}
         username={username}
         overdueDelivery={overdueDelivery}
+        whatsappUnread={whatsappUnread}
         onToggleCollapsed={toggleCollapsed}
         onToggleMobile={toggleMobileMenu}
         onCloseMobile={() => setMobileOpen(false)}
@@ -252,6 +288,7 @@ function AppLayoutInner({
   isOwner,
   username,
   overdueDelivery,
+  whatsappUnread,
   onToggleCollapsed,
   onToggleMobile,
   onCloseMobile,
@@ -267,6 +304,7 @@ function AppLayoutInner({
   isOwner: boolean;
   username: string;
   overdueDelivery: number;
+  whatsappUnread: number;
   onToggleCollapsed: () => void;
   onToggleMobile: () => void;
   onCloseMobile: () => void;
@@ -341,6 +379,21 @@ function AppLayoutInner({
               {NAV_OWNER.map((item) => (
                 <Link key={item.href} href={item.href} className={`nav-item ${pathname === item.href ? "active" : ""}`} style={item.danger ? { color: "#fc8181" } : undefined} onClick={onCloseMobile}>
                   <i className={`fa-solid ${item.icon}`} /> <span className="nav-label">{item.label}</span>
+                </Link>
+              ))}
+              <div className="nav-section-label" style={{ marginTop: 8 }}>WhatsApp</div>
+              {NAV_WHATSAPP.map((item) => (
+                <Link
+                  key={item.href}
+                  href={item.href}
+                  className={`nav-item ${pathname === item.href || pathname.startsWith(item.href + "/") ? "active" : ""}`}
+                  onClick={onCloseMobile}
+                >
+                  <i className={`fa-solid ${item.icon}`} />
+                  <span className="nav-label">{item.label}</span>
+                  {item.href === "/whatsapp" && whatsappUnread > 0 && (
+                    <span className="nav-badge" style={{ background: "#16a34a" }}>{whatsappUnread}</span>
+                  )}
                 </Link>
               ))}
             </>

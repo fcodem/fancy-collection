@@ -1,0 +1,524 @@
+import type { ReactNode } from "react";
+
+export type BookingSlipProps = {
+  booking: {
+    publicBookingId: string;
+    monthlySerial: number;
+    customerName: string;
+    customerAddress: string;
+    contact1: string;
+    whatsappNo?: string | null;
+    deliveryDate: string;
+    deliveryTime: string;
+    returnDate: string;
+    returnTime: string;
+    venue?: string | null;
+    staffNames?: string | null;
+    securityDeposit: number;
+    totalPrice: number;
+    totalAdvance: number;
+    totalRemaining: number;
+    commonNotes?: string | null;
+    status: string;
+    createdAt: string;
+  };
+  items: Array<{
+    dressName: string;
+    category: string;
+    size: string;
+    color?: string | null;
+    price: number;
+    advance: number;
+    remaining: number;
+    notes?: string | null;
+  }>;
+  qrDataUrl?: string | null;
+  businessName: string;
+  businessPhone: string;
+  businessAddress?: string;
+  businessTagline?: string;
+  printMode?: boolean;
+};
+
+const G = "#1a5c2a";
+const GOLD = "#c9a84c";
+const RED = "#c0392b";
+const LIGHT_GREEN = "#f0faf3";
+const GREY = "#555555";
+const BORDER = "#e0e0e0";
+const SUCCESS = "#27ae60";
+
+const DEFAULT_ADDRESS = "Banwata Ganj Near Balaji Mandir Court Road Moradabad 244001";
+const DEFAULT_PHONE = "8077843874, 8630834711";
+const GSTIN = "09BJZPA3417L1ZQ";
+const GST_RATE = 18;
+
+function rs(n: number) {
+  return `₹${Math.round(n).toLocaleString("en-IN")}`;
+}
+
+const TERMS = [
+  "Goods once booked CANNOT be cancelled under any circumstances.",
+  "Booking advance amount is NOT adjustable in any other bookings.",
+  "All items must be returned by the return date and time mentioned above.",
+  "Late returns will attract additional rental charges per day.",
+  "Any damage, stains, tears or loss to the rented items is chargeable.",
+  "Security deposit will be refunded ONLY upon return of all items in original condition.",
+  "Items will be handed over to the registered customer with valid photo ID only.",
+  "Team Fancy Collection is not responsible for any alterations done outside our premises.",
+  "In case of any dispute, the decision of Team Fancy Collection management shall be final.",
+  "Customer is responsible for proper storage and care of items during rental period.",
+];
+
+export default function BookingSlip(props: BookingSlipProps) {
+  const { booking: b, items, qrDataUrl, businessName, businessPhone, businessAddress, businessTagline } = props;
+  const slipNo = String(b.monthlySerial).padStart(2, "0");
+  const initials = businessName.charAt(0).toUpperCase();
+  const tagline = businessTagline || "Premium Cloth Rental — Elegance for Every Occasion";
+  const displayAddress = businessAddress?.trim() || DEFAULT_ADDRESS;
+  const displayPhone = businessPhone?.trim() || DEFAULT_PHONE;
+  const half = Math.ceil(TERMS.length / 2);
+  const termsLeft = TERMS.slice(0, half);
+  const termsRight = TERMS.slice(half);
+
+  const inclusiveRent = b.totalPrice;
+  const taxableAmount = Math.round(inclusiveRent / (1 + GST_RATE / 100));
+  const gstAmount = inclusiveRent - taxableAmount;
+  const cgstAmount = Math.round(gstAmount / 2);
+  const sgstAmount = gstAmount - cgstAmount;
+
+  return (
+    <>
+      {/* ── Print Styles ─────────────────────────────────────── */}
+      <style dangerouslySetInnerHTML={{ __html: `
+        @media print {
+          body > *:not(#booking-slip-root) { display: none !important; }
+          #booking-slip-root { width: 210mm; min-height: 297mm; margin: 0 !important; padding: 0 !important; box-shadow: none !important; border-radius: 0 !important; }
+          .slip-screen-only { display: none !important; }
+          * { -webkit-print-color-adjust: exact !important; print-color-adjust: exact !important; }
+          .no-break { page-break-inside: avoid; }
+          .page-break-before { page-break-before: always; }
+        }
+        @media screen {
+          #booking-slip-root { max-width: 800px; margin: 0 auto; box-shadow: 0 4px 24px rgba(0,0,0,0.13); border-radius: 12px; overflow: hidden; }
+        }
+      ` }} />
+
+      <div id="booking-slip-root" style={{ background: "#fff", fontFamily: "system-ui, -apple-system, sans-serif", color: "#1a1a1a" }}>
+
+        {/* ══════════════════════════════════════════
+            SECTION 1: HEADER
+        ══════════════════════════════════════════ */}
+        <div className="no-break" style={{ background: `linear-gradient(135deg, ${G} 0%, #2d8a45 100%)`, padding: "18px 24px 0 24px", position: "relative" }}>
+          <div style={{ display: "flex", alignItems: "flex-start", justifyContent: "space-between", paddingBottom: 14 }}>
+            {/* Left: Logo + Business Name + Address + Phone */}
+            <div style={{ display: "flex", alignItems: "flex-start", gap: 14, flex: 1, minWidth: 0 }}>
+              <div style={{
+                width: 56, height: 56, borderRadius: "50%",
+                border: `2.5px solid ${GOLD}`,
+                display: "flex", alignItems: "center", justifyContent: "center",
+                background: "rgba(255,255,255,0.1)",
+                flexShrink: 0,
+                marginTop: 2,
+              }}>
+                <span style={{ fontSize: 26, fontWeight: 900, color: GOLD, fontFamily: "Georgia, serif" }}>{initials}</span>
+              </div>
+              <div style={{ minWidth: 0 }}>
+                <div style={{ fontSize: 22, fontWeight: 800, color: "#fff", fontFamily: "Georgia, serif", letterSpacing: "0.01em", lineHeight: 1.2 }}>
+                  {businessName}
+                </div>
+                <div style={{ fontSize: 10, color: "rgba(255,255,255,0.95)", fontWeight: 700, marginTop: 3, letterSpacing: "0.04em" }}>
+                  GSTIN: {GSTIN}
+                </div>
+                <div style={{ fontSize: 10, color: "rgba(255,255,255,0.92)", marginTop: 4, lineHeight: 1.45, maxWidth: 380 }}>
+                  📍 {displayAddress}
+                </div>
+                <div style={{ fontSize: 12, color: GOLD, fontWeight: 700, marginTop: 4 }}>
+                  📞 {displayPhone}
+                </div>
+                <div style={{ fontSize: 11, color: GOLD, fontStyle: "italic", marginTop: 4 }}>{tagline}</div>
+              </div>
+            </div>
+
+            {/* Right: Slip info */}
+            <div style={{ textAlign: "right" }}>
+              <div style={{ fontSize: 17, fontWeight: 800, color: "#fff", letterSpacing: "0.15em", textTransform: "uppercase" }}>BOOKING SLIP</div>
+              <div style={{ fontSize: 20, fontWeight: 900, color: GOLD, marginTop: 2 }}>Slip #{slipNo}</div>
+              <div style={{ fontSize: 11, color: "rgba(255,255,255,0.85)", fontFamily: "monospace", marginTop: 3 }}>{b.publicBookingId}</div>
+              <div style={{ fontSize: 10, color: "rgba(255,255,255,0.65)", marginTop: 2 }}>
+                Issued: {new Date(b.createdAt).toLocaleDateString("en-IN", { day: "2-digit", month: "short", year: "numeric" })}
+              </div>
+            </div>
+          </div>
+
+          {/* Gold divider */}
+          <div style={{ height: 2, background: GOLD, margin: "0 -24px" }} />
+        </div>
+
+        {/* ══════════════════════════════════════════
+            SECTION 2: CUSTOMER + DATE BAND
+        ══════════════════════════════════════════ */}
+        <div className="no-break" style={{ display: "grid", gridTemplateColumns: "1fr 1fr", gap: 12, padding: "14px 16px" }}>
+          {/* Left: Customer Details */}
+          <div style={{
+            background: LIGHT_GREEN,
+            borderRadius: 10,
+            borderLeft: `4px solid ${G}`,
+            padding: "12px 14px",
+          }}>
+            <div style={{ fontSize: 10, fontWeight: 700, color: G, textTransform: "uppercase", letterSpacing: "0.08em", marginBottom: 8 }}>Customer Details</div>
+
+            <table style={{ width: "100%", borderCollapse: "collapse" }}>
+              <tbody>
+                {[
+                  ["👤", "Name", <span style={{ fontWeight: 700, fontSize: 14, color: "#1a1a1a" }}>{b.customerName}</span>],
+                  ["📍", "Address", b.customerAddress],
+                  ["📞", "Contact", b.contact1],
+                  ...(b.whatsappNo ? [["💬", "WhatsApp", b.whatsappNo] as [string, string, string]] : []),
+                  ["🏛️", "Venue", b.venue || "—"],
+                  ["👨‍💼", "Staff", b.staffNames || "—"],
+                ].map(([icon, label, value], i) => (
+                  <tr key={i}>
+                    <td style={{ width: 20, paddingBottom: 5, fontSize: 12, verticalAlign: "top", paddingTop: 1 }}>{icon as string}</td>
+                    <td style={{ width: 60, paddingBottom: 5, fontSize: 11, color: GREY, fontWeight: 600, verticalAlign: "top", paddingTop: 1 }}>{label as string}</td>
+                    <td style={{ paddingBottom: 5, fontSize: 12, color: "#1a1a1a", verticalAlign: "top", paddingTop: 1 }}>{value as ReactNode}</td>
+                  </tr>
+                ))}
+              </tbody>
+            </table>
+          </div>
+
+          {/* Right: Pickup + Return Cards */}
+          <div style={{ display: "flex", flexDirection: "column", gap: 8 }}>
+            {/* Pickup */}
+            <div style={{
+              background: G,
+              borderRadius: 10,
+              padding: "12px 16px",
+              flex: 1,
+              boxShadow: "0 3px 10px rgba(26,92,42,0.25)",
+            }}>
+              <div style={{ fontSize: 10, color: "rgba(255,255,255,0.75)", textTransform: "uppercase", letterSpacing: "0.1em", marginBottom: 4 }}>
+                📦 Pickup Date &amp; Time
+              </div>
+              <div style={{ fontSize: 22, fontWeight: 900, color: "#fff", fontFamily: "Georgia, serif", lineHeight: 1.1 }}>{b.deliveryDate}</div>
+              <div style={{ fontSize: 14, fontWeight: 700, color: GOLD, marginTop: 4 }}>{b.deliveryTime}</div>
+            </div>
+
+            {/* Return */}
+            <div style={{
+              background: GOLD,
+              borderRadius: 10,
+              padding: "12px 16px",
+              flex: 1,
+              boxShadow: "0 3px 10px rgba(201,168,76,0.35)",
+            }}>
+              <div style={{ fontSize: 10, color: "#5a3800", textTransform: "uppercase", letterSpacing: "0.1em", marginBottom: 4 }}>
+                🔄 Return Date &amp; Time
+              </div>
+              <div style={{ fontSize: 22, fontWeight: 900, color: G, fontFamily: "Georgia, serif", lineHeight: 1.1 }}>{b.returnDate}</div>
+              <div style={{ fontSize: 14, fontWeight: 700, color: G, marginTop: 4 }}>{b.returnTime}</div>
+            </div>
+          </div>
+        </div>
+
+        {/* ══════════════════════════════════════════
+            SECTION 3: ITEMS TABLE
+        ══════════════════════════════════════════ */}
+        <div className="no-break" style={{ padding: "0 16px 14px" }}>
+          {/* Section title */}
+          <div style={{ display: "flex", alignItems: "center", gap: 8, marginBottom: 8 }}>
+            <div style={{ width: 4, height: 18, background: G, borderRadius: 2 }} />
+            <span style={{ fontSize: 11, fontWeight: 700, color: G, textTransform: "uppercase", letterSpacing: "0.08em" }}>Booked Items</span>
+          </div>
+
+          <div style={{ borderRadius: 8, overflow: "hidden", border: `1px solid ${BORDER}` }}>
+            {/* Header */}
+            <div style={{
+              display: "grid",
+              gridTemplateColumns: "28px 1fr 80px 52px 60px 70px 70px 68px",
+              background: G,
+              color: "#fff",
+              fontSize: 10,
+              fontWeight: 700,
+              padding: "8px 10px",
+              gap: 4,
+            }}>
+              <div>#</div>
+              <div>Item Name</div>
+              <div>Category</div>
+              <div>Size</div>
+              <div>Color</div>
+              <div style={{ textAlign: "right" }}>Price</div>
+              <div style={{ textAlign: "right" }}>Advance</div>
+              <div style={{ textAlign: "right" }}>Balance</div>
+            </div>
+
+            {/* Rows */}
+            {items.map((item, i) => (
+              <div key={i} style={{
+                display: "grid",
+                gridTemplateColumns: "28px 1fr 80px 52px 60px 70px 70px 68px",
+                background: i % 2 === 0 ? "#fff" : "#f9fbf9",
+                borderBottom: `1px solid #e8f0e8`,
+                padding: "7px 10px",
+                gap: 4,
+                alignItems: "center",
+                fontSize: 12,
+              }}>
+                <div style={{ width: 20, height: 20, borderRadius: "50%", background: "#e8e8e8", display: "flex", alignItems: "center", justifyContent: "center", fontSize: 10, color: GREY, fontWeight: 600 }}>{i + 1}</div>
+                <div style={{ fontWeight: 600, color: "#1a1a1a", overflow: "hidden", textOverflow: "ellipsis", whiteSpace: "nowrap" }}>{item.dressName}</div>
+                <div>
+                  <span style={{ fontSize: 10, background: "#e8f5e9", color: G, padding: "2px 6px", borderRadius: 10, fontWeight: 600, display: "inline-block" }}>
+                    {item.category || "—"}
+                  </span>
+                </div>
+                <div>
+                  <span style={{ fontSize: 10, background: "#f3f4f6", color: GREY, padding: "2px 6px", borderRadius: 10, display: "inline-block" }}>
+                    {item.size || "—"}
+                  </span>
+                </div>
+                <div style={{ display: "flex", alignItems: "center", gap: 4 }}>
+                  {item.color ? (
+                    <>
+                      <span style={{ width: 10, height: 10, borderRadius: "50%", background: item.color.toLowerCase(), border: "1px solid #ccc", display: "inline-block", flexShrink: 0 }} />
+                      <span style={{ fontSize: 10, color: GREY, overflow: "hidden", textOverflow: "ellipsis", whiteSpace: "nowrap" }}>{item.color}</span>
+                    </>
+                  ) : <span style={{ fontSize: 10, color: "#bbb" }}>—</span>}
+                </div>
+                <div style={{ textAlign: "right", fontWeight: 500 }}>{rs(item.price)}</div>
+                <div style={{ textAlign: "right", color: SUCCESS, fontWeight: 500 }}>{rs(item.advance)}</div>
+                <div style={{ textAlign: "right", fontWeight: 600, color: item.remaining > 0 ? "#d97706" : GREY }}>
+                  {rs(item.remaining)}
+                </div>
+              </div>
+            ))}
+
+            {/* Totals row */}
+            <div style={{
+              display: "grid",
+              gridTemplateColumns: "28px 1fr 80px 52px 60px 70px 70px 68px",
+              background: LIGHT_GREEN,
+              borderTop: `2px solid ${G}`,
+              padding: "8px 10px",
+              gap: 4,
+              fontSize: 12,
+              fontWeight: 700,
+            }}>
+              <div />
+              <div style={{ gridColumn: "2 / 6", color: G, fontSize: 11, textTransform: "uppercase", letterSpacing: "0.05em" }}>Total</div>
+              <div style={{ textAlign: "right", color: "#1a1a1a" }}>{rs(b.totalPrice)}</div>
+              <div style={{ textAlign: "right", color: SUCCESS }}>{rs(b.totalAdvance)}</div>
+              <div style={{ textAlign: "right", color: b.totalRemaining > 0 ? RED : G }}>{rs(b.totalRemaining)}</div>
+            </div>
+          </div>
+        </div>
+
+        {/* ══════════════════════════════════════════
+            SECTION 4 + 5: PAYMENT SUMMARY + QR
+        ══════════════════════════════════════════ */}
+        <div className="no-break" style={{ display: "flex", gap: 16, padding: "0 16px 14px", alignItems: "flex-start" }}>
+
+          {/* QR Code — left side (larger for easy scanning) */}
+          <div style={{ display: "flex", flexDirection: "column", alignItems: "center", gap: 6, minWidth: 190, flexShrink: 0 }}>
+            <div style={{
+              background: "#fff",
+              border: `2px solid ${G}`,
+              borderRadius: 10,
+              padding: 10,
+              boxShadow: "0 2px 8px rgba(0,0,0,0.08)",
+              display: "flex",
+              flexDirection: "column",
+              alignItems: "center",
+              gap: 6,
+            }}>
+              <div style={{ display: "flex", alignItems: "center", gap: 4, fontSize: 10, color: G, fontWeight: 600 }}>
+                <span>🔒</span> Secure Booking
+              </div>
+              {qrDataUrl ? (
+                /* eslint-disable-next-line @next/next/no-img-element */
+                <img src={qrDataUrl} alt="Booking QR" width={175} height={175} style={{ display: "block" }} />
+              ) : (
+                <div style={{ width: 175, height: 175, background: "#f5f5f5", display: "flex", alignItems: "center", justifyContent: "center", fontSize: 10, color: "#999", borderRadius: 4 }}>
+                  QR Not Available
+                </div>
+              )}
+              <div style={{ fontSize: 9, color: GREY, textAlign: "center", lineHeight: 1.3 }}>
+                Scan for instant<br />verification at pickup
+              </div>
+              <div style={{ background: "#e8f5e9", color: G, fontSize: 10, fontWeight: 700, padding: "3px 10px", borderRadius: 20 }}>
+                CONFIRMED ✓
+              </div>
+              <div style={{ fontSize: 9, color: "#999", fontFamily: "monospace" }}>{b.publicBookingId}</div>
+            </div>
+          </div>
+
+          {/* Payment Summary — right side */}
+          <div style={{ flex: 1, border: `2px solid ${GOLD}`, borderRadius: 12, overflow: "hidden", boxShadow: "0 3px 12px rgba(201,168,76,0.2)" }}>
+            {/* Header */}
+            <div style={{ background: G, padding: "8px 16px", textAlign: "center" }}>
+              <span style={{ color: "#fff", fontWeight: 700, fontSize: 12, textTransform: "uppercase", letterSpacing: "0.08em" }}>Payment Summary</span>
+            </div>
+
+            {/* Rows */}
+            <div style={{ padding: "4px 0" }}>
+              {/* Total Rental */}
+              <div style={{ display: "flex", justifyContent: "space-between", alignItems: "center", padding: "10px 16px", borderBottom: `1px solid ${BORDER}` }}>
+                <span style={{ fontSize: 13, color: GREY }}>Total Rental (Incl. GST @ {GST_RATE}%)</span>
+                <span style={{ fontSize: 14, fontWeight: 700, color: "#1a1a1a" }}>{rs(inclusiveRent)}</span>
+              </div>
+
+              {/* Advance Paid */}
+              <div style={{ display: "flex", justifyContent: "space-between", alignItems: "center", padding: "10px 16px", borderBottom: `1px solid ${BORDER}` }}>
+                <div style={{ fontSize: 13, color: GREY }}>Advance Paid</div>
+                <div style={{ display: "flex", alignItems: "center", gap: 8 }}>
+                  <span style={{ fontSize: 11, background: "#e8f5e9", color: SUCCESS, padding: "2px 8px", borderRadius: 12, fontWeight: 700 }}>PAID ✓</span>
+                  <span style={{ fontSize: 14, fontWeight: 700, color: SUCCESS }}>{rs(b.totalAdvance)}</span>
+                </div>
+              </div>
+
+              {/* Balance Due — most prominent */}
+              <div style={{
+                background: `linear-gradient(135deg, ${RED}, #e74c3c)`,
+                padding: "14px 16px",
+              }}>
+                <div style={{ fontSize: 10, color: "rgba(255,255,255,0.85)", textTransform: "uppercase", letterSpacing: "0.1em", fontWeight: 700, marginBottom: 4 }}>
+                  Amount to Bring on Pickup Day
+                </div>
+                <div style={{ fontSize: 26, fontWeight: 900, color: "#fff", fontFamily: "Georgia, serif" }}>
+                  {rs(b.totalRemaining)}
+                </div>
+              </div>
+
+              {/* Security Deposit — same highlighted style */}
+              <div style={{
+                background: `linear-gradient(135deg, ${RED}, #e74c3c)`,
+                padding: "14px 16px",
+              }}>
+                <div style={{ fontSize: 10, color: "rgba(255,255,255,0.85)", textTransform: "uppercase", letterSpacing: "0.1em", fontWeight: 700, marginBottom: 4 }}>
+                  Security Amount to Bring on Pickup Day
+                </div>
+                <div style={{ fontSize: 26, fontWeight: 900, color: "#fff", fontFamily: "Georgia, serif" }}>
+                  {rs(b.securityDeposit)}
+                </div>
+                <div style={{ fontSize: 9, color: "rgba(255,255,255,0.8)", marginTop: 4 }}>
+                  Refundable on return of all items in original condition
+                </div>
+              </div>
+
+              {/* GST Billing — 2 lines (inclusive, below security) */}
+              <div style={{
+                background: LIGHT_GREEN,
+                borderTop: `2px solid ${G}`,
+                padding: "10px 14px",
+                borderRadius: "0 0 10px 10px",
+              }}>
+                <div style={{ fontSize: 9, fontWeight: 800, color: G, textTransform: "uppercase", letterSpacing: "0.06em", marginBottom: 6, textAlign: "center" }}>
+                  GST Billing Details (Inclusive)
+                </div>
+                <div style={{ fontSize: 11, fontWeight: 700, color: "#1a1a1a", lineHeight: 1.45, textAlign: "center" }}>
+                  Rent {rs(inclusiveRent)} incl. GST @ {GST_RATE}% — Taxable: {rs(taxableAmount)} | GST: {rs(gstAmount)}
+                </div>
+                <div style={{ fontSize: 11, fontWeight: 700, color: G, lineHeight: 1.45, textAlign: "center", marginTop: 5 }}>
+                  CGST @ 9%: {rs(cgstAmount)} &nbsp;•&nbsp; SGST @ 9%: {rs(sgstAmount)}
+                </div>
+              </div>
+            </div>
+          </div>
+        </div>
+
+        {/* Payment note */}
+        <div style={{ padding: "0 16px 12px", fontSize: 11, color: GREY, fontStyle: "italic", textAlign: "right" }}>
+          💡 Please bring exact change for balance and security amounts shown above.
+        </div>
+
+        {/* ══════════════════════════════════════════
+            SECTION 7: NO CANCELLATION + TERMS
+        ══════════════════════════════════════════ */}
+        <div className="no-break" style={{ padding: "0 16px 12px" }}>
+          {/* NO CANCELLATION banner */}
+          <div style={{
+            marginBottom: 12,
+            background: `linear-gradient(135deg, ${RED}, #e74c3c)`,
+            border: "2px solid #922b21",
+            borderRadius: 8,
+            padding: "12px 16px",
+            textAlign: "center",
+            boxShadow: "0 2px 10px rgba(192,57,43,0.35)",
+          }}>
+            <div style={{ fontSize: 15, fontWeight: 900, color: "#fff", letterSpacing: "0.06em", textTransform: "uppercase" }}>
+              ⚠️ NO CANCELLATION · NO REFUND
+            </div>
+            <div style={{ fontSize: 11, fontWeight: 700, color: "rgba(255,255,255,0.95)", marginTop: 4 }}>
+              All bookings are final once confirmed. Advance amount is non-refundable and non-adjustable.
+            </div>
+          </div>
+
+          {/* Decorative header */}
+          <div style={{ display: "flex", alignItems: "center", gap: 10, marginBottom: 10 }}>
+            <div style={{ flex: 1, height: 1, background: BORDER }} />
+            <span style={{ fontSize: 11, fontWeight: 900, color: G, textTransform: "uppercase", letterSpacing: "0.1em", whiteSpace: "nowrap" }}>
+              Terms &amp; Conditions
+            </span>
+            <div style={{ flex: 1, height: 1, background: BORDER }} />
+          </div>
+
+          <div style={{ display: "grid", gridTemplateColumns: "1fr 1fr", gap: "6px 12px" }}>
+            <div>
+              {termsLeft.map((t, i) => (
+                <div key={i} style={{
+                  display: "flex", gap: 6, fontSize: 10, fontWeight: 700, color: "#1a1a1a",
+                  lineHeight: 1.45, marginBottom: 5,
+                  background: "#fff8e1", border: "1px solid #f0c040", borderRadius: 4,
+                  padding: "6px 8px",
+                }}>
+                  <span style={{ fontWeight: 900, color: RED, flexShrink: 0 }}>{i + 1}.</span>
+                  <span>{t}</span>
+                </div>
+              ))}
+            </div>
+            <div>
+              {termsRight.map((t, i) => (
+                <div key={i} style={{
+                  display: "flex", gap: 6, fontSize: 10, fontWeight: 700, color: "#1a1a1a",
+                  lineHeight: 1.45, marginBottom: 5,
+                  background: "#fff8e1", border: "1px solid #f0c040", borderRadius: 4,
+                  padding: "6px 8px",
+                }}>
+                  <span style={{ fontWeight: 900, color: RED, flexShrink: 0 }}>{half + i + 1}.</span>
+                  <span>{t}</span>
+                </div>
+              ))}
+            </div>
+          </div>
+        </div>
+
+        {/* ══════════════════════════════════════════
+            SECTION 8: FOOTER
+        ══════════════════════════════════════════ */}
+        <div>
+          {/* Gold divider */}
+          <div style={{ height: 2, background: GOLD }} />
+
+          {/* Footer band */}
+          <div style={{ background: G, padding: "12px 20px", display: "flex", alignItems: "center", justifyContent: "space-between" }}>
+            <div style={{ fontSize: 12, color: "#fff", fontStyle: "italic" }}>
+              Thank you for choosing {businessName}! 🙏
+            </div>
+            <div style={{ textAlign: "right", fontSize: 10, color: "rgba(255,255,255,0.8)", lineHeight: 1.5 }}>
+              <div>{displayPhone}</div>
+              <div>{displayAddress}</div>
+            </div>
+          </div>
+
+          {/* Computer generated note */}
+          <div style={{ textAlign: "center", fontSize: 9, color: "#999", padding: "6px 0", background: "#fff" }}>
+            This is a computer-generated booking slip.
+          </div>
+        </div>
+
+      </div>
+    </>
+  );
+}
+

@@ -3,14 +3,16 @@
 import * as Sentry from "@sentry/nextjs";
 import { headers } from "next/headers";
 import { redirect } from "next/navigation";
-import prisma from "@/lib/prisma";
 import {
   createStaffLoginRequest,
   establishUserLogin,
+  findRecentApprovedStaffLogin,
+  findUserForLogin,
   getSession,
   upgradePasswordHashIfNeeded,
   verifyPassword,
 } from "@/lib/auth";
+import prisma from "@/lib/prisma";
 import {
   checkLoginBlocked,
   getClientIp,
@@ -36,7 +38,7 @@ async function loginActionImpl(
   }
 
   try {
-    const user = await prisma.user.findUnique({ where: { username } });
+    const user = await findUserForLogin(username);
     if (!user || !user.active) {
       await recordLoginAttempt(ip, false, username);
       return "Invalid username or password.";
@@ -50,6 +52,16 @@ async function loginActionImpl(
     void upgradePasswordHashIfNeeded(user.id, password, user.passwordHash);
 
     if (user.role === "owner") {
+      await establishUserLogin(user.id);
+      redirect("/");
+    }
+
+    const approved = await findRecentApprovedStaffLogin(user.id);
+    if (approved) {
+      await prisma.staffLoginRequest.update({
+        where: { id: approved.id },
+        data: { status: "completed" },
+      });
       await establishUserLogin(user.id);
       redirect("/");
     }

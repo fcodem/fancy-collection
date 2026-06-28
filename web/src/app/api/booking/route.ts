@@ -1,9 +1,12 @@
 import { NextRequest } from "next/server";
 import prisma from "@/lib/prisma";
 import { createBooking } from "@/lib/services/bookingCrud";
-import { triggerBookingWhatsAppAsync } from "@/lib/services/bookingWhatsAppFlow";
-import { formatAisensyPhone } from "@/lib/services/aisensy.service";
 import { jsonError, jsonOk, requireUser, isResponse } from "@/lib/api";
+import {
+  scheduleBookingBill,
+  scheduleBookingReminder,
+  processWhatsAppJobQueue,
+} from "@/lib/services/whatsapp/jobQueue";
 import { BookingFormSchema } from "@/lib/validation";
 
 export async function POST(req: NextRequest) {
@@ -17,22 +20,26 @@ export async function POST(req: NextRequest) {
     }
     const body = parseResult.data;
     const booking = await createBooking(body, user.username);
+    console.log("[booking POST] Booking created:", booking.id);
 
-    const phone = body.whatsapp_no?.trim() || body.contact_1?.trim() || "";
-    const formattedPhone = formatAisensyPhone(phone);
+    try {
+      await scheduleBookingBill(booking.id, req.nextUrl.origin, user.username);
+      console.log("[booking POST] scheduleBookingBill queued for:", booking.id);
+      void processWhatsAppJobQueue(10).catch((e) => {
+        console.error("[booking POST] WhatsApp queue processing failed:", e);
+      });
+    } catch (e) {
+      console.error("[booking POST] scheduleBookingBill failed:", e);
+    }
 
-    triggerBookingWhatsAppAsync(booking.id, req.nextUrl.origin);
+    try {
+      await scheduleBookingReminder(booking.id, body.return_date, user.username);
+      console.log("[booking POST] scheduleBookingReminder queued for:", booking.id);
+    } catch (e) {
+      console.error("[booking POST] scheduleBookingReminder failed:", e);
+    }
 
-    return jsonOk({
-      ok: true,
-      id: booking.id,
-      serial: booking.monthlySerial,
-      whatsapp: {
-        status: formattedPhone ? "pending" : "skipped",
-        phone: formattedPhone || phone,
-        customerName: body.customer_name,
-      },
-    });
+    return jsonOk({ ok: true, id: booking.id, serial: booking.monthlySerial });
   } catch (e) {
     const msg = e instanceof Error ? e.message : "Failed to create booking";
     return jsonError(msg);
@@ -52,10 +59,6 @@ export async function GET(req: NextRequest) {
   return jsonOk({
     id: booking.id,
     monthly_serial: booking.monthlySerial,
-    public_booking_id: booking.publicBookingId,
-    qr_code_url: booking.qrCodeUrl,
-    whatsapp_status: booking.whatsappStatus,
-    whatsapp_sent_at: booking.whatsappSentAt?.toISOString() ?? null,
     customer_name: booking.customerName,
     customer_address: booking.customerAddress,
     contact_1: booking.contact1,

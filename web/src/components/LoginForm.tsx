@@ -49,6 +49,11 @@ export default function LoginForm({ initialError }: { initialError?: string }) {
         return;
       }
 
+      if (data.pending && data.redirect) {
+        window.location.href = data.redirect;
+        return;
+      }
+
       window.location.href = data.redirect || "/";
     } catch {
       setError("Login failed. Please check your connection and try again.");
@@ -73,7 +78,7 @@ export default function LoginForm({ initialError }: { initialError?: string }) {
             </div>
           )}
           <div className="form-group">
-            <label htmlFor="login-username">Username</label>
+            <label htmlFor="login-username">Username or Staff ID</label>
             <div className="input-icon-wrap">
               <i className="fa-solid fa-user" aria-hidden />
               <input
@@ -83,7 +88,7 @@ export default function LoginForm({ initialError }: { initialError?: string }) {
                 required
                 autoFocus
                 autoComplete="username"
-                placeholder="Enter username"
+                placeholder="Username or numeric Staff ID"
                 suppressHydrationWarning
               />
             </div>

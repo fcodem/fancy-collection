@@ -10,28 +10,9 @@ import { getAvailableItemsApi, findFirstItemConflict } from "../booking";
 import { broadcastShopEvent } from "../realtime/broadcast";
 import { logActivity, snapshotBooking } from "../activityLog";
 import { deleteUploads, saveUpload } from "../upload";
+import { syncBookingStatusFromItems } from "../syncBookingStatusFromItems";
 
-/** Promote booked → delivered when all items are marked delivered. Never auto-return. */
-export async function syncBookingStatusFromItems(bookingId: number) {
-  const booking = await prisma.booking.findUnique({
-    where: { id: bookingId },
-    include: { bookingItems: true },
-  });
-  if (!booking || booking.status !== "booked") return booking;
-
-  const items = booking.bookingItems;
-  if (!items.length || !items.every((bi) => bi.isDelivered)) return booking;
-
-  const itemDeliveredAt = items.map((bi) => bi.deliveredAt).find((d): d is Date => d != null);
-
-  return prisma.booking.update({
-    where: { id: bookingId },
-    data: {
-      status: "delivered",
-      deliveredAt: booking.deliveredAt || itemDeliveredAt || new Date(),
-    },
-  });
-}
+export { syncBookingStatusFromItems } from "../syncBookingStatusFromItems";
 
 export async function repairAllBookingStatuses() {
   const bookings = await prisma.booking.findMany({
@@ -80,6 +61,59 @@ async function finalizeFullReturnIfComplete(
       securityHeld: 0,
       idPhoto1: null,
       idPhoto2: null,
+    },
+  });
+}
+
+/** After an incomplete dress is returned, recalculate held security or close the booking. */
+async function syncIncompleteReturnStatus(
+  bookingId: number,
+  tx: Prisma.TransactionClient,
+) {
+  const booking = await tx.booking.findUnique({
+    where: { id: bookingId },
+    include: { bookingItems: true },
+  });
+  if (!booking || booking.status !== "incomplete_return") return;
+
+  const delivered = booking.bookingItems.filter((bi) => bi.isDelivered);
+  const incomplete = delivered.filter((bi) => bi.isIncompleteReturn);
+  const totalSecurityHeld = incomplete.reduce((s, bi) => s + (bi.itemSecurityHeld || 0), 0);
+
+  if (incomplete.length === 0) {
+    const allReturned = delivered.length > 0 && delivered.every((bi) => bi.isReturned);
+    if (allReturned) {
+      await clearBookingIdPhotos(booking);
+      await tx.booking.update({
+        where: { id: bookingId },
+        data: {
+          status: "returned",
+          securityHeld: 0,
+          idPhoto1: null,
+          idPhoto2: null,
+        },
+      });
+    } else {
+      await tx.booking.update({
+        where: { id: bookingId },
+        data: { securityHeld: 0 },
+      });
+    }
+    return;
+  }
+
+  const noteParts = incomplete
+    .map((bi) => {
+      const notes = bi.itemIncompleteNotes?.trim();
+      return notes ? `${bi.dressName}: ${notes}` : null;
+    })
+    .filter(Boolean);
+
+  await tx.booking.update({
+    where: { id: bookingId },
+    data: {
+      securityHeld: totalSecurityHeld,
+      incompleteNotes: noteParts.length ? noteParts.join(" | ") : booking.incompleteNotes,
     },
   });
 }
@@ -581,6 +615,8 @@ export async function saveDelivery(
     security_collected?: number;
     delivery_notes?: string;
     mark_delivered?: boolean;
+    payment_mode?: "cash" | "online";
+    security_payment_mode?: "cash" | "online";
     items?: Array<{
       booking_item_id: number;
       remaining_collected: number;
@@ -598,6 +634,19 @@ export async function saveDelivery(
   });
   if (!booking) throw new Error("Booking not found");
   const beforeDelivery = snapshotBooking(booking as unknown as Record<string, unknown>);
+  const resolveRemainingPaymentMode = (totalRemainingCollected: number) =>
+    totalRemainingCollected > 0
+      ? data.payment_mode === "online"
+        ? "online"
+        : "cash"
+      : booking.remainingPaymentMode;
+
+  const resolveSecurityPaymentMode = (totalSecurityCollected: number) =>
+    totalSecurityCollected > 0
+      ? data.security_payment_mode === "online"
+        ? "online"
+        : "cash"
+      : booking.securityPaymentMode;
 
   if (data.items?.length) {
     const result = await prisma.$transaction(async (tx) => {
@@ -659,6 +708,8 @@ export async function saveDelivery(
           securityCollected: totalSecurity,
           securityHeld: nextSecurityHeld,
           deliveryNotes: newNotes || data.delivery_notes || booking.deliveryNotes,
+          remainingPaymentMode: resolveRemainingPaymentMode(totalRemaining),
+          securityPaymentMode: resolveSecurityPaymentMode(totalSecurity),
         },
         include: { bookingItems: true },
       });
@@ -697,7 +748,7 @@ export async function saveDelivery(
     return result;
   }
 
-  if (data.mark_delivered && booking.status === "booked") {
+  if (data.mark_delivered && booking.status === "booked" && booking.bookingItems.length > 0) {
     await prisma.bookingItem.updateMany({
       where: { bookingId },
       data: { isDelivered: true, deliveredAt: new Date() },
@@ -715,15 +766,33 @@ export async function saveDelivery(
           ? booking.securityDeposit
           : 0;
 
-  await prisma.booking.update({
-    where: { id: bookingId },
-    data: {
-      remainingCollected: data.remaining_collected ?? booking.remainingCollected,
-      securityCollected: secCollected,
-      securityHeld: nextSecurityHeld,
-      deliveryNotes: data.delivery_notes ?? booking.deliveryNotes,
-    },
-  });
+  const totalRemainingCollected = data.remaining_collected ?? booking.remainingCollected;
+
+  const bookingFields = {
+    remainingCollected: totalRemainingCollected,
+    securityCollected: secCollected,
+    securityHeld: nextSecurityHeld,
+    deliveryNotes: data.delivery_notes ?? booking.deliveryNotes,
+    remainingPaymentMode: resolveRemainingPaymentMode(totalRemainingCollected),
+    securityPaymentMode: resolveSecurityPaymentMode(secCollected),
+  };
+
+  if (data.mark_delivered && booking.status === "booked" && booking.bookingItems.length === 0) {
+    await prisma.booking.update({
+      where: { id: bookingId },
+      data: {
+        ...bookingFields,
+        status: "delivered",
+        deliveredAt: booking.deliveredAt || new Date(),
+      },
+    });
+  } else {
+    await prisma.booking.update({
+      where: { id: bookingId },
+      data: bookingFields,
+    });
+  }
+
   const result = (await syncBookingStatusFromItems(bookingId))!;
   broadcastShopEvent({ type: "booking.delivered", bookingId, status: result.status, by });
   const deliveryDresses2 =
@@ -803,6 +872,9 @@ export async function saveReturn(
   if (!booking) throw new Error("Booking not found");
 
   if (action === "mark_returned") {
+    if (booking.status === "incomplete_return") {
+      return resolveIncompleteReturn(bookingId, by);
+    }
     await clearBookingIdPhotos(booking);
     await prisma.$transaction(async (tx) => {
       await tx.booking.update({
@@ -847,9 +919,27 @@ export async function saveReturn(
       if (!bi) throw new Error("Dress not found on this booking.");
       if (!bi.isDelivered) throw new Error("Dress must be delivered before it can be returned.");
       if (bi.isReturned) throw new Error("This dress is already marked returned.");
-      if (bi.isIncompleteReturn) throw new Error("This dress is on incomplete return — resolve it from Incomplete Returns.");
 
       await prisma.$transaction(async (tx) => {
+        if (bi.isIncompleteReturn) {
+          await tx.bookingItem.update({
+            where: { id: bi.id },
+            data: {
+              isReturned: true,
+              isIncompleteReturn: false,
+              itemIncompleteNotes: null,
+              itemIncompletePhoto: null,
+              itemSecurityHeld: 0,
+            },
+          });
+          await tx.clothingItem.update({
+            where: { id: bi.itemId },
+            data: { status: "available" },
+          });
+          await syncIncompleteReturnStatus(bookingId, tx);
+          return;
+        }
+
         await tx.bookingItem.update({
           where: { id: bi.id },
           data: { isReturned: true, isIncompleteReturn: false },
@@ -861,6 +951,10 @@ export async function saveReturn(
         await finalizeFullReturnIfComplete(bookingId, tx);
       });
     }
+  } else if (action === "resolve_incomplete_return") {
+    const resolved = await resolveIncompleteReturn(bookingId, by);
+    if (!resolved) throw new Error("Booking is not an incomplete return or could not be resolved.");
+    return resolved;
   } else if (action === "incomplete_return") {
     await clearBookingIdPhotos(booking);
 

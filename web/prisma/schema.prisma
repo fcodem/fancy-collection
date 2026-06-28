@@ -186,6 +186,9 @@ model Booking {
   totalPrice         Float     @default(0) @map("total_price")
   totalAdvance       Float     @default(0) @map("total_advance")
   totalRemaining     Float     @default(0) @map("total_remaining")
+  advancePaymentMode String    @default("cash") @map("advance_payment_mode")
+  remainingPaymentMode String?  @map("remaining_payment_mode")
+  securityPaymentMode String?  @map("security_payment_mode")
   commonNotes        String?   @map("common_notes")
   staffNames         String?   @map("staff_names")
   status             String    @default("booked")
@@ -213,13 +216,15 @@ model Booking {
   postponedAt        DateTime? @map("postponed_at")
   publicBookingId    String?   @unique @map("public_booking_id")
   qrCodeUrl          String?   @map("qr_code_url")
-  whatsappSentAt     DateTime? @map("whatsapp_sent_at")
   whatsappStatus     String?   @map("whatsapp_status")
+  whatsappSentAt     DateTime? @map("whatsapp_sent_at")
   whatsappError      String?   @map("whatsapp_error")
 
-  legacyItem       ClothingItem?        @relation("LegacyBookingItem", fields: [itemId], references: [id])
-  bookingItems     BookingItem[]
-  whatsappQueue    WhatsAppMessageQueue[]
+  legacyItem            ClothingItem?          @relation("LegacyBookingItem", fields: [itemId], references: [id])
+  bookingItems          BookingItem[]
+  whatsAppJobs          WhatsAppJob[]
+  whatsAppMessages      WhatsAppMessage[]
+  whatsAppConversations WhatsAppConversation[]
 
   @@index([deliveryDate, status])
   @@index([returnDate, status])
@@ -426,23 +431,87 @@ model LoginAttempt {
   @@map("login_attempts")
 }
 
-model WhatsAppMessageQueue {
-  id          Int       @id @default(autoincrement())
-  bookingId   Int       @map("booking_id")
-  step        String
-  stepIndex   Int       @default(0) @map("step_index")
-  payload     String
-  status      String    @default("pending")
-  attempts    Int       @default(0)
-  maxAttempts Int       @default(5) @map("max_attempts")
-  lastError   String?   @map("last_error")
-  nextRetryAt DateTime? @map("next_retry_at")
-  createdAt   DateTime  @default(now()) @map("created_at")
-  updatedAt   DateTime  @updatedAt @map("updated_at")
+model WhatsAppJob {
+  id            Int       @id @default(autoincrement())
+  jobType       String    @map("job_type")
+  bookingId     Int?      @map("booking_id")
+  payload       Json?
+  scheduledAt   DateTime  @map("scheduled_at")
+  status        String    @default("pending")
+  attempts      Int       @default(0)
+  maxAttempts   Int       @default(3) @map("max_attempts")
+  lastAttemptAt DateTime? @map("last_attempt_at")
+  completedAt   DateTime? @map("completed_at")
+  failedReason  String?   @map("failed_reason")
+  createdAt     DateTime  @default(now()) @map("created_at")
+  createdBy     String?   @map("created_by")
+  booking       Booking?  @relation(fields: [bookingId], references: [id], onDelete: Cascade)
 
-  booking Booking @relation(fields: [bookingId], references: [id], onDelete: Cascade)
-
-  @@index([status, nextRetryAt])
+  @@index([status, scheduledAt])
   @@index([bookingId])
-  @@map("whatsapp_message_queue")
+  @@map("whatsapp_jobs")
+}
+
+model WhatsAppConversation {
+  id             Int       @id @default(autoincrement())
+  customerPhone  String    @unique @map("customer_phone")
+  customerName   String    @map("customer_name")
+  bookingId      Int?      @map("booking_id")
+  isWindowOpen   Boolean   @default(false) @map("is_window_open")
+  windowOpenedAt DateTime? @map("window_opened_at")
+  lastMessageAt  DateTime? @map("last_message_at")
+  unreadCount    Int       @default(0) @map("unread_count")
+  createdAt      DateTime  @default(now()) @map("created_at")
+
+  booking  Booking?          @relation(fields: [bookingId], references: [id], onDelete: SetNull)
+  messages WhatsAppMessage[]
+
+  @@index([bookingId])
+  @@index([lastMessageAt])
+  @@map("whatsapp_conversations")
+}
+
+model WhatsAppMessage {
+  id             Int                   @id @default(autoincrement())
+  conversationId Int?                  @map("conversation_id")
+  bookingId      Int?                  @map("booking_id")
+  phone          String?
+  direction      String                @default("outbound")
+  messageType    String                @map("message_type")
+  body           String?
+  mediaUrl       String?               @map("media_url")
+  filename       String?
+  metaMessageId  String?               @map("meta_message_id")
+  isAutomated    Boolean               @default(false) @map("is_automated")
+  status         String                @default("sent")
+  deliveryStatus String?               @map("delivery_status")
+  deliveredAt    DateTime?             @map("delivered_at")
+  readAt         DateTime?             @map("read_at")
+  receivedAt     DateTime?             @map("received_at")
+  error          String?
+  createdAt      DateTime              @default(now()) @map("created_at")
+
+  booking      Booking?              @relation(fields: [bookingId], references: [id], onDelete: SetNull)
+  conversation WhatsAppConversation? @relation(fields: [conversationId], references: [id], onDelete: SetNull)
+
+  @@index([bookingId])
+  @@index([conversationId])
+  @@index([createdAt])
+  @@index([metaMessageId])
+  @@map("whatsapp_messages")
+}
+
+model WhatsAppBroadcast {
+  id           Int       @id @default(autoincrement())
+  name         String
+  templateName String    @map("template_name")
+  status       String    @default("pending")
+  totalCount   Int       @default(0) @map("total_count")
+  sentCount    Int       @default(0) @map("sent_count")
+  failedCount  Int       @default(0) @map("failed_count")
+  createdBy    String?   @map("created_by")
+  completedAt  DateTime? @map("completed_at")
+  createdAt    DateTime  @default(now()) @map("created_at")
+
+  @@map("whatsapp_broadcasts")
 }

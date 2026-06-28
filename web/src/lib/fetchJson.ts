@@ -7,6 +7,19 @@ export class ApiError extends Error {
   }
 }
 
+/** True for dev-server restarts, offline, or other failed fetch (not HTTP 4xx/5xx). */
+export function isTransientNetworkError(err: unknown): boolean {
+  if (!(err instanceof Error)) return false;
+  if (err.name === "AbortError") return true;
+  const msg = err.message.toLowerCase();
+  return (
+    msg.includes("failed to fetch") ||
+    msg.includes("network error") ||
+    msg.includes("network request failed") ||
+    msg.includes("load failed")
+  );
+}
+
 export async function fetchJson<T = Record<string, unknown>>(
   input: RequestInfo | URL,
   init?: RequestInit,

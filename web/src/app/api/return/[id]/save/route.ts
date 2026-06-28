@@ -2,6 +2,7 @@ import { NextRequest } from "next/server";
 import { saveReturn } from "@/lib/services/operations";
 import { saveUpload } from "@/lib/upload";
 import { jsonError, jsonOk, requireUser, isResponse } from "@/lib/api";
+import { triggerWhatsAppSlipJobs } from "@/lib/services/whatsapp/slipScheduling";
 
 type IncompleteItemPayload = {
   booking_item_id: number;
@@ -61,10 +62,19 @@ export async function POST(req: NextRequest, { params }: { params: Promise<{ id:
         },
         user.username,
       );
+      if (
+        booking?.status === "returned" ||
+        action === "mark_item_returned" ||
+        action === "incomplete_return" ||
+        action === "resolve_incomplete_return"
+      ) {
+        void triggerWhatsAppSlipJobs(bookingId, "return", req.nextUrl.origin, user.username);
+      }
       return jsonOk({ ok: true, id: booking?.id, status: booking?.status });
     }
 
     const body = await req.json();
+    const action = String(body.action || "");
     const booking = await saveReturn(
       bookingId,
       String(body.action || ""),
@@ -76,6 +86,14 @@ export async function POST(req: NextRequest, { params }: { params: Promise<{ id:
       },
       user.username,
     );
+    if (
+      booking?.status === "returned" ||
+      action === "mark_item_returned" ||
+      action === "incomplete_return" ||
+      action === "resolve_incomplete_return"
+    ) {
+      void triggerWhatsAppSlipJobs(bookingId, "return", req.nextUrl.origin, user.username);
+    }
     return jsonOk({ ok: true, id: booking?.id, status: booking?.status });
   } catch (e) {
     return jsonError(e instanceof Error ? e.message : "Save failed");

@@ -17,11 +17,18 @@ import {
   securityCurrentlyHeld,
   type BookingForStandardDetails,
 } from "@/lib/bookingDetails";
+import { isDeliverySlipEligible, isCommonDeliverySlipEligible, isIncompleteSlipEligible, isReturnSlipEligible, isCommonReturnSlipEligible, hasPartialReturn, deliverySlipHref, returnSlipHref } from "@/lib/bookingStatus";
 import type { BookingItemPricingRow } from "@/lib/dress";
 import { formatInr } from "@/lib/format";
 import { photoUrl } from "@/lib/photoUrl";
 import IncompleteSecuritySummaryBox from "@/components/IncompleteSecuritySummaryBox";
 import type { ItemWarningSource } from "@/lib/bookingWarningPdf";
+
+function paymentModeLabel(mode?: string | null): string | null {
+  if (mode === "online") return "Online";
+  if (mode === "cash") return "Cash";
+  return null;
+}
 
 type ItemDeliveryRow = {
   id: number;
@@ -102,6 +109,7 @@ export default function ReturnDetailClient({
     remaining?: number;
     securityDeposit?: number;
     deliveryNotes?: string | null;
+    securityPaymentMode?: string | null;
   };
   items: BookingItemPricingRow[];
   itemDelivery?: ItemDeliveryRow[];
@@ -118,6 +126,7 @@ export default function ReturnDetailClient({
     items: itemDelivery,
     dressIsOut: isDelivered,
   });
+  const securityPaymentLabel = paymentModeLabel(booking.securityPaymentMode);
 
   const bookingIsDelivered = booking.status === "delivered";
   const returnableItems = useMemo(
@@ -135,6 +144,22 @@ export default function ReturnDetailClient({
   );
   const pendingReturnCount = returnableItems.length;
   const multiDress = deliveredItems.length > 1;
+  const returnSlipSource = {
+    status: booking.status,
+    bookingItems: itemDelivery.map((d) => ({
+      id: d.id,
+      isDelivered: d.isDelivered,
+      isReturned: d.isReturned,
+      isIncompleteReturn: d.isIncompleteReturn,
+    })),
+  };
+  const incompleteSlipSource = {
+    status: booking.status,
+    bookingItems: itemDelivery.map((d) => ({
+      isIncompleteReturn: d.isIncompleteReturn,
+    })),
+  };
+  const partialReturn = hasPartialReturn(returnSlipSource);
 
   const [incompleteForms, setIncompleteForms] = useState<Record<number, IncompleteDressForm>>({});
   const [returnError, setReturnError] = useState("");
@@ -277,6 +302,26 @@ export default function ReturnDetailClient({
     <div>
       <div style={{ display: "flex",gap: 12, marginBottom: 16, flexWrap: "wrap" }} className="no-print">
         <Link href={`/booking/${booking.id}`} className="btn btn-outline">View Booking</Link>
+        {isDeliverySlipEligible(booking) && isCommonDeliverySlipEligible(booking) && (
+          <Link href={deliverySlipHref(booking.id, booking)} className="btn btn-outline" style={{ color: "#1565c0", borderColor: "#1565c0" }}>
+            <i className="fa-solid fa-truck-fast" style={{ marginRight: 6 }} />Delivery Slip
+          </Link>
+        )}
+        {isReturnSlipEligible(returnSlipSource) && isCommonReturnSlipEligible(returnSlipSource) && (
+          <Link href={returnSlipHref(booking.id, returnSlipSource)} className="btn btn-outline" style={{ color: "#b8860b", borderColor: "#c9a84c" }}>
+            <i className="fa-solid fa-circle-check" style={{ marginRight: 6 }} />Return Receipt
+          </Link>
+        )}
+        {isReturnSlipEligible(returnSlipSource) && partialReturn && returnedItems.length >= 2 && (
+          <Link href={returnSlipHref(booking.id, returnSlipSource)} className="btn btn-outline" style={{ color: "#b8860b", borderColor: "#c9a84c" }}>
+            <i className="fa-solid fa-circle-check" style={{ marginRight: 6 }} />Return Receipt ({returnedItems.length} dresses)
+          </Link>
+        )}
+        {isIncompleteSlipEligible(incompleteSlipSource) && (
+          <Link href={`/booking/${booking.id}/incomplete-slip`} className="btn btn-outline" style={{ color: "#c2410c", borderColor: "#f39c12" }}>
+            <i className="fa-solid fa-circle-exclamation" style={{ marginRight: 6 }} />Incomplete Slip
+          </Link>
+        )}
         {booking.status !== "returned" && booking.status !== "cancelled" && (
           <Link
             href={booking.status === "delivered" ? `/booking-delivery/${booking.id}` : `/booking/${booking.id}/edit`}
@@ -394,7 +439,13 @@ export default function ReturnDetailClient({
                     <strong style={{ color: "#1565c0" }}>₹{formatInr(securityHeldAmount)}</strong>
                     {booking.securityCollected > 0 && (booking.securityDeposit ?? 0) > booking.securityCollected && (
                       <span style={{ fontSize: 12, color: "var(--text-muted)", marginLeft: 8 }}>
-                        (₹{formatInr(booking.securityCollected)} collected at delivery)
+                        (₹{formatInr(booking.securityCollected)} collected at delivery
+                        {securityPaymentLabel ? ` · ${securityPaymentLabel}` : ""})
+                      </span>
+                    )}
+                    {booking.securityCollected > 0 && securityPaymentLabel && !((booking.securityDeposit ?? 0) > booking.securityCollected) && (
+                      <span style={{ fontSize: 12, color: "var(--text-muted)", marginLeft: 8 }}>
+                        · Collected via {securityPaymentLabel}
                       </span>
                     )}
                   </div>
@@ -481,12 +532,29 @@ export default function ReturnDetailClient({
                       <div style={{ fontSize: 12 }}>
                         {d.itemRemainingCollected > 0 && <span>Remaining collected ₹{formatInr(d.itemRemainingCollected)}</span>}
                         {d.itemRemainingCollected > 0 && d.itemSecurityCollected > 0 && <span> · </span>}
-                        {d.itemSecurityCollected > 0 && <span>Security held ₹{formatInr(d.itemSecurityCollected)}</span>}
+                        {d.itemSecurityCollected > 0 && (
+                          <span>
+                            Security held ₹{formatInr(d.itemSecurityCollected)}
+                            {securityPaymentLabel ? ` (${securityPaymentLabel})` : ""}
+                          </span>
+                        )}
                       </div>
                     )}
                     {d.itemDeliveryNotes && (
                       <div style={{ marginTop: 6, color: "var(--text-muted)", fontSize: 12 }}>
                         <strong>Delivery note:</strong> {d.itemDeliveryNotes}
+                      </div>
+                    )}
+                    {d.isReturned && partialReturn && returnedItems.length === 1 && (
+                      <div style={{ marginTop: 10 }}>
+                        <Link
+                          href={returnSlipHref(booking.id, returnSlipSource, d.id)}
+                          className="btn btn-outline btn-sm"
+                          style={{ color: "#b8860b", borderColor: "#c9a84c" }}
+                        >
+                          <i className="fa-solid fa-receipt" style={{ marginRight: 6 }} />
+                          Return Receipt
+                        </Link>
                       </div>
                     )}
                   </div>
@@ -574,6 +642,18 @@ export default function ReturnDetailClient({
               <div style={{ marginBottom: 16, fontSize: 13, color: "var(--success)" }}>
                 <i className="fa-solid fa-circle-check" style={{ marginRight: 6 }} />
                 Already returned: {returnedItems.map((d) => d.dressName).join(", ")}
+                {partialReturn && returnedItems.length === 1 && (
+                  <div style={{ marginTop: 10 }}>
+                    <Link
+                      href={returnSlipHref(booking.id, returnSlipSource, returnedItems[0].id)}
+                      className="btn btn-outline btn-sm"
+                      style={{ color: "#b8860b", borderColor: "#c9a84c" }}
+                    >
+                      <i className="fa-solid fa-receipt" style={{ marginRight: 6 }} />
+                      Return Receipt — {returnedItems[0].dressName}
+                    </Link>
+                  </div>
+                )}
               </div>
             )}
 
@@ -740,7 +820,7 @@ export default function ReturnDetailClient({
                       background: "rgba(243,156,18,0.05)",
                     }}
                   >
-                    <div style={{ display: "flex", alignItems: "center", gap: 10, marginBottom: 8 }}>
+                    <div style={{ display: "flex", alignItems: "center", gap: 10, marginBottom: 8, flexWrap: "wrap" }}>
                       {d.photo && (
                         <img src={photoUrl(d.photo)} alt="" style={{ width: 44, height: 44, borderRadius: 8, objectFit: "cover" }} />
                       )}
@@ -753,6 +833,7 @@ export default function ReturnDetailClient({
                     {(d.itemSecurityCollected ?? 0) > 0 && (
                       <p style={{ margin: "4px 0", fontSize: 12, color: "var(--text-muted)" }}>
                         Security collected at delivery: ₹{formatInr(d.itemSecurityCollected || 0)}
+                        {securityPaymentLabel ? ` · ${securityPaymentLabel}` : ""}
                       </p>
                     )}
                     {(d.itemSecurityHeld ?? 0) > 0 && (
@@ -768,6 +849,19 @@ export default function ReturnDetailClient({
                           style={{ marginTop: 8, maxWidth: 200, maxHeight: 200, borderRadius: 8, border: "1px solid var(--border)" }}
                         />
                       </a>
+                    )}
+                    {d.id > 0 && (
+                      <div style={{ marginTop: 12 }}>
+                        <button
+                          type="button"
+                          className="btn btn-sm btn-primary"
+                          disabled={saving}
+                          onClick={() => void act("mark_item_returned", d.id)}
+                        >
+                          <i className="fa-solid fa-circle-check" style={{ marginRight: 6 }} />
+                          Mark This Dress Returned
+                        </button>
+                      </div>
                     )}
                   </div>
                 ))
@@ -786,6 +880,35 @@ export default function ReturnDetailClient({
                     </a>
                   </div>
                 )}
+                <div style={{ marginTop: 12 }}>
+                  <button
+                    type="button"
+                    className="btn btn-sm btn-primary"
+                    disabled={saving}
+                    onClick={async () => {
+                      if (!confirm("Mark this incomplete return as fully resolved?")) return;
+                      setSaving(true);
+                      try {
+                        const res = await fetch(`/api/return/${booking.id}/save`, {
+                          method: "POST",
+                          headers: { "Content-Type": "application/json" },
+                          body: JSON.stringify({ action: "resolve_incomplete_return" }),
+                        });
+                        const data = await res.json().catch(() => ({}));
+                        if (!res.ok) {
+                          alert(typeof data.error === "string" ? data.error : "Could not resolve");
+                          return;
+                        }
+                        router.refresh();
+                      } finally {
+                        setSaving(false);
+                      }
+                    }}
+                  >
+                    <i className="fa-solid fa-circle-check" style={{ marginRight: 6 }} />
+                    Mark Returned (Resolve)
+                  </button>
+                </div>
               </>
             )}
             {itemDelivery.some((d) => d.isReturned && d.isDelivered) && (
@@ -794,9 +917,41 @@ export default function ReturnDetailClient({
                 Other dress(es) in this booking were returned completely.
               </p>
             )}
-            <Link href="/incomplete-return" className="btn btn-outline" style={{ marginTop: 16 }}>
-              View in Incomplete Returns
-            </Link>
+            <div style={{ display: "flex", gap: 8, flexWrap: "wrap", marginTop: 16 }}>
+              <Link href={`/booking/${booking.id}/incomplete-slip`} className="btn btn-outline" style={{ color: "#c2410c", borderColor: "#f39c12" }}>
+                <i className="fa-solid fa-receipt" style={{ marginRight: 6 }} />Print Incomplete Slip
+              </Link>
+              <button
+                type="button"
+                className="btn btn-primary"
+                disabled={saving}
+                onClick={async () => {
+                  if (!confirm("Mark this incomplete return as fully resolved and close the booking?")) return;
+                  setSaving(true);
+                  try {
+                    const res = await fetch(`/api/return/${booking.id}/save`, {
+                      method: "POST",
+                      headers: { "Content-Type": "application/json" },
+                      body: JSON.stringify({ action: "resolve_incomplete_return" }),
+                    });
+                    const data = await res.json().catch(() => ({}));
+                    if (!res.ok) {
+                      alert(typeof data.error === "string" ? data.error : "Could not resolve incomplete return");
+                      return;
+                    }
+                    router.refresh();
+                  } finally {
+                    setSaving(false);
+                  }
+                }}
+              >
+                <i className="fa-solid fa-circle-check" style={{ marginRight: 6 }} />
+                Mark All Returned (Resolve)
+              </button>
+              <Link href="/incomplete-return" className="btn btn-outline">
+                View in Incomplete Returns
+              </Link>
+            </div>
           </div>
         </div>
       )}

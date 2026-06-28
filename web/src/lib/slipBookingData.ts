@@ -1,0 +1,568 @@
+import { formatDate } from "@/lib/constants";
+import { resolvePublicBookingId } from "@/lib/services/whatsapp/publicBookingId";
+import {
+  formatSlipDateTime,
+  isLateReturn,
+  itemReturnCondition,
+} from "@/lib/slipConstants";
+import { incompleteReturnSecuritySummary } from "@/lib/bookingDetails";
+import type { ReturnSlipResolve } from "@/lib/bookingStatus";
+import type { ReturnSlipProps } from "@/components/ReturnSlip";
+import type { DeliverySlipProps } from "@/components/DeliverySlip";
+import type { BookingSlipProps } from "@/components/BookingSlip";
+
+type BookingWithItems = {
+  id: number;
+  publicBookingId: string | null;
+  monthlySerial: number;
+  customerName: string;
+  customerAddress: string;
+  contact1: string;
+  whatsappNo: string | null;
+  deliveryDate: Date;
+  deliveryTime: string;
+  returnDate: Date;
+  returnTime: string;
+  venue: string | null;
+  staffNames: string | null;
+  securityDeposit: number;
+  totalPrice: number;
+  totalAdvance: number;
+  totalRemaining: number;
+  remainingCollected: number;
+  securityCollected: number;
+  remainingPaymentMode?: string | null;
+  securityPaymentMode?: string | null;
+  commonNotes: string | null;
+  deliveryNotes: string | null;
+  incompleteNotes: string | null;
+  incompletePhoto: string | null;
+  status: string;
+  createdAt: Date;
+  deliveredAt: Date | null;
+  returnedAt: Date | null;
+  securityHeld: number;
+  refundAmount: number;
+  dressName?: string | null;
+  bookingItems: Array<{
+    id?: number;
+    dressName: string;
+    category: string | null;
+    size: string | null;
+    price: number;
+    advance: number;
+    remaining: number;
+    notes: string | null;
+    isDelivered?: boolean;
+    isIncompleteReturn: boolean;
+    isReturned: boolean;
+    itemIncompleteNotes: string | null;
+    itemIncompletePhoto: string | null;
+    itemSecurityHeld: number;
+    itemRemainingCollected?: number;
+    itemSecurityCollected?: number;
+    itemDeliveryNotes?: string | null;
+    deliveredAt?: Date | null;
+    item: { color: string | null } | null;
+  }>;
+};
+
+export type BuildDeliverySlipOptions = {
+  /** When set, slip covers only this delivered booking item (partial delivery). */
+  bookingItemId?: number;
+  /** When "combined", include all delivered items on a partial slip. */
+  scope?: "full" | "single" | "combined";
+};
+
+function mapSlipItem(bi: BookingWithItems["bookingItems"][number]) {
+  return {
+    dressName: bi.dressName,
+    category: bi.category || "",
+    size: bi.size || "",
+    color: bi.item?.color ?? null,
+    price: bi.price,
+    advance: bi.advance,
+    remaining: bi.remaining,
+    notes: bi.notes,
+  };
+}
+
+export function buildDeliverySlipData(
+  booking: BookingWithItems,
+  opts?: BuildDeliverySlipOptions,
+): {
+  booking: DeliverySlipProps["booking"];
+  items: DeliverySlipProps["items"];
+  slipSubtitle?: string;
+} {
+  const publicId = resolvePublicBookingId(booking);
+  const allItems = booking.bookingItems ?? [];
+  const deliveredItems = allItems.filter((bi) => bi.isDelivered);
+  const allDelivered =
+    allItems.length > 0 && deliveredItems.length === allItems.length;
+  const useFullSlip =
+    opts?.scope === "full" ||
+    (!opts?.scope &&
+      (booking.status === "returned" ||
+        booking.status === "incomplete_return" ||
+        allDelivered ||
+        booking.status === "delivered"));
+
+  let sourceItems: BookingWithItems["bookingItems"];
+  let slipSubtitle: string | undefined;
+  let totalPrice: number;
+  let totalAdvance: number;
+  let totalRemaining: number;
+  let remainingCollected: number;
+  let securityCollected: number;
+  let securityDeposit: number;
+  let deliveryNotes: string | null | undefined;
+  let deliveredAt: Date;
+
+  if (useFullSlip) {
+    sourceItems =
+      allItems.length > 0
+        ? allItems
+        : booking.dressName
+          ? []
+          : [];
+    totalPrice = booking.totalPrice;
+    totalAdvance = booking.totalAdvance;
+    totalRemaining = booking.totalRemaining;
+    remainingCollected = booking.remainingCollected;
+    securityCollected = booking.securityCollected;
+    securityDeposit = booking.securityDeposit;
+    deliveryNotes = booking.deliveryNotes;
+    deliveredAt =
+      booking.deliveredAt ??
+      deliveredItems.find((bi) => bi.deliveredAt)?.deliveredAt ??
+      booking.createdAt;
+  } else {
+    const itemId = opts?.bookingItemId;
+    if (itemId) {
+      const bi = deliveredItems.find((b) => b.id === itemId);
+      if (!bi) {
+        throw new Error("Delivered booking item not found");
+      }
+      sourceItems = [bi];
+    } else if (deliveredItems.length === 1) {
+      sourceItems = deliveredItems;
+    } else if (deliveredItems.length > 1) {
+      sourceItems = deliveredItems;
+    } else {
+      throw new Error("No delivered items for delivery slip");
+    }
+
+    totalPrice = sourceItems.reduce((s, i) => s + i.price, 0);
+    totalAdvance = sourceItems.reduce((s, i) => s + i.advance, 0);
+    totalRemaining = sourceItems.reduce((s, i) => s + i.remaining, 0);
+    remainingCollected = sourceItems.reduce(
+      (s, i) => s + (i.itemRemainingCollected ?? 0),
+      0,
+    );
+    securityCollected = sourceItems.reduce(
+      (s, i) => s + (i.itemSecurityCollected ?? 0),
+      0,
+    );
+    securityDeposit = securityCollected;
+    deliveryNotes =
+      sourceItems.length === 1
+        ? sourceItems[0].itemDeliveryNotes || booking.deliveryNotes
+        : sourceItems
+            .map((bi) =>
+              bi.itemDeliveryNotes ? `${bi.dressName}: ${bi.itemDeliveryNotes}` : null,
+            )
+            .filter(Boolean)
+            .join(" | ") || booking.deliveryNotes;
+    deliveredAt = sourceItems.reduce((latest, bi) => {
+      const d = bi.deliveredAt ?? booking.createdAt;
+      return d > latest ? d : latest;
+    }, sourceItems[0].deliveredAt ?? booking.createdAt);
+
+    const dressLabel = sourceItems.length === 1 ? sourceItems[0].dressName : "";
+    slipSubtitle = `Partial delivery — ${deliveredItems.length} of ${allItems.length} dresses delivered${
+      dressLabel ? ` (${dressLabel})` : ""
+    }`;
+  }
+
+  const items =
+    sourceItems.length > 0
+      ? sourceItems.map(mapSlipItem)
+      : booking.dressName
+        ? [
+            {
+              dressName: booking.dressName,
+              category: "",
+              size: "",
+              color: null,
+              price: booking.totalPrice,
+              advance: booking.totalAdvance,
+              remaining: booking.totalRemaining,
+              notes: null,
+            },
+          ]
+        : [];
+
+  return {
+    slipSubtitle,
+    booking: {
+      publicBookingId: publicId,
+      monthlySerial: booking.monthlySerial,
+      customerName: booking.customerName,
+      customerAddress: booking.customerAddress,
+      contact1: booking.contact1,
+      whatsappNo: booking.whatsappNo,
+      deliveryDate: formatDate(booking.deliveryDate, "display"),
+      deliveryTime: booking.deliveryTime,
+      returnDate: formatDate(booking.returnDate, "display"),
+      returnTime: booking.returnTime,
+      venue: booking.venue,
+      staffNames: booking.staffNames,
+      securityDeposit,
+      totalPrice,
+      totalAdvance,
+      totalRemaining,
+      remainingCollected,
+      securityCollected,
+      deliveryNotes,
+      remainingPaymentMode: booking.remainingPaymentMode ?? null,
+      securityPaymentMode: booking.securityPaymentMode ?? null,
+      deliveredAt: deliveredAt.toISOString(),
+      status: booking.status,
+      createdAt: booking.createdAt.toISOString(),
+    },
+    items,
+  };
+}
+
+export type BuildReturnSlipOptions = {
+  /** Resolved by resolveReturnSlip — passed from route handlers. */
+  scope?: ReturnSlipResolve["scope"];
+  bookingItemId?: number;
+};
+
+function mapReturnSlipItem(bi: BookingWithItems["bookingItems"][number]) {
+  return {
+    dressName: bi.dressName,
+    category: bi.category || "",
+    size: bi.size || "",
+    color: bi.item?.color ?? null,
+    price: bi.price,
+    advance: bi.advance,
+    remaining: bi.remaining,
+    returnCondition: itemReturnCondition(bi) as string,
+    notes: bi.notes,
+  };
+}
+
+export function buildReturnSlipData(
+  booking: BookingWithItems,
+  opts?: BuildReturnSlipOptions,
+): {
+  booking: ReturnSlipProps["booking"];
+  items: ReturnSlipProps["items"];
+  slipSubtitle?: string;
+} {
+  const publicId = resolvePublicBookingId(booking);
+  const allItems = booking.bookingItems ?? [];
+  const deliveredItems = allItems.filter((bi) => bi.isDelivered);
+  const returnedItems = allItems.filter((bi) => bi.isReturned && !bi.isIncompleteReturn);
+  const allReturned =
+    deliveredItems.length > 0 && returnedItems.length === deliveredItems.length;
+  const useFullSlip =
+    opts?.scope === "full" ||
+    (!opts?.scope &&
+      (booking.status === "returned" ||
+        booking.status === "incomplete_return" ||
+        allReturned));
+
+  let sourceItems: BookingWithItems["bookingItems"];
+  let slipSubtitle: string | undefined;
+  let totalPrice: number;
+  let totalAdvance: number;
+  let totalRemaining: number;
+  let remainingPaid: number;
+  let securityDeposit: number;
+  let securityRefunded: number;
+  let damageCharge: number;
+  let finalSettlement: number;
+  let returnedAt = booking.returnedAt;
+
+  if (useFullSlip) {
+    sourceItems = allItems;
+    const actual = formatSlipDateTime(booking.returnedAt);
+    const late = isLateReturn(booking.returnedAt, booking.returnDate);
+    damageCharge =
+      booking.status === "incomplete_return" ? Math.max(0, booking.securityHeld) : 0;
+    securityRefunded =
+      booking.status === "returned"
+        ? Math.max(0, booking.refundAmount || booking.securityCollected - booking.securityHeld)
+        : 0;
+    remainingPaid = booking.remainingCollected;
+    const balanceDue = Math.max(0, booking.totalRemaining - remainingPaid);
+    finalSettlement = 0;
+    if (booking.refundAmount > 0) finalSettlement = -booking.refundAmount;
+    else if (balanceDue > 0) finalSettlement = balanceDue;
+    else if (securityRefunded > 0) finalSettlement = -securityRefunded;
+
+    totalPrice = booking.totalPrice;
+    totalAdvance = booking.totalAdvance;
+    totalRemaining = booking.totalRemaining;
+    securityDeposit = booking.securityDeposit;
+
+    const items = sourceItems.length > 0
+      ? sourceItems.map(mapReturnSlipItem)
+      : booking.dressName
+        ? [{
+            dressName: booking.dressName,
+            category: "",
+            size: "",
+            color: null,
+            price: booking.totalPrice,
+            advance: booking.totalAdvance,
+            remaining: booking.totalRemaining,
+            returnCondition: "good" as const,
+            notes: null,
+          }]
+        : [];
+
+    return {
+      slipSubtitle,
+      booking: {
+        publicBookingId: publicId,
+        monthlySerial: booking.monthlySerial,
+        customerName: booking.customerName,
+        customerAddress: booking.customerAddress,
+        contact1: booking.contact1,
+        whatsappNo: booking.whatsappNo,
+        deliveryDate: formatDate(booking.deliveryDate, "display"),
+        deliveryTime: booking.deliveryTime,
+        returnDate: formatDate(booking.returnDate, "display"),
+        returnTime: booking.returnTime,
+        actualReturnDate: actual.date,
+        actualReturnTime: actual.time,
+        venue: booking.venue,
+        staffNames: booking.staffNames,
+        securityDeposit,
+        totalPrice,
+        totalAdvance,
+        totalRemaining,
+        remainingCollected: remainingPaid,
+        securityRefunded,
+        lateFee: late ? 0 : 0,
+        damageCharge,
+        finalSettlement,
+        commonNotes: booking.commonNotes,
+        returnNotes: booking.incompleteNotes || booking.deliveryNotes,
+        status: booking.status,
+        createdAt: booking.createdAt.toISOString(),
+        isLateReturn: late,
+      },
+      items,
+    };
+  }
+
+  // Partial return — single dress or combined returned subset
+  const scope = opts?.scope;
+  if (scope === "single" && opts?.bookingItemId) {
+    const bi = returnedItems.find((b) => b.id === opts.bookingItemId);
+    if (!bi) throw new Error("Returned booking item not found");
+    sourceItems = [bi];
+    slipSubtitle = `Partial return — 1 of ${deliveredItems.length} dresses returned (${bi.dressName})`;
+  } else {
+    sourceItems = returnedItems;
+    slipSubtitle = `Partial return — ${returnedItems.length} of ${deliveredItems.length} dresses returned`;
+  }
+
+  totalPrice = sourceItems.reduce((s, i) => s + i.price, 0);
+  totalAdvance = sourceItems.reduce((s, i) => s + i.advance, 0);
+  totalRemaining = sourceItems.reduce((s, i) => s + i.remaining, 0);
+  remainingPaid = sourceItems.reduce((s, i) => s + (i.itemRemainingCollected ?? 0), 0);
+  securityDeposit = sourceItems.reduce((s, i) => s + (i.itemSecurityCollected ?? 0), 0);
+  securityRefunded = 0;
+  damageCharge = sourceItems.reduce((s, i) => s + (i.itemSecurityHeld ?? 0), 0);
+  const balanceDue = Math.max(0, totalRemaining - remainingPaid);
+  finalSettlement = balanceDue > 0 ? balanceDue : damageCharge > 0 ? damageCharge : 0;
+  if (!returnedAt) returnedAt = new Date();
+
+  const actual = formatSlipDateTime(returnedAt);
+  const late = isLateReturn(returnedAt, booking.returnDate);
+
+  return {
+    slipSubtitle,
+    booking: {
+      publicBookingId: publicId,
+      monthlySerial: booking.monthlySerial,
+      customerName: booking.customerName,
+      customerAddress: booking.customerAddress,
+      contact1: booking.contact1,
+      whatsappNo: booking.whatsappNo,
+      deliveryDate: formatDate(booking.deliveryDate, "display"),
+      deliveryTime: booking.deliveryTime,
+      returnDate: formatDate(booking.returnDate, "display"),
+      returnTime: booking.returnTime,
+      actualReturnDate: actual.date,
+      actualReturnTime: actual.time,
+      venue: booking.venue,
+      staffNames: booking.staffNames,
+      securityDeposit,
+      totalPrice,
+      totalAdvance,
+      totalRemaining,
+      remainingCollected: remainingPaid,
+      securityRefunded,
+      lateFee: 0,
+      damageCharge,
+      finalSettlement,
+      commonNotes: booking.commonNotes,
+      returnNotes: booking.deliveryNotes,
+      status: booking.status,
+      createdAt: booking.createdAt.toISOString(),
+      isLateReturn: late,
+    },
+    items: sourceItems.map(mapReturnSlipItem),
+  };
+}
+
+export const SLIP_BIZ = {
+  name: process.env.BUSINESS_NAME || "Fancy Collection by Renu Agarwal",
+  phone: process.env.BUSINESS_PHONE || "8077843874, 8630834711",
+  address:
+    process.env.BUSINESS_ADDRESS ||
+    "Banwata Ganj Near Balaji Mandir Court Road Moradabad 244001",
+  tagline:
+    process.env.BUSINESS_TAGLINE || "Premium Cloth Rental — Elegance for Every Occasion",
+};
+
+export function buildBookingSlipData(booking: BookingWithItems): {
+  booking: BookingSlipProps["booking"];
+  items: BookingSlipProps["items"];
+} {
+  const publicId = resolvePublicBookingId(booking);
+
+  const items =
+    booking.bookingItems.length > 0
+      ? booking.bookingItems.map((bi) => ({
+          dressName: bi.dressName,
+          category: bi.category || "",
+          size: bi.size || "",
+          color: bi.item?.color ?? null,
+          price: bi.price,
+          advance: bi.advance,
+          remaining: bi.remaining,
+          notes: bi.notes,
+        }))
+      : booking.dressName
+        ? [
+            {
+              dressName: booking.dressName,
+              category: "",
+              size: "",
+              color: null,
+              price: booking.totalPrice,
+              advance: booking.totalAdvance,
+              remaining: booking.totalRemaining,
+              notes: null,
+            },
+          ]
+        : [];
+
+  return {
+    booking: {
+      publicBookingId: publicId,
+      monthlySerial: booking.monthlySerial,
+      customerName: booking.customerName,
+      customerAddress: booking.customerAddress,
+      contact1: booking.contact1,
+      whatsappNo: booking.whatsappNo,
+      deliveryDate: formatDate(booking.deliveryDate, "display"),
+      deliveryTime: booking.deliveryTime,
+      returnDate: formatDate(booking.returnDate, "display"),
+      returnTime: booking.returnTime,
+      venue: booking.venue,
+      staffNames: booking.staffNames,
+      securityDeposit: booking.securityDeposit,
+      totalPrice: booking.totalPrice,
+      totalAdvance: booking.totalAdvance,
+      totalRemaining: booking.totalRemaining,
+      commonNotes: booking.commonNotes,
+      status: booking.status,
+      createdAt: booking.createdAt.toISOString(),
+    },
+    items,
+  };
+}
+
+export function buildIncompleteSlipData(booking: BookingWithItems) {
+  const publicId = resolvePublicBookingId(booking);
+  const reported = formatSlipDateTime(booking.returnedAt ?? new Date());
+  const security = incompleteReturnSecuritySummary({
+    securityHeld: booking.securityHeld,
+    securityCollected: booking.securityCollected,
+    securityDeposit: booking.securityDeposit,
+    items: booking.bookingItems,
+  });
+
+  const incompleteItems = booking.bookingItems
+    .filter((bi) => bi.isIncompleteReturn)
+    .map((bi) => ({
+      dressName: bi.dressName,
+      category: bi.category || "",
+      size: bi.size || "",
+      color: bi.item?.color ?? null,
+      notes: bi.itemIncompleteNotes || bi.notes,
+      securityHeld: bi.itemSecurityHeld,
+      photo: bi.itemIncompletePhoto,
+    }));
+
+  if (
+    incompleteItems.length === 0 &&
+    (booking.status === "incomplete_return" || booking.incompleteNotes || booking.incompletePhoto)
+  ) {
+    incompleteItems.push({
+      dressName: booking.dressName || "Rented item",
+      category: "",
+      size: "",
+      color: null,
+      notes: booking.incompleteNotes,
+      securityHeld: booking.securityHeld,
+      photo: booking.incompletePhoto,
+    });
+  }
+
+  const returnedItems = booking.bookingItems
+    .filter((bi) => bi.isReturned && !bi.isIncompleteReturn)
+    .map((bi) => ({
+      dressName: bi.dressName,
+      category: bi.category || "",
+      size: bi.size || "",
+    }));
+
+  return {
+    booking: {
+      publicBookingId: publicId,
+      monthlySerial: booking.monthlySerial,
+      customerName: booking.customerName,
+      customerAddress: booking.customerAddress,
+      contact1: booking.contact1,
+      whatsappNo: booking.whatsappNo,
+      deliveryDate: formatDate(booking.deliveryDate, "display"),
+      deliveryTime: booking.deliveryTime,
+      returnDate: formatDate(booking.returnDate, "display"),
+      returnTime: booking.returnTime,
+      reportedDate: reported.date,
+      reportedTime: reported.time,
+      venue: booking.venue,
+      staffNames: booking.staffNames,
+      securityDeposit: booking.securityDeposit,
+      securityCollected: security.totalSecurity,
+      securityHeld: security.securityHeld,
+      securityReturned: security.securityReturned,
+      incompleteNotes: booking.incompleteNotes,
+      incompletePhoto: booking.incompletePhoto,
+      status: booking.status,
+    },
+    incompleteItems,
+    returnedItems,
+  };
+}

@@ -38,6 +38,40 @@ function endOfDayQ(d: Date): Date {
   return dateQ(endOfDay(d));
 }
 
+type BookingPaymentRow = {
+  advancePaymentMode: string;
+  remainingPaymentMode: string | null;
+  totalAdvance?: number;
+  advance?: number;
+  remainingCollected?: number;
+  bookingItems: Array<{ advance: number; category: string | null }>;
+};
+
+function sumAdvanceByMode(bookings: BookingPaymentRow[]) {
+  let cash = 0;
+  let online = 0;
+  for (const b of bookings) {
+    const amt = b.bookingItems.length
+      ? b.bookingItems.reduce((s, bi) => s + bi.advance, 0)
+      : (b.totalAdvance || b.advance || 0);
+    if (b.advancePaymentMode === "online") online += amt;
+    else cash += amt;
+  }
+  return { cash, online };
+}
+
+function sumRemainingByMode(bookings: BookingPaymentRow[]) {
+  let cash = 0;
+  let online = 0;
+  for (const b of bookings) {
+    const amt = b.remainingCollected || 0;
+    if (amt <= 0) continue;
+    if (b.remainingPaymentMode === "online") online += amt;
+    else cash += amt;
+  }
+  return { cash, online };
+}
+
 export async function getDailySale(targetDateStr: string) {
   const target = parseDate(targetDateStr);
   const dayStartQ = startOfDayQ(target);
@@ -63,8 +97,13 @@ export async function getDailySale(targetDateStr: string) {
   const remaining_by_category: Record<string, number> = {};
   let advance_mens = 0, advance_womens = 0, advance_jewellery = 0;
   let remaining_mens = 0, remaining_womens = 0, remaining_jewellery = 0;
+  let remaining_cash = 0, remaining_online = 0;
 
   for (const b of bookingsToday) {
+    const bookingAdvance = b.bookingItems.length
+      ? b.bookingItems.reduce((s, bi) => s + bi.advance, 0)
+      : (b.totalAdvance || b.advance);
+
     if (b.bookingItems.length) {
       for (const bi of b.bookingItems) {
         const cat = bi.category || "Other";
@@ -81,6 +120,8 @@ export async function getDailySale(targetDateStr: string) {
   for (const b of deliveredToday) {
     const remaining_amt = b.remainingCollected || 0;
     if (remaining_amt <= 0) continue;
+    if (b.remainingPaymentMode === "online") remaining_online += remaining_amt;
+    else remaining_cash += remaining_amt;
     if (b.bookingItems.length && b.totalRemaining) {
       for (const bi of b.bookingItems) {
         const cat = bi.category || "Other";
@@ -97,6 +138,9 @@ export async function getDailySale(targetDateStr: string) {
 
   const total_advance = Object.values(advance_by_category).reduce((a, b) => a + b, 0);
   const total_remaining_collected = Object.values(remaining_by_category).reduce((a, b) => a + b, 0);
+  const { cash: advance_cash, online: advance_online } = sumAdvanceByMode(bookingsToday);
+  const payment_collected_cash = advance_cash + remaining_cash;
+  const payment_collected_online = advance_online + remaining_online;
 
   const refundsToday = await getRefundsBetween(dayStartQ, dayEndQ);
   const refund_total = totalRefundAmount(refundsToday);
@@ -115,6 +159,12 @@ export async function getDailySale(targetDateStr: string) {
     remaining_by_category,
     total_advance,
     total_remaining_collected,
+    advance_cash,
+    advance_online,
+    remaining_cash,
+    remaining_online,
+    payment_collected_cash,
+    payment_collected_online,
     total_sale: total_advance + total_remaining_collected - refund_total,
     refund_total,
     refund_by_category: refundCats,
@@ -187,6 +237,18 @@ export async function getMonthlySale(monthStr: string) {
     include: { bookingItems: true },
   });
 
+  const deliveredInMonth = await prisma.booking.findMany({
+    where: {
+      deliveryDate: { gte: monthStart, lt: monthEnd },
+      status: { in: ["delivered", "returned"] },
+      remainingCollected: { gt: 0 },
+    },
+    include: { bookingItems: true },
+  });
+
+  const advanceSplit = sumAdvanceByMode(bookings);
+  const remainingSplit = sumRemainingByMode(deliveredInMonth);
+
   const total_advance = bookings.reduce((s, b) => s + (b.totalAdvance || b.advance), 0);
   const total_remaining = bookings.reduce((s, b) => s + (b.totalRemaining || b.remaining), 0);
   const category_totals: Record<string, number> = {};
@@ -217,6 +279,12 @@ export async function getMonthlySale(monthStr: string) {
     month: monthStr,
     total_advance: total_advance - refund_total,
     total_remaining,
+    advance_cash: advanceSplit.cash,
+    advance_online: advanceSplit.online,
+    remaining_cash: remainingSplit.cash,
+    remaining_online: remainingSplit.online,
+    payment_collected_cash: advanceSplit.cash + remainingSplit.cash,
+    payment_collected_online: advanceSplit.online + remainingSplit.online,
     total_sale: total_advance + total_remaining - refund_total,
     refund_total,
     booking_count: bookings.length,

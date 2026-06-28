@@ -1,15 +1,16 @@
 import { NextRequest } from "next/server";
 import prisma from "@/lib/prisma";
-import { updateBooking, type BookingFormInput } from "@/lib/services/bookingCrud";
+import { updateBooking } from "@/lib/services/bookingCrud";
 import { cancelBooking } from "@/lib/services/operations";
 import { serializeBookingForList } from "@/lib/booking";
 import { bookingLockedMessage, isBookingLocked } from "@/lib/bookingLock";
-import {
-  shouldResendWhatsAppOnUpdate,
-  triggerBookingWhatsAppAsync,
-} from "@/lib/services/bookingWhatsAppFlow";
 import { jsonError, jsonOk, requireUser, isResponse } from "@/lib/api";
 import { isOwner } from "@/lib/auth";
+import { formatDate } from "@/lib/constants";
+import {
+  rescheduleBookingReminderAfterDateChange,
+  schedulePostponementNotice,
+} from "@/lib/services/whatsapp/jobQueue";
 import { BookingFormSchema } from "@/lib/validation";
 
 export async function GET(_req: NextRequest, { params }: { params: Promise<{ id: string }> }) {
@@ -31,7 +32,7 @@ export async function PUT(req: NextRequest, { params }: { params: Promise<{ id: 
   const bookingId = parseInt(id, 10);
   const existing = await prisma.booking.findUnique({
     where: { id: bookingId },
-    select: { status: true, whatsappNo: true, contact1: true },
+    select: { status: true, deliveryDate: true, returnDate: true },
   });
   if (!existing) return jsonError("Not found", 404);
   if (isBookingLocked(existing.status) && !isOwner(user)) {
@@ -39,23 +40,33 @@ export async function PUT(req: NextRequest, { params }: { params: Promise<{ id: 
   }
   try {
     const raw = await req.json();
-    const parseResult = BookingFormSchema.partial().safeParse(raw);
+    const parseResult = BookingFormSchema.safeParse(raw);
     if (!parseResult.success) {
       return jsonError(parseResult.error.issues[0]?.message || "Invalid input", 400);
     }
-    const body = parseResult.data as BookingFormInput;
+    const body = parseResult.data;
     const booking = await updateBooking(bookingId, body, user.username);
 
-    if (
-      booking &&
-      shouldResendWhatsAppOnUpdate(
-        existing.whatsappNo,
-        existing.contact1,
-        body.whatsapp_no,
-        body.contact_1,
-      )
-    ) {
-      triggerBookingWhatsAppAsync(bookingId, req.nextUrl.origin);
+    const oldDeliveryIso = formatDate(existing.deliveryDate, "iso");
+    const oldReturnIso = formatDate(existing.returnDate, "iso");
+    const deliveryChanged = oldDeliveryIso !== body.delivery_date.slice(0, 10);
+    const returnChanged = oldReturnIso !== body.return_date.slice(0, 10);
+
+    if (deliveryChanged || returnChanged) {
+      void schedulePostponementNotice(
+        bookingId,
+        formatDate(existing.deliveryDate, "display"),
+        formatDate(body.delivery_date, "display"),
+        formatDate(body.return_date, "display"),
+        undefined,
+        user.username,
+      ).catch((e) => console.error("schedulePostponementNotice failed:", e));
+
+      void rescheduleBookingReminderAfterDateChange(
+        bookingId,
+        body.return_date,
+        user.username,
+      ).catch((e) => console.error("rescheduleBookingReminder failed:", e));
     }
 
     return jsonOk({ ok: true, id: booking?.id, serial: booking?.monthlySerial });

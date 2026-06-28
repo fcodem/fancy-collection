@@ -9,6 +9,7 @@ import { parseDate, assertBookingDatesNotPast } from "../constants";
 import { shouldSkipCustomerCreate } from "./customersOps";
 import { broadcastShopEvent } from "../realtime/broadcast";
 import { logActivity, snapshotBooking } from "../activityLog";
+import { formatPublicBookingId } from "./whatsapp/publicBookingId";
 
 export type BookingItemInput = {
   item_id: number;
@@ -31,6 +32,7 @@ export type BookingFormInput = {
   security_deposit?: number;
   common_notes?: string;
   staff_names?: string[];
+  payment_mode?: "cash" | "online";
   items: BookingItemInput[];
 };
 
@@ -110,6 +112,7 @@ export async function createBooking(input: BookingFormInput, by?: string) {
         totalPrice,
         totalAdvance,
         totalRemaining,
+        advancePaymentMode: input.payment_mode === "online" ? "online" : "cash",
         commonNotes: input.common_notes?.trim() || null,
         itemId: itemsToBook[0].item.id,
         dressName: itemsToBook[0].row.dress_name,
@@ -146,7 +149,11 @@ export async function createBooking(input: BookingFormInput, by?: string) {
       });
     }
 
-    return b;
+    const publicBookingId = formatPublicBookingId(b.id);
+    return tx.booking.update({
+      where: { id: b.id },
+      data: { publicBookingId },
+    });
   });
 
   broadcastShopEvent({ type: "booking.created", bookingId: booking.id, status: booking.status, by });

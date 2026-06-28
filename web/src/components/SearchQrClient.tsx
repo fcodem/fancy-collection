@@ -30,6 +30,7 @@ export default function SearchQrClient() {
   const [status, setStatus] = useState<ScannerStatus | null>(null);
   const mounted = useMounted();
   const [isMobile, setIsMobile] = useState(false);
+  const [needsHttps, setNeedsHttps] = useState(false);
 
   const sessionRef = useRef<QrCameraSession | null>(null);
   const handledRef = useRef(false);
@@ -147,9 +148,13 @@ export default function SearchQrClient() {
 
   useEffect(() => {
     if (!mounted) return;
-    setIsMobile(isMobileOrTablet());
-    // Auto-open camera: back camera on mobile/tablet, front on desktop
-    void allowCameraAndScan();
+    const mobile = isMobileOrTablet();
+    setIsMobile(mobile);
+    setNeedsHttps(mobile && typeof window !== "undefined" && !window.isSecureContext);
+    // Mobile browsers require a user tap before getUserMedia — do not auto-start.
+    if (!mobile && window.isSecureContext) {
+      void allowCameraAndScan();
+    }
   }, [mounted]); // eslint-disable-line react-hooks/exhaustive-deps
 
   const showAllowOverlay = !cameraReady && permissionUi !== "requesting";
@@ -157,6 +162,23 @@ export default function SearchQrClient() {
 
   return (
     <div>
+      <style
+        dangerouslySetInnerHTML={{
+          __html: `
+          #qr-camera-reader video,
+          #qr-camera-reader canvas {
+            width: 100% !important;
+            height: auto !important;
+            max-height: 420px;
+            object-fit: cover;
+            display: block;
+          }
+          #qr-camera-reader > div {
+            width: 100% !important;
+          }
+        `,
+        }}
+      />
       <div
         className="page-banner"
         style={{
@@ -191,6 +213,13 @@ export default function SearchQrClient() {
         </Link>
       </div>
 
+      {needsHttps && (
+        <div className="alert alert-error" style={{ marginBottom: 16 }} role="alert">
+          Camera will not work on this connection. On your phone, open the site with <strong>https://</strong> (secure),
+          not http:// or a raw IP address.
+        </div>
+      )}
+
       {error && (
         <div className="alert alert-warning" style={{ marginBottom: 16 }} role="alert">
           {error}
@@ -208,7 +237,7 @@ export default function SearchQrClient() {
         </div>
         <div className="card-body">
           <p style={{ fontSize: 12, color: "var(--text-muted)", marginBottom: 12 }} suppressHydrationWarning>
-            {mounted ? cameraHint(isMobile) : "Allow camera access, then align the QR inside the frame."}
+            {mounted ? cameraHint(isMobile) : "Tap Open Camera, then align the QR inside the frame."}
           </p>
 
           <div style={{ position: "relative", maxWidth: 420, margin: "0 auto" }}>
@@ -307,13 +336,22 @@ export default function SearchQrClient() {
                 }}
               >
                 <i className="fa-solid fa-video" style={{ fontSize: 36, color: "var(--primary)" }} />
-                <p style={{ fontSize: 14, margin: 0, fontWeight: 600 }}>Allow camera to scan bill QR</p>
-                <p style={{ fontSize: 12, color: "var(--text-muted)", margin: 0, lineHeight: 1.45 }}>
-                  Click below, then click <strong>Allow</strong> when your browser asks for camera access.
+                <p style={{ fontSize: 14, margin: 0, fontWeight: 600 }}>
+                  {isMobile ? "Tap to open camera" : "Allow camera to scan bill QR"}
                 </p>
-                <button type="button" className="btn btn-primary btn-lg" onClick={() => void allowCameraAndScan()}>
+                <p style={{ fontSize: 12, color: "var(--text-muted)", margin: 0, lineHeight: 1.45 }}>
+                  {isMobile
+                    ? "Your phone requires a tap before the camera can start. Tap below, then choose Allow when prompted."
+                    : "Click below, then click Allow when your browser asks for camera access."}
+                </p>
+                <button
+                  type="button"
+                  className="btn btn-primary btn-lg"
+                  disabled={needsHttps}
+                  onClick={() => void allowCameraAndScan()}
+                >
                   <i className="fa-solid fa-camera" style={{ marginRight: 8 }} />
-                  Allow Camera Access
+                  {isMobile ? "Open Camera" : "Allow Camera Access"}
                 </button>
               </div>
             )}

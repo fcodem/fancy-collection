@@ -2,6 +2,8 @@ import { cache } from "react";
 import { connection } from "next/server";
 import { getIronSession, SessionOptions } from "iron-session";
 import { cookies } from "next/headers";
+import type { NextRequest } from "next/server";
+import { NextResponse } from "next/server";
 import bcrypt from "bcryptjs";
 import { v4 as uuidv4 } from "uuid";
 import prisma from "./prisma";
@@ -85,18 +87,85 @@ export const getCurrentUser = cache(async () => resolveSessionUser(true));
 
 export const getCurrentUserReadOnly = cache(async () => resolveSessionUser(false));
 
-export async function establishUserLogin(userId: number) {
-  const session = await getSession();
+async function createUserSessionRecord(userId: number) {
   await prisma.userSession.updateMany({
     where: { userId, active: true },
     data: { active: false, endedAt: new Date() },
   });
   const sessionId = uuidv4().replace(/-/g, "");
   await prisma.userSession.create({ data: { userId, sessionId, active: true } });
+  return sessionId;
+}
+
+export async function establishUserLogin(userId: number) {
+  const session = await getSession();
+  const sessionId = await createUserSessionRecord(userId);
   session.userId = userId;
   session.sessionId = sessionId;
   delete session.pendingLoginToken;
   await session.save();
+}
+
+/** Route handlers that redirect must bind the session to the response object. */
+export async function establishUserLoginWithRedirect(
+  userId: number,
+  req: NextRequest,
+  redirectTo: string | URL = "/",
+) {
+  const url = typeof redirectTo === "string" ? new URL(redirectTo, req.url) : redirectTo;
+  const response = NextResponse.redirect(url);
+  const sessionId = await createUserSessionRecord(userId);
+  const session = await getIronSession<SessionData>(req, response, sessionOptions);
+  session.userId = userId;
+  session.sessionId = sessionId;
+  delete session.pendingLoginToken;
+  await session.save();
+  return response;
+}
+
+export async function findRecentApprovedStaffLogin(userId: number) {
+  await expireOldLoginRequests();
+  const cutoff = new Date(Date.now() - LOGIN_REQUEST_TTL_MINUTES * 60 * 1000);
+  return prisma.staffLoginRequest.findFirst({
+    where: {
+      userId,
+      status: "approved",
+      resolvedAt: { gte: cutoff },
+    },
+    orderBy: { resolvedAt: "desc" },
+  });
+}
+
+export async function completeStaffLoginRequest(requestId: number) {
+  const reqRow = await prisma.staffLoginRequest.findUnique({
+    where: { id: requestId },
+    include: { user: true },
+  });
+  if (!reqRow || reqRow.status !== "approved" || !reqRow.user.active) return false;
+
+  await establishUserLogin(reqRow.userId);
+  await prisma.staffLoginRequest.update({
+    where: { id: reqRow.id },
+    data: { status: "completed" },
+  });
+  return true;
+}
+
+/** Complete an owner-approved staff login using the pending-page token. */
+export async function completeStaffLoginByToken(token: string, req: NextRequest) {
+  await expireOldLoginRequests();
+  const reqRow = await prisma.staffLoginRequest.findUnique({
+    where: { token },
+    include: { user: true },
+  });
+  if (!reqRow || reqRow.status !== "approved" || !reqRow.user.active) return null;
+
+  const response = await establishUserLoginWithRedirect(reqRow.userId, req, "/");
+  await prisma.staffLoginRequest.update({
+    where: { id: reqRow.id },
+    data: { status: "completed" },
+  });
+  return response;
 }
 
 export async function endUserSession(sessionId?: string, endedById?: number) {
@@ -113,6 +182,31 @@ export async function endUserSession(sessionId?: string, endedById?: number) {
   if (!sessionId) {
     session.destroy();
   }
+}
+
+export async function findUserForLogin(identifier: string) {
+  const trimmed = identifier.trim();
+  if (!trimmed) return null;
+
+  const byUsername = await prisma.user.findFirst({
+    where: {
+      active: true,
+      OR: [
+        { username: trimmed },
+        { username: { equals: trimmed, mode: "insensitive" } },
+      ],
+    },
+  });
+  if (byUsername) return byUsername;
+
+  if (/^\d+$/.test(trimmed)) {
+    const staffId = parseInt(trimmed, 10);
+    return prisma.user.findFirst({
+      where: { active: true, staffId },
+    });
+  }
+
+  return null;
 }
 
 export async function verifyPassword(password: string, hash: string) {
@@ -146,6 +240,10 @@ export async function expireOldLoginRequests() {
   const cutoff = new Date(Date.now() - LOGIN_REQUEST_TTL_MINUTES * 60 * 1000);
   await prisma.staffLoginRequest.updateMany({
     where: { status: "pending", requestedAt: { lt: cutoff } },
+    data: { status: "expired" },
+  });
+  await prisma.staffLoginRequest.updateMany({
+    where: { status: "approved", resolvedAt: { lt: cutoff } },
     data: { status: "expired" },
   });
 }

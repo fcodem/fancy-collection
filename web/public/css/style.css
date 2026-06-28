@@ -838,6 +838,26 @@ label.form-label {
   transition: var(--transition);
   outline: none;
   width: 100%;
+  text-transform: uppercase;
+}
+
+input.form-control:not([type="password"]):not([type="number"]):not([type="email"]):not([type="date"]):not([type="datetime-local"]):not([type="time"]),
+textarea.form-control,
+select.form-control {
+  text-transform: uppercase;
+}
+
+.typeable-date-input input,
+input.preserve-case,
+textarea.preserve-case,
+[data-preserve-case] input,
+[data-preserve-case] textarea,
+input[type="password"],
+input[type="number"],
+input[type="email"],
+input[inputmode="numeric"],
+input[inputmode="decimal"] {
+  text-transform: none;
 }
 
 .form-control:focus {

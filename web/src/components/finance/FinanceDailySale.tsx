@@ -27,6 +27,12 @@ export default function FinanceDailySalePage({ todayIso }: { todayIso: string })
   const d = data as {
     total_advance?: number;
     total_remaining_collected?: number;
+    advance_cash?: number;
+    advance_online?: number;
+    remaining_cash?: number;
+    remaining_online?: number;
+    payment_collected_cash?: number;
+    payment_collected_online?: number;
     total_sale?: number;
     advance_by_category?: Record<string, number>;
     remaining_by_category?: Record<string, number>;
@@ -58,7 +64,16 @@ export default function FinanceDailySalePage({ todayIso }: { todayIso: string })
               <div className="stat-card success"><div className="stat-value">₹{formatInr(d.total_advance || 0)}</div><div className="stat-label">Total Advance</div></div>
               <div className="stat-card info"><div className="stat-value">₹{formatInr(d.total_remaining_collected || 0)}</div><div className="stat-label">Remaining Collected</div></div>
               <div className="stat-card gold"><div className="stat-value">₹{formatInr(d.total_sale || 0)}</div><div className="stat-label">Total Sale</div></div>
+              <div className="stat-card primary"><div className="stat-value">₹{formatInr(d.payment_collected_cash || 0)}</div><div className="stat-label">Cash Collected</div></div>
+              <div className="stat-card"><div className="stat-value">₹{formatInr(d.payment_collected_online || 0)}</div><div className="stat-label">Online Collected</div></div>
             </div>
+            {(d.advance_cash != null || d.advance_online != null) && (
+              <p style={{ color: "var(--text-muted)", marginBottom: 16, fontSize: 14 }}>
+                Advance: Cash ₹{formatInr(d.advance_cash || 0)} · Online ₹{formatInr(d.advance_online || 0)}
+                {" · "}
+                Balance at delivery: Cash ₹{formatInr(d.remaining_cash || 0)} · Online ₹{formatInr(d.remaining_online || 0)}
+              </p>
+            )}
             <FinanceInactiveStats data={d} />
             {catLabels.length > 0 ? (
               <>

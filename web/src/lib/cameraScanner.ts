@@ -27,7 +27,7 @@ const SCAN_INTERVAL_MS = 1000 / SCAN_FPS;
 
 const HTML5_SCANNER_CONFIG = {
   fps: SCAN_FPS,
-  aspectRatio: 1.777778,
+  aspectRatio: 1.333333,
   disableFlip: false,
   qrbox: (viewfinderWidth: number, viewfinderHeight: number) => {
     const edge = Math.min(viewfinderWidth, viewfinderHeight);
@@ -79,30 +79,45 @@ export function isNotReadableError(e: unknown): boolean {
   return name === "NotReadableError" || name === "TrackStartError";
 }
 
+export function isOverconstrainedError(e: unknown): boolean {
+  const name = e instanceof DOMException ? e.name : e instanceof Error ? e.name : "";
+  if (name === "OverconstrainedError") return true;
+  if (e instanceof Error && /overconstrained|constraint/i.test(e.message)) return true;
+  return false;
+}
+
 export function cameraErrorMessage(e: unknown, secureContext: boolean): string {
   if (!secureContext) {
-    return "Camera requires a secure page. On PC use http://localhost:3088/search-qr — if accessing via IP address, use HTTPS or localhost instead.";
+    return isMobileOrTablet()
+      ? "Camera needs HTTPS on mobile. Open the site with https:// (not http:// or a raw IP address), then try again."
+      : "Camera requires a secure page. Use https:// or http://localhost — not a plain http:// IP address.";
   }
   if (isNotAllowedError(e)) {
-    return "Camera permission denied. Allow camera in browser site settings, then try again.";
+    return "Camera permission denied. In browser settings, allow camera for this site, then tap Open Camera again.";
   }
   if (isNotFoundError(e)) {
-    return "No camera detected. Connect a webcam or use manual QR entry below.";
+    return "No camera detected on this device. Use manual QR entry below.";
   }
   if (isNotReadableError(e)) {
-    return "Camera is in use by another app (Zoom, Teams, etc.). Close it and try again.";
+    return "Camera is in use by another app. Close it and tap Open Camera again.";
+  }
+  if (isOverconstrainedError(e)) {
+    return "Could not open camera with requested settings. Tap Open Camera to retry, or use Switch Camera.";
   }
   if (isAbortError(e)) {
-    return "Camera was interrupted. Click Allow Camera Access again.";
+    return "Camera was interrupted. Tap Open Camera again.";
+  }
+  if (e instanceof Error && /secure|https|insecure/i.test(e.message)) {
+    return e.message;
   }
   if (e instanceof Error && e.message) return e.message;
-  return "Could not start camera.";
+  return "Could not start camera. Tap Open Camera and allow access when prompted.";
 }
 
 export function cameraHint(isMobile: boolean): string {
   return isMobile
-    ? "Hold steady — rear camera scans small QRs on bills and phone screens."
-    : "PC: webcam opens first. Hold QR inside the frame.";
+    ? "Tap Open Camera, allow access, then point the rear camera at the bill QR."
+    : "Click Open Camera, allow access, then align the QR inside the frame.";
 }
 
 function isVirtualCamera(label: string): boolean {
@@ -197,22 +212,22 @@ function buildHighResVideoConstraints(
   const highRes: MediaTrackConstraints =
     attempt.kind === "device"
       ? {
-          deviceId: { exact: attempt.id },
-          width: { ideal: 1920, min: 1280 },
-          height: { ideal: 1080, min: 720 },
+          deviceId: { ideal: attempt.id },
+          width: { ideal: 1920 },
+          height: { ideal: 1080 },
           frameRate: { ideal: 30 },
         }
       : {
           facingMode: { ideal: facing },
-          width: { ideal: 1920, min: 1280 },
-          height: { ideal: 1080, min: 720 },
+          width: { ideal: 1920 },
+          height: { ideal: 1080 },
           frameRate: { ideal: 30 },
         };
 
   const mediumRes: MediaTrackConstraints =
     attempt.kind === "device"
       ? {
-          deviceId: { exact: attempt.id },
+          deviceId: { ideal: attempt.id },
           width: { ideal: 1280 },
           height: { ideal: 720 },
         }
@@ -222,12 +237,17 @@ function buildHighResVideoConstraints(
           height: { ideal: 720 },
         };
 
-  const basic: MediaTrackConstraints =
+  const facingOnly: MediaTrackConstraints =
     attempt.kind === "device"
-      ? { deviceId: { exact: attempt.id } }
+      ? { deviceId: { ideal: attempt.id } }
       : { facingMode: { ideal: facing } };
 
-  return [{ video: highRes }, { video: mediumRes }, { video: basic }, { video: true }];
+  const facingExact: MediaTrackConstraints =
+    attempt.kind === "device"
+      ? { deviceId: { exact: attempt.id } }
+      : { facingMode: { exact: facing } };
+
+  return [{ video: highRes }, { video: mediumRes }, { video: facingOnly }, { video: facingExact }, { video: true }];
 }
 
 async function applyAdvancedTrackSettings(track: MediaStreamTrack): Promise<void> {
@@ -278,21 +298,13 @@ async function createBarcodeDetector(): Promise<BarcodeDetectorLike | null> {
   }
 }
 
-function html5VideoConstraints(attempt: StartAttempt): MediaTrackConstraints {
-  if (attempt.kind === "device") {
-    return {
-      deviceId: { exact: attempt.id },
-      width: { ideal: 1920, min: 1280 },
-      height: { ideal: 1080, min: 720 },
-      frameRate: { ideal: 30 },
-    };
-  }
-  return {
-    facingMode: { ideal: attempt.mode },
-    width: { ideal: 1920, min: 1280 },
-    height: { ideal: 1080, min: 720 },
-    frameRate: { ideal: 30 },
-  };
+function html5CameraArgs(attempt: StartAttempt): Array<string | MediaTrackConstraints> {
+  if (attempt.kind === "device") return [attempt.id];
+  return [
+    { facingMode: attempt.mode },
+    { facingMode: { ideal: attempt.mode } },
+    { facingMode: { exact: attempt.mode } },
+  ];
 }
 
 type ScannerHandle = Html5Qrcode & { getState?: () => number };
@@ -492,7 +504,9 @@ export class QrCameraSession {
 
     const video = document.createElement("video");
     video.setAttribute("playsinline", "true");
+    video.setAttribute("webkit-playsinline", "true");
     video.muted = true;
+    video.playsInline = true;
     video.autoplay = true;
     video.style.width = "100%";
     video.style.height = "100%";
@@ -529,31 +543,36 @@ export class QrCameraSession {
     attempt: StartAttempt,
     onDecode: (text: string) => void
   ): Promise<void> {
-    const constraints = html5VideoConstraints(attempt);
+    const cameraArgs = html5CameraArgs(attempt);
+    let lastError: unknown;
 
-    if (attempt.kind === "device") {
-      await html5.start(attempt.id, HTML5_SCANNER_CONFIG, onDecode, () => undefined);
-    } else {
+    for (const cameraArg of cameraArgs) {
       try {
-        await html5.start(constraints, HTML5_SCANNER_CONFIG, onDecode, () => undefined);
-      } catch (e) {
-        if (isNotFoundError(e)) {
-          await html5.start({ facingMode: attempt.mode }, HTML5_SCANNER_CONFIG, onDecode, () => undefined);
+        await html5.start(cameraArg, HTML5_SCANNER_CONFIG, onDecode, () => undefined);
+        this.engine = "html5";
+        if (attempt.kind === "device") {
+          this.activeLabel = attempt.label;
+          this.facing = this.inferFacingFromLabel(attempt.label);
         } else {
-          throw e;
+          this.activeLabel = attempt.label;
+          this.facing = attempt.facing;
+        }
+        log("html5 camera started", { label: this.activeLabel, engine: "html5", cameraArg });
+        return;
+      } catch (e) {
+        lastError = e;
+        log("html5 camera arg failed", { cameraArg, error: e });
+        if (isAbortError(e) || isNotAllowedError(e)) throw e;
+        try {
+          const state = html5.getState?.() ?? SCANNER_NOT_STARTED;
+          if (state !== SCANNER_NOT_STARTED) await html5.stop();
+        } catch {
+          /* ignore */
         }
       }
     }
 
-    this.engine = "html5";
-    if (attempt.kind === "device") {
-      this.activeLabel = attempt.label;
-      this.facing = this.inferFacingFromLabel(attempt.label);
-    } else {
-      this.activeLabel = attempt.label;
-      this.facing = attempt.facing;
-    }
-    log("html5 camera started", { label: this.activeLabel, engine: "html5" });
+    throw lastError ?? new Error("No camera found");
   }
 
   private inferFacingFromLabel(label: string): CameraFacing {
@@ -617,11 +636,14 @@ export class QrCameraSession {
   }
 
   async start(onDecode: (text: string) => void): Promise<ScannerStatus> {
-    await this.requestPermission();
-    await this.loadDevices();
+    if (!navigator.mediaDevices?.getUserMedia) {
+      throw new Error("Camera not supported in this browser.");
+    }
+
     this.facing = defaultCameraFacing();
     this.deviceIndex = 0;
     await this.openCamera(onDecode);
+    await this.loadDevices();
     return this.getStatus();
   }
 

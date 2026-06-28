@@ -80,6 +80,7 @@ export default function LoginPending() {
         <p style={{ fontSize: 13, marginTop: 8 }}>{statusMsg}</p>
         <p style={{ fontSize: 12, color: "var(--text-muted)", marginTop: 6 }}>
           Keep this page open until you are signed in. After the owner approves, login completes automatically.
+          If you closed this page, go back to Sign In — once approved, your next login will work right away.
         </p>
         <div className="spinner" style={{ margin: "24px auto" }} />
         <a href="/login" className="btn btn-outline" style={{ marginTop: 16 }}>

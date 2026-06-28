@@ -6,11 +6,9 @@ import { useToast } from "@/components/ui/Toast";
 export default function BookingWhatsAppButton({
   bookingId,
   hasPhone,
-  whatsappStatus,
 }: {
   bookingId: number;
   hasPhone: boolean;
-  whatsappStatus?: string | null;
 }) {
   const toast = useToast();
   const [busy, setBusy] = useState(false);
@@ -22,7 +20,7 @@ export default function BookingWhatsAppButton({
     }
     setBusy(true);
     try {
-      const res = await fetch(`/api/booking/${bookingId}/resend-whatsapp`, {
+      const res = await fetch(`/api/booking/${bookingId}/whatsapp`, {
         method: "POST",
         credentials: "same-origin",
       });
@@ -31,28 +29,25 @@ export default function BookingWhatsAppButton({
         toast(data.error || "Failed to send WhatsApp", "error");
         return;
       }
-      if (data.delivered) {
-        const phone = data.phone ? `+${String(data.phone).replace(/^\+/, "")}` : "";
+      if (data.queued || data.delivered) {
         toast(
-          `WhatsApp confirmation sent to ${data.customerName || "customer"}${phone ? ` on ${phone}` : ""}`,
+          data.queued
+            ? "Booking slip queued for WhatsApp delivery"
+            : "Booking slip sent via WhatsApp",
           "success",
         );
         return;
       }
-      toast(data.error || "⚠️ WhatsApp message failed — check logs", "error");
+      if (data.whatsappUrl) {
+        window.open(data.whatsappUrl, "_blank");
+        toast("WhatsApp API not configured — opened WhatsApp manually", "success");
+        return;
+      }
+      toast("Message prepared", "success");
     } finally {
       setBusy(false);
     }
   }
-
-  const statusHint =
-    whatsappStatus === "sent"
-      ? "Last sent successfully"
-      : whatsappStatus === "failed"
-        ? "Last attempt failed"
-        : whatsappStatus === "pending"
-          ? "Sending in progress"
-          : undefined;
 
   return (
     <button
@@ -60,14 +55,14 @@ export default function BookingWhatsAppButton({
       className="btn btn-outline"
       disabled={busy || !hasPhone}
       onClick={sendWhatsApp}
-      title={hasPhone ? statusHint || "Resend booking confirmation on WhatsApp" : "No WhatsApp number"}
+      title={hasPhone ? "Send booking confirmation on WhatsApp" : "No WhatsApp number"}
     >
       {busy ? (
         <i className="fa-solid fa-spinner fa-spin" />
       ) : (
         <>
           <i className="fa-brands fa-whatsapp" style={{ marginRight: 6 }} />
-          Resend WhatsApp
+          Send WhatsApp
         </>
       )}
     </button>

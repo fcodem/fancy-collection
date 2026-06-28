@@ -126,6 +126,8 @@ export function FinanceMonthlySale({ todayMonthIso }: { todayMonthIso: string })
               <div className="stat-card gold"><div className="stat-value">₹{formatInr(Number(data.total_sale))}</div><div className="stat-label">Total Sale</div></div>
               <div className="stat-card primary"><div className="stat-value">₹{formatInr(Number(data.total_advance))}</div><div className="stat-label">Advance</div></div>
               <div className="stat-card info"><div className="stat-value">₹{formatInr(Number(data.total_remaining))}</div><div className="stat-label">Remaining</div></div>
+              <div className="stat-card success"><div className="stat-value">₹{formatInr(Number(data.payment_collected_cash || 0))}</div><div className="stat-label">Cash Collected</div></div>
+              <div className="stat-card"><div className="stat-value">₹{formatInr(Number(data.payment_collected_online || 0))}</div><div className="stat-label">Online Collected</div></div>
               <div className="stat-card"><div className="stat-value">{String(data.booking_count)}</div><div className="stat-label">Bookings</div></div>
               <div className="stat-card success"><div className="stat-value">₹{formatInr(Number(data.mens_total))}</div><div className="stat-label">Men&apos;s</div></div>
               <div className="stat-card"><div className="stat-value">₹{formatInr(Number(data.womens_total))}</div><div className="stat-label">Women&apos;s</div></div>

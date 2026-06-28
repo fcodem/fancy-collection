@@ -3,6 +3,9 @@ import prisma from "@/lib/prisma";
 import {
   createStaffLoginRequest,
   establishUserLogin,
+  establishUserLoginWithRedirect,
+  findRecentApprovedStaffLogin,
+  findUserForLogin,
   getSession,
   upgradePasswordHashIfNeeded,
   verifyPassword,
@@ -61,7 +64,7 @@ export async function POST(req: NextRequest) {
       return jsonError("Username and password required.");
     }
 
-    const user = await prisma.user.findUnique({ where: { username } });
+    const user = await findUserForLogin(username);
     if (!user || !user.active) {
       await recordLoginAttempt(ip, false, username);
       if (htmlRedirect) {
@@ -81,11 +84,24 @@ export async function POST(req: NextRequest) {
     after(() => upgradePasswordHashIfNeeded(user.id, password, user.passwordHash));
 
     if (user.role === "owner") {
-      await establishUserLogin(user.id);
       if (htmlRedirect) {
-        return NextResponse.redirect(new URL("/", req.url));
+        return establishUserLoginWithRedirect(user.id, req, "/");
       }
+      await establishUserLogin(user.id);
       return jsonOk({ ok: true, role: "owner", redirect: "/" });
+    }
+
+    const approved = await findRecentApprovedStaffLogin(user.id);
+    if (approved) {
+      await prisma.staffLoginRequest.update({
+        where: { id: approved.id },
+        data: { status: "completed" },
+      });
+      if (htmlRedirect) {
+        return establishUserLoginWithRedirect(user.id, req, "/");
+      }
+      await establishUserLogin(user.id);
+      return jsonOk({ ok: true, role: "staff", redirect: "/" });
     }
 
     const reqRow = await createStaffLoginRequest(user.id);
