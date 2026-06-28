@@ -42,6 +42,38 @@ export function bookingUsesItem(booking: BookingWithItems, itemId: number): bool
   return booking.itemId === itemId;
 }
 
+/** Batch check which item IDs are still on other active (booked/delivered) bookings. */
+export async function findItemIdsStillInActiveBookings(
+  itemIds: number[],
+  excludeBookingId: number,
+  tx?: Prisma.TransactionClient,
+): Promise<Set<number>> {
+  if (!itemIds.length) return new Set();
+  const db: DbClient = tx ?? prisma;
+  const bookings = await db.booking.findMany({
+    where: {
+      id: { not: excludeBookingId },
+      status: { in: ["booked", "delivered"] },
+      OR: [
+        { itemId: { in: itemIds } },
+        { bookingItems: { some: { itemId: { in: itemIds } } } },
+      ],
+    },
+    select: {
+      itemId: true,
+      bookingItems: { select: { itemId: true } },
+    },
+  });
+  const stillUsed = new Set<number>();
+  for (const b of bookings) {
+    if (b.itemId != null && itemIds.includes(b.itemId)) stillUsed.add(b.itemId);
+    for (const bi of b.bookingItems) {
+      if (itemIds.includes(bi.itemId)) stillUsed.add(bi.itemId);
+    }
+  }
+  return stillUsed;
+}
+
 function serializeBookingConflict(b: Booking) {
   return {
     customer: b.customerName,

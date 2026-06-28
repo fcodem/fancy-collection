@@ -41,11 +41,15 @@ async function createInventoryUnits(
   const created = [];
   const baseName = base.name.trim();
   const count = Math.max(1, Math.min(quantity, 50));
+  const last = await prisma.clothingItem.findFirst({ orderBy: { id: "desc" } });
+  let nextSkuNum = (last?.id || 0) + 1;
   for (let unit = 1; unit <= count; unit++) {
+    const sku = `ITM-${String(nextSkuNum).padStart(4, "0")}`;
+    nextSkuNum += 1;
     const item = await prisma.clothingItem.create({
       data: {
         name: formatUnitName(baseName, unit),
-        sku: await generateItemSku(),
+        sku,
         category: base.category,
         size: base.size,
         color: base.color,

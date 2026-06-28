@@ -1,7 +1,11 @@
 import { redirect } from "next/navigation";
 import { getCurrentUser, isOwner } from "@/lib/auth";
 import ServerAppShell from "@/components/ServerAppShell";
-import BookingCalendarClient from "@/components/BookingCalendarClient";
+import nextDynamic from "next/dynamic";
+const BookingCalendarClient = nextDynamic(
+  () => import("@/components/BookingCalendarClient"),
+  { ssr: false, loading: () => <div style={{ padding: "2rem", color: "var(--bs-secondary)" }}>Loading calendar…</div> }
+);
 
 export const dynamic = "force-dynamic";
 

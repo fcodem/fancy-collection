@@ -1,6 +1,6 @@
 "use client";
 
-import { useCallback, useEffect, useState } from "react";
+import { useCallback, useEffect, useRef, useState } from "react";
 
 type LogEntry = {
   id: number;
@@ -179,11 +179,8 @@ export default function ActivityLogClient() {
   const [actionFilter, setActionFilter] = useState("");
   const [searchQ, setSearchQ] = useState("");
   const [includeOwner, setIncludeOwner] = useState(false);
-
-  useEffect(() => {
-    const q = new URLSearchParams(window.location.search).get("q");
-    if (q) setSearchQ(q);
-  }, []);
+  const searchQRef = useRef(searchQ);
+  searchQRef.current = searchQ;
 
   const fetchLogs = useCallback(async (p: number) => {
     setLoading(true);
@@ -191,7 +188,8 @@ export default function ActivityLogClient() {
       const params = new URLSearchParams({ page: String(p), limit: "40" });
       if (entityFilter) params.set("entity", entityFilter);
       if (actionFilter) params.set("action", actionFilter);
-      if (searchQ.trim()) params.set("q", searchQ.trim());
+      const q = searchQRef.current.trim();
+      if (q) params.set("q", q);
       if (includeOwner) params.set("include_owner", "1");
       const res = await fetch(`/api/admin/activity-log?${params}`);
       if (!res.ok) return;
@@ -203,7 +201,16 @@ export default function ActivityLogClient() {
     } finally {
       setLoading(false);
     }
-  }, [entityFilter, actionFilter, searchQ, includeOwner]);
+  }, [entityFilter, actionFilter, includeOwner]);
+
+  useEffect(() => {
+    const q = new URLSearchParams(window.location.search).get("q");
+    if (q) {
+      setSearchQ(q);
+      searchQRef.current = q;
+      fetchLogs(1);
+    }
+  }, [fetchLogs]);
 
   useEffect(() => { fetchLogs(1); }, [fetchLogs]);
 

@@ -1,6 +1,7 @@
 import prisma, { parseDateQ } from "../prisma";
 import {
   findFirstItemConflict,
+  findItemIdsStillInActiveBookings,
   formatItemConflictError,
   createBookingNumber,
   getNextMonthlySerial,
@@ -263,16 +264,12 @@ export async function updateBooking(bookingId: number, input: BookingFormInput, 
     }
 
     const freedIds = [...oldItemIds].filter((id) => !newItemIds.has(id));
-    for (const freedId of freedIds) {
-      const stillBooked = await tx.booking.findFirst({
-        where: {
-          id: { not: bookingId },
-          status: { in: ["booked", "delivered"] },
-          OR: [{ itemId: freedId }, { bookingItems: { some: { itemId: freedId } } }],
-        },
-      });
-      if (!stillBooked) {
-        await tx.clothingItem.update({ where: { id: freedId }, data: { status: "available" } });
+    if (freedIds.length) {
+      const stillUsed = await findItemIdsStillInActiveBookings(freedIds, bookingId, tx);
+      for (const freedId of freedIds) {
+        if (!stillUsed.has(freedId)) {
+          await tx.clothingItem.update({ where: { id: freedId }, data: { status: "available" } });
+        }
       }
     }
   });

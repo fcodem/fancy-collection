@@ -6,7 +6,7 @@ import { Prisma } from "@prisma/client";
 import { dressDisplayName, bookingItemSize, serializeBookingItems } from "../dress";
 import { serializeStandardBookingDetails, bookingWarningRecordFrom } from "../bookingDetails";
 import { isStarBooking } from "../starBooking";
-import { getAvailableItemsApi, findFirstItemConflict } from "../booking";
+import { getAvailableItemsApi, bookingUsesItem, findItemIdsStillInActiveBookings } from "../booking";
 import { broadcastShopEvent } from "../realtime/broadcast";
 import { logActivity, snapshotBooking } from "../activityLog";
 import { deleteUploads, saveUpload } from "../upload";
@@ -15,15 +15,17 @@ import { syncBookingStatusFromItems } from "../syncBookingStatusFromItems";
 export { syncBookingStatusFromItems } from "../syncBookingStatusFromItems";
 
 export async function repairAllBookingStatuses() {
+  // Fetch all booked statuses in one query — no findUnique inside the loop
   const bookings = await prisma.booking.findMany({
     where: { status: "booked" },
-    select: { id: true },
+    select: { id: true, status: true },
   });
+
   let fixed = 0;
-  for (const { id } of bookings) {
-    const before = await prisma.booking.findUnique({ where: { id }, select: { status: true } });
-    const after = await syncBookingStatusFromItems(id);
-    if (before && after && before.status !== after.status) fixed += 1;
+  for (const booking of bookings) {
+    const before = booking.status;
+    const after = await syncBookingStatusFromItems(booking.id);
+    if (after && before !== after.status) fixed += 1;
   }
   return fixed;
 }
@@ -346,51 +348,102 @@ export async function bookingDateCheck(
   const dIso = deliveryDateStr.slice(0, 10);
   const rIso = returnDateStr.slice(0, 10);
 
-  const [returnOnDeliveryWhere, deliveryOnReturnWhere] = await Promise.all([
+  const excludeId = bookingId > 0 ? bookingId : undefined;
+  const uniqueIds = [...new Set(itemIds)];
+
+  const [returnOnDeliveryWhere, deliveryOnReturnWhere, overlapWhere] = await Promise.all([
     whereReturnInRange(dIso, dIso),
     whereDeliveryInRange(rIso, rIso),
+    whereBookingOverlapsPeriod(dIso, rIso),
   ]);
 
-  const excludeId = bookingId > 0 ? bookingId : undefined;
-  const results = [];
-  for (const itemId of itemIds) {
-    const item = await prisma.clothingItem.findUnique({ where: { id: itemId } });
-    if (!item) continue;
-
-    const conflict = await findFirstItemConflict(
-      [itemId],
-      deliveryDateStr,
-      returnDateStr,
-      excludeId,
-    );
-
-    if (conflict) {
-      results.push({
-        item_id: itemId,
-        item_name: item.name,
-        status: "hard_conflict",
-        conflict: warnFromBooking(conflict.booking),
-      });
-      continue;
-    }
-
-    const retWarn = await prisma.booking.findFirst({
+  const [items, overlapBookings, retWarnBookings, delWarnBookings] = await Promise.all([
+    prisma.clothingItem.findMany({ where: { id: { in: uniqueIds } } }),
+    prisma.booking.findMany({
+      where: {
+        ...overlapWhere,
+        ...(excludeId ? { id: { not: excludeId } } : {}),
+        status: { in: ["booked", "delivered"] },
+        OR: [
+          { itemId: { in: uniqueIds } },
+          { bookingItems: { some: { itemId: { in: uniqueIds } } } },
+        ],
+      },
+      include: { bookingItems: true },
+    }),
+    prisma.booking.findMany({
       where: {
         ...(excludeId ? { id: { not: excludeId } } : {}),
         status: { in: ["booked", "delivered"] },
         ...returnOnDeliveryWhere,
-        OR: [{ bookingItems: { some: { itemId } } }, { itemId }],
+        OR: [
+          { itemId: { in: uniqueIds } },
+          { bookingItems: { some: { itemId: { in: uniqueIds } } } },
+        ],
       },
-    });
-
-    const delWarn = await prisma.booking.findFirst({
+      include: { bookingItems: true },
+    }),
+    prisma.booking.findMany({
       where: {
         ...(excludeId ? { id: { not: excludeId } } : {}),
         status: { in: ["booked", "delivered"] },
         ...deliveryOnReturnWhere,
-        OR: [{ bookingItems: { some: { itemId } } }, { itemId }],
+        OR: [
+          { itemId: { in: uniqueIds } },
+          { bookingItems: { some: { itemId: { in: uniqueIds } } } },
+        ],
       },
-    });
+      include: { bookingItems: true },
+    }),
+  ]);
+
+  const itemsById = new Map(items.map((i) => [i.id, i]));
+
+  function findConflictBooking(itemId: number) {
+    for (const b of overlapBookings) {
+      const bD = formatDate(b.deliveryDate, "iso");
+      const bR = formatDate(b.returnDate, "iso");
+      if (bR === dIso || bD === rIso) continue;
+      if (bookingUsesItem(b, itemId)) return b;
+    }
+    return null;
+  }
+
+  function findWarningBookings(itemId: number) {
+    let retWarn: (typeof retWarnBookings)[number] | null = null;
+    for (const b of retWarnBookings) {
+      if (bookingUsesItem(b, itemId)) {
+        retWarn = b;
+        break;
+      }
+    }
+    let delWarn: (typeof delWarnBookings)[number] | null = null;
+    for (const b of delWarnBookings) {
+      if (bookingUsesItem(b, itemId)) {
+        delWarn = b;
+        break;
+      }
+    }
+    return { retWarn, delWarn };
+  }
+
+  const results = [];
+  for (const itemId of itemIds) {
+    const item = itemsById.get(itemId);
+    if (!item) continue;
+
+    const conflictBooking = findConflictBooking(itemId);
+    if (conflictBooking) {
+      results.push({
+        item_id: itemId,
+        item_name: item.name,
+        status: "hard_conflict",
+        conflict: warnFromBooking(conflictBooking),
+      });
+      continue;
+    }
+
+    const { retWarn, delWarn } = findWarningBookings(itemId);
 
     if (retWarn || delWarn) {
       results.push({
@@ -1269,15 +1322,10 @@ export async function cancelBooking(bookingId: number, refundAmount = 0, by?: st
         refundedAt: refundAmount > 0 ? new Date() : null,
       },
     });
+    const itemIds = booking.bookingItems.map((bi) => bi.itemId);
+    const stillUsed = await findItemIdsStillInActiveBookings(itemIds, bookingId, tx);
     for (const bi of booking.bookingItems) {
-      const stillUsed = await tx.booking.findFirst({
-        where: {
-          id: { not: bookingId },
-          status: { in: ["booked", "delivered"] },
-          OR: [{ itemId: bi.itemId }, { bookingItems: { some: { itemId: bi.itemId } } }],
-        },
-      });
-      if (!stillUsed) {
+      if (!stillUsed.has(bi.itemId)) {
         await tx.clothingItem.update({ where: { id: bi.itemId }, data: { status: "available" } });
       }
     }

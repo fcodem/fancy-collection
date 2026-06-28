@@ -1,4 +1,5 @@
 import prisma from "@/lib/prisma";
+import { findItemIdsStillInActiveBookings } from "@/lib/booking";
 import { serializeStandardBookingDetails } from "@/lib/bookingDetails";
 import { dressDisplayName, bookingItemSize } from "@/lib/dress";
 import { formatDate } from "@/lib/constants";
@@ -70,19 +71,7 @@ export async function listPostponedBookings(searchQ?: string) {
     orderBy: [{ createdAt: "desc" }, { monthlySerial: "desc" }],
   });
 
-  const postponedDates = rows.length
-    ? await prisma.$queryRaw<{ id: number; postponed_at: Date | null }[]>`
-        SELECT id, postponed_at FROM bookings WHERE status = 'postponed'
-      `
-    : [];
-  const postponedById = new Map(postponedDates.map((r) => [r.id, r.postponed_at]));
-
-  let list = rows.map((b) =>
-    serializePostponedRow({
-      ...b,
-      postponedAt: postponedById.get(b.id) ?? null,
-    }),
-  );
+  let list = rows.map((b) => serializePostponedRow(b));
   if (q) {
     list = list.filter((r) => {
       const hay = [
@@ -119,15 +108,10 @@ export async function postponeBooking(bookingId: number, by?: string) {
       data: { status: "postponed" },
     });
     await tx.$executeRaw`UPDATE bookings SET postponed_at = NOW() WHERE id = ${bookingId}`;
+    const itemIds = booking.bookingItems.map((bi) => bi.itemId);
+    const stillUsed = await findItemIdsStillInActiveBookings(itemIds, bookingId, tx);
     for (const bi of booking.bookingItems) {
-      const stillUsed = await tx.booking.findFirst({
-        where: {
-          id: { not: bookingId },
-          status: { in: ["booked", "delivered"] },
-          OR: [{ itemId: bi.itemId }, { bookingItems: { some: { itemId: bi.itemId } } }],
-        },
-      });
-      if (!stillUsed) {
+      if (!stillUsed.has(bi.itemId)) {
         await tx.clothingItem.update({ where: { id: bi.itemId }, data: { status: "available" } });
       }
     }

@@ -69,10 +69,10 @@ const bookingSelect = {
       size: true,
       notes: true,
       isDelivered: true,
-      item: { select: { photo: true, size: true, category: true } },
+      item: { select: { size: true, category: true } },
     },
   },
-  legacyItem: { select: { photo: true, size: true, category: true } },
+  legacyItem: { select: { size: true, category: true } },
 } as const;
 
 type BookingLite = Awaited<ReturnType<typeof prisma.booking.findMany<{ select: typeof bookingSelect }>>>[number];
@@ -98,7 +98,7 @@ function buildItems(
         size: sz,
         price: bi.price,
         notes: bi.notes || "",
-        photo: bi.item?.photo || "",
+        photo: "",
         returning_warning: pickWarning(returningMap, delIso, bi.itemId, b.id),
         booked_warning: pickWarning(bookedMap, retIso, bi.itemId, b.id),
       });
@@ -114,7 +114,7 @@ function buildItems(
       size: sz,
       price: b.price,
       notes: b.notes || "",
-      photo: b.legacyItem?.photo || "",
+      photo: "",
       returning_warning: pickWarning(returningMap, delIso, b.itemId, b.id),
       booked_warning: pickWarning(bookedMap, retIso, b.itemId, b.id),
     });

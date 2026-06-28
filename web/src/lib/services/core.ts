@@ -107,6 +107,7 @@ const _getDashboardDataRaw = async () => {
     allUndeliveredList,
     undeliveredCount,
     overdueList,
+    subCategories,
   ] = await Promise.all([
     prisma.clothingItem.groupBy({ by: ["status"], _count: { _all: true } }),
     prisma.customer.count(),
@@ -141,13 +142,13 @@ const _getDashboardDataRaw = async () => {
       orderBy: { endDate: "asc" },
       take: 5,
     }),
+    getAllSubCategories(),
   ]);
 
   const statusMap = Object.fromEntries(itemStatusCounts.map((row) => [row.status, row._count._all]));
   const totalItems = itemStatusCounts.reduce((sum, row) => sum + row._count._all, 0);
   const outstanding =
     (outstandingAgg._sum.total || 0) - (outstandingAgg._sum.amountPaid || 0);
-  const subCategories = await getAllSubCategories();
 
   return {
     stats: {
@@ -188,7 +189,7 @@ const _getDashboardDataRaw = async () => {
 export const getDashboardData = unstable_cache(
   _getDashboardDataRaw,
   ["dashboard-data"],
-  { revalidate: 20, tags: ["dashboard-data"] },
+  { revalidate: 60, tags: ["dashboard-data"] },
 );
 
 /** Uncached dashboard payload for live refresh (API + realtime). */
@@ -196,8 +197,10 @@ export async function getDashboardDataFresh() {
   return _getDashboardDataRaw();
 }
 
-function iso(d: Date | null | undefined) {
-  return d ? d.toISOString() : null;
+function iso(d: Date | string | null | undefined) {
+  if (d == null) return null;
+  if (typeof d === "string") return d;
+  return d.toISOString();
 }
 
 /** JSON-safe dashboard shape for client fetch. */
