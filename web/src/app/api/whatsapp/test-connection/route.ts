@@ -1,8 +1,12 @@
 import { NextRequest } from "next/server";
+import { requireOwner, isResponse } from "@/lib/api";
 
 export const dynamic = "force-dynamic";
 
 export async function GET(req: NextRequest) {
+  const user = await requireOwner();
+  if (isResponse(user)) return user;
+
   const token = process.env.WHATSAPP_ACCESS_TOKEN?.trim();
   const phoneNumberId = process.env.WHATSAPP_PHONE_NUMBER_ID?.trim();
   const apiVersion = process.env.WHATSAPP_API_VERSION || "v19.0";

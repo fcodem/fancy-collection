@@ -106,7 +106,7 @@ export async function establishUserLogin(userId: number) {
   await session.save();
 }
 
-/** Route handlers that redirect must bind the session to the response object. */
+/** Route handlers must bind iron-session to the response object (cookies() alone does not set Set-Cookie on JSON/redirect). */
 export async function establishUserLoginWithRedirect(
   userId: number,
   req: NextRequest,
@@ -119,6 +119,35 @@ export async function establishUserLoginWithRedirect(
   session.userId = userId;
   session.sessionId = sessionId;
   delete session.pendingLoginToken;
+  await session.save();
+  return response;
+}
+
+/** JSON login responses (LoginForm fetch) — session cookie must be on the same NextResponse. */
+export async function establishUserLoginWithJson<T>(
+  userId: number,
+  req: NextRequest,
+  body: T,
+  status = 200,
+) {
+  const response = NextResponse.json(body, { status });
+  const sessionId = await createUserSessionRecord(userId);
+  const session = await getIronSession<SessionData>(req, response, sessionOptions);
+  session.userId = userId;
+  session.sessionId = sessionId;
+  delete session.pendingLoginToken;
+  await session.save();
+  return response;
+}
+
+/** Staff pending login — bind pending token to redirect or JSON response. */
+export async function establishPendingLoginToken(
+  req: NextRequest,
+  token: string,
+  response: NextResponse,
+) {
+  const session = await getIronSession<SessionData>(req, response, sessionOptions);
+  session.pendingLoginToken = token;
   await session.save();
   return response;
 }
