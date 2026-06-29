@@ -5,6 +5,7 @@ import { useRouter } from "next/navigation";
 import { useCallback, useEffect, useState } from "react";
 import BookingSearchSuggestInput from "@/components/BookingSearchSuggestInput";
 import type { StandardBookingDetails } from "@/lib/bookingDetails";
+import { bookingListRecordFrom } from "@/lib/bookingDetails";
 import { formatInr } from "@/lib/format";
 import { fetchJson } from "@/lib/fetchJson";
 import { useRealtimeRefresh } from "@/hooks/useRealtimeRefresh";
@@ -19,7 +20,7 @@ type SearchRow = StandardBookingDetails & {
   is_star?: boolean;
 };
 
-type PostponedRow = StandardBookingDetails & {
+type PostponedRow = ReturnType<typeof bookingListRecordFrom> & {
   id: number;
   serial: number;
   total_advance: number;

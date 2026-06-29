@@ -1,6 +1,7 @@
 "use client";
 
 import Link from "next/link";
+import { useRouter } from "next/navigation";
 import { useCallback, useEffect, useRef, useState } from "react";
 import DressNameSuggestInput from "@/components/DressNameSuggestInput";
 import { formatDate } from "@/lib/constants";
@@ -11,6 +12,7 @@ import { BookingNotesBlock } from "@/components/BookingNotesBlock";
 import StarBookingBadge from "@/components/StarBookingBadge";
 import { useRealtimeRefresh } from "@/hooks/useRealtimeRefresh";
 import { BOOKING_EVENTS, INVENTORY_EVENTS } from "@/lib/realtime/types";
+import type { SerializedDashboardData } from "@/lib/services/core";
 
 type BookingRow = {
   id: number;
@@ -34,24 +36,7 @@ type BookingRow = {
   bookingItems: Array<{ dressName: string; category?: string | null; size?: string | null; notes?: string | null }>;
 };
 type DashboardProps = {
-  data: {
-    stats: Record<string, number>;
-    today_stats: Record<string, number>;
-    today_deliveries_list: BookingRow[];
-    today_returns_list: BookingRow[];
-    all_undelivered_list: BookingRow[];
-    overdue_list: Array<{
-      id: number;
-      rentalNumber: string;
-      endDate: string | Date;
-      totalAmount: number;
-      customer: { name: string };
-    }>;
-    late_return_count: number;
-    today_iso: string;
-    today_display: string;
-    categories: { mens: string[]; womens: string[]; jewellery: string[]; accessory: string[] };
-  };
+  data: SerializedDashboardData;
   isOwner: boolean;
   pendingStaff: Array<{ id: number; username: string; staffName: string; requestedAt?: string }>;
   activeStaff: Array<{ id: number; username: string; staffName: string; loginAt?: string }>;
@@ -114,6 +99,7 @@ function serialLabel(n: number) {
 
 export default function DashboardView({ data: initialData, isOwner, pendingStaff, activeStaff }: DashboardProps) {
   const toast = useToast();
+  const router = useRouter();
   const [data, setData] = useState(initialData);
   const showFreePanelRef = useRef(false);
   const refreshTimerRef = useRef<ReturnType<typeof setTimeout> | null>(null);
@@ -151,7 +137,7 @@ export default function DashboardView({ data: initialData, isOwner, pendingStaff
     try {
       await fetchJson(`/api/staff-login-request/${id}/approve`, { method: "POST" });
       toast("Staff login approved", "success");
-      window.location.reload();
+      router.refresh();
     } catch (e) {
       toast(e instanceof Error ? e.message : "Failed", "error");
     }
@@ -161,7 +147,7 @@ export default function DashboardView({ data: initialData, isOwner, pendingStaff
     try {
       await fetchJson(`/api/staff-login-request/${id}/reject`, { method: "POST" });
       toast("Request denied", "info");
-      window.location.reload();
+      router.refresh();
     } catch (e) {
       toast(e instanceof Error ? e.message : "Failed", "error");
     }
@@ -172,7 +158,7 @@ export default function DashboardView({ data: initialData, isOwner, pendingStaff
     try {
       await fetchJson(`/api/staff-session/${id}/force-logout`, { method: "POST" });
       toast("Staff logged out", "success");
-      window.location.reload();
+      router.refresh();
     } catch (e) {
       toast(e instanceof Error ? e.message : "Failed", "error");
     }
@@ -663,7 +649,7 @@ export default function DashboardView({ data: initialData, isOwner, pendingStaff
                     <tr key={r.id}>
                       <td>{r.rentalNumber}</td>
                       <td>{r.customer.name}</td>
-                      <td style={{ color: "var(--danger)", fontWeight: 600 }}>{bookingDateLabel(r.endDate)}</td>
+                      <td style={{ color: "var(--danger)", fontWeight: 600 }}>{bookingDateLabel(r.endDate ?? "")}</td>
                       <td>₹{formatInr(r.totalAmount)}</td>
                       <td><Link href={`/rentals/${r.id}`} className="btn btn-outline btn-sm">View</Link></td>
                     </tr>

@@ -1211,6 +1211,7 @@ function alternateBookingSide(
       category?: string | null;
       size?: string | null;
       notes?: string | null;
+      price?: number | null;
       item?: { size?: string | null } | null;
     }>;
     legacyItem?: { category?: string | null; size?: string | null } | null;
@@ -1370,7 +1371,7 @@ export async function restoreBooking(
     const names = check.hardConflicts
       .map((r) => {
         const c = r.conflict!;
-        return `${r.item_name} (Serial #${String(c.serial_no).padStart(2, "0")} — ${c.customer || c.customer_name})`;
+        return `${r.item_name} (Serial #${String(c.serial_no).padStart(2, "0")} — ${c.customer})`;
       })
       .join("; ");
     throw new RestoreAvailabilityError(

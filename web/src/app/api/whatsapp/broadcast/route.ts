@@ -51,7 +51,7 @@ export async function POST(req: NextRequest) {
   } else if (recipientType === "all_customers") {
     const bookings = await prisma.booking.findMany({
       where: {
-        OR: [{ whatsappNo: { not: null } }, { contact1: { not: null } }],
+        OR: [{ whatsappNo: { not: null } }, { NOT: { contact1: "" } }],
         status: { not: "cancelled" },
       },
       select: { customerName: true, whatsappNo: true, contact1: true },

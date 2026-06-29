@@ -25,7 +25,7 @@ import {
   fetchWarningEdgeBookings,
   pdfWarningsForBooking,
 } from "@/lib/bookingWarnings";
-export const revalidate = 30;
+export const dynamic = "force-dynamic";
 
 const bookingPanelInclude = {
   bookingItems: {

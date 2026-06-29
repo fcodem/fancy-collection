@@ -69,7 +69,7 @@ export async function findActiveSubCategories(): Promise<SubCategoryRow[]> {
 export async function findHiddenCategoryNames(): Promise<string[]> {
   const model = delegate("hiddenCategory");
   if (model?.findMany) {
-    const rows = (await model.findMany()) as { name: string }[];
+    const rows = (await model.findMany({})) as { name: string }[];
     return rows.map((r) => r.name);
   }
   try {

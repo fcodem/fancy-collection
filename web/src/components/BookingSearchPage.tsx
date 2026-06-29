@@ -25,6 +25,7 @@ type BookingRow = StandardBookingDetails & {
   whatsapp_no?: string;
   venue?: string;
   total_price?: number;
+  total_advance?: number;
   total_remaining?: number;
   remaining_collected?: number;
   security_collected?: number;

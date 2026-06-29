@@ -5,19 +5,16 @@ import {
   parseDate,
   todayIso,
 } from "@/lib/constants";
-import { serializeBookingForList } from "@/lib/booking";
+import { serializeBookingForList, type BookingWithItems } from "@/lib/booking";
 import {
   DASHBOARD_SEARCH_LIMIT,
   parseSearchPageParams,
   searchPageMeta,
   type SearchPageMeta,
 } from "@/lib/searchPagination";
-import type { Booking, BookingItem, ClothingItem, Prisma } from "@prisma/client";
+import type { Booking, Prisma } from "@prisma/client";
 
-export type BookingWithItems = Booking & {
-  bookingItems: (BookingItem & { item?: Pick<ClothingItem, "size" | "sku"> | null })[];
-  legacyItem?: Pick<ClothingItem, "size" | "category" | "sku"> | null;
-};
+export type { BookingWithItems } from "@/lib/booking";
 
 export type SearchMode = "serial" | "customer" | "phone" | "dress" | "mixed" | "year" | "month" | "date";
 

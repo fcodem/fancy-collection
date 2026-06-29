@@ -227,6 +227,8 @@ export function serializeDashboardData(raw: Awaited<ReturnType<typeof _getDashbo
   };
 }
 
+export type SerializedDashboardData = ReturnType<typeof serializeDashboardData>;
+
 export function readJsonBody<T = Record<string, unknown>>(req: NextRequest): Promise<T> {
   return req.json() as Promise<T>;
 }

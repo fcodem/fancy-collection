@@ -1,6 +1,6 @@
 import { redirect } from "next/navigation";
 import { getCurrentUser, isOwner } from "@/lib/auth";
-import ImageSyncClient from "@/components/ImageSyncClient";
+import ImageSyncLoader from "@/components/ImageSyncLoader";
 
 export const dynamic = "force-dynamic";
 
@@ -9,7 +9,5 @@ export default async function ImageSyncPage() {
   if (!user) redirect("/login");
   if (!isOwner(user)) redirect("/");
 
-  return (
-    <ImageSyncClient />
-  );
+  return <ImageSyncLoader />;
 }

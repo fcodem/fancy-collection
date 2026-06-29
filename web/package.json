@@ -12,6 +12,7 @@
     "start:prod": "next start -H 0.0.0.0",
     "preview": "npm run build && npm run start:prod",
     "lint": "next lint",
+    "test": "tsx --test src/**/*.test.ts",
     "postinstall": "prisma generate && node scripts/copy-assets.mjs",
     "db:push": "prisma db push",
     "db:seed": "tsx prisma/seed.ts",
@@ -22,6 +23,7 @@
     "db:migrate-sqlite": "python ../scripts/migrate_sqlite_to_postgres.py"
   },
   "dependencies": {
+    "@fortawesome/fontawesome-free": "^7.3.0",
     "@fullcalendar/core": "^6.1.21",
     "@fullcalendar/daygrid": "^6.1.21",
     "@fullcalendar/interaction": "^6.1.21",

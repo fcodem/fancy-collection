@@ -361,6 +361,7 @@ export async function sendBookingReminderWhatsApp(
 
 function buildReturnReceiptPdfInput(
   booking: {
+    id: number;
     publicBookingId: string | null;
     monthlySerial: number;
     customerName: string;

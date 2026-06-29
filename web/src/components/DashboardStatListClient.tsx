@@ -85,7 +85,7 @@ export default function DashboardStatListClient({
       {
         ...b,
         contact1: b.contact1,
-        whatsapp_no: b.whatsappNo,
+        whatsapp_no: b.whatsappNo ?? undefined,
         total_advance: b.totalAdvance,
         total_remaining: b.totalRemaining,
         remaining_collected: b.remainingCollected,
