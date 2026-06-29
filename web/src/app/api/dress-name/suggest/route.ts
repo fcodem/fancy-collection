@@ -1,9 +1,12 @@
 import { NextRequest } from "next/server";
 import prisma from "@/lib/prisma";
 import { buildDressSearchWhere, dressDisplayName } from "@/lib/dress";
-import { jsonOk } from "@/lib/api";
+import { jsonOk, requireUserReadOnly, isResponse } from "@/lib/api";
 
 export async function GET(req: NextRequest) {
+  const user = await requireUserReadOnly();
+  if (isResponse(user)) return user;
+
   const q = req.nextUrl.searchParams.get("q")?.trim() || "";
   const category = req.nextUrl.searchParams.get("category")?.trim() || "";
   const limit = Math.min(parseInt(req.nextUrl.searchParams.get("limit") || "12", 10), 30);

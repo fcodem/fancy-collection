@@ -2,15 +2,15 @@ import { NextRequest, NextResponse, after } from "next/server";
 import prisma from "@/lib/prisma";
 import {
   createStaffLoginRequest,
-  establishUserLogin,
+  establishPendingLoginToken,
+  establishUserLoginWithJson,
   establishUserLoginWithRedirect,
   findRecentApprovedStaffLogin,
   findUserForLogin,
-  getSession,
   upgradePasswordHashIfNeeded,
   verifyPassword,
 } from "@/lib/auth";
-import { jsonError, jsonOk } from "@/lib/api";
+import { jsonError } from "@/lib/api";
 import {
   checkLoginBlocked,
   getClientIpFromRequest,
@@ -87,8 +87,7 @@ export async function POST(req: NextRequest) {
       if (htmlRedirect) {
         return establishUserLoginWithRedirect(user.id, req, "/");
       }
-      await establishUserLogin(user.id);
-      return jsonOk({ ok: true, role: "owner", redirect: "/" });
+      return establishUserLoginWithJson(user.id, req, { ok: true, role: "owner", redirect: "/" });
     }
 
     const approved = await findRecentApprovedStaffLogin(user.id);
@@ -100,20 +99,23 @@ export async function POST(req: NextRequest) {
       if (htmlRedirect) {
         return establishUserLoginWithRedirect(user.id, req, "/");
       }
-      await establishUserLogin(user.id);
-      return jsonOk({ ok: true, role: "staff", redirect: "/" });
+      return establishUserLoginWithJson(user.id, req, { ok: true, role: "staff", redirect: "/" });
     }
 
     const reqRow = await createStaffLoginRequest(user.id);
-    const session = await getSession();
-    session.pendingLoginToken = reqRow.token;
-    await session.save();
     const pendingUrl = new URL("/login/pending", req.url);
     pendingUrl.searchParams.set("t", reqRow.token);
     if (htmlRedirect) {
-      return NextResponse.redirect(pendingUrl);
+      const response = NextResponse.redirect(pendingUrl);
+      return establishPendingLoginToken(req, reqRow.token, response);
     }
-    return jsonOk({ ok: true, role: "staff", pending: true, redirect: pendingUrl.pathname + pendingUrl.search });
+    const response = NextResponse.json({
+      ok: true,
+      role: "staff",
+      pending: true,
+      redirect: pendingUrl.pathname + pendingUrl.search,
+    });
+    return establishPendingLoginToken(req, reqRow.token, response);
   } catch (e) {
     console.error(e);
     return jsonError("Login failed.", 500);
