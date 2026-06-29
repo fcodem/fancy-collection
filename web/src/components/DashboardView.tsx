@@ -12,6 +12,7 @@ import { BookingNotesBlock } from "@/components/BookingNotesBlock";
 import StarBookingBadge from "@/components/StarBookingBadge";
 import { useRealtimeRefresh } from "@/hooks/useRealtimeRefresh";
 import { BOOKING_EVENTS, INVENTORY_EVENTS } from "@/lib/realtime/types";
+import type { SerializedDashboardData } from "@/lib/services/core";
 
 type BookingRow = {
   id: number;
@@ -35,24 +36,7 @@ type BookingRow = {
   bookingItems: Array<{ dressName: string; category?: string | null; size?: string | null; notes?: string | null }>;
 };
 type DashboardProps = {
-  data: {
-    stats: Record<string, number>;
-    today_stats: Record<string, number>;
-    today_deliveries_list: BookingRow[];
-    today_returns_list: BookingRow[];
-    all_undelivered_list: BookingRow[];
-    overdue_list: Array<{
-      id: number;
-      rentalNumber: string;
-      endDate: string | Date;
-      totalAmount: number;
-      customer: { name: string };
-    }>;
-    late_return_count: number;
-    today_iso: string;
-    today_display: string;
-    categories: { mens: string[]; womens: string[]; jewellery: string[]; accessory: string[] };
-  };
+  data: SerializedDashboardData;
   isOwner: boolean;
   pendingStaff: Array<{ id: number; username: string; staffName: string; requestedAt?: string }>;
   activeStaff: Array<{ id: number; username: string; staffName: string; loginAt?: string }>;
@@ -665,7 +649,7 @@ export default function DashboardView({ data: initialData, isOwner, pendingStaff
                     <tr key={r.id}>
                       <td>{r.rentalNumber}</td>
                       <td>{r.customer.name}</td>
-                      <td style={{ color: "var(--danger)", fontWeight: 600 }}>{bookingDateLabel(r.endDate)}</td>
+                      <td style={{ color: "var(--danger)", fontWeight: 600 }}>{bookingDateLabel(r.endDate ?? "")}</td>
                       <td>₹{formatInr(r.totalAmount)}</td>
                       <td><Link href={`/rentals/${r.id}`} className="btn btn-outline btn-sm">View</Link></td>
                     </tr>

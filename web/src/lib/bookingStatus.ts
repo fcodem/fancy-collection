@@ -3,7 +3,9 @@ export type BookingStatusSource = {
   status: string;
   bookingItems?: Array<{
     id?: number;
-    isDelivered: boolean;
+    isDelivered?: boolean;
+    isReturned?: boolean;
+    isIncompleteReturn?: boolean;
   }>;
 };
 
@@ -20,7 +22,7 @@ export function resolveBookingStatus(booking: BookingStatusSource): string {
 
   const items = booking.bookingItems ?? [];
   if (items.length > 0 && booking.status === "booked") {
-    const allDelivered = items.every((bi) => bi.isDelivered);
+    const allDelivered = items.every((bi) => bi.isDelivered === true);
     if (allDelivered) return "delivered";
   }
 
@@ -33,12 +35,12 @@ export function isBookingDelivered(booking: BookingStatusSource): boolean {
 }
 
 export function deliveredBookingItems(booking: BookingStatusSource) {
-  return (booking.bookingItems ?? []).filter((bi) => bi.isDelivered);
+  return (booking.bookingItems ?? []).filter((bi) => bi.isDelivered === true);
 }
 
 export function isAllBookingItemsDelivered(booking: BookingStatusSource): boolean {
   const items = booking.bookingItems ?? [];
-  return items.length > 0 && items.every((bi) => bi.isDelivered);
+  return items.length > 0 && items.every((bi) => bi.isDelivered === true);
 }
 
 export function hasPartialDelivery(booking: BookingStatusSource): boolean {
@@ -79,19 +81,19 @@ export function deliverySlipHref(
  */
 export function resolveDeliverySlipItemId(
   booking: BookingStatusSource & {
-    bookingItems?: Array<{ id: number; isDelivered: boolean }>;
+    bookingItems?: Array<{ id?: number; isDelivered?: boolean }>;
   },
   rawItemId?: string | null,
 ): number | undefined | "pick" {
   if (isCommonDeliverySlipEligible(booking)) return undefined;
 
-  const delivered = (booking.bookingItems ?? []).filter((bi) => bi.isDelivered);
+  const delivered = (booking.bookingItems ?? []).filter((bi) => bi.isDelivered === true);
   if (rawItemId) {
     const id = parseInt(rawItemId, 10);
     if (!id || !delivered.some((bi) => bi.id === id)) return "pick";
     return id;
   }
-  if (delivered.length === 1) return delivered[0].id;
+  if (delivered.length === 1 && delivered[0].id != null) return delivered[0].id;
   return "pick";
 }
 
@@ -108,18 +110,18 @@ export type ReturnSlipSource = {
 
 export function returnedBookingItems(booking: ReturnSlipSource) {
   return (booking.bookingItems ?? []).filter(
-    (bi) => bi.isReturned && !bi.isIncompleteReturn,
+    (bi) => bi.isReturned === true && !bi.isIncompleteReturn,
   );
 }
 
 export function isAllDeliveredItemsReturned(booking: ReturnSlipSource): boolean {
-  const delivered = (booking.bookingItems ?? []).filter((bi) => bi.isDelivered);
+  const delivered = (booking.bookingItems ?? []).filter((bi) => bi.isDelivered === true);
   const returned = returnedBookingItems(booking);
   return delivered.length > 0 && returned.length === delivered.length;
 }
 
 export function hasPartialReturn(booking: ReturnSlipSource): boolean {
-  const delivered = (booking.bookingItems ?? []).filter((bi) => bi.isDelivered);
+  const delivered = (booking.bookingItems ?? []).filter((bi) => bi.isDelivered === true);
   const returned = returnedBookingItems(booking);
   return returned.length > 0 && delivered.length > 0 && returned.length < delivered.length;
 }
@@ -141,19 +143,12 @@ export type ReturnSlipResolve =
   | { scope: "combined" };
 
 export function resolveReturnSlip(
-  booking: ReturnSlipSource & {
-    bookingItems?: Array<{
-      id: number;
-      isDelivered?: boolean;
-      isReturned?: boolean;
-      isIncompleteReturn?: boolean;
-    }>;
-  },
+  booking: ReturnSlipSource,
   rawItemId?: string | null,
 ): ReturnSlipResolve | "invalid" {
-  const delivered = (booking.bookingItems ?? []).filter((bi) => bi.isDelivered);
+  const delivered = (booking.bookingItems ?? []).filter((bi) => bi.isDelivered === true);
   const returned = (booking.bookingItems ?? []).filter(
-    (bi) => bi.isReturned && !bi.isIncompleteReturn,
+    (bi) => bi.isReturned === true && !bi.isIncompleteReturn,
   );
 
   if (returned.length === 0) return "invalid";
@@ -172,14 +167,7 @@ export function resolveReturnSlip(
 
 export function returnSlipHref(
   bookingId: number,
-  booking: ReturnSlipSource & {
-    bookingItems?: Array<{
-      id: number;
-      isDelivered?: boolean;
-      isReturned?: boolean;
-      isIncompleteReturn?: boolean;
-    }>;
-  },
+  booking: ReturnSlipSource,
   bookingItemId?: number,
 ): string {
   const resolved = resolveReturnSlip(

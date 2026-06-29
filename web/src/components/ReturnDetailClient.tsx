@@ -153,6 +153,13 @@ export default function ReturnDetailClient({
       isIncompleteReturn: d.isIncompleteReturn,
     })),
   };
+  const slipStatusSource = {
+    status: booking.status,
+    bookingItems: itemDelivery.map((d) => ({
+      id: d.id,
+      isDelivered: d.isDelivered,
+    })),
+  };
   const incompleteSlipSource = {
     status: booking.status,
     bookingItems: itemDelivery.map((d) => ({
@@ -302,8 +309,8 @@ export default function ReturnDetailClient({
     <div>
       <div style={{ display: "flex",gap: 12, marginBottom: 16, flexWrap: "wrap" }} className="no-print">
         <Link href={`/booking/${booking.id}`} className="btn btn-outline">View Booking</Link>
-        {isDeliverySlipEligible(booking) && isCommonDeliverySlipEligible(booking) && (
-          <Link href={deliverySlipHref(booking.id, booking)} className="btn btn-outline" style={{ color: "#1565c0", borderColor: "#1565c0" }}>
+        {isDeliverySlipEligible(slipStatusSource) && isCommonDeliverySlipEligible(slipStatusSource) && (
+          <Link href={deliverySlipHref(booking.id, slipStatusSource)} className="btn btn-outline" style={{ color: "#1565c0", borderColor: "#1565c0" }}>
             <i className="fa-solid fa-truck-fast" style={{ marginRight: 6 }} />Delivery Slip
           </Link>
         )}

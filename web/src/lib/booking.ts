@@ -16,9 +16,11 @@ import type { Booking, BookingItem, ClothingItem, Prisma } from "@prisma/client"
 type DbClient = Prisma.TransactionClient | typeof prisma;
 
 type BookingWithItems = Booking & {
-  bookingItems: (BookingItem & { item?: ClothingItem | null })[];
-  legacyItem?: ClothingItem | null;
+  bookingItems: (BookingItem & { item?: Pick<ClothingItem, "size" | "category" | "sku"> | null })[];
+  legacyItem?: Pick<ClothingItem, "size" | "category" | "sku"> | null;
 };
+
+export type { BookingWithItems };
 
 const bookingWarningInclude = {
   bookingItems: { select: { itemId: true, dressName: true, category: true, size: true, notes: true } },

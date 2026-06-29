@@ -10,6 +10,8 @@ import type { PdfWarningPanel } from "@/lib/pdfWarningDraw";
 
 type WarningInfo = BookingWarningRecord & { booking_id: number };
 
+export type { WarningInfo };
+
 export type WarningMapBooking = {
   id: number;
   monthlySerial: number;

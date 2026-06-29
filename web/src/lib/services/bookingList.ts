@@ -10,7 +10,7 @@ import {
 } from "@/lib/bookingDetails";
 import { formatDate, parseDate } from "@/lib/constants";
 import { resolveBookingStatus } from "@/lib/bookingStatus";
-import { buildWarningMaps, pickWarning } from "@/lib/bookingWarnings";
+import { buildWarningMaps, pickWarning, type WarningInfo } from "@/lib/bookingWarnings";
 import { isStarBooking } from "@/lib/starBooking";
 
 type ItemRow = {

@@ -14,6 +14,7 @@ import {
   warningItemsForBooking,
 } from "@/lib/bookingWarnings";
 import { warningPanelsFromItems } from "@/lib/bookingWarningPdf";
+import type { PdfWarningPanel } from "@/lib/pdfWarningDraw";
 
 export type DashboardStatListType =
   | "total-orders"
@@ -78,6 +79,7 @@ function serializeRow(b: Awaited<ReturnType<typeof fetchStatListRaw>>[number]): 
     totalRemaining: b.totalRemaining ?? b.remaining ?? 0,
     remainingCollected: b.remainingCollected ?? 0,
     deliveryDateIso: b.deliveryDate.toISOString().slice(0, 10),
+    pdfWarningPanels: [] as PdfWarningPanel[],
     ...std,
   };
 }

@@ -1,13 +1,13 @@
 import prisma from "@/lib/prisma";
 import { findItemIdsStillInActiveBookings } from "@/lib/booking";
-import { serializeStandardBookingDetails } from "@/lib/bookingDetails";
+import { bookingListRecordFrom, type BookingForListRecord } from "@/lib/bookingDetails";
 import { dressDisplayName, bookingItemSize } from "@/lib/dress";
 import { formatDate } from "@/lib/constants";
 import { logActivity, snapshotBooking } from "@/lib/activityLog";
 import { broadcastShopEvent } from "@/lib/realtime/broadcast";
 import { monthBasedSearchBookings } from "@/lib/services/bookingSearchCore";
 
-export type PostponedBookingRow = ReturnType<typeof serializeStandardBookingDetails> & {
+export type PostponedBookingRow = ReturnType<typeof bookingListRecordFrom> & {
   id: number;
   serial: number;
   status: string;
@@ -15,29 +15,18 @@ export type PostponedBookingRow = ReturnType<typeof serializeStandardBookingDeta
   postponed_at: string | null;
 };
 
-function serializePostponedRow(b: {
-  id: number;
-  monthlySerial: number;
-  status: string;
-  totalAdvance: number;
-  advance: number;
-  postponedAt?: Date | null;
-  deliveryDate: Date;
-  returnDate: Date;
-  bookingItems: Array<{
-    dressName: string;
-    category?: string | null;
-    size?: string | null;
-    notes?: string | null;
-    item?: { size?: string | null } | null;
-  }>;
-  legacyItem?: { size?: string | null; category?: string | null } | null;
-  dressName?: string | null;
-  [key: string]: unknown;
-}): PostponedBookingRow {
-  const details = serializeStandardBookingDetails(b);
+function serializePostponedRow(
+  b: BookingForListRecord & {
+    id: number;
+    status: string;
+    totalAdvance: number;
+    advance: number;
+    postponedAt?: Date | null;
+  },
+): PostponedBookingRow {
+  const record = bookingListRecordFrom(b);
   return {
-    ...details,
+    ...record,
     id: b.id,
     serial: b.monthlySerial,
     status: b.status,
@@ -53,7 +42,13 @@ export async function searchBookingsToPostpone(
   page?: string | number | null,
   pageSize?: string | number | null,
 ) {
-  const result = await monthBasedSearchBookings(queryText, date, "", page, pageSize);
+  const result = await monthBasedSearchBookings(
+    queryText,
+    date,
+    "",
+    page != null ? String(page) : null,
+    pageSize != null ? String(pageSize) : null,
+  );
   return {
     ...result,
     results: result.results.filter((r) => r.status === "booked"),
