@@ -33,6 +33,21 @@ export default async function DeliveryDetailPage({ params }: { params: Promise<{
     packingNote: bi.packingNote || "",
   }));
 
+  const orderRecords = (booking.orders ?? [])
+    .filter((o) => o.status === "active")
+    .map((o) => ({
+      id: o.id,
+      description: o.description,
+      cost: o.cost,
+      advance: o.advance,
+      balance: Math.max(0, o.balance),
+      balanceCollected: o.balanceCollected,
+      photo: o.photo,
+      deliveryDate: formatDate(o.deliveryDate),
+      deliveryTime: o.deliveryTime,
+      includedInRent: (o.cost || 0) === 0,
+    }));
+
   const allDelivered = items.length > 0 ? items.every((i) => i.isDelivered) : booking.status === "delivered";
   const isDelivered = allDelivered;
 
@@ -50,6 +65,7 @@ export default async function DeliveryDetailPage({ params }: { params: Promise<{
         isDelivered={isDelivered}
         idPhoto1={booking.idPhoto1}
         idPhoto2={booking.idPhoto2}
+        orders={orderRecords}
       />
       {isDelivered && <DeliveredBookingEditSection bookingId={booking.id} />}
     </>

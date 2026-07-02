@@ -1,7 +1,10 @@
 import { NextResponse } from "next/server";
 import type { NextRequest } from "next/server";
+import { isValidPdfRenderSecret } from "@/lib/slipPdfAccess";
 
 const PUBLIC_PATHS = ["/login", "/login/pending", "/api/login", "/api/login-request/status", "/api/login-request/complete", "/api/session/check"];
+
+const SLIP_PDF_PATH = /^\/booking\/\d+\/(slip|delivery-slip|return-slip|incomplete-slip)(\/|$)/;
 
 const PWA_ASSET_PATHS = [
   "/manifest.json",
@@ -31,6 +34,12 @@ export async function middleware(request: NextRequest) {
     pathname.startsWith("/uploads") ||
     pathname === "/favicon.ico"
   ) {
+    return passThrough();
+  }
+
+  // Headless PDF generation fetches slip pages without a staff session cookie.
+  const pdfSecret = request.nextUrl.searchParams.get("pdfSecret");
+  if (SLIP_PDF_PATH.test(pathname) && isValidPdfRenderSecret(pdfSecret)) {
     return passThrough();
   }
 

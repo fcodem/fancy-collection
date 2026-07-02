@@ -5,11 +5,14 @@ import { useRouter } from "next/navigation";
 import { useCallback, useEffect, useState } from "react";
 import { todayIso } from "@/lib/constants";
 import { fetchJson } from "@/lib/fetchJson";
+import { formatInr } from "@/lib/format";
 import { useToast } from "@/components/ui/Toast";
 
 type Staff = { id: number; name: string; phone?: string | null };
 type StaffUser = { id: number; username: string; role: string; staffId: number | null };
 type AttSummary = { id: number; name: string; present: number; absent: number; half_day: number };
+type SalEntry = { id: number; date: string; amount: number; note: string };
+type SalSummary = { id: number; name: string; total: number; count: number };
 
 const WEEKDAYS = ["Sun", "Mon", "Tue", "Wed", "Thu", "Fri", "Sat"];
 
@@ -51,6 +54,19 @@ export default function StaffAttendanceClient({
   const [addPassword, setAddPassword] = useState("");
   const [addRole, setAddRole] = useState("staff");
 
+  // Salary ledger
+  const [salStaffId, setSalStaffId] = useState(String(initialStaff[0]?.id || ""));
+  const [salMonth, setSalMonth] = useState(todayDefault.slice(0, 7));
+  const [salDate, setSalDate] = useState(todayDefault);
+  const [salPayStaffId, setSalPayStaffId] = useState(String(initialStaff[0]?.id || ""));
+  const [salAmount, setSalAmount] = useState("");
+  const [salNote, setSalNote] = useState("");
+  const [salDays, setSalDays] = useState<Record<string, number>>({});
+  const [salEntries, setSalEntries] = useState<SalEntry[]>([]);
+  const [salTotal, setSalTotal] = useState(0);
+  const [salSummary, setSalSummary] = useState<SalSummary[]>([]);
+  const [salSaving, setSalSaving] = useState(false);
+
   useEffect(() => {
     setStaffList(initialStaff);
   }, [initialStaff]);
@@ -90,6 +106,37 @@ export default function StaffAttendanceClient({
     loadSummary();
   }, [loadCalendar, loadSummary]);
 
+  const loadSalaryCalendar = useCallback(async () => {
+    if (!salStaffId || !salMonth) return;
+    try {
+      const data = await fetchJson<{ days: Record<string, number>; entries: SalEntry[]; total: number }>(
+        `/api/staff/salary-calendar?staff_id=${salStaffId}&month=${salMonth}`,
+      );
+      setSalDays(data.days || {});
+      setSalEntries(data.entries || []);
+      setSalTotal(data.total || 0);
+    } catch {
+      setSalDays({});
+      setSalEntries([]);
+      setSalTotal(0);
+    }
+  }, [salStaffId, salMonth]);
+
+  const loadSalarySummary = useCallback(async () => {
+    if (!salMonth) return;
+    try {
+      const data = await fetchJson<SalSummary[]>(`/api/staff/salary?month=${salMonth}`);
+      setSalSummary(data);
+    } catch {
+      setSalSummary([]);
+    }
+  }, [salMonth]);
+
+  useEffect(() => {
+    loadSalaryCalendar();
+    loadSalarySummary();
+  }, [loadSalaryCalendar, loadSalarySummary]);
+
   async function saveAttendance() {
     setSaving(true);
     try {
@@ -124,6 +171,51 @@ export default function StaffAttendanceClient({
       toast(e instanceof Error ? e.message : "Failed", "error");
     } finally {
       setSaving(false);
+    }
+  }
+
+  async function saveSalary(e: React.FormEvent) {
+    e.preventDefault();
+    const amt = parseFloat(salAmount);
+    if (!salPayStaffId) {
+      toast("Select a staff member", "error");
+      return;
+    }
+    if (!(amt > 0)) {
+      toast("Enter a valid amount", "error");
+      return;
+    }
+    setSalSaving(true);
+    try {
+      await fetchJson("/api/staff/salary", {
+        method: "POST",
+        headers: { "Content-Type": "application/json" },
+        body: JSON.stringify({ staff_id: salPayStaffId, date: salDate, amount: amt, note: salNote }),
+      });
+      toast("Salary payment recorded", "success");
+      setSalAmount("");
+      setSalNote("");
+      // Keep the ledger view focused on whoever we just paid
+      setSalStaffId(salPayStaffId);
+      setSalMonth(salDate.slice(0, 7));
+      loadSalaryCalendar();
+      loadSalarySummary();
+    } catch (err) {
+      toast(err instanceof Error ? err.message : "Failed to record", "error");
+    } finally {
+      setSalSaving(false);
+    }
+  }
+
+  async function deleteSalary(id: number) {
+    if (!confirm("Remove this salary entry?")) return;
+    try {
+      await fetchJson(`/api/staff/salary/${id}/delete`, { method: "POST" });
+      toast("Entry removed", "success");
+      loadSalaryCalendar();
+      loadSalarySummary();
+    } catch (err) {
+      toast(err instanceof Error ? err.message : "Failed", "error");
     }
   }
 
@@ -210,6 +302,57 @@ export default function StaffAttendanceClient({
 
     return cells;
   }
+
+  function renderSalaryCalendar() {
+    const [year, month] = salMonth.split("-").map(Number);
+    const firstDay = new Date(year, month - 1, 1).getDay();
+    const daysInMonth = new Date(year, month, 0).getDate();
+    const cells: React.ReactNode[] = [];
+
+    WEEKDAYS.forEach((d) => {
+      cells.push(
+        <div key={`sh-${d}`} style={{ fontWeight: 700, padding: 6, color: "var(--text-muted)" }}>
+          {d}
+        </div>,
+      );
+    });
+
+    for (let i = 0; i < firstDay; i++) {
+      cells.push(<div key={`se-${i}`} />);
+    }
+
+    for (let d = 1; d <= daysInMonth; d++) {
+      const dateStr = `${year}-${String(month).padStart(2, "0")}-${String(d).padStart(2, "0")}`;
+      const amt = salDays[dateStr] || 0;
+      const has = amt > 0;
+      cells.push(
+        <div
+          key={dateStr}
+          title={has ? `Paid ₹${formatInr(amt)}` : "No payment"}
+          style={{
+            padding: "6px 3px",
+            background: has ? "#0d6efd" : "#f8f9fa",
+            color: has ? "white" : "#333",
+            borderRadius: 6,
+            fontWeight: 600,
+            minHeight: 42,
+            display: "flex",
+            flexDirection: "column",
+            alignItems: "center",
+            justifyContent: "center",
+            gap: 2,
+          }}
+        >
+          <span>{d}</span>
+          {has && <span style={{ fontSize: 9.5, fontWeight: 700, lineHeight: 1 }}>₹{formatInr(amt)}</span>}
+        </div>,
+      );
+    }
+
+    return cells;
+  }
+
+  const salStaffName = staffList.find((s) => String(s.id) === salStaffId)?.name || "";
 
   return (
     <div className="two-col" style={{ gap: 20, gridTemplateColumns: "1fr 2fr" }}>
@@ -306,6 +449,66 @@ export default function StaffAttendanceClient({
             )}
           </div>
         </div>
+
+        {isOwner && (
+          <div className="card" style={{ marginBottom: 16 }}>
+            <div className="card-header">
+              <h3 className="card-title">
+                <i className="fa-solid fa-money-bill-wave" style={{ marginRight: 8 }} />
+                Record Salary Payment
+              </h3>
+            </div>
+            <div className="card-body">
+              {staffList.length ? (
+                <form onSubmit={saveSalary}>
+                  <div className="form-group">
+                    <label className="form-label">Staff *</label>
+                    <select
+                      className="form-control"
+                      value={salPayStaffId}
+                      onChange={(e) => setSalPayStaffId(e.target.value)}
+                    >
+                      {staffList.map((s) => (
+                        <option key={s.id} value={s.id}>{s.name}</option>
+                      ))}
+                    </select>
+                  </div>
+                  <div className="form-group">
+                    <label className="form-label">Date *</label>
+                    <input type="date" className="form-control" value={salDate} onChange={(e) => setSalDate(e.target.value)} />
+                  </div>
+                  <div className="form-group">
+                    <label className="form-label">Amount (₹) *</label>
+                    <input
+                      type="number"
+                      min="1"
+                      step="any"
+                      inputMode="decimal"
+                      className="form-control"
+                      placeholder="e.g. 500"
+                      value={salAmount}
+                      onChange={(e) => setSalAmount(e.target.value)}
+                    />
+                  </div>
+                  <div className="form-group">
+                    <label className="form-label">Note (optional)</label>
+                    <input
+                      className="form-control"
+                      placeholder="e.g. advance, weekly salary"
+                      value={salNote}
+                      onChange={(e) => setSalNote(e.target.value)}
+                    />
+                  </div>
+                  <button type="submit" className="btn btn-primary btn-sm" disabled={salSaving}>
+                    <i className="fa-solid fa-plus" /> Add Payment
+                  </button>
+                </form>
+              ) : (
+                <p style={{ color: "var(--text-muted)", fontSize: 12 }}>No active staff. Add staff first.</p>
+              )}
+            </div>
+          </div>
+        )}
 
         {isOwner && (
           <div className="card">
@@ -407,6 +610,156 @@ export default function StaffAttendanceClient({
               </div>
             ) : (
               <p style={{ color: "var(--text-muted)" }}>No attendance data.</p>
+            )}
+          </div>
+        </div>
+
+        <div className="card" style={{ marginTop: 16 }}>
+          <div className="card-header">
+            <h3 className="card-title">
+              <i className="fa-solid fa-money-check-dollar" style={{ marginRight: 8 }} />
+              Salary Ledger
+            </h3>
+            <div className="no-print" style={{ display: "flex", gap: 8, alignItems: "center", flexWrap: "wrap" }}>
+              <select
+                className="form-control"
+                style={{ width: 150, fontSize: 12 }}
+                value={salStaffId}
+                onChange={(e) => setSalStaffId(e.target.value)}
+              >
+                {staffList.map((s) => (
+                  <option key={s.id} value={s.id}>{s.name}</option>
+                ))}
+              </select>
+              <input
+                type="month"
+                className="form-control"
+                style={{ width: 160 }}
+                value={salMonth}
+                onChange={(e) => setSalMonth(e.target.value)}
+              />
+              <button type="button" onClick={() => window.print()} className="btn btn-outline btn-sm">
+                <i className="fa-solid fa-print" />
+              </button>
+            </div>
+          </div>
+          <div className="card-body">
+            <div
+              style={{
+                display: "flex",
+                justifyContent: "space-between",
+                alignItems: "center",
+                flexWrap: "wrap",
+                gap: 8,
+                padding: "12px 16px",
+                marginBottom: 14,
+                background: "#e7f1ff",
+                border: "1px solid #b6d4fe",
+                borderRadius: 8,
+              }}
+            >
+              <div style={{ fontSize: 13, color: "#084298" }}>
+                Total paid to <strong>{salStaffName || "—"}</strong> this month
+                {salEntries.length > 0 && (
+                  <span style={{ color: "#6c757d" }}> · {salEntries.length} payment{salEntries.length > 1 ? "s" : ""}</span>
+                )}
+              </div>
+              <div style={{ fontSize: 22, fontWeight: 800, color: "#0d6efd" }}>₹{formatInr(salTotal)}</div>
+            </div>
+
+            <div style={{ display: "grid", gridTemplateColumns: "repeat(7, 1fr)", gap: 4, textAlign: "center", fontSize: 12 }}>
+              {renderSalaryCalendar()}
+            </div>
+
+            {salEntries.length > 0 ? (
+              <div className="table-wrapper" style={{ marginTop: 14 }}>
+                <table className="data-table" style={{ fontSize: 12 }}>
+                  <thead>
+                    <tr>
+                      <th>Date</th>
+                      <th style={{ textAlign: "right" }}>Amount</th>
+                      <th>Note</th>
+                      {isOwner && <th className="no-print" />}
+                    </tr>
+                  </thead>
+                  <tbody>
+                    {salEntries.map((en) => (
+                      <tr key={en.id}>
+                        <td>{en.date}</td>
+                        <td style={{ textAlign: "right", fontWeight: 700, color: "#0d6efd" }}>₹{formatInr(en.amount)}</td>
+                        <td style={{ color: "var(--text-muted)" }}>{en.note || "—"}</td>
+                        {isOwner && (
+                          <td className="no-print" style={{ textAlign: "right" }}>
+                            <button
+                              type="button"
+                              className="btn btn-danger btn-sm"
+                              style={{ fontSize: 10, padding: "3px 8px" }}
+                              onClick={() => deleteSalary(en.id)}
+                            >
+                              Remove
+                            </button>
+                          </td>
+                        )}
+                      </tr>
+                    ))}
+                  </tbody>
+                  <tfoot>
+                    <tr>
+                      <td style={{ fontWeight: 700 }}>Total</td>
+                      <td style={{ textAlign: "right", fontWeight: 800, color: "#0d6efd" }}>₹{formatInr(salTotal)}</td>
+                      <td colSpan={isOwner ? 2 : 1} />
+                    </tr>
+                  </tfoot>
+                </table>
+              </div>
+            ) : (
+              <p style={{ color: "var(--text-muted)", fontSize: 12, marginTop: 14 }}>
+                No salary payments recorded for {salStaffName || "this staff"} this month.
+              </p>
+            )}
+          </div>
+        </div>
+
+        <div className="card" style={{ marginTop: 16 }}>
+          <div className="card-header">
+            <h3 className="card-title">
+              <i className="fa-solid fa-sack-dollar" style={{ marginRight: 8 }} />
+              Monthly Salary Summary
+            </h3>
+          </div>
+          <div className="card-body">
+            {salSummary.some((s) => s.count > 0) ? (
+              <div className="table-wrapper">
+                <table className="data-table" style={{ fontSize: 12 }}>
+                  <thead>
+                    <tr>
+                      <th>Staff</th>
+                      <th style={{ textAlign: "right" }}>Payments</th>
+                      <th style={{ textAlign: "right" }}>Total Paid</th>
+                    </tr>
+                  </thead>
+                  <tbody>
+                    {salSummary.map((s) => (
+                      <tr key={s.id}>
+                        <td><strong>{s.name}</strong></td>
+                        <td style={{ textAlign: "right" }}>{s.count}</td>
+                        <td style={{ textAlign: "right", fontWeight: 700, color: "#0d6efd" }}>₹{formatInr(s.total)}</td>
+                      </tr>
+                    ))}
+                  </tbody>
+                  <tfoot>
+                    <tr>
+                      <td style={{ fontWeight: 700 }}>All Staff</td>
+                      <td style={{ textAlign: "right", fontWeight: 700 }}>{salSummary.reduce((a, s) => a + s.count, 0)}</td>
+                      <td style={{ textAlign: "right", fontWeight: 800, color: "#0d6efd" }}>
+                        ₹{formatInr(salSummary.reduce((a, s) => a + s.total, 0))}
+                      </td>
+                    </tr>
+                  </tfoot>
+                </table>
+              </div>
+            ) : (
+              <p style={{ color: "var(--text-muted)" }}>No salary payments this month.</p>
             )}
           </div>
         </div>

@@ -2,7 +2,11 @@ import { NextRequest } from "next/server";
 import prisma from "@/lib/prisma";
 import { saveDelivery } from "@/lib/services/operations";
 import { jsonError, jsonOk, requireUser, isResponse, requireJsonContentType } from "@/lib/api";
-import { triggerWhatsAppSlipJobs } from "@/lib/services/whatsapp/slipScheduling";
+import {
+  finalizeSlipTrigger,
+  scheduleDebouncedSlipTrigger,
+} from "@/lib/services/whatsapp/slipDebounce";
+import { newlyDeliveredItemIdsFromPayload } from "@/lib/slipDelta";
 
 export async function POST(req: NextRequest, { params }: { params: Promise<{ id: string }> }) {
   const _ct = requireJsonContentType(req);
@@ -14,6 +18,10 @@ export async function POST(req: NextRequest, { params }: { params: Promise<{ id:
   const bookingId = parseInt(id, 10);
   try {
     const body = await req.json();
+    const bookingBefore = await prisma.booking.findUnique({
+      where: { id: bookingId },
+      select: { bookingItems: { select: { id: true, isDelivered: true } } },
+    });
     const booking = await saveDelivery(bookingId, {
       remaining_collected: Number(body.remaining_collected || 0),
       security_collected: Number(body.security_collected || 0),
@@ -35,11 +43,24 @@ export async function POST(req: NextRequest, { params }: { params: Promise<{ id:
       })) : undefined,
     }, user.username);
 
-    const hadDelivery =
-      Boolean(body.mark_delivered) ||
-      (Array.isArray(body.items) && body.items.some((it: { mark_delivered?: boolean }) => it.mark_delivered));
-    if (hadDelivery) {
-      void triggerWhatsAppSlipJobs(bookingId, "delivery", req.nextUrl.origin, user.username);
+    const deliveryItemIds = newlyDeliveredItemIdsFromPayload(
+      body,
+      bookingBefore?.bookingItems ?? [],
+    );
+    if (deliveryItemIds.length > 0) {
+      const slipOpts = {
+        requestOrigin: req.nextUrl.origin,
+        createdBy: user.username,
+      };
+      try {
+        if (body.slip_finalize === true || deliveryItemIds.length > 1) {
+          await finalizeSlipTrigger(bookingId, "delivery", slipOpts);
+        } else {
+          scheduleDebouncedSlipTrigger(bookingId, "delivery", slipOpts);
+        }
+      } catch (e) {
+        console.error("[delivery save] WhatsApp slip error:", e);
+      }
     }
 
     const itemRows = await prisma.bookingItem.findMany({

@@ -1,4 +1,5 @@
 import jsPDF from "jspdf";
+import { readFile } from "fs/promises";
 import path from "path";
 
 export type BookingBillPdfInput = {
@@ -85,6 +86,47 @@ const GST_RATE = 18;
 
 function padSerial(n: number) {
   return String(n).padStart(2, "0");
+}
+
+type PdfImageFmt = "JPEG" | "PNG" | "WEBP";
+
+function imageFormatFromUrl(imageUrl: string): PdfImageFmt {
+  const urlLower = imageUrl.toLowerCase();
+  if (urlLower.includes(".png")) return "PNG";
+  if (urlLower.includes(".webp")) return "WEBP";
+  return "JPEG";
+}
+
+async function loadDressImageForPdf(
+  imageUrl: string,
+): Promise<{ base64: string; fmt: PdfImageFmt } | null> {
+  try {
+    let buffer: Buffer;
+    if (imageUrl.startsWith("/uploads/") || imageUrl.startsWith("uploads/")) {
+      const rel = imageUrl.replace(/^\//, "");
+      buffer = await readFile(path.join(process.cwd(), "public", rel));
+    } else if (imageUrl.startsWith("http://") || imageUrl.startsWith("https://")) {
+      const res = await fetch(imageUrl);
+      if (!res.ok) return null;
+      buffer = Buffer.from(await res.arrayBuffer());
+    } else {
+      return null;
+    }
+    return { base64: buffer.toString("base64"), fmt: imageFormatFromUrl(imageUrl) };
+  } catch {
+    return null;
+  }
+}
+
+async function prefetchDressImages(items: BookingBillPdfInput["items"]) {
+  const withUrls = items.filter((item) => item.imageUrl);
+  const pairs = await Promise.all(
+    withUrls.map(async (item) => {
+      const loaded = await loadDressImageForPdf(item.imageUrl!);
+      return { item, loaded };
+    }),
+  );
+  return pairs;
 }
 
 export async function generateBookingBillPdf(input: BookingBillPdfInput): Promise<Buffer> {
@@ -621,15 +663,14 @@ export async function generateBookingBillPdf(input: BookingBillPdfInput): Promis
   });
 
   // ═══════════════════════════════════════════════════
-  // PAGES 2+: ONE PAGE PER DRESS IMAGE
+  // PAGES 2+: ONE PAGE PER DRESS IMAGE (prefetched in parallel)
   // ═══════════════════════════════════════════════════
 
-  for (const item of input.items) {
-    if (!item.imageUrl) continue;
+  const dressImages = await prefetchDressImages(input.items);
 
+  for (const { item, loaded } of dressImages) {
     doc.addPage();
 
-    // Mini header
     fill(doc, GREEN);
     doc.rect(0, 0, PAGE_W, 18, "F");
     doc.setFont("helvetica", "bold");
@@ -642,22 +683,13 @@ export async function generateBookingBillPdf(input: BookingBillPdfInput): Promis
     doc.text(`${item.category || ""} · Size: ${item.size || "—"} · ${rs(item.price)}`, PAGE_W / 2, 14, { align: "center" });
 
     let imageAdded = false;
-    try {
-      const res = await fetch(item.imageUrl);
-      if (res.ok) {
-        const arrayBuffer = await res.arrayBuffer();
-        const base64 = Buffer.from(arrayBuffer).toString("base64");
-        const urlLower = item.imageUrl.toLowerCase();
-        const fmt: "JPEG" | "PNG" | "WEBP" = urlLower.includes(".png")
-          ? "PNG"
-          : urlLower.includes(".webp")
-            ? "WEBP"
-            : "JPEG";
-        doc.addImage(base64, fmt, 40, 24, 130, 160);
+    if (loaded) {
+      try {
+        doc.addImage(loaded.base64, loaded.fmt, 40, 24, 130, 160);
         imageAdded = true;
+      } catch {
+        // skip bad image data
       }
-    } catch {
-      // silently skip
     }
 
     if (!imageAdded) {
@@ -675,7 +707,6 @@ export async function generateBookingBillPdf(input: BookingBillPdfInput): Promis
       doc.text(noteTxt, MARGIN, 192);
     }
 
-    // Footer on image page
     fill(doc, GREEN);
     doc.rect(0, PAGE_H - 12, PAGE_W, 12, "F");
     doc.setFont("helvetica", "normal");

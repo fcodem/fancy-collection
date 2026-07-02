@@ -81,6 +81,10 @@ const _getDashboardDataRaw = async () => {
   const todayStr = todayIso();
   const now = new Date();
   const monthStart = dateQ(new Date(Date.UTC(now.getFullYear(), now.getMonth(), 1)));
+  // Orders due within the next 3 days (plus any overdue, uncollected orders).
+  const ordersDueEnd = dateQ(
+    new Date(Date.UTC(now.getUTCFullYear(), now.getUTCMonth(), now.getUTCDate() + 4)),
+  );
 
   const [
     deliveryTodayWhere,
@@ -108,6 +112,7 @@ const _getDashboardDataRaw = async () => {
     undeliveredCount,
     overdueList,
     subCategories,
+    ordersDueSoonList,
   ] = await Promise.all([
     prisma.clothingItem.groupBy({ by: ["status"], _count: { _all: true } }),
     prisma.customer.count(),
@@ -143,6 +148,26 @@ const _getDashboardDataRaw = async () => {
       take: 5,
     }),
     getAllSubCategories(),
+    prisma.bookingOrder.findMany({
+      where: {
+        status: "active",
+        readyAt: null,
+        deliveryDate: { lt: ordersDueEnd },
+      },
+      orderBy: { deliveryDate: "asc" },
+      include: {
+        booking: {
+          select: {
+            id: true,
+            monthlySerial: true,
+            publicBookingId: true,
+            customerName: true,
+            contact1: true,
+            whatsappNo: true,
+          },
+        },
+      },
+    }),
   ]);
 
   const statusMap = Object.fromEntries(itemStatusCounts.map((row) => [row.status, row._count._all]));
@@ -173,6 +198,8 @@ const _getDashboardDataRaw = async () => {
     all_undelivered_list: allUndeliveredList,
     overdue_list: overdueList,
     late_return_count: lateReturnCount,
+    orders_due_soon_list: ordersDueSoonList,
+    orders_due_soon_count: ordersDueSoonList.length,
     categories: {
       mens: BASE_MENS,
       womens: BASE_WOMENS,
@@ -223,6 +250,14 @@ export function serializeDashboardData(raw: Awaited<ReturnType<typeof _getDashbo
       ...r,
       startDate: iso(r.startDate),
       endDate: iso(r.endDate),
+    })),
+    orders_due_soon_list: raw.orders_due_soon_list.map((o) => ({
+      ...o,
+      deliveryDate: iso(o.deliveryDate) ?? o.deliveryDate,
+      collectedAt: iso(o.collectedAt),
+      cancelledAt: iso(o.cancelledAt),
+      createdAt: iso(o.createdAt) ?? o.createdAt,
+      reminderSentAt: iso(o.reminderSentAt),
     })),
   };
 }

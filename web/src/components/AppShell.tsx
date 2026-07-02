@@ -10,6 +10,7 @@ import RealtimeProvider, { useRealtime } from "@/components/RealtimeProvider";
 
 const NAV_WHATSAPP = [
   { href: "/whatsapp", label: "Inbox", icon: "fa-comment-dots" },
+  { href: "/whatsapp/connection", label: "Connection", icon: "fa-plug" },
   { href: "/whatsapp/broadcast", label: "Broadcast", icon: "fa-bullhorn" },
   { href: "/whatsapp/templates", label: "Templates", icon: "fa-file-lines" },
   { href: "/whatsapp/jobs", label: "Job Queue", icon: "fa-list-ul" },

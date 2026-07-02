@@ -22,6 +22,7 @@ export default async function NewBookingPage({
 
   return (
     <BookingFormClient
+        key={sp.confirmed === "1" && sp.serial ? `confirmed-${sp.serial}` : "new"}
         today={todayIso()}
         saveConfirmedSerial={saveConfirmedSerial}
         staffList={staff.map((s) => s.name)}

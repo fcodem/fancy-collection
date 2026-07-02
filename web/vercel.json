@@ -9,8 +9,8 @@
       "timezone": "Asia/Kolkata"
     },
     {
-      "path": "/api/cron/return-reminders",
-      "schedule": "0 9 * * *",
+      "path": "/api/cron/late-return-reminders",
+      "schedule": "0 10 * * *",
       "timezone": "Asia/Kolkata"
     }
   ]

@@ -189,12 +189,24 @@ async function processIncomingMessage(
 }
 
 async function processMessageStatus(status: MessageStatus) {
+  const deliveryError =
+    status.status === "failed" && status.errors?.length
+      ? status.errors.map((e) => e.title || String(e.code)).join("; ")
+      : undefined;
+
   await prisma.whatsAppMessage.updateMany({
     where: { metaMessageId: status.id },
     data: {
       deliveryStatus: status.status,
       deliveredAt: status.status === "delivered" ? new Date() : undefined,
       readAt: status.status === "read" ? new Date() : undefined,
+      ...(deliveryError ? { error: deliveryError } : {}),
     },
   });
+
+  if (status.status === "failed") {
+    console.warn(
+      `[webhook] Message delivery failed: wamid=${status.id} recipient=${status.recipient_id} errors=${deliveryError ?? "unknown"}`,
+    );
+  }
 }

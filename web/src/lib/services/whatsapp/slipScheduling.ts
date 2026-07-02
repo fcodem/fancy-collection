@@ -1,58 +1,30 @@
 import prisma from "@/lib/prisma";
 import {
-  deliveredBookingItems,
-  isCommonDeliverySlipEligible,
-  isIncompleteSlipEligible,
-  returnedBookingItems,
-} from "@/lib/bookingStatus";
+  resolveDeliveryScope,
+  resolvePartialReturnScope,
+  resolveIncompleteScope,
+} from "@/lib/slipDelta";
 import {
   scheduleDeliverySlip,
   scheduleIncompleteSlip,
-  scheduleReturnReceipt,
   scheduleReturnSlip,
   processWhatsAppJobQueue,
 } from "./jobQueue";
+import { isWhatsAppReceiptsDisabled } from "./metaApi";
 
-export type SlipScope = "full" | "single" | "combined";
+export type { SlipScope } from "@/lib/slipDelta";
 
-function resolveDeliveryScope(booking: {
-  status: string;
-  bookingItems?: Array<{ id: number; isDelivered: boolean }>;
-}): { scope: SlipScope; bookingItemId?: number } | null {
-  const delivered = deliveredBookingItems(booking);
-  if (delivered.length === 0) return null;
+export type SlipJobTriggerOptions = {
+  requestOrigin?: string;
+  createdBy?: string;
+  deliveryItemIds?: number[];
+  returnItemIds?: number[];
+  incompleteItemIds?: number[];
+};
 
-  if (isCommonDeliverySlipEligible(booking)) {
-    return { scope: "full" };
-  }
-  if (delivered.length === 1) {
-    const id = delivered[0].id;
-    if (id == null) return null;
-    return { scope: "single", bookingItemId: id };
-  }
-  return { scope: "combined" };
-}
-
-function resolvePartialReturnScope(booking: {
-  status: string;
-  bookingItems?: Array<{ id: number; isDelivered?: boolean; isReturned?: boolean; isIncompleteReturn?: boolean }>;
-}): { scope: SlipScope; bookingItemId?: number } | null {
-  const returned = returnedBookingItems(booking);
-  if (returned.length === 0) return null;
-
-  if (returned.length === 1) {
-    const id = returned[0].id;
-    if (id == null) return null;
-    return { scope: "single", bookingItemId: id };
-  }
-  return { scope: "combined" };
-}
-
-/** Queue delivery slip WhatsApp after dress(es) marked delivered. */
 export async function scheduleDeliverySlipsForBooking(
   bookingId: number,
-  requestOrigin?: string,
-  createdBy?: string,
+  opts?: SlipJobTriggerOptions,
 ) {
   const booking = await prisma.booking.findUnique({
     where: { id: bookingId },
@@ -60,7 +32,7 @@ export async function scheduleDeliverySlipsForBooking(
   });
   if (!booking) return;
 
-  const resolved = resolveDeliveryScope(booking);
+  const resolved = resolveDeliveryScope(booking, opts?.deliveryItemIds);
   if (!resolved) return;
 
   await scheduleDeliverySlip(
@@ -68,17 +40,16 @@ export async function scheduleDeliverySlipsForBooking(
     {
       scope: resolved.scope,
       bookingItemId: resolved.bookingItemId,
+      bookingItemIds: resolved.bookingItemIds,
     },
-    requestOrigin,
-    createdBy,
+    opts?.requestOrigin,
+    opts?.createdBy,
   );
 }
 
-/** Queue return / incomplete slip WhatsApp after return actions. */
 export async function scheduleReturnSlipsForBooking(
   bookingId: number,
-  requestOrigin?: string,
-  createdBy?: string,
+  opts?: SlipJobTriggerOptions,
 ) {
   const booking = await prisma.booking.findUnique({
     where: { id: bookingId },
@@ -86,42 +57,50 @@ export async function scheduleReturnSlipsForBooking(
   });
   if (!booking) return;
 
-  if (booking.status === "returned") {
-    await scheduleReturnReceipt(bookingId, requestOrigin, createdBy);
-    return;
-  }
-
-  const partial = resolvePartialReturnScope(booking);
+  const partial = resolvePartialReturnScope(booking, opts?.returnItemIds);
   if (partial) {
     await scheduleReturnSlip(
       bookingId,
       {
         scope: partial.scope,
         bookingItemId: partial.bookingItemId,
+        bookingItemIds: partial.bookingItemIds,
       },
-      requestOrigin,
-      createdBy,
+      opts?.requestOrigin,
+      opts?.createdBy,
     );
   }
 
-  if (isIncompleteSlipEligible(booking)) {
-    await scheduleIncompleteSlip(bookingId, requestOrigin, createdBy);
+  const incomplete = resolveIncompleteScope(booking, opts?.incompleteItemIds);
+  if (incomplete) {
+    await scheduleIncompleteSlip(
+      bookingId,
+      {
+        scope: incomplete.scope,
+        bookingItemId: incomplete.bookingItemId,
+        bookingItemIds: incomplete.bookingItemIds,
+      },
+      opts?.requestOrigin,
+      opts?.createdBy,
+    );
   }
 }
 
-/** Schedule jobs and process queue immediately (best-effort). */
 export async function triggerWhatsAppSlipJobs(
   bookingId: number,
   kind: "delivery" | "return",
-  requestOrigin?: string,
-  createdBy?: string,
+  opts?: SlipJobTriggerOptions,
 ) {
+  if (isWhatsAppReceiptsDisabled()) return;
   if (kind === "delivery") {
-    await scheduleDeliverySlipsForBooking(bookingId, requestOrigin, createdBy);
+    await scheduleDeliverySlipsForBooking(bookingId, opts);
   } else {
-    await scheduleReturnSlipsForBooking(bookingId, requestOrigin, createdBy);
+    await scheduleReturnSlipsForBooking(bookingId, opts);
   }
-  void processWhatsAppJobQueue(10).catch((e) => {
+  try {
+    return await processWhatsAppJobQueue(5, { bookingId });
+  } catch (e) {
     console.error("[triggerWhatsAppSlipJobs] queue error:", e);
-  });
+    throw e;
+  }
 }

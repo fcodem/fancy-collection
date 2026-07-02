@@ -1,12 +1,15 @@
 import type { Metadata } from "next";
 import { redirect, notFound } from "next/navigation";
 import prisma from "@/lib/prisma";
-import { getCurrentUser } from "@/lib/auth";
 import { ensureBookingQrToken, bookingQrDataUrl } from "@/lib/bookingQr";
 import IncompleteReturnSlip from "@/components/IncompleteReturnSlip";
 import IncompleteSlipActions from "./IncompleteSlipActions";
 import { isIncompleteSlipEligible } from "@/lib/bookingStatus";
 import { buildIncompleteSlipData, SLIP_BIZ } from "@/lib/slipBookingData";
+import { parseBookingItemIdsParam } from "@/lib/slipDelta";
+import { requireSlipPageAccess } from "@/lib/requireSlipPageAccess";
+import { isValidPdfRenderSecret } from "@/lib/slipPdfAccess";
+import { SlipPdfPrintStyles } from "@/components/SlipPdfPrintStyles";
 import "@/styles/slip-print.css";
 
 export async function generateMetadata({
@@ -27,14 +30,17 @@ export async function generateMetadata({
 
 export default async function IncompleteSlipPage({
   params,
+  searchParams,
 }: {
   params: Promise<{ id: string }>;
+  searchParams: Promise<{ pdfSecret?: string; items?: string }>;
 }) {
-  const user = await getCurrentUser();
-  if (!user) redirect("/login");
-
   const { id } = await params;
+  const { pdfSecret, items: itemsParam } = await searchParams;
   const bookingId = parseInt(id, 10);
+
+  await requireSlipPageAccess(pdfSecret);
+  const pdfRender = isValidPdfRenderSecret(pdfSecret);
 
   const booking = await prisma.booking.findUnique({
     where: { id: bookingId },
@@ -52,11 +58,16 @@ export default async function IncompleteSlipPage({
 
   const qrToken = await ensureBookingQrToken(bookingId);
   const qrDataUrl = await bookingQrDataUrl(qrToken, undefined, 280);
-  const { booking: slipBooking, incompleteItems, returnedItems } = buildIncompleteSlipData(booking);
+  const bookingItemIds = parseBookingItemIdsParam(itemsParam);
+  const { booking: slipBooking, incompleteItems, returnedItems } = buildIncompleteSlipData(
+    booking,
+    bookingItemIds ? { bookingItemIds } : undefined,
+  );
 
   return (
     <>
-      <IncompleteSlipActions bookingId={bookingId} />
+      {pdfRender && <SlipPdfPrintStyles />}
+      {!pdfRender && <IncompleteSlipActions bookingId={bookingId} />}
       <div className="slip-page-wrap">
         <IncompleteReturnSlip
           booking={slipBooking}

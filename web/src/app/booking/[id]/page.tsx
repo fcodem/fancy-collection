@@ -7,6 +7,7 @@ import BookingQrDisplay from "@/components/BookingQrDisplay";
 import BookingQrSkeleton from "@/components/BookingQrSkeleton";
 import { formatDate } from "@/lib/constants";
 import { loadWarningItemsForBooking } from "@/lib/bookingWarnings";
+import { serializeActiveOrders } from "@/lib/slipBookingData";
 
 export const dynamic = "force-dynamic";
 
@@ -22,6 +23,7 @@ export default async function BookingViewPage({ params }: { params: Promise<{ id
     include: {
       bookingItems: true,
       legacyItem: { select: { category: true, size: true } },
+      orders: { where: { status: "active" }, orderBy: { deliveryDate: "asc" } },
     },
   });
   if (!booking) notFound();
@@ -32,6 +34,7 @@ export default async function BookingViewPage({ params }: { params: Promise<{ id
     <BookingViewClient
         isOwner={isOwner(user)}
         warningItems={warningItems}
+        orders={serializeActiveOrders(booking.orders)}
         booking={{
           ...booking,
           deliveryDate: formatDate(booking.deliveryDate),

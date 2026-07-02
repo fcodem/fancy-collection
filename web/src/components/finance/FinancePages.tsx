@@ -3,22 +3,201 @@
 import { useEffect, useState } from "react";
 import { FinanceChart, FinanceCompareChart } from "@/components/finance/FinanceChart";
 import { fetchFinanceJson } from "@/components/finance/financeFetch";
+import { FinanceCategorySaleTable } from "@/components/finance/FinanceCategorySaleTable";
 import { FinanceInactiveStats } from "@/components/finance/FinanceInactiveStats";
+import { FinanceOrdersSummary } from "@/components/finance/FinanceOrdersSummary";
+import { CUSTOM_ORDERS_CATEGORY } from "@/lib/financeBookingAmounts";
 import { formatInr } from "@/lib/format";
 
 function FinanceStatus({ loading, error }: { loading: boolean; error: string }) {
+  const [mounted, setMounted] = useState(false);
+  useEffect(() => setMounted(true), []);
+  if (!mounted) return null;
   if (loading) return <p style={{ color: "var(--text-muted)" }}>Loading report…</p>;
   if (error) return <p className="alert alert-danger" style={{ marginBottom: 16 }}>{error}</p>;
   return null;
+}
+
+function financeSaleSubtitle(data: Record<string, unknown>): string | null {
+  const advanceRefunded = Number(data.advance_refunded ?? data.refund_total ?? 0);
+  const postponedAdvance = Number(data.postponed_advance ?? 0);
+  if (advanceRefunded <= 0 && postponedAdvance <= 0) return null;
+  return [
+    advanceRefunded > 0 ? `−₹${formatInr(advanceRefunded)} refunded` : null,
+    postponedAdvance > 0 ? `−₹${formatInr(postponedAdvance)} postponed` : null,
+  ]
+    .filter(Boolean)
+    .join(", ");
+}
+
+/** Shared stat cards + inactive bookings + custom orders — identical on Monthly & Yearly Sale. */
+function FinanceSaleStatsSection({ data }: { data: Record<string, unknown> }) {
+  const saleSubtitle = financeSaleSubtitle(data);
+
+  return (
+    <>
+      <div className="stats-grid">
+        <div className="stat-card gold">
+          <div className="stat-value">₹{formatInr(Number(data.total_sale))}</div>
+          <div className="stat-label">Total Sale</div>
+          {saleSubtitle && (
+            <div style={{ fontSize: 12, color: "var(--text-muted)", marginTop: 6 }}>{saleSubtitle}</div>
+          )}
+        </div>
+        <div className="stat-card primary">
+          <div className="stat-value">₹{formatInr(Number(data.total_advance))}</div>
+          <div className="stat-label">Total Advance Received</div>
+          <div style={{ fontSize: 12, color: "var(--text-muted)", marginTop: 6 }}>
+            {Number(data.advance_count ?? 0)} advance{Number(data.advance_count ?? 0) === 1 ? "" : "s"}
+          </div>
+        </div>
+        <div className="stat-card info">
+          <div className="stat-value">₹{formatInr(Number(data.total_balance_at_delivery ?? data.total_balance_received ?? data.total_remaining))}</div>
+          <div className="stat-label">Balance at Delivery</div>
+          <div style={{ fontSize: 12, color: "var(--text-muted)", marginTop: 6 }}>
+            {Number(data.balance_delivery_count ?? 0)} received
+          </div>
+        </div>
+        {(Number(data.total_balance_at_return ?? 0) > 0 || Number(data.balance_return_count ?? 0) > 0) && (
+          <div className="stat-card warning">
+            <div className="stat-value">₹{formatInr(Number(data.total_balance_at_return))}</div>
+            <div className="stat-label">Balance at Return</div>
+            <div style={{ fontSize: 12, color: "var(--text-muted)", marginTop: 6 }}>
+              {Number(data.balance_return_count ?? 0)} transaction{Number(data.balance_return_count ?? 0) === 1 ? "" : "s"}
+            </div>
+          </div>
+        )}
+        <div className="stat-card info">
+          <div className="stat-value">{Number(data.booking_count ?? 0)}</div>
+          <div className="stat-label">New Bookings</div>
+          {(Number(data.dresses_booked ?? 0) > 0 || Number(data.orders_booked ?? 0) > 0) && (
+            <div style={{ fontSize: 12, color: "var(--text-muted)", marginTop: 6 }}>
+              {Number(data.dresses_booked ?? 0)} dress{(Number(data.dresses_booked ?? 0) === 1 ? "" : "es")}
+              {Number(data.orders_booked ?? 0) > 0
+                ? ` · ${Number(data.orders_booked)} order${Number(data.orders_booked) === 1 ? "" : "s"}`
+                : ""}
+            </div>
+          )}
+        </div>
+        <div className="stat-card success">
+          <div className="stat-value">{Number(data.dresses_delivered ?? 0)}</div>
+          <div className="stat-label">Dresses Delivered</div>
+        </div>
+        {(Number(data.dresses_delivered ?? 0) > 0 || Number(data.orders_delivered ?? 0) > 0) && (
+          <div className="stat-card success">
+            <div className="stat-value">
+              {Number(data.dresses_delivered ?? 0) + Number(data.orders_delivered ?? 0)}
+            </div>
+            <div className="stat-label">Successful Deliveries</div>
+            <div style={{ fontSize: 12, color: "var(--text-muted)", marginTop: 6 }}>
+              {Number(data.dresses_delivered ?? 0)} dresses · {Number(data.orders_delivered ?? 0)} orders
+            </div>
+          </div>
+        )}
+        <div className="stat-card success">
+          <div className="stat-value">₹{formatInr(Number(data.payment_collected_cash || 0))}</div>
+          <div className="stat-label">Cash Collected</div>
+        </div>
+        <div className="stat-card">
+          <div className="stat-value">₹{formatInr(Number(data.payment_collected_online || 0))}</div>
+          <div className="stat-label">Online Collected</div>
+        </div>
+        <div className="stat-card success">
+          <div className="stat-value">₹{formatInr(Number(data.mens_total))}</div>
+          <div className="stat-label">Men&apos;s</div>
+          <div style={{ fontSize: 12, color: "var(--text-muted)", marginTop: 6 }}>Sale collected</div>
+        </div>
+        <div className="stat-card">
+          <div className="stat-value">₹{formatInr(Number(data.womens_total))}</div>
+          <div className="stat-label">Women&apos;s</div>
+          <div style={{ fontSize: 12, color: "var(--text-muted)", marginTop: 6 }}>Sale collected</div>
+        </div>
+        <div className="stat-card gold">
+          <div className="stat-value">₹{formatInr(Number(data.jewellery_total))}</div>
+          <div className="stat-label">Jewellery</div>
+          <div style={{ fontSize: 12, color: "var(--text-muted)", marginTop: 6 }}>Sale collected</div>
+        </div>
+      </div>
+      <FinanceInactiveStats
+        data={{
+          cancelled_count: Number(data.cancelled_count),
+          cancelled_amount: Number(data.cancelled_amount),
+          cancelled_advance_refunded: Number(data.cancelled_advance_refunded),
+          cancelled_advance_not_returned: Number(data.cancelled_advance_not_returned),
+          postponed_count: Number(data.postponed_count),
+          postponed_amount: Number(data.postponed_amount),
+        }}
+      />
+      <FinanceOrdersSummary data={data} />
+    </>
+  );
+}
+
+/** Shared category chart + category sale table — identical on Monthly & Yearly Sale. */
+function FinanceSaleCategorySection({ data }: { data: Record<string, unknown> }) {
+  const advanceByCategory = (data.advance_by_category as Record<string, number>) || {};
+  const balanceByCategory = (data.balance_by_category as Record<string, number>) || {};
+  const saleByCategory =
+    (data.sale_by_category as Record<string, number>) ||
+    mergeCategoryRecordMaps(advanceByCategory, balanceByCategory);
+  const catBookingCounts = (data.category_booking_counts as Record<string, number>) || {};
+  const deliveredByCategory = (data.category_delivered_counts as Record<string, number>) || {};
+  const catLabels = Object.keys(saleByCategory);
+  const catValues = Object.values(saleByCategory);
+
+  if (catLabels.length === 0) {
+    return <p style={{ color: "var(--text-muted)", marginTop: 24 }}>No category revenue in this period.</p>;
+  }
+
+  return (
+    <>
+      <div style={{ marginTop: 24 }}>
+        <FinanceChart type="bar" labels={catLabels} values={catValues} title="Sale by Category" height={300} />
+      </div>
+      <FinanceCategorySaleTable
+        advanceByCategory={advanceByCategory}
+        balanceByCategory={balanceByCategory}
+        bookingCounts={catBookingCounts}
+        dressCounts={buildDressCountsByCategory(data)}
+        deliveredCounts={deliveredByCategory}
+      />
+    </>
+  );
+}
+
+function mergeCategoryRecordMaps(...maps: Record<string, number>[]) {
+  const merged: Record<string, number> = {};
+  for (const map of maps) {
+    for (const [cat, amt] of Object.entries(map)) {
+      merged[cat] = (merged[cat] || 0) + amt;
+    }
+  }
+  return merged;
+}
+
+/** Dress counts per category, including custom orders in the Custom Orders row. */
+function buildDressCountsByCategory(data: Record<string, unknown>): Record<string, number> {
+  const counts = { ...((data.dresses_by_category as Record<string, number>) || {}) };
+  const orders = Number(data.orders_booked || 0);
+  if (orders > 0) {
+    counts[CUSTOM_ORDERS_CATEGORY] = orders;
+  }
+  return counts;
 }
 
 export function FinanceDailyBooking({ todayIso }: { todayIso: string }) {
   const [date, setDate] = useState(todayIso);
   const [data, setData] = useState<{
     grand_total?: number;
+    booking_amount?: number;
+    order_cost?: number;
+    orders_booked?: number;
     mens_total?: number;
     womens_total?: number;
     jewellery_total?: number;
+    dresses_booked?: number;
+    dresses_delivered_balance?: number;
+    dresses_by_category?: Record<string, number>;
     total_by_category?: Record<string, number>;
     cancelled_count?: number;
     cancelled_amount?: number;
@@ -42,6 +221,7 @@ export function FinanceDailyBooking({ todayIso }: { todayIso: string }) {
 
   const labels = data?.total_by_category ? Object.keys(data.total_by_category) : [];
   const values = data?.total_by_category ? Object.values(data.total_by_category) : [];
+  const dressCounts = data?.dresses_by_category || {};
 
   return (
     <div className="card">
@@ -52,21 +232,34 @@ export function FinanceDailyBooking({ todayIso }: { todayIso: string }) {
         {data && !loading && (
           <>
             <div style={{ display: "grid", gridTemplateColumns: "repeat(auto-fit, minmax(160px, 1fr))", gap: 16, marginBottom: 24 }}>
+              <div className="stat-card gold" style={{ padding: 20 }}>
+                <div className="stat-value">₹{formatInr(data.grand_total ?? (data.booking_amount || 0) + (data.order_cost || 0))}</div>
+                <div className="stat-label">Grand Total (Bookings + Orders)</div>
+              </div>
               <div className="stat-card primary" style={{ padding: 20 }}>
-                <div className="stat-value">₹{formatInr(data.grand_total || 0)}</div>
+                <div className="stat-value">₹{formatInr(data.booking_amount ?? data.grand_total ?? 0)}</div>
                 <div className="stat-label">Total Booking Amount</div>
+                <div style={{ fontSize: 12, color: "var(--text-muted)", marginTop: 6 }}>{data.dresses_booked ?? 0} dress{(data.dresses_booked ?? 0) === 1 ? "" : "es"} booked</div>
+              </div>
+              <div className="stat-card gold" style={{ padding: 20 }}>
+                <div className="stat-value">₹{formatInr(data.order_cost || 0)}</div>
+                <div className="stat-label">Total Custom Orders Amount</div>
+                <div style={{ fontSize: 12, color: "var(--text-muted)", marginTop: 6 }}>{data.orders_booked ?? 0} order{(data.orders_booked ?? 0) === 1 ? "" : "s"} booked</div>
               </div>
               <div className="stat-card success" style={{ padding: 20 }}>
                 <div className="stat-value">₹{formatInr(data.mens_total || 0)}</div>
                 <div className="stat-label">Men&apos;s Total</div>
+                <div style={{ fontSize: 12, color: "var(--text-muted)", marginTop: 6 }}>Dress booking value</div>
               </div>
               <div className="stat-card" style={{ padding: 20 }}>
                 <div className="stat-value">₹{formatInr(data.womens_total || 0)}</div>
                 <div className="stat-label">Women&apos;s Total</div>
+                <div style={{ fontSize: 12, color: "var(--text-muted)", marginTop: 6 }}>Dress booking value</div>
               </div>
               <div className="stat-card gold" style={{ padding: 20 }}>
                 <div className="stat-value">₹{formatInr(data.jewellery_total || 0)}</div>
                 <div className="stat-label">Jewellery Total</div>
+                <div style={{ fontSize: 12, color: "var(--text-muted)", marginTop: 6 }}>Dress booking value</div>
               </div>
             </div>
             <FinanceInactiveStats data={data} />
@@ -74,11 +267,32 @@ export function FinanceDailyBooking({ todayIso }: { todayIso: string }) {
               <div className="two-col">
                 <FinanceChart type="pie" labels={labels} values={values} title="Category Breakdown" />
                 <table className="data-table">
-                  <thead><tr><th>Category</th><th>Amount</th></tr></thead>
+                  <thead><tr><th>Category</th><th>Dresses Booked</th><th>Amount</th></tr></thead>
                   <tbody>
                     {labels.map((cat, i) => (
-                      <tr key={cat}><td>{cat}</td><td><strong>₹{formatInr(values[i])}</strong></td></tr>
+                      <tr key={cat}>
+                        <td>{cat}</td>
+                        <td><strong>{dressCounts[cat] ?? 0}</strong></td>
+                        <td><strong>₹{formatInr(values[i])}</strong></td>
+                      </tr>
                     ))}
+                    <tr style={{ fontWeight: 600, borderTop: "2px solid var(--border)" }}>
+                      <td>Total Bookings</td>
+                      <td>{data.dresses_booked ?? labels.reduce((s, c) => s + (dressCounts[c] ?? 0), 0)}</td>
+                      <td>₹{formatInr(data.booking_amount ?? values.reduce((a, b) => a + b, 0))}</td>
+                    </tr>
+                    {(data.order_cost ?? 0) > 0 && (
+                      <tr style={{ fontWeight: 600 }}>
+                        <td>Custom Orders</td>
+                        <td>{data.orders_booked ?? 0}</td>
+                        <td>₹{formatInr(data.order_cost || 0)}</td>
+                      </tr>
+                    )}
+                    <tr style={{ fontWeight: 700, borderTop: "2px solid var(--border)" }}>
+                      <td>Grand Total</td>
+                      <td>—</td>
+                      <td>₹{formatInr(data.grand_total ?? (data.booking_amount || 0) + (data.order_cost || 0))}</td>
+                    </tr>
                   </tbody>
                 </table>
               </div>
@@ -110,10 +324,6 @@ export function FinanceMonthlySale({ todayMonthIso }: { todayMonthIso: string })
       .finally(() => setLoading(false));
   }, [m]);
 
-  const catTotals = (data?.category_totals as Record<string, number>) || {};
-  const catLabels = Object.keys(catTotals);
-  const catValues = Object.values(catTotals);
-
   return (
     <div className="card">
       <div className="card-header"><h3 className="card-title"><i className="fa-solid fa-calendar-days" style={{ marginRight: 8 }} />Monthly Sale</h3></div>
@@ -122,38 +332,8 @@ export function FinanceMonthlySale({ todayMonthIso }: { todayMonthIso: string })
         <FinanceStatus loading={loading} error={error} />
         {data && !loading && (
           <>
-            <div className="stats-grid">
-              <div className="stat-card gold"><div className="stat-value">₹{formatInr(Number(data.total_sale))}</div><div className="stat-label">Total Sale</div></div>
-              <div className="stat-card primary"><div className="stat-value">₹{formatInr(Number(data.total_advance))}</div><div className="stat-label">Advance</div></div>
-              <div className="stat-card info"><div className="stat-value">₹{formatInr(Number(data.total_remaining))}</div><div className="stat-label">Remaining</div></div>
-              <div className="stat-card success"><div className="stat-value">₹{formatInr(Number(data.payment_collected_cash || 0))}</div><div className="stat-label">Cash Collected</div></div>
-              <div className="stat-card"><div className="stat-value">₹{formatInr(Number(data.payment_collected_online || 0))}</div><div className="stat-label">Online Collected</div></div>
-              <div className="stat-card"><div className="stat-value">{String(data.booking_count)}</div><div className="stat-label">Bookings</div></div>
-              <div className="stat-card success"><div className="stat-value">₹{formatInr(Number(data.mens_total))}</div><div className="stat-label">Men&apos;s</div></div>
-              <div className="stat-card"><div className="stat-value">₹{formatInr(Number(data.womens_total))}</div><div className="stat-label">Women&apos;s</div></div>
-              <div className="stat-card gold"><div className="stat-value">₹{formatInr(Number(data.jewellery_total))}</div><div className="stat-label">Jewellery</div></div>
-            </div>
-            <FinanceInactiveStats
-              data={{
-                cancelled_count: Number(data.cancelled_count),
-                cancelled_amount: Number(data.cancelled_amount),
-                postponed_count: Number(data.postponed_count),
-                postponed_amount: Number(data.postponed_amount),
-              }}
-            />
-            {catLabels.length > 0 && (
-              <div style={{ marginTop: 24 }}>
-                <FinanceChart type="bar" labels={catLabels} values={catValues} title="Category Revenue" height={300} />
-                <table className="data-table" style={{ marginTop: 20 }}>
-                  <thead><tr><th>Category</th><th>Revenue</th></tr></thead>
-                  <tbody>
-                    {catLabels.map((cat) => (
-                      <tr key={cat}><td>{cat}</td><td>₹{formatInr(catTotals[cat])}</td></tr>
-                    ))}
-                  </tbody>
-                </table>
-              </div>
-            )}
+            <FinanceSaleStatsSection data={data} />
+            <FinanceSaleCategorySection data={data} />
           </>
         )}
       </div>
@@ -180,42 +360,37 @@ export function FinanceYearlySale() {
 
   const monthly = (data?.monthly_breakdown as Record<string, number>) || {};
   const monthLabels = Object.keys(monthly);
-  const monthValues = Object.values(monthly);
 
   return (
     <div className="card">
-      <div className="card-header"><h3 className="card-title">Yearly Sale (Apr–Mar)</h3></div>
+      <div className="card-header">
+        <h3 className="card-title">
+          <i className="fa-solid fa-chart-line" style={{ marginRight: 8 }} />
+          Yearly Sale (Apr–Mar)
+        </h3>
+      </div>
       <div className="card-body">
+        {data && !loading && (
+          <p style={{ marginBottom: 20, color: "var(--text-muted)" }}>{String(data.from)} to {String(data.to)}</p>
+        )}
         <FinanceStatus loading={loading} error={error} />
         {data && !loading && (
           <>
-            <p style={{ marginBottom: 16, color: "var(--text-muted)" }}>{String(data.from)} to {String(data.to)}</p>
-            <div className="stats-grid">
-              <div className="stat-card gold"><div className="stat-value">₹{formatInr(Number(data.total_sale))}</div><div className="stat-label">Total Sale</div></div>
-              <div className="stat-card"><div className="stat-value">{String(data.booking_count)}</div><div className="stat-label">Bookings</div></div>
-            </div>
-            <FinanceInactiveStats
-              data={{
-                cancelled_count: Number(data.cancelled_count),
-                cancelled_amount: Number(data.cancelled_amount),
-                postponed_count: Number(data.postponed_count),
-                postponed_amount: Number(data.postponed_amount),
-              }}
-            />
+            <FinanceSaleStatsSection data={data} />
+            <FinanceSaleCategorySection data={data} />
             {monthLabels.length > 0 && (
-              <div style={{ marginTop: 24 }}>
-                <FinanceChart type="bar" labels={monthLabels} values={monthValues} title="Monthly Revenue" height={320} />
+              <div style={{ marginTop: 32, paddingTop: 24, borderTop: "1px solid var(--border)" }}>
+                <h4 style={{ margin: "0 0 16px", fontSize: 15, color: "var(--text-muted)" }}>Month-wise Revenue</h4>
+                <FinanceChart type="bar" labels={monthLabels} values={Object.values(monthly)} title="Monthly Revenue" height={300} />
+                <table className="data-table" style={{ marginTop: 24 }}>
+                  <thead><tr><th>Month</th><th>Revenue</th></tr></thead>
+                  <tbody>
+                    {monthLabels.map((mo) => (
+                      <tr key={mo}><td>{mo}</td><td>₹{formatInr(monthly[mo])}</td></tr>
+                    ))}
+                  </tbody>
+                </table>
               </div>
-            )}
-            {monthLabels.length > 0 && (
-              <table className="data-table" style={{ marginTop: 24 }}>
-                <thead><tr><th>Month</th><th>Revenue</th></tr></thead>
-                <tbody>
-                  {monthLabels.map((mo) => (
-                    <tr key={mo}><td>{mo}</td><td>₹{formatInr(monthly[mo])}</td></tr>
-                  ))}
-                </tbody>
-              </table>
             )}
           </>
         )}
@@ -323,35 +498,109 @@ export function FinanceTopPerformer({
   );
 }
 
-export function FinanceSecurityDeposit() {
-  const [data, setData] = useState<{ total_collected: number; total_held: number; total_returned: number; bookings: Array<Record<string, unknown>> } | null>(null);
+export function FinanceSecurityDeposit({
+  monthStartIso,
+  todayIso,
+}: {
+  monthStartIso: string;
+  todayIso: string;
+}) {
+  const [from, setFrom] = useState(monthStartIso);
+  const [to, setTo] = useState(todayIso);
+  const [sortKey, setSortKey] = useState<
+    "serial" | "customer" | "delivery_date" | "return_date" | "collected" | "held" | "status"
+  >("delivery_date");
+  const [sortDir, setSortDir] = useState<"asc" | "desc">("desc");
+  const [data, setData] = useState<{
+    from?: string;
+    to?: string;
+    total_collected: number;
+    total_held: number;
+    total_returned: number;
+    bookings: Array<Record<string, unknown>>;
+  } | null>(null);
   const [loading, setLoading] = useState(true);
   const [error, setError] = useState("");
 
   useEffect(() => {
     setLoading(true);
     setError("");
-    fetchFinanceJson<typeof data>("/api/finance/security-deposit")
+    fetchFinanceJson<typeof data>(`/api/finance/security-deposit?from=${from}&to=${to}`)
       .then(setData)
       .catch((e) => {
         setData(null);
         setError(e instanceof Error ? e.message : "Failed to load");
       })
       .finally(() => setLoading(false));
-  }, []);
+  }, [from, to]);
+
+  const rows = [...(data?.bookings || [])].sort((a, b) => {
+    let cmp = 0;
+    switch (sortKey) {
+      case "serial":
+        cmp = Number(a.serial) - Number(b.serial);
+        break;
+      case "customer":
+        cmp = String(a.customer_name).localeCompare(String(b.customer_name));
+        break;
+      case "delivery_date":
+        cmp = String(a.delivered_at || "").localeCompare(String(b.delivered_at || ""));
+        break;
+      case "return_date":
+        cmp = String(a.returned_at || "").localeCompare(String(b.returned_at || ""));
+        break;
+      case "collected":
+        cmp = Number(a.security_collected) - Number(b.security_collected);
+        break;
+      case "held":
+        cmp = Number(a.security_held || 0) - Number(b.security_held || 0);
+        break;
+      case "status":
+        cmp = String(a.status).localeCompare(String(b.status));
+        break;
+    }
+    return sortDir === "asc" ? cmp : -cmp;
+  });
+
+  function toggleSort(key: typeof sortKey) {
+    if (sortKey === key) {
+      setSortDir((d) => (d === "asc" ? "desc" : "asc"));
+    } else {
+      setSortKey(key);
+      setSortDir(key === "customer" || key === "status" ? "asc" : "desc");
+    }
+  }
+
+  function sortIndicator(key: typeof sortKey) {
+    if (sortKey !== key) return null;
+    return sortDir === "asc" ? " ↑" : " ↓";
+  }
 
   const statusCounts: Record<string, number> = {};
-  if (data?.bookings) {
-    for (const b of data.bookings) {
-      const s = String(b.status);
-      statusCounts[s] = (statusCounts[s] || 0) + 1;
-    }
+  for (const b of rows) {
+    const s = String(b.status);
+    statusCounts[s] = (statusCounts[s] || 0) + 1;
   }
 
   return (
     <div className="card">
       <div className="card-header"><h3 className="card-title">Security Deposit</h3></div>
       <div className="card-body">
+        <div style={{ display: "flex", gap: 12, marginBottom: 20, flexWrap: "wrap" }}>
+          <div>
+            <label className="form-label">From</label>
+            <input type="date" className="form-control" value={from} onChange={(e) => setFrom(e.target.value)} />
+          </div>
+          <div>
+            <label className="form-label">To</label>
+            <input type="date" className="form-control" value={to} onChange={(e) => setTo(e.target.value)} />
+          </div>
+        </div>
+        {data?.from && data?.to && (
+          <p style={{ margin: "0 0 20px", color: "var(--text-muted)", fontSize: 14 }}>
+            Bookings delivered between {data.from} and {data.to} with security collected.
+          </p>
+        )}
         <FinanceStatus loading={loading} error={error} />
         {data && !loading && (
           <>
@@ -366,10 +615,42 @@ export function FinanceSecurityDeposit() {
               </div>
             )}
             <table className="data-table">
-              <thead><tr><th>Serial</th><th>Customer</th><th>Collected</th><th>Held</th><th>Status</th></tr></thead>
+              <thead>
+                <tr>
+                  <th style={{ cursor: "pointer", userSelect: "none" }} onClick={() => toggleSort("serial")}>
+                    Serial{sortIndicator("serial")}
+                  </th>
+                  <th style={{ cursor: "pointer", userSelect: "none" }} onClick={() => toggleSort("customer")}>
+                    Customer{sortIndicator("customer")}
+                  </th>
+                  <th style={{ cursor: "pointer", userSelect: "none" }} onClick={() => toggleSort("delivery_date")}>
+                    Delivery{sortIndicator("delivery_date")}
+                  </th>
+                  <th style={{ cursor: "pointer", userSelect: "none" }} onClick={() => toggleSort("return_date")}>
+                    Return{sortIndicator("return_date")}
+                  </th>
+                  <th style={{ cursor: "pointer", userSelect: "none" }} onClick={() => toggleSort("collected")}>
+                    Collected{sortIndicator("collected")}
+                  </th>
+                  <th style={{ cursor: "pointer", userSelect: "none" }} onClick={() => toggleSort("held")}>
+                    Held{sortIndicator("held")}
+                  </th>
+                  <th style={{ cursor: "pointer", userSelect: "none" }} onClick={() => toggleSort("status")}>
+                    Status{sortIndicator("status")}
+                  </th>
+                </tr>
+              </thead>
               <tbody>
-                {data.bookings.map((b) => (
-                  <tr key={String(b.id)}><td>{String(b.serial).padStart(2, "0")}</td><td>{String(b.customer_name)}</td><td>₹{formatInr(Number(b.security_collected))}</td><td>₹{formatInr(Number(b.security_held || 0))}</td><td>{String(b.status)}</td></tr>
+                {rows.map((b) => (
+                  <tr key={String(b.id)}>
+                    <td>{String(b.serial).padStart(2, "0")}</td>
+                    <td>{String(b.customer_name)}</td>
+                    <td>{String(b.delivery_date || "—")}</td>
+                    <td>{String(b.return_date || "—")}</td>
+                    <td>₹{formatInr(Number(b.security_collected))}</td>
+                    <td>₹{formatInr(Number(b.security_held || 0))}</td>
+                    <td>{String(b.status)}</td>
+                  </tr>
                 ))}
               </tbody>
             </table>
@@ -443,7 +724,7 @@ export function FinanceCategoryAnalysis({ monthStartIso, todayIso }: { monthStar
         )}
         {data && !loading && cats.length > 0 && (
           <table className="data-table">
-            <thead><tr><th>Category</th><th>Bookings</th><th>Stock Purchased</th><th>Advance</th><th>Remaining</th><th>Revenue</th><th>Stock Count</th></tr></thead>
+            <thead><tr><th>Category</th><th>Successful Bookings</th><th>Stock Purchased</th><th>Advance</th><th>Remaining</th><th>Revenue</th><th>Stock Count</th></tr></thead>
             <tbody>
               {cats.map((c) => (
                 <tr key={String(c.category)}>
@@ -464,8 +745,22 @@ export function FinanceCategoryAnalysis({ monthStartIso, todayIso }: { monthStar
   );
 }
 
-export function FinanceInventoryProfitability() {
+export function FinanceInventoryProfitability({
+  monthStartIso,
+  todayIso,
+}: {
+  monthStartIso: string;
+  todayIso: string;
+}) {
+  const [from, setFrom] = useState(monthStartIso);
+  const [to, setTo] = useState(todayIso);
+  const [sortKey, setSortKey] = useState<
+    "category" | "item_count" | "total_sale" | "total_purchase" | "net"
+  >("total_sale");
+  const [sortDir, setSortDir] = useState<"asc" | "desc">("desc");
   const [data, setData] = useState<{
+    from?: string;
+    to?: string;
     category_breakdown?: Array<{
       category: string;
       total_sale: number;
@@ -485,16 +780,54 @@ export function FinanceInventoryProfitability() {
   useEffect(() => {
     setLoading(true);
     setError("");
-    fetchFinanceJson<NonNullable<typeof data>>("/api/finance/inventory-profitability")
+    fetchFinanceJson<NonNullable<typeof data>>(
+      `/api/finance/inventory-profitability?from=${from}&to=${to}`,
+    )
       .then(setData)
       .catch((e) => {
         setData(null);
         setError(e instanceof Error ? e.message : "Failed to load");
       })
       .finally(() => setLoading(false));
-  }, []);
+  }, [from, to]);
 
-  const categoryRows = data?.category_breakdown || [];
+  const categoryRows = [...(data?.category_breakdown || [])].sort((a, b) => {
+    const netA = a.total_sale - a.total_purchase;
+    const netB = b.total_sale - b.total_purchase;
+    let cmp = 0;
+    switch (sortKey) {
+      case "category":
+        cmp = a.category.localeCompare(b.category);
+        break;
+      case "item_count":
+        cmp = a.item_count - b.item_count;
+        break;
+      case "total_sale":
+        cmp = a.total_sale - b.total_sale;
+        break;
+      case "total_purchase":
+        cmp = a.total_purchase - b.total_purchase;
+        break;
+      case "net":
+        cmp = netA - netB;
+        break;
+    }
+    return sortDir === "asc" ? cmp : -cmp;
+  });
+
+  function toggleSort(key: typeof sortKey) {
+    if (sortKey === key) {
+      setSortDir((d) => (d === "asc" ? "desc" : "asc"));
+    } else {
+      setSortKey(key);
+      setSortDir(key === "category" ? "asc" : "desc");
+    }
+  }
+
+  function sortIndicator(key: typeof sortKey) {
+    if (sortKey !== key) return null;
+    return sortDir === "asc" ? " ↑" : " ↓";
+  }
   const catLabels = categoryRows.map((r) => r.category);
   const catSales = categoryRows.map((r) => r.total_sale);
   const catPurchases = categoryRows.map((r) => r.total_purchase);
@@ -509,8 +842,19 @@ export function FinanceInventoryProfitability() {
         </h3>
       </div>
       <div className="card-body">
+        <div style={{ display: "flex", gap: 12, marginBottom: 20, flexWrap: "wrap" }}>
+          <div>
+            <label className="form-label">From</label>
+            <input type="date" className="form-control" value={from} onChange={(e) => setFrom(e.target.value)} />
+          </div>
+          <div>
+            <label className="form-label">To</label>
+            <input type="date" className="form-control" value={to} onChange={(e) => setTo(e.target.value)} />
+          </div>
+        </div>
         <p style={{ margin: "0 0 20px", color: "var(--text-muted)", fontSize: 14 }}>
-          Category-wise lifetime rental revenue vs stock purchased (all inventory).
+          Category-wise rental revenue vs stock purchased for the selected date range.
+          {data?.from && data?.to ? ` (${data.from} to ${data.to})` : ""}
         </p>
 
         <FinanceStatus loading={loading} error={error} />
@@ -519,7 +863,7 @@ export function FinanceInventoryProfitability() {
           <div className="stats-grid" style={{ marginBottom: 24 }}>
             <div className="stat-card primary" style={{ padding: 20 }}>
               <div className="stat-value">₹{formatInr(data.totals.totalRevenue)}</div>
-              <div className="stat-label">Total Lifetime Sale</div>
+              <div className="stat-label">Total Sale (range)</div>
             </div>
             <div className="stat-card gold" style={{ padding: 20 }}>
               <div className="stat-value">₹{formatInr(totalPurchase)}</div>
@@ -556,11 +900,21 @@ export function FinanceInventoryProfitability() {
             <table className="data-table">
               <thead>
                 <tr>
-                  <th>Category</th>
-                  <th>Items in Stock</th>
-                  <th>Total Sale</th>
-                  <th>Total Purchase</th>
-                  <th>Net (Sale − Purchase)</th>
+                  <th style={{ cursor: "pointer", userSelect: "none" }} onClick={() => toggleSort("category")}>
+                    Category{sortIndicator("category")}
+                  </th>
+                  <th style={{ cursor: "pointer", userSelect: "none" }} onClick={() => toggleSort("item_count")}>
+                    Items in Stock{sortIndicator("item_count")}
+                  </th>
+                  <th style={{ cursor: "pointer", userSelect: "none" }} onClick={() => toggleSort("total_sale")}>
+                    Total Sale{sortIndicator("total_sale")}
+                  </th>
+                  <th style={{ cursor: "pointer", userSelect: "none" }} onClick={() => toggleSort("total_purchase")}>
+                    Total Purchase{sortIndicator("total_purchase")}
+                  </th>
+                  <th style={{ cursor: "pointer", userSelect: "none" }} onClick={() => toggleSort("net")}>
+                    Net (Sale − Purchase){sortIndicator("net")}
+                  </th>
                 </tr>
               </thead>
               <tbody>

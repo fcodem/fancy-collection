@@ -1,5 +1,5 @@
 import { NextRequest } from "next/server";
-import { getAvailableItemsApi } from "@/lib/booking";
+import { getAvailableItemsApiCached } from "@/lib/booking";
 import { jsonOk, requireUserReadOnly, isResponse } from "@/lib/api";
 
 export async function GET(req: NextRequest) {
@@ -15,6 +15,6 @@ export async function GET(req: NextRequest) {
   }
 
   const exclude = parseInt(req.nextUrl.searchParams.get("exclude_booking") || "0", 10) || undefined;
-  const data = await getAvailableItemsApi(deliveryDate, returnDate, category, exclude);
+  const data = await getAvailableItemsApiCached(deliveryDate, returnDate, category, exclude);
   return jsonOk(data);
 }

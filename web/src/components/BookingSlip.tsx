@@ -1,4 +1,6 @@
 import type { ReactNode } from "react";
+import { photoUrl } from "@/lib/photoUrl";
+import ZoomableImage from "@/components/ZoomableImage";
 
 export type BookingSlipProps = {
   booking: {
@@ -32,6 +34,7 @@ export type BookingSlipProps = {
     remaining: number;
     notes?: string | null;
   }>;
+  orders?: SlipOrderDisplay[];
   qrDataUrl?: string | null;
   businessName: string;
   businessPhone: string;
@@ -39,6 +42,91 @@ export type BookingSlipProps = {
   businessTagline?: string;
   printMode?: boolean;
 };
+
+export type SlipOrderDisplay = {
+  description: string;
+  cost: number;
+  advance: number;
+  balance: number;
+  photo?: string | null;
+  deliveryDate: string;
+  deliveryTime: string;
+  includedInRent: boolean;
+};
+
+/** Custom Orders block shared by booking & delivery slips. */
+export function CustomOrdersSection({ orders, showPhoto = true, zoomable = false }: { orders?: SlipOrderDisplay[]; showPhoto?: boolean; zoomable?: boolean }) {
+  if (!orders || orders.length === 0) return null;
+  return (
+    <div className="no-break" style={{ padding: "0 16px 14px" }}>
+      <div style={{ display: "flex", alignItems: "center", gap: 8, marginBottom: 8 }}>
+        <div style={{ width: 4, height: 18, background: GOLD, borderRadius: 2 }} />
+        <span style={{ fontSize: 11, fontWeight: 700, color: "#8a6d1a", textTransform: "uppercase", letterSpacing: "0.08em" }}>
+          Custom Orders
+        </span>
+      </div>
+      <div style={{ borderRadius: 8, overflow: "hidden", border: `1px solid ${BORDER}` }}>
+        <div style={{
+          display: "grid",
+          gridTemplateColumns: "28px 1fr 120px 64px 66px 66px",
+          background: "#8a6d1a",
+          color: "#fff",
+          fontSize: 10,
+          fontWeight: 700,
+          padding: "8px 10px",
+          gap: 4,
+        }}>
+          <div>#</div>
+          <div>Description</div>
+          <div>Delivery</div>
+          <div style={{ textAlign: "right" }}>Cost</div>
+          <div style={{ textAlign: "right" }}>Advance</div>
+          <div style={{ textAlign: "right" }}>Balance</div>
+        </div>
+        {orders.map((o, i) => (
+          <div key={i} style={{
+            display: "grid",
+            gridTemplateColumns: "28px 1fr 120px 64px 66px 66px",
+            background: i % 2 === 0 ? "#fff" : "#fffdf5",
+            borderBottom: "1px solid #f0ead2",
+            padding: "7px 10px",
+            gap: 4,
+            alignItems: "center",
+            fontSize: 12,
+          }}>
+            <div style={{ width: 20, height: 20, borderRadius: "50%", background: "#f0ead2", display: "flex", alignItems: "center", justifyContent: "center", fontSize: 10, color: "#8a6d1a", fontWeight: 600 }}>{i + 1}</div>
+            <div>
+              <div style={{ fontWeight: 600, color: "#1a1a1a" }}>{o.description}</div>
+              {showPhoto && o.photo && photoUrl(o.photo) ? (
+                zoomable ? (
+                  <ZoomableImage
+                    src={photoUrl(o.photo)!}
+                    alt="Order sample"
+                    overlayCaption={o.description}
+                    style={{ marginTop: 4, maxHeight: 64, maxWidth: 90, borderRadius: 6, border: `1px solid ${BORDER}`, objectFit: "cover" }}
+                  />
+                ) : (
+                  /* eslint-disable-next-line @next/next/no-img-element */
+                  <img src={photoUrl(o.photo)!} alt="Order sample" style={{ marginTop: 4, maxHeight: 64, maxWidth: 90, borderRadius: 6, border: `1px solid ${BORDER}`, objectFit: "cover" }} />
+                )
+              ) : null}
+            </div>
+            <div style={{ fontSize: 11, color: GREY }}>{o.deliveryDate}<br />{o.deliveryTime}</div>
+            {o.includedInRent ? (
+              <div style={{ gridColumn: "4 / 7", textAlign: "right", fontWeight: 700, color: "#8a6d1a" }}>Included in rent</div>
+            ) : (
+              <>
+                <div style={{ textAlign: "right", fontWeight: 500 }}>{rs(o.cost)}</div>
+                <div style={{ textAlign: "right", color: SUCCESS, fontWeight: 500 }}>{rs(o.advance)}</div>
+                <div style={{ textAlign: "right", fontWeight: 600, color: o.balance > 0 ? "#d97706" : GREY }}>{rs(o.balance)}</div>
+              </>
+            )}
+          </div>
+        ))}
+      </div>
+    </div>
+  );
+}
 
 const G = "#1a5c2a";
 const GOLD = "#c9a84c";
@@ -71,7 +159,7 @@ const TERMS = [
 ];
 
 export default function BookingSlip(props: BookingSlipProps) {
-  const { booking: b, items, qrDataUrl, businessName, businessPhone, businessAddress, businessTagline } = props;
+  const { booking: b, items, orders, qrDataUrl, businessName, businessPhone, businessAddress, businessTagline } = props;
   const slipNo = String(b.monthlySerial).padStart(2, "0");
   const initials = businessName.charAt(0).toUpperCase();
   const tagline = businessTagline || "Premium Cloth Rental — Elegance for Every Occasion";
@@ -313,6 +401,11 @@ export default function BookingSlip(props: BookingSlipProps) {
             </div>
           </div>
         </div>
+
+        {/* ══════════════════════════════════════════
+            SECTION 3B: CUSTOM ORDERS
+        ══════════════════════════════════════════ */}
+        <CustomOrdersSection orders={orders} showPhoto={false} />
 
         {/* ══════════════════════════════════════════
             SECTION 4 + 5: PAYMENT SUMMARY + QR

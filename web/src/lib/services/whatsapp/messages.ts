@@ -10,6 +10,7 @@ export async function saveWhatsAppOutboundMessage(opts: {
   metaMessageId?: string | null;
   status?: "sent" | "failed";
   error?: string | null;
+  isAutomated?: boolean;
 }) {
   return prisma.whatsAppMessage.create({
     data: {
@@ -22,6 +23,7 @@ export async function saveWhatsAppOutboundMessage(opts: {
       metaMessageId: opts.metaMessageId ?? null,
       status: opts.status ?? (opts.error ? "failed" : "sent"),
       error: opts.error ?? null,
+      isAutomated: opts.isAutomated ?? false,
     },
   });
 }

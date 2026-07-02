@@ -11,8 +11,10 @@ export async function GET(req: NextRequest) {
   const phoneNumberId = process.env.WHATSAPP_PHONE_NUMBER_ID?.trim();
   const apiVersion = process.env.WHATSAPP_API_VERSION || "v19.0";
   const businessId = process.env.WHATSAPP_BUSINESS_ACCOUNT_ID?.trim();
+  const metaAppId = process.env.META_APP_ID?.trim();
 
   const envCheck = {
+    META_APP_ID: metaAppId ? `✅ ${metaAppId}` : "❌ Missing",
     WHATSAPP_ACCESS_TOKEN: token ? "✅ Set" : "❌ Missing",
     WHATSAPP_PHONE_NUMBER_ID: phoneNumberId ? "✅ Set" : "❌ Missing",
     WHATSAPP_BUSINESS_ACCOUNT_ID: businessId ? "✅ Set" : "❌ Missing",
@@ -91,6 +93,44 @@ export async function GET(req: NextRequest) {
     };
   }
 
+  let appCheck: {
+    ok: boolean;
+    appId?: string;
+    name?: string;
+    error?: string;
+  } = { ok: false, error: "META_APP_ID not set" };
+
+  if (metaAppId && token) {
+    try {
+      const res = await fetch(
+        `https://graph.facebook.com/${apiVersion}/${metaAppId}?fields=name`,
+        {
+          headers: { Authorization: `Bearer ${token}` },
+          cache: "no-store",
+        },
+      );
+      const data = (await res.json()) as {
+        name?: string;
+        error?: { message: string };
+      };
+      if (!res.ok || data.error) {
+        appCheck = {
+          ok: false,
+          appId: metaAppId,
+          error: data.error?.message || `HTTP ${res.status}`,
+        };
+      } else {
+        appCheck = { ok: true, appId: metaAppId, name: data.name };
+      }
+    } catch (e) {
+      appCheck = {
+        ok: false,
+        appId: metaAppId,
+        error: e instanceof Error ? e.message : "Network error",
+      };
+    }
+  }
+
   let businessCheck: {
     ok: boolean;
     businessAccountId?: string;
@@ -98,39 +138,43 @@ export async function GET(req: NextRequest) {
     error?: string;
   };
 
-  try {
-    const res = await fetch(
-      `https://graph.facebook.com/${apiVersion}/${businessId}` +
-        `?fields=name,currency,timezone_id`,
-      {
-        headers: { Authorization: `Bearer ${token}` },
-        cache: "no-store",
-      },
-    );
+  if (!businessId) {
+    businessCheck = { ok: false, error: "WHATSAPP_BUSINESS_ACCOUNT_ID not set" };
+  } else {
+    try {
+      const res = await fetch(
+        `https://graph.facebook.com/${apiVersion}/${businessId}` +
+          `?fields=name,currency,timezone_id`,
+        {
+          headers: { Authorization: `Bearer ${token}` },
+          cache: "no-store",
+        },
+      );
 
-    const data = (await res.json()) as {
-      id?: string;
-      name?: string;
-      error?: { message: string };
-    };
+      const data = (await res.json()) as {
+        id?: string;
+        name?: string;
+        error?: { message: string };
+      };
 
-    if (!res.ok || data.error) {
+      if (!res.ok || data.error) {
+        businessCheck = {
+          ok: false,
+          error: data.error?.message || `HTTP ${res.status}`,
+        };
+      } else {
+        businessCheck = {
+          ok: true,
+          businessAccountId: businessId,
+          name: data.name,
+        };
+      }
+    } catch (e) {
       businessCheck = {
         ok: false,
-        error: data.error?.message || `HTTP ${res.status}`,
-      };
-    } else {
-      businessCheck = {
-        ok: true,
-        businessAccountId: businessId,
-        name: data.name,
+        error: e instanceof Error ? e.message : "Network error",
       };
     }
-  } catch (e) {
-    businessCheck = {
-      ok: false,
-      error: e instanceof Error ? e.message : "Network error",
-    };
   }
 
   const allGood = metaApiCheck.ok && businessCheck.ok;
@@ -138,9 +182,10 @@ export async function GET(req: NextRequest) {
   return Response.json({
     ok: allGood,
     summary: allGood
-      ? "✅ All checks passed. Meta WhatsApp API is connected."
+      ? "✅ WhatsApp is connected and ready to send messages."
       : "❌ Some checks failed. See details below.",
     envCheck,
+    appCheck: metaAppId ? appCheck : undefined,
     metaApiCheck,
     businessCheck,
     nextSteps: allGood

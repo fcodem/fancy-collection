@@ -11,6 +11,7 @@ import type { StandardBookingDetails } from "@/lib/bookingDetails";
 import { useRealtimeRefresh } from "@/hooks/useRealtimeRefresh";
 import { BOOKING_EVENTS } from "@/lib/realtime/types";
 import DownloadPdfButton from "@/components/DownloadPdfButton";
+import { CustomOrdersSection, type SlipOrderDisplay } from "@/components/BookingSlip";
 import { panelsForItemWarnings } from "@/lib/bookingWarningPdf";
 import { STANDARD_BOOKING_HEADERS, flattenBookingPdfRows, standardBookingPdfRow } from "@/lib/standardBookingPdfRows";
 import StarBookingBadge from "@/components/StarBookingBadge";
@@ -36,6 +37,7 @@ type PackingBooking = StandardBookingDetails & {
   total_advance?: number;
   is_star?: boolean;
   items: PackingItem[];
+  orders?: SlipOrderDisplay[];
 };
 
 export default function PackingListClient({
@@ -273,6 +275,11 @@ export default function PackingListClient({
               </div>
             ))}
           </div>
+          {b.orders && b.orders.length > 0 && (
+            <div className="card-body" style={{ paddingTop: 0 }}>
+              <CustomOrdersSection orders={b.orders} />
+            </div>
+          )}
         </div>
       ))}
 

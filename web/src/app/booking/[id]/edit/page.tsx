@@ -22,7 +22,10 @@ export default async function EditBookingPage({
   if (id === "new") redirect("/booking/new");
   const booking = await prisma.booking.findUnique({
     where: { id: parseInt(id, 10) },
-    include: { bookingItems: { include: { item: true } } },
+    include: {
+      bookingItems: { include: { item: true } },
+      orders: { where: { status: "active" }, orderBy: { id: "asc" } },
+    },
   });
   if (!booking) notFound();
 
@@ -74,6 +77,16 @@ export default async function EditBookingPage({
             price: bi.price,
             advance: bi.advance,
             notes: bi.notes || "",
+          })),
+          orders: booking.orders.map((o) => ({
+            id: o.id,
+            description: o.description,
+            cost: o.cost,
+            advance: o.advance,
+            advance_payment_mode: (o.advancePaymentMode === "online" ? "online" : "cash") as "cash" | "online",
+            photo: o.photo || "",
+            delivery_date: o.deliveryDate.toISOString().slice(0, 10),
+            delivery_time: o.deliveryTime,
           })),
         }}
         staffList={staff.map((s) => s.name)}

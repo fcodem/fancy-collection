@@ -11,6 +11,7 @@ import { isStarBooking } from "./starBooking";
 import { nextValidSerial, serialPositionToValue, generateNumber } from "./serial";
 import { formatDate } from "./constants";
 import { resolveBookingStatus } from "./bookingStatus";
+import { cachedQuery } from "./perfCache";
 import type { Booking, BookingItem, ClothingItem, Prisma } from "@prisma/client";
 
 type DbClient = Prisma.TransactionClient | typeof prisma;
@@ -120,7 +121,7 @@ export async function findFirstItemConflict(
         { bookingItems: { some: { itemId: { in: itemIds } } } },
       ],
     },
-    include: { bookingItems: true },
+    include: { bookingItems: { select: { itemId: true } } },
   });
 
   for (const itemId of itemIds) {
@@ -288,21 +289,26 @@ export function serializeBookingForList(b: BookingWithItems) {
 export async function getNextMonthlySerial(deliveryDate: Date, client: DbClient = prisma) {
   const monthWhere = await whereDeliveryInMonth(deliveryDate);
 
-  const [count, maxAgg, usedSerials] = await Promise.all([
+  const [count, maxAgg] = await Promise.all([
     client.booking.count({ where: monthWhere }),
     client.booking.aggregate({ where: monthWhere, _max: { monthlySerial: true } }),
-    client.booking.findMany({ where: monthWhere, select: { monthlySerial: true } }),
   ]);
 
-  const used = new Set(usedSerials.map((b) => b.monthlySerial));
   let candidate = serialPositionToValue(count + 1);
   const maxSerial = maxAgg._max.monthlySerial ?? 0;
   if (candidate <= maxSerial) {
     candidate = nextValidSerial(maxSerial + 1);
   }
-  while (used.has(candidate)) {
+
+  for (let attempt = 0; attempt < 24; attempt++) {
+    const clash = await client.booking.findFirst({
+      where: { ...monthWhere, monthlySerial: candidate },
+      select: { id: true },
+    });
+    if (!clash) return candidate;
     candidate = nextValidSerial(candidate + 1);
   }
+
   return candidate;
 }
 
@@ -449,6 +455,19 @@ export async function getAvailableItemsApi(
   );
 
   return { free_items, returning_on_delivery, booked_on_return };
+}
+
+export function getAvailableItemsApiCached(
+  deliveryDateStr: string,
+  returnDateStr: string,
+  categoryFilter = "",
+  excludeBookingId?: number,
+) {
+  return cachedQuery(
+    ["available-items", deliveryDateStr, returnDateStr, categoryFilter, String(excludeBookingId ?? 0)],
+    () => getAvailableItemsApi(deliveryDateStr, returnDateStr, categoryFilter, excludeBookingId),
+    30,
+  );
 }
 
 export { buildDressSearchWhere, dressDisplayName, serializeBookingItems };

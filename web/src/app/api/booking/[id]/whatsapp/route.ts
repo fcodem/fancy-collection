@@ -4,9 +4,9 @@ import prisma from "@/lib/prisma";
 
 import { jsonError, jsonOk, requireUser, isResponse } from "@/lib/api";
 
-import { scheduleBookingBill } from "@/lib/services/whatsapp/jobQueue";
+import { scheduleBookingBill, processWhatsAppJobQueue } from "@/lib/services/whatsapp/jobQueue";
 
-import { isWhatsAppConfigured } from "@/lib/services/whatsapp/metaApi";
+import { isWhatsAppConfigured, isWhatsAppReceiptsDisabled } from "@/lib/services/whatsapp/metaApi";
 
 import { buildWhatsAppUrl } from "@/lib/whatsapp";
 
@@ -94,6 +94,24 @@ export async function POST(req: NextRequest, { params }: { params: Promise<{ id:
 
 
 
+  if (isWhatsAppReceiptsDisabled()) {
+
+    return jsonOk({
+
+      ok: true,
+
+      delivered: false,
+
+      paused: true,
+
+      message: "WhatsApp receipts are temporarily paused (WHATSAPP_RECEIPTS_DISABLED).",
+
+    });
+
+  }
+
+
+
   if (!isWhatsAppConfigured()) {
 
     const publicId = resolvePublicBookingId(booking);
@@ -119,19 +137,22 @@ export async function POST(req: NextRequest, { params }: { params: Promise<{ id:
 
 
   const job = await scheduleBookingBill(bookingId, req.nextUrl.origin, user.username);
-
-
+  let queueSummary;
+  try {
+    queueSummary = await processWhatsAppJobQueue(3, { bookingId });
+  } catch (e) {
+    console.error("[booking whatsapp POST] queue error:", e);
+  }
 
   return jsonOk({
-
     ok: true,
-
     queued: true,
-
     job_id: job?.id ?? null,
-
-    message: "Booking slip WhatsApp queued for delivery.",
-
+    processed: queueSummary?.succeeded ?? 0,
+    message:
+      queueSummary?.succeeded
+        ? "Booking slip sent to WhatsApp."
+        : "Booking slip queued — run the job queue if it was not sent.",
   });
 
 }

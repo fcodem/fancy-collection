@@ -8,8 +8,7 @@ import { jsonError, jsonOk, requireUser, isResponse, requireJsonContentType } fr
 import { isOwner } from "@/lib/auth";
 import { formatDate } from "@/lib/constants";
 import {
-  rescheduleBookingReminderAfterDateChange,
-  schedulePostponementNotice,
+  resetLateReminderOnDateChange,
 } from "@/lib/services/whatsapp/jobQueue";
 import { BookingFormSchema } from "@/lib/validation";
 
@@ -56,20 +55,9 @@ export async function PUT(req: NextRequest, { params }: { params: Promise<{ id: 
     const returnChanged = oldReturnIso !== body.return_date.slice(0, 10);
 
     if (deliveryChanged || returnChanged) {
-      void schedulePostponementNotice(
-        bookingId,
-        formatDate(existing.deliveryDate, "display"),
-        formatDate(body.delivery_date, "display"),
-        formatDate(body.return_date, "display"),
-        undefined,
-        user.username,
-      ).catch((e) => console.error("schedulePostponementNotice failed:", e));
-
-      void rescheduleBookingReminderAfterDateChange(
-        bookingId,
-        body.return_date,
-        user.username,
-      ).catch((e) => console.error("rescheduleBookingReminder failed:", e));
+      void resetLateReminderOnDateChange(bookingId).catch((e) =>
+        console.error("resetLateReminderOnDateChange failed:", e),
+      );
     }
 
     return jsonOk({ ok: true, id: booking?.id, serial: booking?.monthlySerial });

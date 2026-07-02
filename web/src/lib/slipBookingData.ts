@@ -65,12 +65,59 @@ type BookingWithItems = {
     deliveredAt?: Date | null;
     item: { color: string | null } | null;
   }>;
+  orders?: Array<{
+    id: number;
+    description: string;
+    cost: number;
+    advance: number;
+    balance: number;
+    photo: string | null;
+    deliveryDate: Date;
+    deliveryTime: string;
+    status: string;
+  }>;
 };
 
+export type SlipOrder = {
+  description: string;
+  cost: number;
+  advance: number;
+  balance: number;
+  photo: string | null;
+  deliveryDate: string;
+  deliveryTime: string;
+  includedInRent: boolean;
+};
+
+function mapOrder(o: NonNullable<BookingWithItems["orders"]>[number]): SlipOrder {
+  return {
+    description: o.description,
+    cost: o.cost,
+    advance: o.advance,
+    balance: Math.max(0, o.balance),
+    photo: o.photo,
+    deliveryDate: formatDate(o.deliveryDate, "display"),
+    deliveryTime: o.deliveryTime,
+    includedInRent: (o.cost || 0) === 0,
+  };
+}
+
+function activeSlipOrders(booking: BookingWithItems): SlipOrder[] {
+  return (booking.orders ?? [])
+    .filter((o) => o.status === "active")
+    .map(mapOrder);
+}
+
+/** Serialize raw BookingOrder rows (active only) into display orders for records/panels. */
+export function serializeActiveOrders(
+  orders: NonNullable<BookingWithItems["orders"]> | null | undefined,
+): SlipOrder[] {
+  return (orders ?? []).filter((o) => o.status === "active").map(mapOrder);
+}
+
 export type BuildDeliverySlipOptions = {
-  /** When set, slip covers only this delivered booking item (partial delivery). */
   bookingItemId?: number;
-  /** When "combined", include all delivered items on a partial slip. */
+  bookingItemIds?: number[];
   scope?: "full" | "single" | "combined";
 };
 
@@ -93,16 +140,26 @@ export function buildDeliverySlipData(
 ): {
   booking: DeliverySlipProps["booking"];
   items: DeliverySlipProps["items"];
+  orders: SlipOrder[];
   slipSubtitle?: string;
 } {
   const publicId = resolvePublicBookingId(booking);
   const allItems = booking.bookingItems ?? [];
   const deliveredItems = allItems.filter((bi) => bi.isDelivered);
+
+  const deltaItems =
+    opts?.bookingItemIds?.length
+      ? deliveredItems.filter((bi) => bi.id != null && opts.bookingItemIds!.includes(bi.id))
+      : opts?.bookingItemId
+        ? deliveredItems.filter((bi) => bi.id === opts.bookingItemId)
+        : null;
+
   const allDelivered =
     allItems.length > 0 && deliveredItems.length === allItems.length;
   const useFullSlip =
     opts?.scope === "full" ||
     (!opts?.scope &&
+      !deltaItems &&
       (booking.status === "returned" ||
         booking.status === "incomplete_return" ||
         allDelivered ||
@@ -138,19 +195,21 @@ export function buildDeliverySlipData(
       deliveredItems.find((bi) => bi.deliveredAt)?.deliveredAt ??
       booking.createdAt;
   } else {
-    const itemId = opts?.bookingItemId;
-    if (itemId) {
-      const bi = deliveredItems.find((b) => b.id === itemId);
-      if (!bi) {
-        throw new Error("Delivered booking item not found");
-      }
-      sourceItems = [bi];
-    } else if (deliveredItems.length === 1) {
-      sourceItems = deliveredItems;
-    } else if (deliveredItems.length > 1) {
-      sourceItems = deliveredItems;
+    if (deltaItems?.length) {
+      sourceItems = deltaItems;
     } else {
-      throw new Error("No delivered items for delivery slip");
+      const itemId = opts?.bookingItemId;
+      if (itemId) {
+        const bi = deliveredItems.find((b) => b.id === itemId);
+        if (!bi) throw new Error("Delivered booking item not found");
+        sourceItems = [bi];
+      } else if (deliveredItems.length === 1) {
+        sourceItems = deliveredItems;
+      } else if (deliveredItems.length > 1) {
+        sourceItems = deliveredItems;
+      } else {
+        throw new Error("No delivered items for delivery slip");
+      }
     }
 
     totalPrice = sourceItems.reduce((s, i) => s + i.price, 0);
@@ -180,7 +239,7 @@ export function buildDeliverySlipData(
     }, sourceItems[0].deliveredAt ?? booking.createdAt);
 
     const dressLabel = sourceItems.length === 1 ? sourceItems[0].dressName : "";
-    slipSubtitle = `Partial delivery — ${deliveredItems.length} of ${allItems.length} dresses delivered${
+    slipSubtitle = `Partial delivery — ${sourceItems.length} dress(es) on this slip${
       dressLabel ? ` (${dressLabel})` : ""
     }`;
   }
@@ -232,13 +291,14 @@ export function buildDeliverySlipData(
       createdAt: booking.createdAt.toISOString(),
     },
     items,
+    orders: activeSlipOrders(booking),
   };
 }
 
 export type BuildReturnSlipOptions = {
-  /** Resolved by resolveReturnSlip — passed from route handlers. */
   scope?: ReturnSlipResolve["scope"];
   bookingItemId?: number;
+  bookingItemIds?: number[];
 };
 
 function mapReturnSlipItem(bi: BookingWithItems["bookingItems"][number]) {
@@ -267,11 +327,20 @@ export function buildReturnSlipData(
   const allItems = booking.bookingItems ?? [];
   const deliveredItems = allItems.filter((bi) => bi.isDelivered);
   const returnedItems = allItems.filter((bi) => bi.isReturned && !bi.isIncompleteReturn);
+
+  const deltaItems =
+    opts?.bookingItemIds?.length
+      ? returnedItems.filter((bi) => bi.id != null && opts.bookingItemIds!.includes(bi.id))
+      : opts?.bookingItemId
+        ? returnedItems.filter((bi) => bi.id === opts.bookingItemId)
+        : null;
+
   const allReturned =
     deliveredItems.length > 0 && returnedItems.length === deliveredItems.length;
   const useFullSlip =
     opts?.scope === "full" ||
     (!opts?.scope &&
+      !deltaItems &&
       (booking.status === "returned" ||
         booking.status === "incomplete_return" ||
         allReturned));
@@ -362,9 +431,15 @@ export function buildReturnSlipData(
     };
   }
 
-  // Partial return — single dress or combined returned subset
+  // Partial return — delta items only
   const scope = opts?.scope;
-  if (scope === "single" && opts?.bookingItemId) {
+  if (deltaItems?.length) {
+    sourceItems = deltaItems;
+    slipSubtitle =
+      deltaItems.length === 1
+        ? `Partial return — 1 dress (${deltaItems[0].dressName})`
+        : `Partial return — ${deltaItems.length} dress(es)`;
+  } else if (scope === "single" && opts?.bookingItemId) {
     const bi = returnedItems.find((b) => b.id === opts.bookingItemId);
     if (!bi) throw new Error("Returned booking item not found");
     sourceItems = [bi];
@@ -437,6 +512,7 @@ export const SLIP_BIZ = {
 export function buildBookingSlipData(booking: BookingWithItems): {
   booking: BookingSlipProps["booking"];
   items: BookingSlipProps["items"];
+  orders: SlipOrder[];
 } {
   const publicId = resolvePublicBookingId(booking);
 
@@ -490,10 +566,14 @@ export function buildBookingSlipData(booking: BookingWithItems): {
       createdAt: booking.createdAt.toISOString(),
     },
     items,
+    orders: activeSlipOrders(booking),
   };
 }
 
-export function buildIncompleteSlipData(booking: BookingWithItems) {
+export function buildIncompleteSlipData(
+  booking: BookingWithItems,
+  opts?: { bookingItemIds?: number[] },
+) {
   const publicId = resolvePublicBookingId(booking);
   const reported = formatSlipDateTime(booking.returnedAt ?? new Date());
   const security = incompleteReturnSecuritySummary({
@@ -503,8 +583,16 @@ export function buildIncompleteSlipData(booking: BookingWithItems) {
     items: booking.bookingItems,
   });
 
+  const incompleteFilter = (bi: BookingWithItems["bookingItems"][number]) => {
+    if (!bi.isIncompleteReturn) return false;
+    if (opts?.bookingItemIds?.length) {
+      return bi.id != null && opts.bookingItemIds.includes(bi.id);
+    }
+    return true;
+  };
+
   const incompleteItems = booking.bookingItems
-    .filter((bi) => bi.isIncompleteReturn)
+    .filter(incompleteFilter)
     .map((bi) => ({
       dressName: bi.dressName,
       category: bi.category || "",

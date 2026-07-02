@@ -1,9 +1,9 @@
 "use client";
 
-import { useRouter } from "next/navigation";
 import Link from "next/link";
 import { useState } from "react";
 import { BookingRecordDetails } from "@/components/BookingRecordDetails";
+import type { SlipOrderDisplay } from "@/components/BookingSlip";
 import { BookingItemWarningsSection } from "@/components/BookingItemWarningsSection";
 import DeliveredCancelBooking from "@/components/DeliveredCancelBooking";
 import BookingWhatsAppButton from "@/components/BookingWhatsAppButton";
@@ -21,6 +21,7 @@ export default function BookingViewClient({
   qrSlot,
   isOwner = false,
   warningItems = [],
+  orders = [],
 }: {
   booking: BookingForStandardDetails & {
     id: number;
@@ -38,8 +39,8 @@ export default function BookingViewClient({
   qrSlot?: React.ReactNode;
   isOwner?: boolean;
   warningItems?: ItemWarningSource[];
+  orders?: SlipOrderDisplay[];
 }) {
-  const router = useRouter();
   const [showCancel, setShowCancel] = useState(false);
 
   const status = resolveBookingStatus(booking);
@@ -50,27 +51,8 @@ export default function BookingViewClient({
   const totalAdvance = booking.totalAdvance ?? booking.advance ?? 0;
   const totalRemaining = booking.totalRemaining ?? booking.remaining ?? 0;
 
-  async function confirmSimpleCancel() {
-    if (!confirm("Cancel this booking? It will move to Recycle Bin.")) return;
-    const res = await fetch(`/api/booking/${booking.id}/cancel`, {
-      method: "POST",
-      headers: { "Content-Type": "application/json" },
-      body: JSON.stringify({ refund_amount: 0 }),
-    });
-    if (!res.ok) {
-      const data = await res.json().catch(() => ({}));
-      alert(data.error || "Could not cancel booking");
-      return;
-    }
-    router.push("/booking");
-  }
-
-  function openCancel() {
-    if (isDelivered) {
-      setShowCancel(true);
-      return;
-    }
-    void confirmSimpleCancel();
+  async function openCancel() {
+    setShowCancel(true);
   }
 
   return (
@@ -191,13 +173,14 @@ export default function BookingViewClient({
         </div>
       )}
 
-      {showCancel && isDelivered && (
+      {showCancel && (
         <DeliveredCancelBooking
           bookingId={booking.id}
           totalPrice={totalPrice}
           totalAdvance={totalAdvance}
           totalRemaining={totalRemaining}
           remainingCollected={booking.remainingCollected ?? 0}
+          delivered={isDelivered}
           variant="inline"
           onDismiss={() => setShowCancel(false)}
         />
@@ -235,6 +218,7 @@ export default function BookingViewClient({
           <BookingRecordDetails
             booking={booking}
             warningItems={warningItems.length > 1 ? warningItems : undefined}
+            orders={orders}
             extra={
               booking.staffNames ? (
                 <p style={{ marginTop: 12, fontSize: 13, color: "var(--text-muted)" }}>

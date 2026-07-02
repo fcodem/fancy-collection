@@ -10,6 +10,8 @@ import BookingItemWarningsBlock, {
 } from "@/components/BookingItemWarningsSection";
 import DeliveredCancelBooking from "@/components/DeliveredCancelBooking";
 import PhotoCaptureButton from "@/components/PhotoCaptureButton";
+import PaymentModePicker, { type PaymentMode } from "@/components/PaymentModePicker";
+import ZoomableImage from "@/components/ZoomableImage";
 import {
   balanceLeftToCollect,
   effectiveRemainingCollected,
@@ -22,6 +24,7 @@ import type { BookingItemPricingRow } from "@/lib/dress";
 import { formatInr } from "@/lib/format";
 import { photoUrl } from "@/lib/photoUrl";
 import IncompleteSecuritySummaryBox from "@/components/IncompleteSecuritySummaryBox";
+import type { SlipOrderDisplay } from "@/components/BookingSlip";
 import type { ItemWarningSource } from "@/lib/bookingWarningPdf";
 
 function paymentModeLabel(mode?: string | null): string | null {
@@ -50,6 +53,19 @@ type ItemDeliveryRow = {
   itemIncompleteNotes?: string | null;
   itemIncompletePhoto?: string | null;
   itemSecurityHeld?: number;
+};
+
+type OrderCollectRow = {
+  id: number;
+  description: string;
+  cost: number;
+  advance: number;
+  balance: number;
+  balanceCollected: number;
+  photo?: string | null;
+  deliveryDate: string;
+  deliveryTime: string;
+  includedInRent: boolean;
 };
 
 type IncompleteDressForm = {
@@ -89,6 +105,8 @@ export default function ReturnDetailClient({
   items,
   itemDelivery = [],
   warningItems = [],
+  orders = [],
+  orderRecords = [],
 }: {
   booking: BookingForStandardDetails & {
     id: number;
@@ -114,6 +132,8 @@ export default function ReturnDetailClient({
   items: BookingItemPricingRow[];
   itemDelivery?: ItemDeliveryRow[];
   warningItems?: ItemWarningSource[];
+  orders?: SlipOrderDisplay[];
+  orderRecords?: OrderCollectRow[];
 }) {
   const router = useRouter();
   const allItemsDelivered = itemDelivery.length > 0 ? itemDelivery.every((d) => d.isDelivered) : false;
@@ -185,6 +205,49 @@ export default function ReturnDetailClient({
   const [showCancel, setShowCancel] = useState(false);
   const [incompleteError, setIncompleteError] = useState("");
 
+  const [localOrders, setLocalOrders] = useState<OrderCollectRow[]>(orderRecords);
+  useEffect(() => {
+    setLocalOrders(orderRecords);
+  }, [orderRecords]);
+  const [orderForms, setOrderForms] = useState<Record<number, string>>({});
+  const [orderModes, setOrderModes] = useState<Record<number, PaymentMode>>({});
+  const [orderBusy, setOrderBusy] = useState<number | null>(null);
+  const [orderError, setOrderError] = useState("");
+
+  const outstandingOrders = localOrders.filter(
+    (o) => !o.includedInRent && Math.max(0, o.balance - o.balanceCollected) > 0,
+  );
+
+  async function collectOrder(orderId: number) {
+    const o = localOrders.find((x) => x.id === orderId);
+    if (!o) return;
+    const outstanding = Math.max(0, o.balance - o.balanceCollected);
+    const amount = Number(orderForms[orderId] ?? outstanding) || 0;
+    if (amount <= 0) return;
+    const mode = orderModes[orderId] || "cash";
+    setOrderBusy(orderId);
+    setOrderError("");
+    try {
+      const res = await fetch(`/api/booking/${booking.id}/orders/${orderId}/collect`, {
+        method: "POST",
+        headers: { "Content-Type": "application/json" },
+        body: JSON.stringify({ balance_collected: amount, payment_mode: mode }),
+        credentials: "same-origin",
+      });
+      const data = await res.json().catch(() => ({}));
+      if (!res.ok) {
+        setOrderError(typeof data.error === "string" ? data.error : "Failed to collect order balance");
+        return;
+      }
+      const newCollected = data.order?.balanceCollected ?? o.balanceCollected + amount;
+      setLocalOrders((prev) => prev.map((x) => (x.id === orderId ? { ...x, balanceCollected: newCollected } : x)));
+      setOrderForms((prev) => ({ ...prev, [orderId]: "" }));
+      router.refresh();
+    } finally {
+      setOrderBusy(null);
+    }
+  }
+
   const anyIncompleteSelected = returnableItems.some((r) => incompleteForms[r.id]?.selected);
 
   const totalPrice = booking.totalPrice ?? booking.price ?? 0;
@@ -192,6 +255,9 @@ export default function ReturnDetailClient({
   const totalRemaining = booking.totalRemaining ?? booking.remaining ?? 0;
   const collectedAtDelivery = effectiveRemainingCollected(booking.remainingCollected, itemDelivery);
   const balanceLeft = balanceLeftToCollect(totalRemaining, collectedAtDelivery);
+  const rentCollectedPart = Math.min(collectedAtDelivery, totalRemaining);
+  const orderCollectedPart = Math.max(0, collectedAtDelivery - rentCollectedPart);
+  const showOrderBreakdown = orders.length > 0 && orderCollectedPart > 0;
 
   const incompleteSecurity = incompleteReturnSecuritySummary({
     securityHeld: booking.securityHeld,
@@ -381,6 +447,7 @@ export default function ReturnDetailClient({
             items={items}
             remainingCollected={collectedAtDelivery}
             warningItems={warningItems.length > 1 ? warningItems : undefined}
+            orders={orders}
             extra={
             <>
               <div
@@ -412,6 +479,11 @@ export default function ReturnDetailClient({
                       COLLECTED AT DELIVERY
                     </div>
                     <strong style={{ color: "var(--success)" }}>₹{formatInr(collectedAtDelivery)}</strong>
+                    {showOrderBreakdown && (
+                      <div style={{ fontSize: 11, color: "var(--text-muted)", marginTop: 2 }}>
+                        ₹{formatInr(rentCollectedPart)} rent + ₹{formatInr(orderCollectedPart)} custom order
+                      </div>
+                    )}
                   </div>
                   <div>
                     <div style={{ fontSize: 11, color: "var(--text-muted)", fontWeight: 700, marginBottom: 4 }}>
@@ -572,6 +644,81 @@ export default function ReturnDetailClient({
           {warningItems.length <= 1 && <BookingItemWarningsSection items={warningItems} />}
         </div>
       </div>
+
+      {outstandingOrders.length > 0 && booking.status !== "cancelled" && (
+        <div className="card" style={{ marginBottom: 24, overflow: "visible", borderLeft: "4px solid #c9a84c" }}>
+          <div className="card-header">
+            <h3 className="card-title">
+              <i className="fa-solid fa-scissors" style={{ marginRight: 8, color: "#b8860b" }} />
+              Custom Orders — Collect Balance
+            </h3>
+          </div>
+          <div className="card-body" style={{ overflow: "visible" }}>
+            {orderError && (
+              <div className="alert alert-error" style={{ marginBottom: 16 }}>{orderError}</div>
+            )}
+            {outstandingOrders.map((o) => {
+              const outstanding = Math.max(0, o.balance - o.balanceCollected);
+              return (
+                <div
+                  key={o.id}
+                  style={{
+                    marginBottom: 14,
+                    padding: "14px 16px",
+                    border: "1px solid var(--border)",
+                    borderRadius: 10,
+                    background: "rgba(201,168,76,0.05)",
+                  }}
+                >
+                  <div style={{ display: "flex", alignItems: "center", gap: 12, flexWrap: "wrap", marginBottom: 10 }}>
+                    {o.photo && (
+                      <ZoomableImage src={photoUrl(o.photo)} alt={o.description} overlayCaption={o.description} style={{ width: 48, height: 48, borderRadius: 8, objectFit: "cover" }} />
+                    )}
+                    <div style={{ flex: 1, minWidth: 160 }}>
+                      <strong>{o.description}</strong>
+                      <div style={{ fontSize: 12, color: "var(--text-muted)" }}>
+                        Cost ₹{formatInr(o.cost)} · Advance ₹{formatInr(o.advance)} · Collected ₹{formatInr(o.balanceCollected)}
+                      </div>
+                    </div>
+                    <div style={{ textAlign: "right" }}>
+                      <div style={{ fontSize: 11, color: "var(--text-muted)", fontWeight: 700 }}>OUTSTANDING</div>
+                      <strong style={{ color: "var(--danger)", fontSize: 18 }}>₹{formatInr(outstanding)}</strong>
+                    </div>
+                  </div>
+                  <div style={{ display: "flex", gap: 12, flexWrap: "wrap", alignItems: "flex-end" }}>
+                    <div style={{ minWidth: 140 }}>
+                      <label className="form-label">Amount to collect (₹)</label>
+                      <input
+                        type="number"
+                        className="form-control"
+                        min={0}
+                        max={outstanding}
+                        value={orderForms[o.id] ?? String(outstanding)}
+                        onChange={(e) => setOrderForms((prev) => ({ ...prev, [o.id]: e.target.value }))}
+                      />
+                    </div>
+                    <PaymentModePicker
+                      value={orderModes[o.id] || "cash"}
+                      onChange={(v) => setOrderModes((prev) => ({ ...prev, [o.id]: v }))}
+                      label="Payment Mode *"
+                      name={`orderCollectMode-${o.id}`}
+                    />
+                    <button
+                      type="button"
+                      className="btn btn-primary"
+                      disabled={orderBusy === o.id}
+                      onClick={() => void collectOrder(o.id)}
+                    >
+                      <i className="fa-solid fa-indian-rupee-sign" style={{ marginRight: 6 }} />
+                      {orderBusy === o.id ? "Collecting…" : "Collect Balance"}
+                    </button>
+                  </div>
+                </div>
+              );
+            })}
+          </div>
+        </div>
+      )}
 
       {isDelivered && booking.status !== "returned" && booking.status !== "cancelled" && booking.status !== "incomplete_return" && (
         <div className="card" style={{ overflow: "visible" }}>

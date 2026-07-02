@@ -7,7 +7,7 @@ import {
 } from "../constants";
 import { dressDisplayName, formatUnitName } from "../dress";
 import { computeAverageHash, hashSimilarity } from "../photoHash";
-import { saveUpload } from "../upload";
+import { deleteUpload, saveUpload } from "../upload";
 import { broadcastShopEvent } from "../realtime/broadcast";
 import { logActivity, snapshotInventory } from "../activityLog";
 
@@ -174,8 +174,14 @@ export async function updateInventoryItem(
   const beforeSnapshot = snapshotInventory(existing as unknown as Record<string, unknown>);
 
   let photo = existing.photo;
-  if (form.remove_photo) photo = null;
-  if (form.photo) photo = await saveUpload(form.photo);
+  if (form.remove_photo) {
+    if (existing.photo) await deleteUpload(existing.photo);
+    photo = null;
+  }
+  if (form.photo) {
+    if (existing.photo) await deleteUpload(existing.photo);
+    photo = await saveUpload(form.photo);
+  }
 
   const updated = await prisma.clothingItem.update({
     where: { id },

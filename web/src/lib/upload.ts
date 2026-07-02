@@ -2,21 +2,35 @@ import { writeFile, mkdir, unlink } from "fs/promises";
 import { join } from "path";
 import { randomUUID } from "crypto";
 import { put, del } from "@vercel/blob";
+import sharp from "sharp";
 import { ALLOWED_EXTENSIONS } from "./constants";
 
 export { photoUrl } from "./photoUrl";
+
+const MAX_IMAGE_EDGE = 1920;
+const JPEG_QUALITY = 82;
 
 function extFromName(name: string) {
   const parts = name.split(".");
   return parts.length > 1 ? parts[parts.length - 1].toLowerCase() : "jpg";
 }
 
+/** Resize, strip metadata, and JPEG-compress before storage. */
+export async function compressImageBuffer(buffer: Buffer): Promise<Buffer> {
+  return sharp(buffer)
+    .rotate()
+    .resize(MAX_IMAGE_EDGE, MAX_IMAGE_EDGE, { fit: "inside", withoutEnlargement: true })
+    .jpeg({ quality: JPEG_QUALITY, mozjpeg: true })
+    .toBuffer();
+}
+
 export async function saveUpload(file: File): Promise<string> {
   const ext = extFromName(file.name);
   if (!ALLOWED_EXTENSIONS.includes(ext)) throw new Error("Invalid file type");
 
-  const bytes = Buffer.from(await file.arrayBuffer());
-  const filename = `${randomUUID().replace(/-/g, "")}.${ext}`;
+  const raw = Buffer.from(await file.arrayBuffer());
+  const bytes = await compressImageBuffer(raw);
+  const filename = `${randomUUID().replace(/-/g, "")}.jpg`;
 
   if (process.env.BLOB_READ_WRITE_TOKEN) {
     const blob = await put(`uploads/${filename}`, bytes, { access: "public" });
@@ -67,8 +81,9 @@ export async function deleteUploads(stored: Array<string | null | undefined>): P
 export async function saveIdProofUpload(file: File): Promise<string> {
   const ext = extFromName(file.name);
   if (!ALLOWED_EXTENSIONS.includes(ext)) throw new Error("Invalid file type");
-  const bytes = Buffer.from(await file.arrayBuffer());
-  const filename = `id-proofs/${randomUUID().replace(/-/g, "")}.${ext}`;
+  const raw = Buffer.from(await file.arrayBuffer());
+  const bytes = await compressImageBuffer(raw);
+  const filename = `id-proofs/${randomUUID().replace(/-/g, "")}.jpg`;
   if (process.env.BLOB_READ_WRITE_TOKEN) {
     const blob = await put(`uploads/${filename}`, bytes, { access: "public" });
     return blob.url;

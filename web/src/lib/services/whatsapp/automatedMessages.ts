@@ -1,20 +1,14 @@
+import "server-only";
+
 import prisma from "@/lib/prisma";
-import { ensureBookingQrToken, bookingQrDataUrl } from "@/lib/bookingQr";
 import { formatDate } from "@/lib/constants";
-import { formatSlipDateTime } from "@/lib/slipConstants";
-import { photoUrl } from "@/lib/photoUrl";
 import { normalizeIndianPhone } from "@/lib/phone";
 import {
-  generateBookingBillPdf,
-  generateReturnReceiptPdf,
-  uploadBookingBillPdf,
-  uploadReturnReceiptPdf,
-  type BookingBillPdfInput,
-} from "./bookingBillPdf";
-import {
+  generateBookingSlipPdf,
   generateDeliverySlipPdf,
   generateReturnSlipPdf,
   generateIncompleteSlipPdf,
+  uploadBookingSlipPdf,
   uploadDeliverySlipPdf,
   uploadReturnSlipPdf,
   uploadIncompleteSlipPdf,
@@ -23,14 +17,8 @@ import {
   incompleteSlipPdfFilename,
 } from "./slipPdf";
 import {
-  buildDeliverySlipData,
-  buildReturnSlipData,
-  buildIncompleteSlipData,
-  SLIP_BIZ,
-} from "@/lib/slipBookingData";
-import {
   isWhatsAppConfigured,
-  sendWhatsAppDocument,
+  sendWhatsAppDocumentBuffer,
   sendWhatsAppText,
 } from "./metaApi";
 import { saveWhatsAppOutboundMessage } from "./messages";
@@ -42,21 +30,74 @@ import {
 
 const BUSINESS_NAME =
   process.env.BUSINESS_NAME || "FANCY COLLECTION BY RENU AGARWAL";
-const BUSINESS_PHONE = process.env.BUSINESS_PHONE || "8077843874, 8630834711";
-const BUSINESS_ADDRESS =
-  process.env.BUSINESS_ADDRESS ||
-  "Banwata Ganj Near Balaji Mandir Court Road Moradabad 244001";
 
-function sleep(ms: number) {
-  return new Promise((resolve) => setTimeout(resolve, ms));
+const TEAM_NAME = "Team Fancy Collection";
+
+export type WhatsAppSendOutcome = {
+  ok: boolean;
+  error?: string;
+  skipped?: boolean;
+  phone?: string;
+  messageId?: string;
+};
+
+function bookingSlipWhatsAppCaption(customerName: string, serialNo: string): string {
+  return (
+    `Thank you for choosing ${TEAM_NAME}.\n\n` +
+    `Dear ${customerName},\n\n` +
+    `Your booking (#${serialNo}) has been confirmed. ` +
+    `Please find your booking slip attached for your reference. ` +
+    `It includes outfit details, QR code, and terms & conditions.\n\n` +
+    `We look forward to serving you.\n\n` +
+    `— ${TEAM_NAME}`
+  );
 }
 
-function thankYouMessage(customerName: string, publicBookingId: string): string {
+function deliverySlipWhatsAppCaption(customerName: string, publicBookingId: string): string {
   return (
-    `Thank you for choosing ${BUSINESS_NAME}!\n\n` +
-    `Dear ${customerName}, your booking ${publicBookingId} is confirmed. ` +
-    `Your booking slip PDF is attached in the next message.\n\n` +
-    `RENT | WEAR | RETURN\n${BUSINESS_PHONE}`
+    `Thank you for choosing ${TEAM_NAME}.\n\n` +
+    `Dear ${customerName},\n\n` +
+    `Your outfit(s) have been delivered successfully. ` +
+    `Please find your delivery slip attached for your records.\n\n` +
+    `Kindly return all items on or before the scheduled return date.\n\n` +
+    `— ${TEAM_NAME}`
+  );
+}
+
+function returnSlipWhatsAppCaption(customerName: string, publicBookingId: string): string {
+  return (
+    `Thank you for choosing ${TEAM_NAME}.\n\n` +
+    `Dear ${customerName},\n\n` +
+    `Your return has been processed successfully. ` +
+    `Please find your return receipt attached for your records.\n\n` +
+    `We look forward to serving you again.\n\n` +
+    `— ${TEAM_NAME}`
+  );
+}
+
+function incompleteSlipWhatsAppCaption(customerName: string, publicBookingId: string): string {
+  return (
+    `Thank you for choosing ${TEAM_NAME}.\n\n` +
+    `Dear ${customerName},\n\n` +
+    `Some item(s) were not fully returned. ` +
+    `Please find the incomplete return notice attached for details.\n\n` +
+    `— ${TEAM_NAME}`
+  );
+}
+
+export function buildPostponementHeldMessage(opts: {
+  customerName: string;
+  publicBookingId: string;
+  deliveryDate: string;
+  returnDate: string;
+}): string {
+  return (
+    `Hi ${opts.customerName},\n\n` +
+    `Your booking ${opts.publicBookingId} has been postponed.\n\n` +
+    `Scheduled delivery: ${opts.deliveryDate}\n` +
+    `Scheduled return: ${opts.returnDate}\n\n` +
+    `Your advance is held with us. Please contact us when you are ready to reschedule.\n\n` +
+    `— ${TEAM_NAME}`
   );
 }
 
@@ -93,19 +134,103 @@ export function buildBookingReminderMessage(opts: {
   );
 }
 
+export function buildLateReturnReminderMessage(opts: {
+  customerName: string;
+  publicBookingId: string;
+  returnDate: string;
+  returnTime: string;
+  daysOverdue: number;
+}): string {
+  const overdueLabel =
+    opts.daysOverdue <= 1 ? "is overdue" : `is ${opts.daysOverdue} days overdue`;
+  return (
+    `Hi ${opts.customerName}, this is ${TEAM_NAME}.\n\n` +
+    `Your rental (${opts.publicBookingId}) was due for return on ${opts.returnDate}` +
+    `${opts.returnTime ? ` by ${opts.returnTime}` : ""} and ${overdueLabel}.\n\n` +
+    `Please return the outfit(s) as soon as possible or contact us if you need assistance.\n\n` +
+    `— ${TEAM_NAME}`
+  );
+}
+
+export async function sendLateReturnReminderWhatsApp(
+  bookingId: number,
+): Promise<WhatsAppSendOutcome> {
+  if (!isWhatsAppConfigured()) {
+    return { ok: false, error: "WhatsApp Meta API is not configured.", skipped: true };
+  }
+
+  const booking = await prisma.booking.findUnique({ where: { id: bookingId } });
+  if (!booking) return { ok: false, error: "Booking not found" };
+
+  if (booking.status !== "delivered") {
+    return { ok: true, skipped: true, phone: booking.whatsappNo || booking.contact1 || undefined };
+  }
+
+  if (booking.lateReminderSentAt) {
+    return { ok: true, skipped: true, phone: booking.whatsappNo || booking.contact1 || undefined };
+  }
+
+  const phoneRaw = booking.whatsappNo || booking.contact1;
+  if (!phoneRaw?.trim()) return { ok: false, error: "No WhatsApp number on booking" };
+
+  const publicBookingId = resolvePublicBookingId(booking);
+  const returnDateDisplay = formatDate(booking.returnDate, "display");
+  const startOfToday = new Date();
+  startOfToday.setHours(0, 0, 0, 0);
+  const returnDay = new Date(booking.returnDate);
+  returnDay.setHours(0, 0, 0, 0);
+  const daysOverdue = Math.max(
+    1,
+    Math.floor((startOfToday.getTime() - returnDay.getTime()) / (24 * 60 * 60 * 1000)),
+  );
+
+  const message = buildLateReturnReminderMessage({
+    customerName: booking.customerName,
+    publicBookingId,
+    returnDate: returnDateDisplay,
+    returnTime: booking.returnTime,
+    daysOverdue,
+  });
+
+  const result = await sendWhatsAppText(phoneRaw, message);
+  await saveWhatsAppOutboundMessage({
+    bookingId,
+    phone: phoneRaw,
+    messageType: "text",
+    body: message,
+    metaMessageId: result.ok ? result.messageId : null,
+    status: result.ok ? "sent" : "failed",
+    error: result.ok ? null : result.error,
+    isAutomated: true,
+  });
+
+  if (result.ok) {
+    await prisma.booking.update({
+      where: { id: bookingId },
+      data: { lateReminderSentAt: new Date() },
+    });
+  }
+
+  return result.ok
+    ? { ok: true, phone: phoneRaw, messageId: result.messageId }
+    : { ok: false, error: result.error, phone: phoneRaw };
+}
+
 export async function sendBookingBillWhatsApp(
   bookingId: number,
   requestOrigin?: string,
-): Promise<{ ok: boolean; error?: string; skipped?: boolean }> {
-  // 1. Fetch full booking with items and their photos
+): Promise<WhatsAppSendOutcome> {
   const booking = await prisma.booking.findUnique({
     where: { id: bookingId },
-    include: { bookingItems: { include: { item: true } } },
+    include: {
+      bookingItems: {
+        include: { item: { select: { color: true } } },
+      },
+    },
   });
   if (!booking) return { ok: false, error: "Booking not found" };
 
-  // 2. Normalize phone
-  const phoneRaw = (booking.whatsappNo?.trim() || booking.contact1?.trim() || "");
+  const phoneRaw = booking.whatsappNo?.trim() || booking.contact1?.trim() || "";
   if (!phoneRaw) return { ok: false, error: "No WhatsApp number on booking" };
   if (!normalizeIndianPhone(phoneRaw)) {
     return { ok: false, error: `Invalid phone number: ${phoneRaw}` };
@@ -124,141 +249,48 @@ export async function sendBookingBillWhatsApp(
     });
   }
 
-  // 3. Get existing QR — REUSE, do not generate new
-  const qrToken = await ensureBookingQrToken(bookingId);
-  const qrDataUrl = await bookingQrDataUrl(qrToken, requestOrigin, 280);
-
-  // 4. Build items list
-  const items: BookingBillPdfInput["items"] =
-    booking.bookingItems.length > 0
-      ? booking.bookingItems.map((bi) => ({
-          dressName: bi.dressName,
-          category: bi.category || "",
-          size: bi.size || bi.item?.size || "",
-          price: bi.price,
-          advance: bi.advance,
-          remaining: bi.remaining,
-          notes: bi.notes,
-          imageUrl: bi.item?.photo ? photoUrl(bi.item.photo) : null,
-        }))
-      : booking.dressName
-        ? [
-            {
-              dressName: booking.dressName,
-              category: "",
-              size: "",
-              price: booking.totalPrice,
-              advance: booking.totalAdvance,
-              remaining: booking.totalRemaining,
-              notes: booking.notes,
-              imageUrl: null,
-            },
-          ]
-        : [];
-
-  // 5. Format dates and build PDF input
-  const pdfInput: BookingBillPdfInput = {
-    booking: {
-      publicBookingId,
-      customerName: booking.customerName,
-      customerAddress: booking.customerAddress || "",
-      contact1: booking.contact1 || "",
-      whatsappNo: booking.whatsappNo || booking.contact1 || "",
-      deliveryDate: formatDate(booking.deliveryDate, "display"),
-      deliveryTime: booking.deliveryTime || "",
-      returnDate: formatDate(booking.returnDate, "display"),
-      returnTime: booking.returnTime || "",
-      venue: booking.venue,
-      staffNames: booking.staffNames,
-      securityDeposit: booking.securityDeposit || 0,
-      totalPrice: booking.totalPrice,
-      totalAdvance: booking.totalAdvance,
-      totalRemaining: booking.totalRemaining,
-      commonNotes: booking.commonNotes,
-      monthlySerial: booking.monthlySerial,
-    },
-    items,
-    qrDataUrl,
-    businessName: BUSINESS_NAME,
-    businessPhone: BUSINESS_PHONE,
-    businessAddress: BUSINESS_ADDRESS,
-    ...(booking.status === "returned"
-      ? {
-          isReturned: true,
-          actualReturnDate: formatSlipDateTime(booking.returnedAt).date,
-          actualReturnTime: formatSlipDateTime(booking.returnedAt).time,
-          securityRefunded: Math.max(
-            0,
-            booking.refundAmount || booking.securityCollected - booking.securityHeld,
-          ),
-          remainingCollected: booking.remainingCollected,
-          returnNotes: booking.incompleteNotes || booking.deliveryNotes,
-        }
-      : {}),
-  };
-
-  // 6. Generate merged PDF
   let pdfBuffer: Buffer;
   try {
-    pdfBuffer = await generateBookingBillPdf(pdfInput);
+    pdfBuffer = await generateBookingSlipPdf(bookingId, requestOrigin);
   } catch (e) {
     const err = e instanceof Error ? e.message : "PDF generation failed";
     console.error("[sendBookingBillWhatsApp] PDF error:", err);
     return { ok: false, error: err };
   }
 
-  // 7. Upload PDF to get public URL
-  let pdfUrl: string;
+  let pdfUrl = "";
   try {
-    pdfUrl = await uploadBookingBillPdf(pdfBuffer, publicBookingId);
+    pdfUrl = await uploadBookingSlipPdf(pdfBuffer, publicBookingId);
+    await prisma.booking.update({
+      where: { id: bookingId },
+      data: { qrCodeUrl: pdfUrl },
+    }).catch(() => {});
   } catch (e) {
-    const err = e instanceof Error ? e.message : "PDF upload failed";
-    console.error("[sendBookingBillWhatsApp] Upload error:", err);
-    return { ok: false, error: err };
+    console.warn("[sendBookingBillWhatsApp] Archive upload failed:", e);
   }
 
   const filename = bookingSlipPdfFilename(publicBookingId);
+  const serialNo = String(booking.monthlySerial).padStart(2, "0");
+  const caption = bookingSlipWhatsAppCaption(booking.customerName, serialNo);
 
-  await prisma.booking.update({
-    where: { id: bookingId },
-    data: { qrCodeUrl: pdfUrl },
-  }).catch(() => {});
-
-  // 8. Send thank you text (best-effort — window may be closed)
-  const thankYou = thankYouMessage(booking.customerName, publicBookingId);
-  let textResult: { ok: boolean; messageId?: string; error?: string } = { ok: false };
-  try {
-    textResult = await sendWhatsAppText(phoneRaw, thankYou);
-  } catch {
-    console.warn("[sendBookingBillWhatsApp] Text message failed (window may be closed)");
-  }
-  await saveWhatsAppOutboundMessage({
-    bookingId,
-    phone: phoneRaw,
-    messageType: "text",
-    body: thankYou,
-    metaMessageId: textResult.ok ? textResult.messageId : null,
-    status: textResult.ok ? "sent" : "failed",
-    error: textResult.ok ? null : (textResult.error ?? null),
-  });
-
-  // 9. Wait before sending document
-  await sleep(1500);
-
-  // 10. Send PDF as WhatsApp document
-  const docCaption = `📄 Booking Slip — ${publicBookingId}\nQR code, outfit details & T&C included.`;
-  const docResult = await sendWhatsAppDocument(phoneRaw, pdfUrl, filename, docCaption);
+  const docResult = await sendWhatsAppDocumentBuffer(
+    phoneRaw,
+    pdfBuffer,
+    filename,
+    caption,
+  );
 
   await saveWhatsAppOutboundMessage({
     bookingId,
     phone: phoneRaw,
     messageType: "document",
-    body: docCaption,
-    mediaUrl: pdfUrl,
+    body: caption,
+    mediaUrl: pdfUrl || null,
     filename,
     metaMessageId: docResult.ok ? docResult.messageId : null,
     status: docResult.ok ? "sent" : "failed",
     error: docResult.ok ? null : (docResult.error ?? null),
+    isAutomated: true,
   });
 
   if (!docResult.ok) {
@@ -266,10 +298,9 @@ export async function sendBookingBillWhatsApp(
       where: { id: bookingId },
       data: { whatsappStatus: "failed", whatsappError: docResult.error },
     }).catch(() => {});
-    return { ok: false, error: docResult.error };
+    return { ok: false, error: docResult.error, phone: phoneRaw };
   }
 
-  // 11. Update booking WhatsApp status
   await prisma.booking.update({
     where: { id: bookingId },
     data: {
@@ -279,7 +310,7 @@ export async function sendBookingBillWhatsApp(
     },
   }).catch(() => {});
 
-  return { ok: true };
+  return { ok: true, phone: phoneRaw, messageId: docResult.messageId };
 }
 
 export async function sendPostponementNoticeWhatsApp(
@@ -290,7 +321,7 @@ export async function sendPostponementNoticeWhatsApp(
     newReturnDate: string;
     reason?: string;
   },
-): Promise<{ ok: boolean; error?: string; skipped?: boolean }> {
+): Promise<WhatsAppSendOutcome> {
   if (!isWhatsAppConfigured()) {
     return { ok: false, error: "WhatsApp Meta API is not configured.", skipped: true };
   }
@@ -318,14 +349,55 @@ export async function sendPostponementNoticeWhatsApp(
     metaMessageId: result.ok ? result.messageId : null,
     status: result.ok ? "sent" : "failed",
     error: result.ok ? null : result.error,
+    isAutomated: true,
   });
 
-  return result.ok ? { ok: true } : { ok: false, error: result.error };
+  return result.ok
+    ? { ok: true, phone: phoneRaw, messageId: result.messageId }
+    : { ok: false, error: result.error, phone: phoneRaw };
+}
+
+export async function sendPostponementHeldWhatsApp(
+  bookingId: number,
+): Promise<WhatsAppSendOutcome> {
+  if (!isWhatsAppConfigured()) {
+    return { ok: false, error: "WhatsApp Meta API is not configured.", skipped: true };
+  }
+
+  const booking = await prisma.booking.findUnique({ where: { id: bookingId } });
+  if (!booking) return { ok: false, error: "Booking not found" };
+
+  const phoneRaw = booking.whatsappNo || booking.contact1;
+  if (!phoneRaw?.trim()) return { ok: false, error: "No WhatsApp number on booking" };
+
+  const publicBookingId = resolvePublicBookingId(booking);
+  const message = buildPostponementHeldMessage({
+    customerName: booking.customerName,
+    publicBookingId,
+    deliveryDate: formatDate(booking.deliveryDate, "display"),
+    returnDate: formatDate(booking.returnDate, "display"),
+  });
+
+  const result = await sendWhatsAppText(phoneRaw, message);
+  await saveWhatsAppOutboundMessage({
+    bookingId,
+    phone: phoneRaw,
+    messageType: "text",
+    body: message,
+    metaMessageId: result.ok ? result.messageId : null,
+    status: result.ok ? "sent" : "failed",
+    error: result.ok ? null : result.error,
+    isAutomated: true,
+  });
+
+  return result.ok
+    ? { ok: true, phone: phoneRaw, messageId: result.messageId }
+    : { ok: false, error: result.error, phone: phoneRaw };
 }
 
 export async function sendBookingReminderWhatsApp(
   bookingId: number,
-): Promise<{ ok: boolean; error?: string; skipped?: boolean }> {
+): Promise<WhatsAppSendOutcome> {
   if (!isWhatsAppConfigured()) {
     return { ok: false, error: "WhatsApp Meta API is not configured.", skipped: true };
   }
@@ -354,98 +426,19 @@ export async function sendBookingReminderWhatsApp(
     metaMessageId: result.ok ? result.messageId : null,
     status: result.ok ? "sent" : "failed",
     error: result.ok ? null : result.error,
+    isAutomated: true,
   });
 
-  return result.ok ? { ok: true } : { ok: false, error: result.error };
-}
-
-function buildReturnReceiptPdfInput(
-  booking: {
-    id: number;
-    publicBookingId: string | null;
-    monthlySerial: number;
-    customerName: string;
-    customerAddress: string;
-    contact1: string;
-    whatsappNo: string | null;
-    deliveryDate: Date;
-    deliveryTime: string;
-    returnDate: Date;
-    returnTime: string;
-    venue: string | null;
-    staffNames: string | null;
-    securityDeposit: number;
-    totalPrice: number;
-    totalAdvance: number;
-    totalRemaining: number;
-    commonNotes: string | null;
-    status: string;
-    returnedAt: Date | null;
-    securityCollected: number;
-    securityHeld: number;
-    refundAmount: number;
-    remainingCollected: number;
-    incompleteNotes: string | null;
-    deliveryNotes: string | null;
-    dressName: string | null;
-    notes: string | null;
-  },
-  items: BookingBillPdfInput["items"],
-  qrDataUrl: string,
-): BookingBillPdfInput {
-  const publicBookingId =
-    resolvePublicBookingId(booking);
-  const actual = formatSlipDateTime(booking.returnedAt);
-  const securityRefunded = Math.max(
-    0,
-    booking.refundAmount || booking.securityCollected - booking.securityHeld,
-  );
-
-  return {
-    booking: {
-      publicBookingId,
-      customerName: booking.customerName,
-      customerAddress: booking.customerAddress || "",
-      contact1: booking.contact1 || "",
-      whatsappNo: booking.whatsappNo || booking.contact1 || "",
-      deliveryDate: formatDate(booking.deliveryDate, "display"),
-      deliveryTime: booking.deliveryTime || "",
-      returnDate: formatDate(booking.returnDate, "display"),
-      returnTime: booking.returnTime || "",
-      venue: booking.venue,
-      staffNames: booking.staffNames,
-      securityDeposit: booking.securityDeposit || 0,
-      totalPrice: booking.totalPrice,
-      totalAdvance: booking.totalAdvance,
-      totalRemaining: booking.totalRemaining,
-      commonNotes: booking.commonNotes,
-      monthlySerial: booking.monthlySerial,
-    },
-    items,
-    qrDataUrl,
-    businessName: BUSINESS_NAME,
-    businessPhone: BUSINESS_PHONE,
-    businessAddress: BUSINESS_ADDRESS,
-    isReturned: true,
-    actualReturnDate: actual.date,
-    actualReturnTime: actual.time,
-    securityRefunded,
-    lateFee: 0,
-    damageCharge:
-      booking.status === "incomplete_return" ? Math.max(0, booking.securityHeld) : 0,
-    remainingCollected: booking.remainingCollected,
-    returnNotes: booking.incompleteNotes || booking.deliveryNotes,
-  };
+  return result.ok
+    ? { ok: true, phone: phoneRaw, messageId: result.messageId }
+    : { ok: false, error: result.error, phone: phoneRaw };
 }
 
 export async function sendReturnReceiptWhatsApp(
   bookingId: number,
   requestOrigin?: string,
-): Promise<{ ok: boolean; error?: string; skipped?: boolean }> {
-  const booking = await prisma.booking.findUnique({
-    where: { id: bookingId },
-    include: { bookingItems: { include: { item: true } } },
-  });
+): Promise<WhatsAppSendOutcome> {
+  const booking = await fetchBookingForSlip(bookingId);
   if (!booking) return { ok: false, error: "Booking not found" };
   if (booking.status !== "returned") {
     return { ok: false, error: "Booking must be returned to send return receipt" };
@@ -460,107 +453,141 @@ export async function sendReturnReceiptWhatsApp(
     return { ok: false, error: "WhatsApp Meta API is not configured.", skipped: true };
   }
 
-  const publicBookingId =
-    resolvePublicBookingId(booking);
+  const unnotified = booking.bookingItems.filter(
+    (bi) => bi.isDelivered && !bi.returnSlipNotifiedAt,
+  );
+  if (unnotified.length === 0) {
+    return { ok: true, phone: phoneRaw, skipped: true };
+  }
 
-  const qrToken = await ensureBookingQrToken(bookingId);
-  const qrDataUrl = await bookingQrDataUrl(qrToken, requestOrigin, 280);
-
-  const items: BookingBillPdfInput["items"] =
-    booking.bookingItems.length > 0
-      ? booking.bookingItems.map((bi) => ({
-          dressName: bi.dressName,
-          category: bi.category || "",
-          size: bi.size || bi.item?.size || "",
-          price: bi.price,
-          advance: bi.advance,
-          remaining: bi.remaining,
-          notes: bi.notes,
-          imageUrl: bi.item?.photo ? photoUrl(bi.item.photo) : null,
-        }))
-      : booking.dressName
-        ? [
-            {
-              dressName: booking.dressName,
-              category: "",
-              size: "",
-              price: booking.totalPrice,
-              advance: booking.totalAdvance,
-              remaining: booking.totalRemaining,
-              notes: booking.notes,
-              imageUrl: null,
-            },
-          ]
-        : [];
-
-  const pdfInput = buildReturnReceiptPdfInput(booking, items, qrDataUrl);
+  const publicBookingId = resolvePublicBookingId(booking);
 
   let pdfBuffer: Buffer;
   try {
-    pdfBuffer = await generateReturnReceiptPdf(pdfInput);
+    pdfBuffer = await generateReturnSlipPdf(bookingId, requestOrigin, { scope: "full" });
   } catch (e) {
     const err = e instanceof Error ? e.message : "PDF generation failed";
     console.error("[sendReturnReceiptWhatsApp] PDF error:", err);
     return { ok: false, error: err };
   }
 
-  let pdfUrl: string;
+  let pdfUrl = "";
   try {
-    pdfUrl = await uploadReturnReceiptPdf(pdfBuffer, publicBookingId);
+    pdfUrl = await uploadReturnSlipPdf(pdfBuffer, publicBookingId);
   } catch (e) {
-    const err = e instanceof Error ? e.message : "PDF upload failed";
-    console.error("[sendReturnReceiptWhatsApp] Upload error:", err);
-    return { ok: false, error: err };
+    console.warn("[sendReturnReceiptWhatsApp] Archive upload failed:", e);
   }
 
   const filename = returnReceiptPdfFilename(publicBookingId);
-  const thankYou =
-    `Dear ${booking.customerName}, 🙏\n` +
-    `Your booking ${publicBookingId} has been successfully returned and settled.\n` +
-    `Thank you for choosing Team Fancy Collection!\n` +
-    `We look forward to serving you again.`;
+  const caption = returnSlipWhatsAppCaption(booking.customerName, publicBookingId);
 
-  let textResult: { ok: boolean; messageId?: string; error?: string } = { ok: false };
-  try {
-    textResult = await sendWhatsAppText(phoneRaw, thankYou);
-  } catch {
-    console.warn("[sendReturnReceiptWhatsApp] Text message failed");
-  }
-  await saveWhatsAppOutboundMessage({
-    bookingId,
-    phone: phoneRaw,
-    messageType: "text",
-    body: thankYou,
-    metaMessageId: textResult.ok ? textResult.messageId : null,
-    status: textResult.ok ? "sent" : "failed",
-    error: textResult.ok ? null : (textResult.error ?? null),
-  });
-
-  await sleep(1500);
-
-  const docCaption = `✅ Return Receipt — ${publicBookingId} | Team Fancy Collection`;
-  const docResult = await sendWhatsAppDocument(phoneRaw, pdfUrl, filename, docCaption);
+  const docResult = await sendWhatsAppDocumentBuffer(
+    phoneRaw,
+    pdfBuffer,
+    filename,
+    caption,
+  );
 
   await saveWhatsAppOutboundMessage({
     bookingId,
     phone: phoneRaw,
     messageType: "document",
-    body: docCaption,
-    mediaUrl: pdfUrl,
+    body: caption,
+    mediaUrl: pdfUrl || null,
     filename,
     metaMessageId: docResult.ok ? docResult.messageId : null,
     status: docResult.ok ? "sent" : "failed",
     error: docResult.ok ? null : (docResult.error ?? null),
+    isAutomated: true,
   });
 
   if (!docResult.ok) {
-    return { ok: false, error: docResult.error };
+    return { ok: false, error: docResult.error, phone: phoneRaw };
   }
 
-  return { ok: true };
+  await prisma.bookingItem.updateMany({
+    where: {
+      bookingId,
+      isDelivered: true,
+      returnSlipNotifiedAt: null,
+    },
+    data: { returnSlipNotifiedAt: new Date() },
+  });
+
+  return { ok: true, phone: phoneRaw, messageId: docResult.messageId };
 }
 
 type SlipJobScope = "full" | "single" | "combined";
+
+type SlipSendPayload = {
+  scope: SlipJobScope;
+  bookingItemId?: number;
+  bookingItemIds?: number[];
+};
+
+async function markDeliverySlipNotified(bookingItemIds: number[]) {
+  if (!bookingItemIds.length) return;
+  await prisma.bookingItem.updateMany({
+    where: { id: { in: bookingItemIds }, deliverySlipNotifiedAt: null },
+    data: { deliverySlipNotifiedAt: new Date() },
+  });
+}
+
+async function markReturnSlipNotified(bookingItemIds: number[]) {
+  if (!bookingItemIds.length) return;
+  await prisma.bookingItem.updateMany({
+    where: { id: { in: bookingItemIds }, returnSlipNotifiedAt: null },
+    data: { returnSlipNotifiedAt: new Date() },
+  });
+}
+
+function slipItemIds(payload: SlipSendPayload): number[] {
+  if (payload.bookingItemIds?.length) return payload.bookingItemIds;
+  if (payload.bookingItemId != null) return [payload.bookingItemId];
+  return [];
+}
+
+async function deliverySlipAlreadySent(
+  bookingId: number,
+  payload: SlipSendPayload,
+): Promise<boolean> {
+  const ids = slipItemIds(payload);
+  if (ids.length) {
+    const pending = await prisma.bookingItem.count({
+      where: { id: { in: ids }, deliverySlipNotifiedAt: null },
+    });
+    return pending === 0;
+  }
+  if (payload.scope === "full") {
+    const pending = await prisma.bookingItem.count({
+      where: { bookingId, isDelivered: true, deliverySlipNotifiedAt: null },
+    });
+    return pending === 0;
+  }
+  return false;
+}
+
+async function returnSlipAlreadySent(
+  bookingId: number,
+  payload: SlipSendPayload,
+): Promise<boolean> {
+  const ids = slipItemIds(payload);
+  if (ids.length) {
+    const pending = await prisma.bookingItem.count({
+      where: { id: { in: ids }, returnSlipNotifiedAt: null },
+    });
+    return pending === 0;
+  }
+  const pending = await prisma.bookingItem.count({
+    where: {
+      bookingId,
+      isReturned: true,
+      isIncompleteReturn: false,
+      returnSlipNotifiedAt: null,
+    },
+  });
+  return pending === 0;
+}
 
 async function fetchBookingForSlip(bookingId: number) {
   return prisma.booking.findUnique({
@@ -574,30 +601,12 @@ async function sendSlipDocument(opts: {
   phoneRaw: string;
   caption: string;
   filename: string;
-  pdfUrl: string;
-}) {
-  const intro = opts.caption.split("\n")[0];
-  let textResult: { ok: boolean; messageId?: string; error?: string } = { ok: false };
-  try {
-    textResult = await sendWhatsAppText(opts.phoneRaw, intro);
-  } catch {
-    console.warn("[sendSlipDocument] intro text failed");
-  }
-  await saveWhatsAppOutboundMessage({
-    bookingId: opts.bookingId,
-    phone: opts.phoneRaw,
-    messageType: "text",
-    body: intro,
-    metaMessageId: textResult.ok ? textResult.messageId : null,
-    status: textResult.ok ? "sent" : "failed",
-    error: textResult.ok ? null : (textResult.error ?? null),
-  });
-
-  await sleep(1500);
-
-  const docResult = await sendWhatsAppDocument(
+  pdfBuffer: Buffer;
+  pdfUrl?: string;
+}): Promise<WhatsAppSendOutcome> {
+  const docResult = await sendWhatsAppDocumentBuffer(
     opts.phoneRaw,
-    opts.pdfUrl,
+    opts.pdfBuffer,
     opts.filename,
     opts.caption,
   );
@@ -606,22 +615,25 @@ async function sendSlipDocument(opts: {
     phone: opts.phoneRaw,
     messageType: "document",
     body: opts.caption,
-    mediaUrl: opts.pdfUrl,
+    mediaUrl: opts.pdfUrl ?? null,
     filename: opts.filename,
     metaMessageId: docResult.ok ? docResult.messageId : null,
     status: docResult.ok ? "sent" : "failed",
     error: docResult.ok ? null : (docResult.error ?? null),
+    isAutomated: true,
   });
 
-  if (!docResult.ok) return { ok: false as const, error: docResult.error };
-  return { ok: true as const };
+  if (!docResult.ok) {
+    return { ok: false, error: docResult.error, phone: opts.phoneRaw };
+  }
+  return { ok: true, phone: opts.phoneRaw, messageId: docResult.messageId };
 }
 
 export async function sendDeliverySlipWhatsApp(
   bookingId: number,
-  payload: { scope: SlipJobScope; bookingItemId?: number },
+  payload: SlipSendPayload,
   requestOrigin?: string,
-): Promise<{ ok: boolean; error?: string; skipped?: boolean }> {
+): Promise<WhatsAppSendOutcome> {
   const booking = await fetchBookingForSlip(bookingId);
   if (!booking) return { ok: false, error: "Booking not found" };
 
@@ -634,24 +646,19 @@ export async function sendDeliverySlipWhatsApp(
     return { ok: false, error: "WhatsApp Meta API is not configured.", skipped: true };
   }
 
-  const publicBookingId = resolvePublicBookingId(booking);
-  const slipData = buildDeliverySlipData(booking, {
-    scope: payload.scope,
-    bookingItemId: payload.scope === "single" ? payload.bookingItemId : undefined,
-  });
+  if (await deliverySlipAlreadySent(bookingId, payload)) {
+    return { ok: true, phone: phoneRaw, skipped: true };
+  }
 
-  const qrToken = await ensureBookingQrToken(bookingId);
-  const qrDataUrl = await bookingQrDataUrl(qrToken, requestOrigin, 200);
+  const publicBookingId = resolvePublicBookingId(booking);
+  const itemIds = slipItemIds(payload);
 
   let pdfBuffer: Buffer;
   try {
-    pdfBuffer = await generateDeliverySlipPdf({
-      ...slipData,
-      qrDataUrl,
-      businessName: SLIP_BIZ.name,
-      businessPhone: SLIP_BIZ.phone,
-      businessAddress: SLIP_BIZ.address,
-      businessTagline: SLIP_BIZ.tagline,
+    pdfBuffer = await generateDeliverySlipPdf(bookingId, requestOrigin, {
+      scope: payload.scope,
+      bookingItemId: payload.scope === "single" ? payload.bookingItemId : undefined,
+      bookingItemIds: itemIds.length ? itemIds : undefined,
     });
   } catch (e) {
     return { ok: false, error: e instanceof Error ? e.message : "PDF generation failed" };
@@ -663,26 +670,37 @@ export async function sendDeliverySlipWhatsApp(
       : payload.scope === "combined"
         ? "_partial"
         : "";
-  let pdfUrl: string;
+  let pdfUrl = "";
   try {
     pdfUrl = await uploadDeliverySlipPdf(pdfBuffer, publicBookingId, suffix);
   } catch (e) {
-    return { ok: false, error: e instanceof Error ? e.message : "PDF upload failed" };
+    console.warn("[sendDeliverySlipWhatsApp] Archive upload failed:", e);
   }
 
   const filename = deliverySlipPdfFilename(publicBookingId, suffix);
-  const caption =
-    `📦 Delivery Slip — ${publicBookingId}\n` +
-    `Dear ${booking.customerName}, your dress(es) have been delivered. Please see the attached slip.`;
+  const caption = deliverySlipWhatsAppCaption(booking.customerName, publicBookingId);
 
-  return sendSlipDocument({ bookingId, phoneRaw, caption, filename, pdfUrl });
+  const result = await sendSlipDocument({ bookingId, phoneRaw, caption, filename, pdfBuffer, pdfUrl });
+  if (result.ok) {
+    const markIds =
+      itemIds.length > 0
+        ? itemIds
+        : (
+            await prisma.bookingItem.findMany({
+              where: { bookingId, isDelivered: true, deliverySlipNotifiedAt: null },
+              select: { id: true },
+            })
+          ).map((r) => r.id);
+    await markDeliverySlipNotified(markIds);
+  }
+  return result;
 }
 
 export async function sendPartialReturnSlipWhatsApp(
   bookingId: number,
-  payload: { scope: SlipJobScope; bookingItemId?: number },
+  payload: SlipSendPayload,
   requestOrigin?: string,
-): Promise<{ ok: boolean; error?: string; skipped?: boolean }> {
+): Promise<WhatsAppSendOutcome> {
   const booking = await fetchBookingForSlip(bookingId);
   if (!booking) return { ok: false, error: "Booking not found" };
 
@@ -695,23 +713,19 @@ export async function sendPartialReturnSlipWhatsApp(
     return { ok: false, error: "WhatsApp Meta API is not configured.", skipped: true };
   }
 
-  const publicBookingId = resolvePublicBookingId(booking);
-  const slipData = buildReturnSlipData(booking, {
-    scope: payload.scope === "full" ? "full" : payload.scope,
-    bookingItemId: payload.scope === "single" ? payload.bookingItemId : undefined,
-  });
+  if (await returnSlipAlreadySent(bookingId, payload)) {
+    return { ok: true, phone: phoneRaw, skipped: true };
+  }
 
-  const qrToken = await ensureBookingQrToken(bookingId);
-  const qrDataUrl = await bookingQrDataUrl(qrToken, requestOrigin, 200);
+  const publicBookingId = resolvePublicBookingId(booking);
+  const itemIds = slipItemIds(payload);
 
   let pdfBuffer: Buffer;
   try {
-    pdfBuffer = await generateReturnSlipPdf({
-      ...slipData,
-      qrDataUrl,
-      businessName: SLIP_BIZ.name,
-      businessPhone: SLIP_BIZ.phone,
-      businessAddress: SLIP_BIZ.address,
+    pdfBuffer = await generateReturnSlipPdf(bookingId, requestOrigin, {
+      scope: payload.scope === "full" ? "full" : payload.scope,
+      bookingItemId: payload.scope === "single" ? payload.bookingItemId : undefined,
+      bookingItemIds: itemIds.length ? itemIds : undefined,
     });
   } catch (e) {
     return { ok: false, error: e instanceof Error ? e.message : "PDF generation failed" };
@@ -723,25 +737,42 @@ export async function sendPartialReturnSlipWhatsApp(
       : payload.scope === "combined"
         ? "_partial"
         : "";
-  let pdfUrl: string;
+  let pdfUrl = "";
   try {
     pdfUrl = await uploadReturnSlipPdf(pdfBuffer, publicBookingId, suffix);
   } catch (e) {
-    return { ok: false, error: e instanceof Error ? e.message : "PDF upload failed" };
+    console.warn("[sendPartialReturnSlipWhatsApp] Archive upload failed:", e);
   }
 
   const filename = returnSlipPdfFilename(publicBookingId, suffix);
-  const caption =
-    `✅ Return Receipt — ${publicBookingId}\n` +
-    `Dear ${booking.customerName}, thank you for returning your dress(es). Receipt attached.`;
+  const caption = returnSlipWhatsAppCaption(booking.customerName, publicBookingId);
 
-  return sendSlipDocument({ bookingId, phoneRaw, caption, filename, pdfUrl });
+  const result = await sendSlipDocument({ bookingId, phoneRaw, caption, filename, pdfBuffer, pdfUrl });
+  if (result.ok) {
+    const markIds =
+      itemIds.length > 0
+        ? itemIds
+        : (
+            await prisma.bookingItem.findMany({
+              where: {
+                bookingId,
+                isReturned: true,
+                isIncompleteReturn: false,
+                returnSlipNotifiedAt: null,
+              },
+              select: { id: true },
+            })
+          ).map((r) => r.id);
+    await markReturnSlipNotified(markIds);
+  }
+  return result;
 }
 
 export async function sendIncompleteSlipWhatsApp(
   bookingId: number,
-  _requestOrigin?: string,
-): Promise<{ ok: boolean; error?: string; skipped?: boolean }> {
+  payload: SlipSendPayload,
+  requestOrigin?: string,
+): Promise<WhatsAppSendOutcome> {
   const booking = await fetchBookingForSlip(bookingId);
   if (!booking) return { ok: false, error: "Booking not found" };
 
@@ -754,32 +785,50 @@ export async function sendIncompleteSlipWhatsApp(
     return { ok: false, error: "WhatsApp Meta API is not configured.", skipped: true };
   }
 
+  const itemIds = slipItemIds(payload);
+  const ids =
+    itemIds.length > 0
+      ? itemIds
+      : booking.bookingItems
+          .filter((bi) => bi.isIncompleteReturn && !bi.returnSlipNotifiedAt)
+          .map((bi) => bi.id);
+
+  if (ids.length === 0) {
+    return { ok: true, phone: phoneRaw, skipped: true };
+  }
+
   const publicBookingId = resolvePublicBookingId(booking);
-  const slipData = buildIncompleteSlipData(booking);
 
   let pdfBuffer: Buffer;
   try {
-    pdfBuffer = await generateIncompleteSlipPdf({
-      ...slipData,
-      businessName: SLIP_BIZ.name,
-      businessPhone: SLIP_BIZ.phone,
-      businessAddress: SLIP_BIZ.address,
+    pdfBuffer = await generateIncompleteSlipPdf(bookingId, requestOrigin, {
+      scope: payload.scope === "full" ? "combined" : payload.scope,
+      bookingItemId: payload.scope === "single" ? payload.bookingItemId : undefined,
+      bookingItemIds: ids,
     });
   } catch (e) {
     return { ok: false, error: e instanceof Error ? e.message : "PDF generation failed" };
   }
 
-  let pdfUrl: string;
+  const suffix =
+    payload.scope === "single" && payload.bookingItemId
+      ? `_item${payload.bookingItemId}`
+      : payload.scope === "combined"
+        ? "_partial"
+        : "";
+  let pdfUrl = "";
   try {
-    pdfUrl = await uploadIncompleteSlipPdf(pdfBuffer, publicBookingId);
+    pdfUrl = await uploadIncompleteSlipPdf(pdfBuffer, publicBookingId, suffix);
   } catch (e) {
-    return { ok: false, error: e instanceof Error ? e.message : "PDF upload failed" };
+    console.warn("[sendIncompleteSlipWhatsApp] Archive upload failed:", e);
   }
 
-  const filename = incompleteSlipPdfFilename(publicBookingId);
-  const caption =
-    `⚠️ Incomplete Return Notice — ${publicBookingId}\n` +
-    `Dear ${booking.customerName}, some item(s) were not fully returned. Details in the attached slip.`;
+  const filename = incompleteSlipPdfFilename(publicBookingId, suffix);
+  const caption = incompleteSlipWhatsAppCaption(booking.customerName, publicBookingId);
 
-  return sendSlipDocument({ bookingId, phoneRaw, caption, filename, pdfUrl });
+  const result = await sendSlipDocument({ bookingId, phoneRaw, caption, filename, pdfBuffer, pdfUrl });
+  if (result.ok) {
+    await markReturnSlipNotified(ids);
+  }
+  return result;
 }

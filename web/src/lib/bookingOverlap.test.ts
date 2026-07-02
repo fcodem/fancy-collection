@@ -40,8 +40,32 @@ describe("booking overlap business rules (regression spec)", () => {
     assert.equal(classifyOverlap(existingD, existingR, "2026-06-26", "2026-06-28"), "blocked");
   });
 
-  it("allows non-overlapping dates", () => {
+  it("blocks partial overlap (27-29 vs 26-28)", () => {
+    assert.equal(classifyOverlap(existingD, existingR, "2026-06-27", "2026-06-29"), "blocked");
+  });
+
+  it("blocks exact duplicate dates", () => {
+    assert.equal(classifyOverlap(existingD, existingR, "2026-06-26", "2026-06-28"), "blocked");
+  });
+
+  it("allows booking ending on existing delivery day (booked warning)", () => {
+    assert.equal(classifyOverlap(existingD, existingR, "2026-06-24", "2026-06-26"), "booked_warning");
+  });
+
+  it("allows booking starting on existing return day (returning warning)", () => {
+    assert.equal(classifyOverlap(existingD, existingR, "2026-06-28", "2026-07-02"), "returning_warning");
+  });
+
+  it("blocks when new period fully contains existing", () => {
+    assert.equal(classifyOverlap(existingD, existingR, "2026-06-25", "2026-06-29"), "blocked");
+  });
+
+  it("blocks when existing fully contains new period", () => {
+    assert.equal(classifyOverlap(existingD, existingR, "2026-06-27", "2026-06-27"), "blocked");
+  });
+
+  it("allows multiple non-overlapping bookings on adjacent days", () => {
     assert.equal(classifyOverlap(existingD, existingR, "2026-06-20", "2026-06-25"), "clear");
-    assert.equal(classifyOverlap(existingD, existingR, "2026-06-29", "2026-07-01"), "clear");
+    assert.equal(classifyOverlap(existingD, existingR, "2026-06-29", "2026-07-05"), "clear");
   });
 });
