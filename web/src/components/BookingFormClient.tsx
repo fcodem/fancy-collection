@@ -23,6 +23,7 @@ import type { CSSProperties, ReactNode } from "react";
 import { useRouter } from "next/navigation";
 import { useCallback, useEffect, useMemo, useRef, useState } from "react";
 import DressNameSuggestInput from "@/components/DressNameSuggestInput";
+import PhotoCaptureButton from "@/components/PhotoCaptureButton";
 import TypeableDateInput from "@/components/TypeableDateInput";
 import { addDaysIso } from "@/lib/dateInput";
 import BookingConflictSummary from "@/components/BookingConflictSummary";
@@ -165,6 +166,32 @@ type SelectedDress = {
 
 
 
+type OrderRow = {
+
+  id?: number;
+
+  description: string;
+
+  cost: number;
+
+  advance: number;
+
+  advance_payment_mode?: "cash" | "online";
+
+  photo: string;
+
+  photoPreview?: string;
+
+  uploading?: boolean;
+
+  delivery_date: string;
+
+  delivery_time: string;
+
+};
+
+
+
 type Props = {
 
   editId?: number;
@@ -198,6 +225,8 @@ type Props = {
     return_time: string;
 
     items: SelectedDress[];
+
+    orders?: OrderRow[];
 
   };
 
@@ -368,6 +397,11 @@ export default function BookingFormClient(props: Props) {
 
   const [selectedDresses, setSelectedDresses] = useState<SelectedDress[]>(props.initial?.items || []);
 
+  const [orders, setOrders] = useState<OrderRow[]>(props.initial?.orders || []);
+
+  /** Orders panel: expanded by default so entered details stay visible. */
+  const [ordersListExpanded, setOrdersListExpanded] = useState(true);
+
   const [loading, setLoading] = useState(false);
 
   const [saving, setSaving] = useState(false);
@@ -433,6 +467,36 @@ export default function BookingFormClient(props: Props) {
     }
 
   }, [props.editId, props.initial?.monthly_serial]);
+
+
+
+  /** Clears all fields after a new booking is saved so staff can enter the next one. */
+  const resetFormForNewBooking = useCallback(() => {
+    const t = todayIso();
+    setDeliveryDate(t);
+    setReturnDate(addDaysIso(t, 1));
+    setDeliveryTime("12:00 Noon");
+    setReturnTime("12:00 Noon");
+    setCustomerName("");
+    setCustomerAddress("");
+    setContact1("");
+    setWhatsapp("");
+    setVenue("");
+    setSecurityDeposit(0);
+    setPaymentMode("cash");
+    setCommonNotes("");
+    setStaffNames([]);
+    setSelectedDresses([]);
+    setOrders([]);
+    setCategoryFilter("");
+    setSizeFilter("");
+    setNameSearch("");
+    setDateCheckResults([]);
+    setDateCheckLoading(false);
+    setError("");
+    setSerialDisplay("--");
+    void updateSerial(t);
+  }, [updateSerial]);
 
 
 
@@ -679,11 +743,82 @@ export default function BookingFormClient(props: Props) {
 
 
 
+  function addOrder() {
+    setOrders((prev) => [
+      ...prev,
+      {
+        description: "",
+        cost: 0,
+        advance: 0,
+        advance_payment_mode: paymentMode,
+        photo: "",
+        delivery_date: deliveryDate || today,
+        delivery_time: "12:00 Noon",
+      },
+    ]);
+  }
+
+  function removeOrder(index: number) {
+    setOrders((prev) => prev.filter((_, i) => i !== index));
+  }
+
+  function updateOrderField(index: number, field: keyof OrderRow, value: string | number) {
+    setOrders((prev) => {
+      const next = [...prev];
+      next[index] = { ...next[index], [field]: value };
+      return next;
+    });
+  }
+
+  async function uploadOrderPhoto(index: number, file: File) {
+    const previewUrl = URL.createObjectURL(file);
+    setOrders((prev) => {
+      const next = [...prev];
+      next[index] = { ...next[index], photoPreview: previewUrl, uploading: true };
+      return next;
+    });
+    try {
+      const form = new FormData();
+      form.append("file", file);
+      const res = await fetch("/api/uploads/order-photo", {
+        method: "POST",
+        body: form,
+        credentials: "same-origin",
+      });
+      const data = await res.json();
+      if (!res.ok) throw new Error(data.error || "Upload failed");
+      setOrders((prev) => {
+        const next = [...prev];
+        if (next[index]) next[index] = { ...next[index], photo: data.photo, uploading: false };
+        return next;
+      });
+    } catch (e) {
+      toast(e instanceof Error ? e.message : "Photo upload failed", "error");
+      setOrders((prev) => {
+        const next = [...prev];
+        if (next[index]) next[index] = { ...next[index], uploading: false };
+        return next;
+      });
+    }
+  }
+
   const totalPrice = selectedDresses.reduce((s, d) => s + (d.price || 0), 0);
 
   const totalAdvance = selectedDresses.reduce((s, d) => s + (d.advance || 0), 0);
 
   const totalRemaining = Math.max(0, totalPrice - totalAdvance);
+
+  const ordersCost = orders.reduce((s, o) => s + (o.cost || 0), 0);
+
+  const ordersAdvance = orders.reduce((s, o) => s + (o.advance || 0), 0);
+
+  const ordersRemaining = orders.reduce((s, o) => s + Math.max(0, (o.cost || 0) - (o.advance || 0)), 0);
+
+  const grandTotalCost = totalPrice + ordersCost;
+
+  const grandTotalAdvance = totalAdvance + ordersAdvance;
+
+  const grandTotalRemaining = totalRemaining + ordersRemaining;
 
 
 
@@ -716,7 +851,7 @@ export default function BookingFormClient(props: Props) {
 
 
   /** Validates form, POST/PUT booking (or prospect lead), then redirects. */
-  async function save(printAfter = false) {
+  async function save() {
     if (readOnly) return;
 
     setError("");
@@ -807,6 +942,19 @@ export default function BookingFormClient(props: Props) {
 
       })),
 
+      orders: orders
+        .filter((o) => o.description.trim())
+        .map((o) => ({
+          ...(o.id ? { id: o.id } : {}),
+          description: o.description,
+          cost: o.cost || 0,
+          advance: o.advance || 0,
+          advance_payment_mode: props.editId ? (o.advance_payment_mode || "cash") : paymentMode,
+          photo: o.photo || undefined,
+          delivery_date: o.delivery_date,
+          delivery_time: o.delivery_time,
+        })),
+
     };
 
 
@@ -843,11 +991,13 @@ export default function BookingFormClient(props: Props) {
       toast("✅ Booking Saved!", "success");
     }
 
-    if (printAfter) router.replace(`/booking/${bookingId}/slip?print=1`);
-    else if (isProspect) router.replace("/prospect-leads");
+    if (isProspect) router.replace("/prospect-leads");
     else if (!props.editId) {
       const serial = data.serial ?? data.monthly_serial;
+      resetFormForNewBooking();
       router.replace(`/booking/new?confirmed=1&serial=${serial ?? ""}`);
+      router.refresh();
+      window.scrollTo(0, 0);
     }
     else router.replace(props.afterSaveHref || `/booking/${bookingId}`);
 
@@ -1366,6 +1516,147 @@ export default function BookingFormClient(props: Props) {
 
 
 
+      {/* ── Custom Orders: newly-made items with their own delivery date/time ── */}
+      <div className="card" style={{ marginBottom: 20 }}>
+
+        <DressListAccordionHeader
+          expanded={ordersListExpanded}
+          onToggle={() => setOrdersListExpanded((v) => !v)}
+          title="Orders (Custom-Made)"
+          iconClass="fa-solid fa-scissors"
+          iconColor="var(--gold, #c9a846)"
+          badge={<span className="badge badge-available">{orders.length} order{orders.length === 1 ? "" : "s"}</span>}
+        />
+
+        {ordersListExpanded && (
+        <div className="card-body">
+
+          <p className="form-hint" style={{ marginTop: 0, marginBottom: 14 }}>
+            Add items to be freshly prepared on the customer&apos;s request. Set cost <strong>0</strong> if the item
+            is included in the rent.
+          </p>
+
+          {!orders.length ? (
+            <p style={{ textAlign: "center", color: "var(--text-muted)", padding: 16 }}>
+              No custom orders added yet.
+            </p>
+          ) : (
+            <div className="dress-picker-scroll">
+            {orders.map((o, i) => (
+              <div key={i} style={{ border: "1.5px solid var(--border)", borderRadius: 12, padding: 16, marginBottom: 14, background: "linear-gradient(135deg, rgba(201,168,70,0.04), rgba(123,31,69,0.02))" }}>
+
+                <div style={{ display: "flex", justifyContent: "space-between", alignItems: "center", marginBottom: 12, paddingBottom: 10, borderBottom: "1px solid var(--border)" }}>
+                  <div style={{ fontSize: 14, fontWeight: 700, color: "var(--primary)" }}>
+                    <i className="fa-solid fa-scissors" style={{ marginRight: 8 }} />
+                    Order #{i + 1}
+                  </div>
+                  <button type="button" onClick={() => removeOrder(i)} style={{ width: 30, height: 30, borderRadius: "50%", border: "none", background: "var(--danger-bg)", color: "var(--danger)", cursor: "pointer" }}>✕</button>
+                </div>
+
+                <div style={{ display: "grid", gridTemplateColumns: "1fr", gap: 12 }}>
+
+                  <div>
+                    <label className="form-label">Description / Note *</label>
+                    <textarea className="form-control" rows={2} value={o.description} onChange={(e) => updateOrderField(i, "description", e.target.value)} placeholder="Describe the custom order (fabric, measurements, design…)" />
+                  </div>
+
+                  <div className="payment-grid-3">
+                    <div>
+                      <label className="form-label">Total Cost (₹)</label>
+                      <input type="number" className="form-control" value={o.cost} min={0} onChange={(e) => updateOrderField(i, "cost", Number(e.target.value))} />
+                      {o.cost === 0 && (
+                        <span className="form-hint" style={{ color: "var(--gold, #c9a846)" }}>Included in rent</span>
+                      )}
+                    </div>
+                    <div>
+                      <label className="form-label">Advance (₹)</label>
+                      <input type="number" className="form-control" value={o.advance} min={0} onChange={(e) => updateOrderField(i, "advance", Number(e.target.value))} />
+                    </div>
+                    <div>
+                      <label className="form-label">Balance</label>
+                      <div style={{ padding: "8px 12px", background: "var(--danger-bg)", borderRadius: 8, textAlign: "center", fontSize: 16, fontWeight: 800, color: "var(--danger)" }}>
+                        ₹{formatInr(Math.max(0, (o.cost || 0) - (o.advance || 0)))}
+                      </div>
+                    </div>
+                  </div>
+
+                  {(o.advance || 0) > 0 && (
+                    <div style={{ marginBottom: 12, fontSize: 12, color: "var(--text-muted)", padding: "8px 12px", background: "var(--cream-dark)", borderRadius: 8 }}>
+                      <i className="fa-solid fa-circle-info" style={{ marginRight: 6 }} />
+                      Advance payment mode follows the booking: <strong>{paymentMode === "online" ? "Online" : "Cash"}</strong>
+                    </div>
+                  )}
+
+                  <div className="form-grid form-grid-2" style={{ gap: 12 }}>
+                    <div className="form-group" style={{ margin: 0 }}>
+                      <label className="form-label">Delivery Date *</label>
+                      <TypeableDateInput
+                        min={minDate}
+                        value={o.delivery_date}
+                        onChange={(v) => updateOrderField(i, "delivery_date", (v || "").slice(0, 10))}
+                      />
+                    </div>
+                    <div className="form-group" style={{ margin: 0 }}>
+                      <label className="form-label">Delivery Time *</label>
+                      <select className="form-control" value={o.delivery_time} onChange={(e) => updateOrderField(i, "delivery_time", e.target.value)}>
+                        {TIMES.map((t) => <option key={t} value={t}>{t}</option>)}
+                      </select>
+                    </div>
+                  </div>
+
+                  <div>
+                    <label className="form-label">Sample Photo</label>
+                    <PhotoCaptureButton
+                      label={`Order #${i + 1} sample`}
+                      modalTitle="Capture sample photo"
+                      previewUrl={o.photoPreview}
+                      savedUrl={photoUrl(o.photo)}
+                      onCapture={(file) => uploadOrderPhoto(i, file)}
+                      emptyHeight={100}
+                    />
+                    {o.uploading && (
+                      <span className="form-hint"><i className="fa-solid fa-spinner fa-spin" /> Uploading photo…</span>
+                    )}
+                  </div>
+
+                </div>
+
+              </div>
+            ))}
+            </div>
+          )}
+
+          {!readOnly && (
+            <button type="button" className="btn btn-outline" style={{ marginTop: 4 }} onClick={addOrder}>
+              <i className="fa-solid fa-plus" style={{ marginRight: 8 }} />
+              Add Order
+            </button>
+          )}
+
+          {orders.length > 0 && (
+            <div className="payment-grid-3" style={{ marginTop: 16 }}>
+              <div style={{ textAlign: "center", padding: 12, background: "var(--cream-dark)", borderRadius: 10 }}>
+                <div style={{ fontSize: 11, fontWeight: 600, color: "var(--text-muted)", textTransform: "uppercase" }}>Orders Cost</div>
+                <div style={{ fontSize: 20, fontWeight: 800, color: "var(--primary)" }}>₹{formatInr(ordersCost)}</div>
+              </div>
+              <div style={{ textAlign: "center", padding: 12, background: "var(--success-bg)", borderRadius: 10 }}>
+                <div style={{ fontSize: 11, fontWeight: 600, color: "var(--text-muted)", textTransform: "uppercase" }}>Orders Advance</div>
+                <div style={{ fontSize: 20, fontWeight: 800, color: "var(--success)" }}>₹{formatInr(ordersAdvance)}</div>
+              </div>
+              <div style={{ textAlign: "center", padding: 12, background: "var(--danger-bg)", borderRadius: 10 }}>
+                <div style={{ fontSize: 11, fontWeight: 600, color: "var(--text-muted)", textTransform: "uppercase" }}>Orders Balance</div>
+                <div style={{ fontSize: 20, fontWeight: 800, color: "var(--danger)" }}>₹{formatInr(ordersRemaining)}</div>
+              </div>
+            </div>
+          )}
+
+        </div>
+        )}
+
+      </div>
+
+
+
       {(dateCheckLoading || dateCheckResults.length > 0) && selectedDresses.length > 0 && (
 
         <BookingConflictSummary loading={dateCheckLoading} results={dateCheckResults} />
@@ -1384,9 +1675,13 @@ export default function BookingFormClient(props: Props) {
 
             <div style={{ textAlign: "center", padding: 14, background: "var(--cream-dark)", borderRadius: 10 }}>
 
-              <div style={{ fontSize: 11, fontWeight: 600, color: "var(--text-muted)", textTransform: "uppercase" }}>Total Rent</div>
+              <div style={{ fontSize: 11, fontWeight: 600, color: "var(--text-muted)", textTransform: "uppercase" }}>Total {ordersCost > 0 ? "(Rent + Orders)" : "Rent"}</div>
 
-              <div style={{ fontSize: 22, fontWeight: 800, color: "var(--primary)" }}>₹{formatInr(totalPrice)}</div>
+              <div style={{ fontSize: 22, fontWeight: 800, color: "var(--primary)" }}>₹{formatInr(grandTotalCost)}</div>
+
+              {ordersCost > 0 && (
+                <div style={{ fontSize: 10, color: "var(--text-muted)", marginTop: 2 }}>Rent ₹{formatInr(totalPrice)} · Orders ₹{formatInr(ordersCost)}</div>
+              )}
 
             </div>
 
@@ -1394,7 +1689,7 @@ export default function BookingFormClient(props: Props) {
 
               <div style={{ fontSize: 11, fontWeight: 600, color: "var(--text-muted)", textTransform: "uppercase" }}>Total Advance</div>
 
-              <div style={{ fontSize: 22, fontWeight: 800, color: "var(--success)" }}>₹{formatInr(totalAdvance)}</div>
+              <div style={{ fontSize: 22, fontWeight: 800, color: "var(--success)" }}>₹{formatInr(grandTotalAdvance)}</div>
 
             </div>
 
@@ -1402,7 +1697,7 @@ export default function BookingFormClient(props: Props) {
 
               <div style={{ fontSize: 11, fontWeight: 600, color: "var(--text-muted)", textTransform: "uppercase" }}>Total Remaining</div>
 
-              <div style={{ fontSize: 22, fontWeight: 800, color: "var(--danger)" }}>₹{formatInr(totalRemaining)}</div>
+              <div style={{ fontSize: 22, fontWeight: 800, color: "var(--danger)" }}>₹{formatInr(grandTotalRemaining)}</div>
 
             </div>
 
@@ -1436,23 +1731,9 @@ export default function BookingFormClient(props: Props) {
             />
           )}
           <div style={{ display: "flex", gap: 12, flexWrap: "wrap", alignItems: "center" }}>
-          {/* Primary action — one click saves and prints */}
-          {!isProspect && !props.editId ? (
-            <button type="button" className="btn btn-primary btn-lg" disabled={saving || dateCheckLoading || !selectedDresses.length || hasHardBlock} onClick={() => save(true)}>
-              <i className="fa-solid fa-print" style={{ marginRight: 8 }} />
-              {hasHardBlock ? "Cannot Save — Dress Booked" : saving ? "Saving…" : dateCheckLoading ? "Checking dates…" : "Confirm & Print Slip"}
-            </button>
-          ) : (
-            <button type="button" className="btn btn-primary btn-lg" disabled={saving || dateCheckLoading || !selectedDresses.length || hasHardBlock} onClick={() => save(false)}>
-              {hasHardBlock ? "Cannot Save — Dress Already Booked" : saving ? "Saving…" : dateCheckLoading ? "Checking dates…" : isProspect ? "Save Prospect Lead" : "Update Booking"}
-            </button>
-          )}
-          {/* Secondary: save without printing */}
-          {!isProspect && !props.editId && (
-            <button type="button" className="btn btn-outline btn-lg" disabled={saving || dateCheckLoading || !selectedDresses.length || hasHardBlock} onClick={() => save(false)}>
-              {dateCheckLoading ? "Checking dates…" : "Save Booking"}
-            </button>
-          )}
+          <button type="button" className="btn btn-primary btn-lg" disabled={saving || dateCheckLoading || !selectedDresses.length || hasHardBlock} onClick={() => save()}>
+            {hasHardBlock ? "Cannot Save — Dress Already Booked" : saving ? "Saving…" : dateCheckLoading ? "Checking dates…" : isProspect ? "Save Prospect Lead" : props.editId ? "Update Booking" : "Save Booking"}
+          </button>
           <a href={isProspect ? "/prospect-leads" : props.editId ? `/booking/${props.editId}` : "/booking"} className="btn btn-outline">Cancel</a>
           </div>
         </div>

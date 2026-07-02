@@ -4,7 +4,7 @@ import { createBooking } from "@/lib/services/bookingCrud";
 import { jsonError, jsonOk, requireUser, isResponse, requireJsonContentType } from "@/lib/api";
 import {
   scheduleBookingBill,
-  scheduleBookingReminder,
+  processWhatsAppJobQueue,
 } from "@/lib/services/whatsapp/jobQueue";
 import { BookingFormSchema } from "@/lib/validation";
 
@@ -22,20 +22,12 @@ export async function POST(req: NextRequest) {
     }
     const body = parseResult.data;
     const booking = await createBooking(body, user.username);
-    console.log("[booking POST] Booking created:", booking.id);
 
+    await scheduleBookingBill(booking.id, req.nextUrl.origin, user.username);
     try {
-      await scheduleBookingBill(booking.id, req.nextUrl.origin, user.username);
-      console.log("[booking POST] scheduleBookingBill queued for:", booking.id);
+      await processWhatsAppJobQueue(3, { bookingId: booking.id });
     } catch (e) {
-      console.error("[booking POST] scheduleBookingBill failed:", e);
-    }
-
-    try {
-      await scheduleBookingReminder(booking.id, body.return_date, user.username);
-      console.log("[booking POST] scheduleBookingReminder queued for:", booking.id);
-    } catch (e) {
-      console.error("[booking POST] scheduleBookingReminder failed:", e);
+      console.error("[booking POST] whatsapp queue error:", e);
     }
 
     return jsonOk({ ok: true, id: booking.id, serial: booking.monthlySerial });

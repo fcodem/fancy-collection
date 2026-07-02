@@ -116,6 +116,7 @@ export async function GET(req: NextRequest) {
       ...(categoryFilter ? { category: categoryFilter } : {}),
     },
     orderBy: [{ name: "asc" }, { size: "asc" }],
+    take: 100,
   });
 
   if (!items.length) {
@@ -138,11 +139,25 @@ export async function GET(req: NextRequest) {
         { bookingItems: { some: { itemId: { in: itemIds } } } },
       ],
     },
-    include: { bookingItems: true },
+    select: {
+      id: true,
+      customerName: true,
+      monthlySerial: true,
+      deliveryDate: true,
+      deliveryTime: true,
+      returnDate: true,
+      returnTime: true,
+      venue: true,
+      totalPrice: true,
+      price: true,
+      contact1: true,
+      itemId: true,
+      bookingItems: { select: { itemId: true } },
+    },
   });
 
   const results = items.map((item) => {
-    const avail = checkItemAvailabilityInMemory(item, dDateQ, rDateQ, overlappingBookings);
+    const avail = checkItemAvailabilityInMemory(item, dDateQ, rDateQ, overlappingBookings as BookingWithItems[]);
     return {
       id: item.id,
       name: item.name,

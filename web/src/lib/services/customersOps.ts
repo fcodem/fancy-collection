@@ -278,12 +278,27 @@ export async function shouldSkipCustomerCreate(contact: string, whatsapp?: strin
   const newKeys = phoneKeysFromParts(contact, whatsapp);
   if (!newKeys.length) return false;
 
-  const [customers, bookings] = await Promise.all([
-    prisma.customer.findMany({ select: { phone: true } }),
+  const searchTails = [...new Set(newKeys.filter((k) => k.length >= 10).map((k) => k.slice(-10)))];
+  if (!searchTails.length) return false;
+
+  const bookingPhoneOr = searchTails.flatMap((t) => [
+    { contact1: { contains: t } },
+    { contact2: { contains: t } },
+    { whatsappNo: { contains: t } },
+  ]);
+
+  const [bookings, customers] = await Promise.all([
     prisma.booking.findMany({
+      where: { OR: bookingPhoneOr },
       select: { contact1: true, contact2: true, whatsappNo: true },
     }),
+    prisma.customer.findMany({
+      where: { OR: searchTails.map((t) => ({ phone: { contains: t } })) },
+      select: { phone: true },
+    }),
   ]);
+
+  if (!customers.length) return false;
 
   const uf = new PhoneUnionFind();
   for (const b of bookings) uf.unionAll(bookingPhoneKeys(b as BookingRow));

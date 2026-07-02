@@ -450,6 +450,12 @@ export default function DashboardView({ data: initialData, isOwner, pendingStaff
           <div className="stat-value">{data.late_return_count}</div>
           <div className="stat-label">Late Returns</div>
         </Link>
+        <Link href="/orders" className="stat-card" style={{ textDecoration: "none", background: "linear-gradient(135deg,#b8860b,#8a6d1a)", color: "white" }}>
+          <div className="stat-icon" style={{ background: "rgba(255,255,255,0.15)", color: "white" }}><i className="fa-solid fa-scissors" /></div>
+          <div className="stat-value">{data.orders_due_soon_count}</div>
+          <div className="stat-label">Orders Due (3 days)</div>
+          <div style={{ fontSize: 10, opacity: 0.8, marginTop: 4 }}>Click to open list</div>
+        </Link>
       </div>
 
       <div style={{ marginBottom: 20, display: "flex", gap: 12, flexWrap: "wrap" }}>
@@ -633,6 +639,48 @@ export default function DashboardView({ data: initialData, isOwner, pendingStaff
           <strong>{data.stats.rented_items}</strong> Rented Out
         </div>
       </div>
+
+      {data.orders_due_soon_list.length > 0 && (
+        <div className="card mb-24" style={{ border: "2px solid #b8860b" }}>
+          <div className="card-header">
+            <h3 className="card-title" style={{ color: "#8a6d1a" }}>
+              <i className="fa-solid fa-bell" style={{ marginRight: 8 }} />
+              Custom Orders Due Soon
+            </h3>
+            <Link href="/orders" className="btn btn-gold btn-sm">View All Orders</Link>
+          </div>
+          <div className="card-body p-0">
+            {data.orders_due_soon_list.map((o) => {
+              const due = bookingDateLabel(o.deliveryDate);
+              const overdue = new Date(o.deliveryDate) < new Date(data.today_iso);
+              return (
+                <div key={o.id} style={{ display: "flex", alignItems: "flex-start", gap: 14, padding: "14px 20px", borderBottom: "1px solid var(--border)", flexWrap: "wrap", background: overdue ? "rgba(220,53,69,0.05)" : undefined }}>
+                  <div style={{ flex: 1, minWidth: 200 }}>
+                    <div style={{ fontWeight: 700 }}>
+                      <Link href={`/booking/${o.booking.id}`} style={{ color: "var(--primary)", textDecoration: "none" }}>
+                        #{serialLabel(o.booking.monthlySerial)} — {o.booking.customerName}
+                      </Link>
+                    </div>
+                    <div style={{ fontSize: 13, marginTop: 4 }}>{o.description}</div>
+                    <div style={{ fontSize: 12, color: "var(--text-muted)", marginTop: 4 }}>
+                      {o.booking.contact1 ? `📞 ${o.booking.contact1}` : ""}
+                      {o.cost === 0
+                        ? " · Included in rent"
+                        : ` · Cost ₹${formatInr(o.cost)} · Advance ₹${formatInr(o.advance)} · Balance ₹${formatInr(Math.max(0, o.balance))}`}
+                    </div>
+                  </div>
+                  <div style={{ textAlign: "right", minWidth: 130 }}>
+                    <div style={{ fontWeight: 700, color: overdue ? "var(--danger)" : "#8a6d1a" }}>
+                      {overdue ? "OVERDUE · " : ""}{due}
+                    </div>
+                    <div style={{ fontSize: 12, color: "var(--text-muted)" }}>{o.deliveryTime}</div>
+                  </div>
+                </div>
+              );
+            })}
+          </div>
+        </div>
+      )}
 
       {data.overdue_list.length > 0 && (
         <div className="card mb-24">

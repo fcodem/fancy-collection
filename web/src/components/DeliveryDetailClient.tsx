@@ -14,6 +14,7 @@ import type { BookingForStandardDetails } from "@/lib/bookingDetails";
 import type { ItemWarningSource } from "@/lib/bookingWarningPdf";
 import { formatInr } from "@/lib/format";
 import { photoUrl } from "@/lib/photoUrl";
+import ZoomableImage from "@/components/ZoomableImage";
 import { deliverySlipHref, hasPartialDelivery } from "@/lib/bookingStatus";
 
 type ItemRow = {
@@ -41,10 +42,27 @@ type BookingData = BookingForStandardDetails & {
   remainingCollected: number;
   securityCollected: number;
   deliveryNotes?: string | null;
+  totalPrice?: number;
+  price?: number;
+  totalAdvance?: number;
+  advance?: number;
   totalRemaining?: number;
   remaining?: number;
   remainingPaymentMode?: string | null;
   securityPaymentMode?: string | null;
+};
+
+type OrderRow = {
+  id: number;
+  description: string;
+  cost: number;
+  advance: number;
+  balance: number;
+  balanceCollected: number;
+  photo?: string | null;
+  deliveryDate: string;
+  deliveryTime: string;
+  includedInRent: boolean;
 };
 
 type ItemFormState = {
@@ -69,6 +87,7 @@ export default function DeliveryDetailClient({
   isDelivered = false,
   idPhoto1 = null,
   idPhoto2 = null,
+  orders = [],
 }: {
   booking: BookingData;
   items: ItemRow[];
@@ -77,6 +96,7 @@ export default function DeliveryDetailClient({
   isDelivered?: boolean;
   idPhoto1?: string | null;
   idPhoto2?: string | null;
+  orders?: OrderRow[];
 }) {
   const router = useRouter();
   const [localItems, setLocalItems] = useState(initialItems);
@@ -109,11 +129,22 @@ export default function DeliveryDetailClient({
   const [securityPaymentMode, setSecurityPaymentMode] = useState<PaymentMode>(
     booking.securityPaymentMode === "online" ? "online" : "cash",
   );
+  const [localOrders, setLocalOrders] = useState<OrderRow[]>(orders);
+  const [orderForms, setOrderForms] = useState<Record<number, string>>(() => {
+    const init: Record<number, string> = {};
+    for (const o of orders) init[o.id] = String(Math.max(0, o.balance - o.balanceCollected) || "");
+    return init;
+  });
+  const [orderBusy, setOrderBusy] = useState<number | null>(null);
 
   useEffect(() => {
     setLocalItems(initialItems);
     setBookingStatus(booking.status);
   }, [initialItems, booking.status]);
+
+  useEffect(() => {
+    setLocalOrders(orders);
+  }, [orders]);
 
   useEffect(() => {
     setSavedIdPhoto1(idPhoto1);
@@ -198,6 +229,7 @@ export default function DeliveryDetailClient({
     const pending = localItems.filter((it) => !it.isDelivered);
     if (!pending.length) { setSaving(false); return; }
     const payload = {
+      slip_finalize: true,
       payment_mode: paymentMode,
       security_payment_mode: securityPaymentMode,
       items: pending.map((it) => ({
@@ -274,6 +306,57 @@ export default function DeliveryDetailClient({
     }
   }
 
+  async function collectOrder(orderId: number) {
+    const o = localOrders.find((x) => x.id === orderId);
+    if (!o) return;
+    const amount = Number(orderForms[orderId]) || 0;
+    setOrderBusy(orderId);
+    setError("");
+    try {
+      const res = await fetch(`/api/booking/${booking.id}/orders/${orderId}/collect`, {
+        method: "POST",
+        headers: { "Content-Type": "application/json" },
+        body: JSON.stringify({ balance_collected: amount, payment_mode: paymentMode }),
+        credentials: "same-origin",
+      });
+      const data = await res.json();
+      if (!res.ok) {
+        setError(data.error || "Failed to collect order balance");
+        return;
+      }
+      const newCollected = data.order?.balanceCollected ?? o.balanceCollected + amount;
+      setLocalOrders((prev) => prev.map((x) => (x.id === orderId ? { ...x, balanceCollected: newCollected } : x)));
+      setOrderForms((prev) => ({ ...prev, [orderId]: String(Math.max(0, o.balance - newCollected) || "") }));
+    } finally {
+      setOrderBusy(null);
+    }
+  }
+
+  const orderDisplay = localOrders.map((o) => ({
+    description: o.description,
+    cost: o.cost,
+    advance: o.advance,
+    balance: Math.max(0, o.balance - o.balanceCollected),
+    photo: o.photo,
+    deliveryDate: o.deliveryDate,
+    deliveryTime: o.deliveryTime,
+    includedInRent: o.includedInRent,
+  }));
+
+  const dressTotal = booking.totalPrice ?? booking.price ?? 0;
+  const dressAdvance = booking.totalAdvance ?? booking.advance ?? 0;
+  const ordersCostSum = localOrders.reduce((s, o) => s + (o.cost || 0), 0);
+  const ordersAdvanceSum = localOrders.reduce((s, o) => s + (o.advance || 0), 0);
+  const ordersCollectedSum = localOrders.reduce((s, o) => s + (o.balanceCollected || 0), 0);
+  const dressRemainingCollected =
+    localItems.length > 0
+      ? localItems.reduce((s, it) => s + (it.itemRemainingCollected || 0), 0)
+      : booking.remainingCollected || 0;
+  const grandTotal = dressTotal + ordersCostSum;
+  const grandAdvance = dressAdvance + ordersAdvanceSum;
+  const balanceReceived = dressRemainingCollected + ordersCollectedSum;
+  const remainingBalance = Math.max(0, grandTotal - grandAdvance - balanceReceived);
+
   return (
     <div>
       {allDelivered && (
@@ -312,7 +395,7 @@ export default function DeliveryDetailClient({
           <p style={{ marginBottom: 12, fontSize: 14 }}>
             <strong>Serial:</strong> #{String(booking.monthlySerial).padStart(2, "0")}
           </p>
-          <BookingRecordDetails booking={booking} />
+          <BookingRecordDetails booking={booking} orders={orderDisplay} />
           {warningItems.length <= 1 && <BookingItemWarningsSection items={warningItems} />}
         </div>
       </div>
@@ -548,6 +631,131 @@ export default function DeliveryDetailClient({
               </button>
             </div>
           )}
+        </div>
+      </div>
+
+      {localOrders.length > 0 && (
+        <div className="card" style={{ marginTop: 24 }}>
+          <div className="card-header">
+            <h3 className="card-title">
+              <i className="fa-solid fa-scissors" style={{ marginRight: 8 }} />
+              Custom Orders — Collect Balance
+            </h3>
+          </div>
+          <div className="card-body">
+            {localOrders.map((o) => {
+              const outstanding = Math.max(0, o.balance - o.balanceCollected);
+              return (
+                <div
+                  key={o.id}
+                  style={{
+                    border: "1.5px solid var(--border)",
+                    borderRadius: 12,
+                    padding: 16,
+                    marginBottom: 16,
+                  }}
+                >
+                  <div style={{ display: "flex", alignItems: "center", gap: 12, marginBottom: 12, flexWrap: "wrap" }}>
+                    {o.photo && (
+                      <ZoomableImage src={photoUrl(o.photo)} alt={o.description} overlayCaption={o.description} style={{ width: 48, height: 48, borderRadius: 8, objectFit: "cover" }} />
+                    )}
+                    <div style={{ flex: 1, minWidth: 180 }}>
+                      <div style={{ fontWeight: 700 }}>{o.description}</div>
+                      <div style={{ fontSize: 12, color: "var(--text-muted)" }}>
+                        Delivery: {o.deliveryDate} {o.deliveryTime}
+                      </div>
+                    </div>
+                    {o.includedInRent ? (
+                      <span className="badge badge-info">Included in rent</span>
+                    ) : outstanding > 0 ? (
+                      <span className="badge badge-warning">Balance ₹{formatInr(outstanding)}</span>
+                    ) : (
+                      <span className="badge badge-success"><i className="fa-solid fa-check" /> Paid</span>
+                    )}
+                  </div>
+
+                  {!o.includedInRent && (
+                    <>
+                      <div style={{ display: "grid", gridTemplateColumns: "repeat(auto-fit, minmax(110px, 1fr))", gap: 10, fontSize: 13, marginBottom: 12 }}>
+                        <div>
+                          <div style={{ fontSize: 11, color: "var(--text-muted)", fontWeight: 700 }}>COST</div>
+                          <div>₹{formatInr(o.cost)}</div>
+                        </div>
+                        <div>
+                          <div style={{ fontSize: 11, color: "var(--text-muted)", fontWeight: 700 }}>ADVANCE</div>
+                          <div style={{ color: "var(--success)" }}>₹{formatInr(o.advance)}</div>
+                        </div>
+                        <div>
+                          <div style={{ fontSize: 11, color: "var(--text-muted)", fontWeight: 700 }}>COLLECTED</div>
+                          <div style={{ color: "var(--success)" }}>₹{formatInr(o.balanceCollected)}</div>
+                        </div>
+                        <div>
+                          <div style={{ fontSize: 11, color: "var(--text-muted)", fontWeight: 700 }}>OUTSTANDING</div>
+                          <div style={{ fontWeight: 700, color: outstanding > 0 ? "var(--danger)" : "var(--success)" }}>
+                            ₹{formatInr(outstanding)}
+                          </div>
+                        </div>
+                      </div>
+                      {outstanding > 0 && (
+                        <div style={{ display: "flex", gap: 10, alignItems: "flex-end", flexWrap: "wrap" }}>
+                          <div style={{ flex: 1, minWidth: 160 }}>
+                            <label className="form-label">Balance to Collect (₹)</label>
+                            <input
+                              type="number"
+                              className="form-control"
+                              value={orderForms[o.id] ?? ""}
+                              onChange={(e) => setOrderForms((prev) => ({ ...prev, [o.id]: e.target.value }))}
+                            />
+                          </div>
+                          <button
+                            className="btn btn-success"
+                            disabled={orderBusy === o.id}
+                            onClick={() => collectOrder(o.id)}
+                          >
+                            <i className="fa-solid fa-indian-rupee-sign" style={{ marginRight: 6 }} />
+                            {orderBusy === o.id ? "Saving…" : "Collect Balance"}
+                          </button>
+                        </div>
+                      )}
+                    </>
+                  )}
+                </div>
+              );
+            })}
+          </div>
+        </div>
+      )}
+
+      <div className="card" style={{ marginTop: 24 }}>
+        <div className="card-header">
+          <h3 className="card-title">
+            <i className="fa-solid fa-receipt" style={{ marginRight: 8 }} />
+            Payment Summary
+          </h3>
+        </div>
+        <div className="card-body">
+          <div style={{ display: "grid", gridTemplateColumns: "repeat(auto-fit, minmax(160px, 1fr))", gap: 14, fontSize: 14 }}>
+            <div>
+              <div style={{ fontSize: 11, color: "var(--text-muted)", fontWeight: 700 }}>TOTAL AMOUNT (RENT + ORDERS)</div>
+              <div style={{ fontWeight: 800, color: "var(--primary)", fontSize: 18 }}>₹{formatInr(grandTotal)}</div>
+            </div>
+            <div>
+              <div style={{ fontSize: 11, color: "var(--text-muted)", fontWeight: 700 }}>TOTAL ADVANCE</div>
+              <div style={{ fontWeight: 700, color: "var(--success)", fontSize: 18 }}>₹{formatInr(grandAdvance)}</div>
+            </div>
+            <div>
+              <div style={{ fontSize: 11, color: "var(--text-muted)", fontWeight: 700 }}>TOTAL BALANCE RECEIVED</div>
+              <div style={{ fontWeight: 700, color: "var(--success)", fontSize: 18 }}>₹{formatInr(balanceReceived)}</div>
+            </div>
+            <div>
+              <div style={{ fontSize: 11, color: "var(--text-muted)", fontWeight: 700 }}>REMAINING BALANCE</div>
+              {remainingBalance > 0 ? (
+                <div style={{ fontWeight: 800, color: "var(--danger)", fontSize: 18 }}>₹{formatInr(remainingBalance)}</div>
+              ) : (
+                <div style={{ fontWeight: 700, color: "var(--success)", fontSize: 18 }}>Fully Paid ✓</div>
+              )}
+            </div>
+          </div>
         </div>
       </div>
     </div>

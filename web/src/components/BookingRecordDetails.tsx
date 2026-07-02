@@ -2,6 +2,7 @@ import type { ReactNode } from "react";
 import { Fragment } from "react";
 import { BookingNotesFromBooking } from "@/components/BookingNotesBlock";
 import BookingItemWarningsBlock, { findItemWarnings } from "@/components/BookingItemWarningsSection";
+import { CustomOrdersSection, type SlipOrderDisplay } from "@/components/BookingSlip";
 import type { BookingForStandardDetails } from "@/lib/bookingDetails";
 import { serializeRecordBookingDetails } from "@/lib/bookingDetails";
 import type { BookingItemPricingRow } from "@/lib/dress";
@@ -33,6 +34,7 @@ export function BookingRecordDetails({
   compact = false,
   remainingCollected,
   warningItems,
+  orders,
   extra,
 }: {
   booking: BookingForStandardDetails;
@@ -43,6 +45,8 @@ export function BookingRecordDetails({
   remainingCollected?: number;
   /** Per-dress alternate booking warnings (shown under each dress row when multi-item). */
   warningItems?: ItemWarningSource[];
+  /** Active custom orders — shown as a section and folded into the grand total. */
+  orders?: SlipOrderDisplay[];
   extra?: ReactNode;
 }) {
   const d = serializeRecordBookingDetails(booking);
@@ -51,6 +55,12 @@ export function BookingRecordDetails({
     serializeBookingItemRows(booking as Parameters<typeof serializeBookingItemRows>[0]);
   const remDue =
     remainingCollected != null ? Math.max(0, d.total_remaining - remainingCollected) : null;
+
+  const activeOrders = orders ?? [];
+  const hasOrders = activeOrders.length > 0;
+  const ordersCost = activeOrders.reduce((s, o) => s + (o.cost || 0), 0);
+  const ordersAdvance = activeOrders.reduce((s, o) => s + (o.advance || 0), 0);
+  const ordersBalance = activeOrders.reduce((s, o) => s + Math.max(0, o.balance || 0), 0);
 
   const gridStyle = {
     display: "grid",
@@ -115,6 +125,45 @@ export function BookingRecordDetails({
         <Field label="Security" value={`₹${formatInr(d.security_deposit)}`} />
       </div>
 
+      {hasOrders && (
+        <div
+          style={{
+            marginTop: 12,
+            padding: compact ? 10 : 12,
+            background: "var(--cream-dark)",
+            borderRadius: 10,
+            display: "grid",
+            gridTemplateColumns: "repeat(auto-fit, minmax(150px, 1fr))",
+            gap: compact ? 10 : 12,
+            fontSize: 13,
+          }}
+        >
+          <Field label="Orders Total" value={`₹${formatInr(ordersCost)}`} />
+          <Field
+            label="Orders Advance"
+            value={<span style={{ color: "var(--success)", fontWeight: 600 }}>₹{formatInr(ordersAdvance)}</span>}
+          />
+          <Field
+            label="Orders Balance"
+            value={
+              ordersBalance > 0 ? (
+                <span style={{ color: "var(--danger)", fontWeight: 700 }}>₹{formatInr(ordersBalance)}</span>
+              ) : (
+                <span style={{ color: "var(--success)", fontWeight: 600 }}>Paid ✓</span>
+              )
+            }
+          />
+          <Field
+            label="Grand Total (Rent + Orders)"
+            value={
+              <strong style={{ color: "var(--primary)", fontSize: compact ? 15 : 16 }}>
+                ₹{formatInr(d.total_rent + ordersCost)}
+              </strong>
+            }
+          />
+        </div>
+      )}
+
       <BookingNotesFromBooking booking={booking} compact={compact} style={{ marginTop: compact ? 8 : 12 }} />
 
       {showItemsTable && items.length > 0 && (
@@ -154,6 +203,12 @@ export function BookingRecordDetails({
             })}
           </tbody>
         </table>
+      )}
+
+      {hasOrders && (
+        <div style={{ marginTop: compact ? 12 : 16 }}>
+          <CustomOrdersSection orders={activeOrders} zoomable />
+        </div>
       )}
 
       {extra}

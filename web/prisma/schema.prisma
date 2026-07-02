@@ -224,9 +224,11 @@ model Booking {
   whatsappStatus     String?   @map("whatsapp_status")
   whatsappSentAt     DateTime? @map("whatsapp_sent_at")
   whatsappError      String?   @map("whatsapp_error")
+  lateReminderSentAt DateTime? @map("late_reminder_sent_at")
 
   legacyItem            ClothingItem?          @relation("LegacyBookingItem", fields: [itemId], references: [id])
   bookingItems          BookingItem[]
+  orders                BookingOrder[]
   whatsAppJobs          WhatsAppJob[]
   whatsAppMessages      WhatsAppMessage[]
   whatsAppConversations WhatsAppConversation[]
@@ -269,6 +271,8 @@ model BookingItem {
   itemIncompleteNotes    String? @map("item_incomplete_notes")
   itemIncompletePhoto    String? @map("item_incomplete_photo")
   itemSecurityHeld       Float   @default(0) @map("item_security_held")
+  deliverySlipNotifiedAt DateTime? @map("delivery_slip_notified_at")
+  returnSlipNotifiedAt   DateTime? @map("return_slip_notified_at")
 
   booking Booking      @relation(fields: [bookingId], references: [id], onDelete: Cascade)
   item    ClothingItem @relation(fields: [itemId], references: [id])
@@ -279,6 +283,35 @@ model BookingItem {
   @@index([bookingId])
   @@index([bookingId, dressName])
   @@map("booking_items")
+}
+
+model BookingOrder {
+  id                 Int       @id @default(autoincrement())
+  bookingId          Int       @map("booking_id")
+  description        String
+  cost               Float     @default(0)
+  advance            Float     @default(0)
+  balance            Float     @default(0)
+  photo              String?
+  deliveryDate       DateTime  @map("delivery_date")
+  deliveryTime       String    @map("delivery_time")
+  advancePaymentMode String?   @map("advance_payment_mode")
+  balanceCollected   Float     @default(0) @map("balance_collected")
+  collectedAt        DateTime? @map("collected_at")
+  collectPaymentMode String?   @map("collect_payment_mode")
+  status             String    @default("active")
+  readyAt            DateTime? @map("ready_at")
+  cancelledAt        DateTime? @map("cancelled_at")
+  refundAmount       Float     @default(0) @map("refund_amount")
+  reminderSentAt     DateTime? @map("reminder_sent_at")
+  createdAt          DateTime  @default(now()) @map("created_at")
+
+  booking Booking @relation(fields: [bookingId], references: [id], onDelete: Cascade)
+
+  @@index([bookingId])
+  @@index([deliveryDate])
+  @@index([status, deliveryDate])
+  @@map("booking_orders")
 }
 
 model CustomCategory {
@@ -315,8 +348,9 @@ model Staff {
   active    Boolean  @default(true)
   createdAt DateTime @default(now()) @map("created_at")
 
-  users        User[]
-  attendances  StaffAttendance[]
+  users         User[]
+  attendances   StaffAttendance[]
+  salaryEntries SalaryLedgerEntry[]
 
   @@map("staff")
 }
@@ -331,6 +365,20 @@ model StaffAttendance {
 
   @@unique([staffId, date])
   @@map("staff_attendance")
+}
+
+model SalaryLedgerEntry {
+  id        Int      @id @default(autoincrement())
+  staffId   Int      @map("staff_id")
+  date      DateTime
+  amount    Float    @default(0)
+  note      String?
+  createdAt DateTime @default(now()) @map("created_at")
+
+  staff Staff @relation(fields: [staffId], references: [id])
+
+  @@index([staffId, date])
+  @@map("salary_ledger")
 }
 
 model Supplier {

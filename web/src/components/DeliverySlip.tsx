@@ -1,4 +1,5 @@
 import type { ReactNode } from "react";
+import { CustomOrdersSection, type SlipOrderDisplay } from "@/components/BookingSlip";
 
 export type DeliverySlipProps = {
   booking: {
@@ -37,6 +38,7 @@ export type DeliverySlipProps = {
     remaining: number;
     notes?: string | null;
   }>;
+  orders?: SlipOrderDisplay[];
   qrDataUrl?: string | null;
   businessName: string;
   businessPhone: string;
@@ -83,7 +85,7 @@ const TERMS = [
 ];
 
 export default function DeliverySlip(props: DeliverySlipProps) {
-  const { booking: b, items, qrDataUrl, businessName, businessPhone, businessAddress, businessTagline, slipSubtitle } = props;
+  const { booking: b, items, orders, qrDataUrl, businessName, businessPhone, businessAddress, businessTagline, slipSubtitle } = props;
   const slipNo = String(b.monthlySerial).padStart(2, "0");
   const initials = businessName.charAt(0).toUpperCase();
   const tagline = businessTagline || "Premium Cloth Rental — Elegance for Every Occasion";
@@ -292,6 +294,9 @@ export default function DeliverySlip(props: DeliverySlipProps) {
             </div>
           </div>
         </div>
+
+        {/* CUSTOM ORDERS */}
+        <CustomOrdersSection orders={orders} showPhoto={false} />
 
         {/* PAYMENT + QR */}
         <div className="no-break" style={{ display: "flex", gap: 16, padding: "0 16px 14px", alignItems: "flex-start" }}>

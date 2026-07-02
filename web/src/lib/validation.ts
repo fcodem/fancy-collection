@@ -18,6 +18,23 @@ export const BookingItemSchema = z.object({
   },
 );
 
+export const BookingOrderSchema = z.object({
+  id:            z.number().int().positive().optional(),
+  description:   z.string().min(1).max(1000).transform(upper),
+  cost:          z.number().nonnegative(),
+  advance:       z.number().nonnegative(),
+  advance_payment_mode: z.enum(["cash", "online"]).optional(),
+  photo:         z.string().max(300).optional(),
+  delivery_date: z.string().regex(/^\d{4}-\d{2}-\d{2}$/, "Invalid order delivery date"),
+  delivery_time: z.string().min(1),
+}).refine(
+  (data) => data.advance <= data.cost || data.cost === 0,
+  {
+    message: "Advance amount cannot exceed the order cost",
+    path: ["advance"],
+  },
+);
+
 export const BookingFormSchema = z.object({
   customer_name:    z.string().min(1).max(150).transform(upper),
   customer_address: z.string().max(300).default("").transform(upper),
@@ -33,6 +50,7 @@ export const BookingFormSchema = z.object({
   common_notes:     z.string().max(1000).optional().transform((s) => (s ? upper(s) : s)),
   staff_names:      z.array(z.string().transform(upper)).optional(),
   items:            z.array(BookingItemSchema).min(1, "At least one item required"),
+  orders:           z.array(BookingOrderSchema).optional(),
 });
 
 export const InventoryItemSchema = z.object({

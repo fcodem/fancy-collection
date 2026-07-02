@@ -1,0 +1,653 @@
+{
+  "generatedAt": "2026-06-29T13:11:48.832Z",
+  "seedStats": {
+    "items": 1000,
+    "bookings": 15000,
+    "overlapPairs": 1138,
+    "statusCounts": [
+      {
+        "_count": {
+          "id": 750
+        },
+        "status": "postponed"
+      },
+      {
+        "_count": {
+          "id": 6000
+        },
+        "status": "returned"
+      },
+      {
+        "_count": {
+          "id": 1500
+        },
+        "status": "cancelled"
+      },
+      {
+        "_count": {
+          "id": 750
+        },
+        "status": "incomplete_return"
+      },
+      {
+        "_count": {
+          "id": 3000
+        },
+        "status": "booked"
+      },
+      {
+        "_count": {
+          "id": 3000
+        },
+        "status": "delivered"
+      }
+    ]
+  },
+  "overlapResults": [
+    {
+      "name": "overlap pairs exist in seed data",
+      "ok": true,
+      "detail": "1138 active overlap pairs"
+    },
+    {
+      "name": "getAvailableItemsApi excludes hard-overlapped item",
+      "ok": true,
+      "detail": "covered in service tests (item 176)"
+    }
+  ],
+  "serviceResults": [
+    {
+      "name": "getBookingListData (today)",
+      "ok": true,
+      "ms": 167,
+      "rowCount": 20
+    },
+    {
+      "name": "getAvailableItemsApi (today)",
+      "ok": true,
+      "ms": 130,
+      "rowCount": 904
+    },
+    {
+      "name": "getAvailableItemsApi excludes hard overlap",
+      "ok": true,
+      "ms": 43,
+      "rowCount": 987
+    },
+    {
+      "name": "bookingDateCheck (hard overlap)",
+      "ok": true,
+      "ms": 38,
+      "rowCount": 1
+    },
+    {
+      "name": "monthBasedSearchBookings",
+      "ok": true,
+      "ms": 30,
+      "rowCount": 25
+    },
+    {
+      "name": "universalSearchBookings",
+      "ok": true,
+      "ms": 19,
+      "rowCount": 25
+    },
+    {
+      "name": "dashboardSearchBookings",
+      "ok": true,
+      "ms": 11,
+      "rowCount": 1
+    },
+    {
+      "name": "getManagedCategoryGroups",
+      "ok": true,
+      "ms": 18,
+      "rowCount": 24
+    },
+    {
+      "name": "listPostponedBookings",
+      "ok": true,
+      "ms": 257,
+      "rowCount": 750
+    },
+    {
+      "name": "incomplete_return query",
+      "ok": true,
+      "ms": 7,
+      "rowCount": 50
+    },
+    {
+      "name": "getDailySale",
+      "ok": true,
+      "ms": 1362,
+      "rowCount": 24
+    },
+    {
+      "name": "delivery search (prisma)",
+      "ok": true,
+      "ms": 9,
+      "rowCount": 50
+    },
+    {
+      "name": "return search (prisma)",
+      "ok": true,
+      "ms": 7,
+      "rowCount": 50
+    }
+  ],
+  "httpResults": [
+    {
+      "name": "session/check",
+      "path": "/api/session/check",
+      "ok": true,
+      "status": 200,
+      "rowCount": null,
+      "samples": [
+        125,
+        113,
+        126
+      ],
+      "avg": 121,
+      "p50": 125,
+      "p95": 126,
+      "slow": false
+    },
+    {
+      "name": "dashboard/data",
+      "path": "/api/dashboard/data",
+      "ok": true,
+      "status": 200,
+      "rowCount": null,
+      "samples": [
+        2135,
+        230,
+        129
+      ],
+      "avg": 831,
+      "p50": 230,
+      "p95": 2135,
+      "slow": true
+    },
+    {
+      "name": "dashboard/nav-counts",
+      "path": "/api/dashboard/nav-counts",
+      "ok": true,
+      "status": 200,
+      "rowCount": null,
+      "samples": [
+        2745,
+        124,
+        185
+      ],
+      "avg": 1018,
+      "p50": 185,
+      "p95": 2745,
+      "slow": true
+    },
+    {
+      "name": "dashboard/free-items",
+      "path": "/api/dashboard/free-items?delivery_date=2026-06-29&return_date=2026-06-29",
+      "ok": true,
+      "status": 200,
+      "rowCount": 908,
+      "samples": [
+        6821,
+        84,
+        70
+      ],
+      "avg": 2325,
+      "p50": 84,
+      "p95": 6821,
+      "slow": true
+    },
+    {
+      "name": "dashboard/search",
+      "path": "/api/dashboard/search?q=Bench&date=2026-06-29",
+      "ok": true,
+      "status": 200,
+      "rowCount": 50,
+      "samples": [
+        1919,
+        194,
+        129
+      ],
+      "avg": 747,
+      "p50": 194,
+      "p95": 1919,
+      "slow": false
+    },
+    {
+      "name": "returning-today",
+      "path": "/api/returning-today",
+      "ok": true,
+      "status": 200,
+      "rowCount": 0,
+      "samples": [
+        939,
+        115,
+        84
+      ],
+      "avg": 379,
+      "p50": 115,
+      "p95": 939,
+      "slow": false
+    },
+    {
+      "name": "returning-today (alternate hot date)",
+      "path": "/api/returning-today?date=2026-06-15",
+      "ok": true,
+      "status": 200,
+      "rowCount": 50,
+      "samples": [
+        147,
+        101,
+        99
+      ],
+      "avg": 116,
+      "p50": 101,
+      "p95": 147,
+      "slow": false
+    },
+    {
+      "name": "booking-list",
+      "path": "/api/booking-list?delivery_date=2026-06-29&return_date=2026-06-29",
+      "ok": true,
+      "status": 200,
+      "rowCount": 20,
+      "samples": [
+        886,
+        114,
+        98
+      ],
+      "avg": 366,
+      "p50": 114,
+      "p95": 886,
+      "slow": false
+    },
+    {
+      "name": "booking/available-items",
+      "path": "/api/booking/available-items?delivery_date=2026-06-29&return_date=2026-06-29",
+      "ok": true,
+      "status": 200,
+      "rowCount": 904,
+      "samples": [
+        1982,
+        176,
+        75
+      ],
+      "avg": 744,
+      "p50": 176,
+      "p95": 1982,
+      "slow": false
+    },
+    {
+      "name": "booking/next-serial",
+      "path": "/api/booking/next-serial",
+      "ok": true,
+      "status": 200,
+      "rowCount": null,
+      "samples": [
+        909,
+        131,
+        104
+      ],
+      "avg": 381,
+      "p50": 131,
+      "p95": 909,
+      "slow": false
+    },
+    {
+      "name": "booking/suggest",
+      "path": "/api/booking/suggest?q=Bench",
+      "ok": true,
+      "status": 200,
+      "rowCount": 12,
+      "samples": [
+        892,
+        156,
+        237
+      ],
+      "avg": 428,
+      "p50": 237,
+      "p95": 892,
+      "slow": false
+    },
+    {
+      "name": "search-booking",
+      "path": "/api/search-booking?q=Bench&date=2026-06-29&page=1&pageSize=25",
+      "ok": true,
+      "status": 200,
+      "rowCount": 25,
+      "samples": [
+        1029,
+        170,
+        143
+      ],
+      "avg": 447,
+      "p50": 170,
+      "p95": 1029,
+      "slow": false
+    },
+    {
+      "name": "all-record-search",
+      "path": "/api/all-record-search?q=Bench&date=2026-06-29&page=1&pageSize=25",
+      "ok": true,
+      "status": 200,
+      "rowCount": 25,
+      "samples": [
+        1009,
+        176,
+        116
+      ],
+      "avg": 434,
+      "p50": 176,
+      "p95": 1009,
+      "slow": false
+    },
+    {
+      "name": "delivery/search",
+      "path": "/api/delivery/search?q=Bench&date=2026-06-29",
+      "ok": true,
+      "status": 200,
+      "rowCount": 104,
+      "samples": [
+        1260,
+        310,
+        165
+      ],
+      "avg": 578,
+      "p50": 310,
+      "p95": 1260,
+      "slow": false
+    },
+    {
+      "name": "return/search",
+      "path": "/api/return/search?q=Bench&date=2026-06-29",
+      "ok": true,
+      "status": 200,
+      "rowCount": 103,
+      "samples": [
+        1269,
+        197,
+        179
+      ],
+      "avg": 548,
+      "p50": 197,
+      "p95": 1269,
+      "slow": false
+    },
+    {
+      "name": "inventory/search",
+      "path": "/api/inventory/search?q=BENCH",
+      "ok": true,
+      "status": 200,
+      "rowCount": null,
+      "samples": [
+        1014,
+        86,
+        100
+      ],
+      "avg": 400,
+      "p50": 100,
+      "p95": 1014,
+      "slow": false
+    },
+    {
+      "name": "packing-list",
+      "path": "/api/packing-list?delivery_date=2026-06-29&return_date=2026-06-29",
+      "ok": true,
+      "status": 200,
+      "rowCount": 7,
+      "samples": [
+        885,
+        159,
+        84
+      ],
+      "avg": 376,
+      "p50": 159,
+      "p95": 885,
+      "slow": false
+    },
+    {
+      "name": "categories",
+      "path": "/api/categories",
+      "ok": true,
+      "status": 200,
+      "rowCount": null,
+      "samples": [
+        903,
+        100,
+        88
+      ],
+      "avg": 364,
+      "p50": 100,
+      "p95": 903,
+      "slow": false
+    },
+    {
+      "name": "postponed-booking",
+      "path": "/api/postponed-booking",
+      "ok": true,
+      "status": 200,
+      "rowCount": 750,
+      "samples": [
+        2576,
+        84,
+        85
+      ],
+      "avg": 915,
+      "p50": 85,
+      "p95": 2576,
+      "slow": true
+    },
+    {
+      "name": "postponed-booking/search",
+      "path": "/api/postponed-booking?mode=search&q=Bench&date=2026-06-29",
+      "ok": true,
+      "status": 200,
+      "rowCount": 53,
+      "samples": [
+        122,
+        142,
+        133
+      ],
+      "avg": 132,
+      "p50": 133,
+      "p95": 142,
+      "slow": false
+    },
+    {
+      "name": "finance/daily-sale",
+      "path": "/api/finance/daily-sale?date=2026-06-29",
+      "ok": true,
+      "status": 200,
+      "rowCount": null,
+      "samples": [
+        3946,
+        100,
+        101
+      ],
+      "avg": 1382,
+      "p50": 101,
+      "p95": 3946,
+      "slow": true
+    },
+    {
+      "name": "finance/daily-booking",
+      "path": "/api/finance/daily-booking?date=2026-06-29",
+      "ok": true,
+      "status": 200,
+      "rowCount": null,
+      "samples": [
+        2716,
+        229,
+        146
+      ],
+      "avg": 1030,
+      "p50": 229,
+      "p95": 2716,
+      "slow": true
+    },
+    {
+      "name": "finance/monthly-sale",
+      "path": "/api/finance/monthly-sale?month=2026-06",
+      "ok": true,
+      "status": 200,
+      "rowCount": null,
+      "samples": [
+        2480,
+        99,
+        67
+      ],
+      "avg": 882,
+      "p50": 99,
+      "p95": 2480,
+      "slow": true
+    },
+    {
+      "name": "finance/yearly-sale",
+      "path": "/api/finance/yearly-sale?year=2026",
+      "ok": true,
+      "status": 200,
+      "rowCount": null,
+      "samples": [
+        2181,
+        96,
+        99
+      ],
+      "avg": 792,
+      "p50": 99,
+      "p95": 2181,
+      "slow": true
+    },
+    {
+      "name": "finance/top-performer",
+      "path": "/api/finance/top-performer?from=2026-06-01&to=2026-06-29",
+      "ok": true,
+      "status": 200,
+      "rowCount": 100,
+      "samples": [
+        2499,
+        115,
+        134
+      ],
+      "avg": 916,
+      "p50": 134,
+      "p95": 2499,
+      "slow": true
+    },
+    {
+      "name": "finance/category-analysis",
+      "path": "/api/finance/category-analysis?from=2026-06-01&to=2026-06-29",
+      "ok": true,
+      "status": 200,
+      "rowCount": null,
+      "samples": [
+        2347,
+        83,
+        81
+      ],
+      "avg": 837,
+      "p50": 83,
+      "p95": 2347,
+      "slow": true
+    },
+    {
+      "name": "finance/security-deposit",
+      "path": "/api/finance/security-deposit?from=2026-06-01&to=2026-06-29",
+      "ok": true,
+      "status": 200,
+      "rowCount": 0,
+      "samples": [
+        1340,
+        162,
+        85
+      ],
+      "avg": 529,
+      "p50": 162,
+      "p95": 1340,
+      "slow": false
+    },
+    {
+      "name": "finance/inventory-profitability",
+      "path": "/api/finance/inventory-profitability?from=2026-06-01&to=2026-06-29",
+      "ok": true,
+      "status": 200,
+      "rowCount": 1006,
+      "samples": [
+        1151,
+        83,
+        100
+      ],
+      "avg": 445,
+      "p50": 100,
+      "p95": 1151,
+      "slow": false
+    },
+    {
+      "name": "admin/calendar-events",
+      "path": "/api/admin/calendar-events?from=2026-06-01&to=2026-06-29",
+      "ok": true,
+      "status": 200,
+      "rowCount": 457,
+      "samples": [
+        2772,
+        319,
+        316
+      ],
+      "avg": 1136,
+      "p50": 319,
+      "p95": 2772,
+      "slow": true
+    },
+    {
+      "name": "admin/activity-log",
+      "path": "/api/admin/activity-log?page=1&limit=25",
+      "ok": true,
+      "status": 200,
+      "rowCount": 11,
+      "samples": [
+        1109,
+        102,
+        86
+      ],
+      "avg": 432,
+      "p50": 102,
+      "p95": 1109,
+      "slow": false
+    },
+    {
+      "name": "booking/date-check",
+      "path": "/api/booking/date-check?delivery_date=2026-06-29&return_date=2026-06-29&item_ids[]=1",
+      "ok": true,
+      "status": 200,
+      "rowCount": 1,
+      "samples": [
+        1107,
+        152,
+        72
+      ],
+      "avg": 444,
+      "p50": 152,
+      "p95": 1107,
+      "slow": false
+    },
+    {
+      "name": "dress-checker",
+      "path": "/api/dress-checker?dress_name=BENCH&delivery_date=2026-06-29&return_date=2026-06-29",
+      "ok": true,
+      "status": 200,
+      "rowCount": 100,
+      "samples": [
+        2338,
+        307,
+        100
+      ],
+      "avg": 915,
+      "p50": 307,
+      "p95": 2338,
+      "slow": true
+    }
+  ],
+  "durationMs": 89058
+}

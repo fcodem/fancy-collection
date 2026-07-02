@@ -10,7 +10,8 @@ export type AuditAction =
   | "returned"
   | "restored"
   | "packed"
-  | "attendance";
+  | "attendance"
+  | "salary";
 
 export type AuditEntity =
   | "booking"
@@ -19,6 +20,7 @@ export type AuditEntity =
   | "prospect_lead"
   | "shop_enquiry"
   | "staff_attendance"
+  | "salary_ledger"
   | "customer";
 
 interface LogOpts {

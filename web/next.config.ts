@@ -11,6 +11,7 @@ const withPWA = withPWAInit({
 });
 
 const nextConfig: NextConfig = {
+  serverExternalPackages: ["puppeteer-core", "@sparticuz/chromium", "puppeteer"],
   compress: true,
   images: {
     remotePatterns: [

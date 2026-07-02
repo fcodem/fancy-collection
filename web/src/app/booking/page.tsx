@@ -5,16 +5,12 @@ import prisma from "@/lib/prisma";
 import BookingPanelFilters from "@/components/BookingPanelFilters";
 import { bookingPanelDateRange, parseBookingPanelFilters } from "@/lib/bookingPanelFilter";
 import {
-  StandardBookingDetailsGrid,
   StandardBookingTableCells,
   StandardBookingTableHead,
 } from "@/components/BookingDetailsColumns";
 import { serializeStandardBookingDetails } from "@/lib/bookingDetails";
 import { localTodayStart, todayIso } from "@/lib/constants";
-import {
-  whereDeliveryInRange,
-  whereReturnInRange,
-} from "@/lib/bookingDateQuery";
+import { whereDeliveryInRange } from "@/lib/bookingDateQuery";
 import { formatInr } from "@/lib/format";
 import { resolveBookingStatus } from "@/lib/bookingStatus";
 import DownloadPdfButton from "@/components/DownloadPdfButton";
@@ -60,8 +56,7 @@ export default async function BookingPanelPage({
 }) {
   const sp = await searchParams;
   const todayReal = localTodayStart();
-  const todayStr = todayIso();
-  const currentYear = Number(todayStr.slice(0, 4));
+  const currentYear = Number(todayIso().slice(0, 4));
   const { year, month } = parseBookingPanelFilters(sp, currentYear);
   const { from: panelFrom, to: panelTo, label: panelLabel } = bookingPanelDateRange(year, month);
   const panelDeliveryWhere = await whereDeliveryInRange(panelFrom, panelTo);
@@ -80,38 +75,18 @@ export default async function BookingPanelPage({
   const yearOptions: number[] = [];
   for (let y = maxYear + 1; y >= minYear - 1; y--) yearOptions.push(y);
 
-  const [deliveryTodayWhere, returnTodayWhere] = await Promise.all([
-    whereDeliveryInRange(todayStr, todayStr),
-    whereReturnInRange(todayStr, todayStr),
+  const [bookings, statusCounts] = await Promise.all([
+    prisma.booking.findMany({
+      where: { ...activeBookingWhere(), ...panelDeliveryWhere },
+      include: bookingPanelInclude,
+      orderBy: [{ deliveryDate: "asc" }, { monthlySerial: "asc" }],
+    }),
+    prisma.booking.groupBy({
+      by: ["status"],
+      where: activeBookingWhere(),
+      _count: { _all: true },
+    }),
   ]);
-
-  const [bookings, statusCounts, deliveringToday, returningToday] = await Promise.all([
-      prisma.booking.findMany({
-        where: { ...activeBookingWhere(), ...panelDeliveryWhere },
-        include: bookingPanelInclude,
-        orderBy: [{ deliveryDate: "asc" }, { monthlySerial: "asc" }],
-      }),
-      prisma.booking.groupBy({
-        by: ["status"],
-        where: activeBookingWhere(),
-        _count: { _all: true },
-      }),
-      prisma.booking.findMany({
-        where: { status: "booked", ...deliveryTodayWhere },
-        include: bookingPanelInclude,
-        orderBy: { deliveryTime: "asc" },
-        take: 100,
-      }),
-      prisma.booking.findMany({
-        where: {
-          status: { in: ["booked", "delivered"] },
-          ...returnTodayWhere,
-        },
-        include: bookingPanelInclude,
-        orderBy: { returnTime: "asc" },
-        take: 100,
-      }),
-    ]);
 
   const countByStatus = Object.fromEntries(statusCounts.map((r) => [r.status, r._count._all]));
   const totalCount = statusCounts.reduce((sum, r) => sum + r._count._all, 0);
@@ -163,57 +138,6 @@ export default async function BookingPanelPage({
           <div className="stat-label">Returned</div>
         </div>
       </div>
-
-      {(deliveringToday.length > 0 || returningToday.length > 0) && (
-        <div className="two-col" style={{ marginBottom: 24 }}>
-          {deliveringToday.length > 0 && (
-            <div className="card">
-              <div className="card-header">
-                <h3 className="card-title" style={{ color: "var(--info)" }}>
-                  <i className="fa-solid fa-truck-fast" style={{ marginRight: 8 }} />Delivering Today
-                </h3>
-                <span className="badge badge-active">{deliveringToday.length}</span>
-              </div>
-              <div className="card-body p-0">
-                {deliveringToday.map((b) => (
-                  <div key={b.id} style={{ padding: "12px 20px", borderBottom: "1px solid var(--border)" }}>
-                    <div style={{ display: "flex", alignItems: "flex-start", gap: 12, marginBottom: 10 }}>
-                      <div className="rental-avatar" style={{ width: 36, height: 36, fontSize: 13 }}>{b.customerName[0]?.toUpperCase()}</div>
-                      <div style={{ flex: 1 }}>
-                        <StandardBookingDetailsGrid d={serializeStandardBookingDetails(b)} />
-                      </div>
-                      <Link href={`/booking/${b.id}`} className="btn btn-outline btn-sm">View</Link>
-                    </div>
-                  </div>
-                ))}
-              </div>
-            </div>
-          )}
-          {returningToday.length > 0 && (
-            <div className="card">
-              <div className="card-header">
-                <h3 className="card-title" style={{ color: "var(--warning)" }}>
-                  <i className="fa-solid fa-clock-rotate-left" style={{ marginRight: 8 }} />Returns Due Today
-                </h3>
-                <span className="badge badge-gold">{returningToday.length}</span>
-              </div>
-              <div className="card-body p-0">
-                {returningToday.map((b) => (
-                  <div key={b.id} style={{ padding: "12px 20px", borderBottom: "1px solid var(--border)" }}>
-                    <div style={{ display: "flex", alignItems: "flex-start", gap: 12, marginBottom: 10 }}>
-                      <div className="rental-avatar" style={{ width: 36, height: 36, fontSize: 13, background: "linear-gradient(135deg,var(--gold-dark),var(--gold))" }}>{b.customerName[0]?.toUpperCase()}</div>
-                      <div style={{ flex: 1 }}>
-                        <StandardBookingDetailsGrid d={serializeStandardBookingDetails(b)} />
-                      </div>
-                      <Link href={`/booking/${b.id}`} className="btn btn-outline btn-sm">View</Link>
-                    </div>
-                  </div>
-                ))}
-              </div>
-            </div>
-          )}
-        </div>
-      )}
 
       <div className="card">
         <div className="card-header" style={{ flexWrap: "wrap", gap: 12 }}>

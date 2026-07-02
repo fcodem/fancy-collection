@@ -11,7 +11,14 @@ export async function POST(req: NextRequest, { params }: { params: Promise<{ id:
   const booking = await resolveIncompleteReturn(bookingId, user.username);
   if (!booking) return jsonError("Booking not found or not incomplete", 404);
   if (booking.status === "returned") {
-    void triggerWhatsAppSlipJobs(bookingId, "return", req.nextUrl.origin, user.username);
+    try {
+      await triggerWhatsAppSlipJobs(bookingId, "return", {
+        requestOrigin: req.nextUrl.origin,
+        createdBy: user.username,
+      });
+    } catch (e) {
+      console.error("[incomplete-return resolve] WhatsApp slip error:", e);
+    }
   }
   return jsonOk({ ok: true, id: booking.id, security_held: booking.securityHeld });
 }

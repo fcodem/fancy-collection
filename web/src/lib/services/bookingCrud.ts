@@ -11,6 +11,7 @@ import { shouldSkipCustomerCreate } from "./customersOps";
 import { broadcastShopEvent } from "../realtime/broadcast";
 import { logActivity, snapshotBooking } from "../activityLog";
 import { formatPublicBookingId } from "./whatsapp/publicBookingId";
+import { generateBookingQrToken } from "../bookingQr";
 
 export type BookingItemInput = {
   item_id: number;
@@ -18,6 +19,17 @@ export type BookingItemInput = {
   price: number;
   advance: number;
   notes?: string;
+};
+
+export type BookingOrderInput = {
+  id?: number;
+  description: string;
+  cost: number;
+  advance: number;
+  advance_payment_mode?: "cash" | "online";
+  photo?: string;
+  delivery_date: string;
+  delivery_time: string;
 };
 
 export type BookingFormInput = {
@@ -35,6 +47,7 @@ export type BookingFormInput = {
   staff_names?: string[];
   payment_mode?: "cash" | "online";
   items: BookingItemInput[];
+  orders?: BookingOrderInput[];
 };
 
 type ItemToBook = {
@@ -70,7 +83,12 @@ export async function createBooking(input: BookingFormInput, by?: string) {
 
   const itemIds = input.items.map((row) => row.item_id);
   assertUniqueItemIds(itemIds);
-  const items = await prisma.clothingItem.findMany({ where: { id: { in: itemIds } } });
+
+  const [bookingNumber, skipCustomer, items] = await Promise.all([
+    createBookingNumber(),
+    shouldSkipCustomerCreate(input.contact_1, input.whatsapp_no),
+    prisma.clothingItem.findMany({ where: { id: { in: itemIds } } }),
+  ]);
   const itemMap = new Map(items.map((item) => [item.id, item]));
 
   const itemsToBook: ItemToBook[] = [];
@@ -79,9 +97,6 @@ export async function createBooking(input: BookingFormInput, by?: string) {
     if (!item) throw new Error(`Dress '${row.dress_name}' not found.`);
     itemsToBook.push({ item, row });
   }
-
-  const bookingNumber = await createBookingNumber();
-  const skipCustomer = await shouldSkipCustomerCreate(input.contact_1, input.whatsapp_no);
 
   const booking = await prisma.$transaction(async (tx) => {
     throwIfConflict(
@@ -123,21 +138,39 @@ export async function createBooking(input: BookingFormInput, by?: string) {
       },
     });
 
-    for (const { item, row } of itemsToBook) {
-      await tx.bookingItem.create({
-        data: {
+    await tx.bookingItem.createMany({
+      data: itemsToBook.map(({ item, row }) => ({
+        bookingId: b.id,
+        itemId: item.id,
+        dressName: row.dress_name,
+        category: item.category,
+        size: item.size || "",
+        price: row.price,
+        advance: row.advance,
+        remaining: row.price - row.advance,
+        notes: row.notes || null,
+      })),
+    });
+    await tx.clothingItem.updateMany({
+      where: { id: { in: itemIds } },
+      data: { status: "rented" },
+    });
+
+    const orderRows = (input.orders || []).filter((o) => o.description.trim());
+    if (orderRows.length) {
+      await tx.bookingOrder.createMany({
+        data: orderRows.map((o) => ({
           bookingId: b.id,
-          itemId: item.id,
-          dressName: row.dress_name,
-          category: item.category,
-          size: item.size || "",
-          price: row.price,
-          advance: row.advance,
-          remaining: row.price - row.advance,
-          notes: row.notes || null,
-        },
+          description: o.description.trim(),
+          cost: o.cost || 0,
+          advance: o.advance || 0,
+          advancePaymentMode: o.advance_payment_mode || input.payment_mode || "cash",
+          balance: Math.max(0, (o.cost || 0) - (o.advance || 0)),
+          photo: o.photo || null,
+          deliveryDate: parseDateQ(o.delivery_date),
+          deliveryTime: o.delivery_time,
+        })),
       });
-      await tx.clothingItem.update({ where: { id: item.id }, data: { status: "rented" } });
     }
 
     if (!skipCustomer) {
@@ -151,23 +184,28 @@ export async function createBooking(input: BookingFormInput, by?: string) {
     }
 
     const publicBookingId = formatPublicBookingId(b.id);
+    const qrToken = generateBookingQrToken();
     return tx.booking.update({
       where: { id: b.id },
-      data: { publicBookingId },
+      data: { publicBookingId, qrToken },
     });
   });
 
   broadcastShopEvent({ type: "booking.created", bookingId: booking.id, status: booking.status, by });
 
-  const full = await prisma.booking.findUnique({ where: { id: booking.id }, include: { bookingItems: true } });
-  logActivity({
-    username: by || "system",
-    action: "created",
-    entity: "booking",
-    entityId: booking.id,
-    label: `Booking #${String(booking.monthlySerial).padStart(2, "0")} — ${input.customer_name} (${input.items.map(i => i.dress_name).join(", ")})`,
-    after: full ? snapshotBooking(full as unknown as Record<string, unknown>) : undefined,
-  });
+  void prisma.booking
+    .findUnique({ where: { id: booking.id }, include: { bookingItems: true } })
+    .then((full) => {
+      logActivity({
+        username: by || "system",
+        action: "created",
+        entity: "booking",
+        entityId: booking.id,
+        label: `Booking #${String(booking.monthlySerial).padStart(2, "0")} — ${input.customer_name} (${input.items.map((i) => i.dress_name).join(", ")})`,
+        after: full ? snapshotBooking(full as unknown as Record<string, unknown>) : undefined,
+      });
+    })
+    .catch(() => {});
 
   return booking;
 }
@@ -175,7 +213,7 @@ export async function createBooking(input: BookingFormInput, by?: string) {
 export async function updateBooking(bookingId: number, input: BookingFormInput, by?: string) {
   const booking = await prisma.booking.findUnique({
     where: { id: bookingId },
-    include: { bookingItems: true },
+    include: { bookingItems: true, orders: true },
   });
   if (!booking) throw new Error("Booking not found.");
   const beforeSnapshot = snapshotBooking(booking as unknown as Record<string, unknown>);
@@ -271,6 +309,62 @@ export async function updateBooking(bookingId: number, input: BookingFormInput, 
           await tx.clothingItem.update({ where: { id: freedId }, data: { status: "available" } });
         }
       }
+    }
+
+    const formOrders = (input.orders || []).filter((o) => o.description.trim());
+    const keptOrderIds = new Set<number>();
+    for (const o of formOrders) {
+      const cost = o.cost || 0;
+      const advance = o.advance || 0;
+      const balance = Math.max(0, cost - advance);
+      if (o.id) {
+        const existing = booking.orders.find((eo) => eo.id === o.id);
+        if (existing && existing.status === "active") {
+          keptOrderIds.add(o.id);
+          await tx.bookingOrder.update({
+            where: { id: o.id },
+            data: {
+              description: o.description.trim(),
+              cost,
+              advance,
+              advancePaymentMode: o.advance_payment_mode || existing.advancePaymentMode || input.payment_mode || "cash",
+              balance,
+              photo: o.photo || existing.photo || null,
+              deliveryDate: parseDateQ(o.delivery_date),
+              deliveryTime: o.delivery_time,
+            },
+          });
+          continue;
+        }
+      }
+      await tx.bookingOrder.create({
+        data: {
+          bookingId,
+          description: o.description.trim(),
+          cost,
+          advance,
+          advancePaymentMode: o.advance_payment_mode || input.payment_mode || "cash",
+          balance,
+          photo: o.photo || null,
+          deliveryDate: parseDateQ(o.delivery_date),
+          deliveryTime: o.delivery_time,
+        },
+      });
+    }
+
+    // Orders removed from the form are canceled (never hard-deleted) so finance
+    // history and any collected money remain traceable via a refund entry.
+    for (const existing of booking.orders) {
+      if (existing.status !== "active") continue;
+      if (keptOrderIds.has(existing.id)) continue;
+      await tx.bookingOrder.update({
+        where: { id: existing.id },
+        data: {
+          status: "cancelled",
+          cancelledAt: new Date(),
+          refundAmount: existing.advance + existing.balanceCollected,
+        },
+      });
     }
   });
 

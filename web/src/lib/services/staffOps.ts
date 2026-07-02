@@ -137,6 +137,94 @@ export async function saveAttendance(dateStr: string, statuses: Record<number, s
   }
 }
 
+/** Salary ledger — money/advances paid to a staff member. Multiple entries per day allowed. */
+export async function getSalaryLedgerCalendar(staffId: number, monthStr: string) {
+  const [year, month] = monthStr.split("-").map(Number);
+  const monthStart = dateQ(new Date(Date.UTC(year, month - 1, 1)));
+  const monthEnd = dateQ(new Date(Date.UTC(year, month, 1)));
+  const records = await prisma.salaryLedgerEntry.findMany({
+    where: { staffId, date: { gte: monthStart, lt: monthEnd } },
+    orderBy: [{ date: "asc" }, { id: "asc" }],
+  });
+
+  const days: Record<string, number> = {};
+  let total = 0;
+  const entries = records.map((r) => {
+    const day = r.date.toISOString().slice(0, 10);
+    days[day] = (days[day] || 0) + r.amount;
+    total += r.amount;
+    return { id: r.id, date: day, amount: r.amount, note: r.note || "" };
+  });
+
+  return { days, entries, total };
+}
+
+export async function getSalaryLedgerSummary(monthStr: string) {
+  const [year, month] = monthStr.split("-").map(Number);
+  const monthStart = dateQ(new Date(Date.UTC(year, month - 1, 1)));
+  const monthEnd = dateQ(new Date(Date.UTC(year, month, 1)));
+
+  const staffList = await prisma.staff.findMany({ where: { active: true }, orderBy: { name: "asc" } });
+  const records = await prisma.salaryLedgerEntry.findMany({
+    where: { date: { gte: monthStart, lt: monthEnd } },
+  });
+
+  return staffList.map((s) => {
+    const own = records.filter((r) => r.staffId === s.id);
+    return {
+      id: s.id,
+      name: s.name,
+      total: own.reduce((sum, r) => sum + r.amount, 0),
+      count: own.length,
+    };
+  });
+}
+
+export async function addSalaryEntry(
+  data: { staffId: number; date: string; amount: number; note?: string },
+  by?: string,
+) {
+  const date = parseDateQ(data.date);
+  const amount = Number(data.amount);
+  if (!data.staffId) throw new Error("Staff is required.");
+  if (!Number.isFinite(amount) || amount <= 0) throw new Error("Enter a valid amount.");
+
+  const staff = await prisma.staff.findUnique({ where: { id: data.staffId }, select: { name: true } });
+  if (!staff) throw new Error("Staff not found.");
+
+  const entry = await prisma.salaryLedgerEntry.create({
+    data: { staffId: data.staffId, date, amount, note: data.note?.trim() || null },
+  });
+
+  logActivity({
+    username: by || "system",
+    action: "salary",
+    entity: "salary_ledger",
+    label: `Paid ₹${amount} to ${staff.name} on ${data.date.slice(0, 10)}`,
+    after: { staff: staff.name, date: data.date.slice(0, 10), amount, note: data.note || "" },
+  });
+
+  return entry;
+}
+
+export async function deleteSalaryEntry(id: number, by?: string) {
+  const entry = await prisma.salaryLedgerEntry.findUnique({
+    where: { id },
+    include: { staff: { select: { name: true } } },
+  });
+  if (!entry) throw new Error("Entry not found.");
+
+  await prisma.salaryLedgerEntry.delete({ where: { id } });
+
+  logActivity({
+    username: by || "system",
+    action: "salary",
+    entity: "salary_ledger",
+    label: `Removed ₹${entry.amount} salary entry for ${entry.staff.name}`,
+    before: { staff: entry.staff.name, date: entry.date.toISOString().slice(0, 10), amount: entry.amount },
+  });
+}
+
 export async function markShopClosed(dateStr: string, by?: string) {
   const date = parseDateQ(dateStr);
   const staffList = await prisma.staff.findMany({ where: { active: true } });

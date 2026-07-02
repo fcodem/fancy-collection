@@ -12,6 +12,7 @@ import { formatDate, parseDate } from "@/lib/constants";
 import { resolveBookingStatus } from "@/lib/bookingStatus";
 import { buildWarningMaps, pickWarning, type WarningInfo } from "@/lib/bookingWarnings";
 import { isStarBooking } from "@/lib/starBooking";
+import { cachedQuery } from "@/lib/perfCache";
 
 type ItemRow = {
   dress_name: string;
@@ -233,4 +234,18 @@ export async function getBookingListData(
     from_date: formatDate(dDate, "iso"),
     to_date: formatDate(rDate, "iso"),
   };
+}
+
+export function getBookingListDataCached(
+  deliveryDateStr: string,
+  returnDateStr: string,
+  categoryFilter = "",
+  deliveryTimeFilter = "",
+  returnTimeFilter = "",
+) {
+  return cachedQuery(
+    ["booking-list", deliveryDateStr, returnDateStr, categoryFilter, deliveryTimeFilter, returnTimeFilter],
+    () => getBookingListData(deliveryDateStr, returnDateStr, categoryFilter, deliveryTimeFilter, returnTimeFilter),
+    30,
+  );
 }

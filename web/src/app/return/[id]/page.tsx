@@ -4,6 +4,7 @@ import ReturnDetailClient from "@/components/ReturnDetailClient";
 import { serializeBookingItemRows } from "@/lib/dress";
 import { formatDate } from "@/lib/constants";
 import { loadWarningItemsForBooking } from "@/lib/bookingWarnings";
+import { serializeActiveOrders } from "@/lib/slipBookingData";
 export default async function ReturnDetailPage({ params }: { params: Promise<{ id: string }> }) {
   const { id } = await params;
   const booking = await prisma.booking.findUnique({
@@ -13,6 +14,7 @@ export default async function ReturnDetailPage({ params }: { params: Promise<{ i
         include: { item: { select: { photo: true, size: true, color: true, category: true } } },
       },
       legacyItem: { select: { photo: true, size: true, category: true } },
+      orders: { where: { status: "active" }, orderBy: { deliveryDate: "asc" } },
     },
   });
   if (!booking) notFound();
@@ -74,6 +76,19 @@ export default async function ReturnDetailPage({ params }: { params: Promise<{ i
         items={items}
         itemDelivery={itemDelivery}
         warningItems={warningItems}
+        orders={serializeActiveOrders(booking.orders)}
+        orderRecords={(booking.orders ?? []).map((o) => ({
+          id: o.id,
+          description: o.description,
+          cost: o.cost,
+          advance: o.advance,
+          balance: Math.max(0, o.balance),
+          balanceCollected: o.balanceCollected,
+          photo: o.photo,
+          deliveryDate: formatDate(o.deliveryDate),
+          deliveryTime: o.deliveryTime,
+          includedInRent: (o.cost || 0) === 0,
+        }))}
       />
   );
 }

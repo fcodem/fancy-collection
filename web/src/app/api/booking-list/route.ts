@@ -1,6 +1,6 @@
 import { NextRequest } from "next/server";
 import { jsonError, jsonOk, requireUserReadOnly, isResponse } from "@/lib/api";
-import { getBookingListData } from "@/lib/services/bookingList";
+import { getBookingListDataCached } from "@/lib/services/bookingList";
 
 export async function GET(req: NextRequest) {
   const user = await requireUserReadOnly();
@@ -13,7 +13,7 @@ export async function GET(req: NextRequest) {
   const returnTimeFilter = req.nextUrl.searchParams.get("return_time") || "";
 
   try {
-    const data = await getBookingListData(
+    const data = await getBookingListDataCached(
       deliveryDateStr,
       returnDateStr,
       categoryFilter,

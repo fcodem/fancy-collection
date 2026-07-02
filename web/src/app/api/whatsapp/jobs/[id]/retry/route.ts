@@ -1,6 +1,6 @@
 import { NextRequest } from "next/server";
 import { jsonError, jsonOk, requireOwner, isResponse } from "@/lib/api";
-import { retryWhatsAppJob } from "@/lib/services/whatsapp/jobQueue";
+import { processWhatsAppJobQueue, retryWhatsAppJob } from "@/lib/services/whatsapp/jobQueue";
 
 export async function POST(
   _req: NextRequest,
@@ -15,6 +15,7 @@ export async function POST(
 
   try {
     const job = await retryWhatsAppJob(jobId);
+    const summary = await processWhatsAppJobQueue(5, { bookingId: job.bookingId ?? undefined });
     return jsonOk({
       ok: true,
       job: {
@@ -22,6 +23,7 @@ export async function POST(
         status: job.status,
         scheduled_at: job.scheduledAt.toISOString(),
       },
+      ...summary,
     });
   } catch (e) {
     return jsonError(e instanceof Error ? e.message : "Retry failed");

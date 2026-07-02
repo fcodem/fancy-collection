@@ -12,6 +12,8 @@ import { broadcastShopEvent } from "../realtime/broadcast";
 import { logActivity, snapshotBooking } from "../activityLog";
 import { deleteUploads, saveUpload } from "../upload";
 import { syncBookingStatusFromItems } from "../syncBookingStatusFromItems";
+import { cachedQuery } from "../perfCache";
+import { serializeActiveOrders } from "../slipBookingData";
 
 export { syncBookingStatusFromItems } from "../syncBookingStatusFromItems";
 
@@ -35,6 +37,17 @@ async function clearBookingIdPhotos(booking: { idPhoto1?: string | null; idPhoto
   await deleteUploads([booking.idPhoto1, booking.idPhoto2]);
 }
 
+async function clearIncompletePhotos(booking: {
+  incompletePhoto?: string | null;
+  bookingItems?: Array<{ itemIncompletePhoto?: string | null }>;
+}) {
+  const paths = [
+    booking.incompletePhoto,
+    ...(booking.bookingItems?.map((bi) => bi.itemIncompletePhoto) ?? []),
+  ];
+  await deleteUploads(paths);
+}
+
 /** When every delivered dress is returned (none incomplete), close the booking. */
 async function finalizeFullReturnIfComplete(
   bookingId: number,
@@ -55,6 +68,7 @@ async function finalizeFullReturnIfComplete(
   const anyIncomplete = delivered.some((bi) => bi.isIncompleteReturn);
   if (!allReturned || anyIncomplete) return;
 
+  await clearIncompletePhotos(booking);
   await clearBookingIdPhotos(booking);
   await tx.booking.update({
     where: { id: bookingId },
@@ -62,6 +76,8 @@ async function finalizeFullReturnIfComplete(
       status: "returned",
       returnedAt: booking.returnedAt || new Date(),
       securityHeld: 0,
+      incompletePhoto: null,
+      incompleteNotes: null,
       idPhoto1: null,
       idPhoto2: null,
     },
@@ -86,12 +102,15 @@ async function syncIncompleteReturnStatus(
   if (incomplete.length === 0) {
     const allReturned = delivered.length > 0 && delivered.every((bi) => bi.isReturned);
     if (allReturned) {
+      await clearIncompletePhotos(booking);
       await clearBookingIdPhotos(booking);
       await tx.booking.update({
         where: { id: bookingId },
         data: {
           status: "returned",
           securityHeld: 0,
+          incompletePhoto: null,
+          incompleteNotes: null,
           idPhoto1: null,
           idPhoto2: null,
         },
@@ -183,29 +202,75 @@ export async function getDashboardFreeItems(deliveryDateStr: string, returnDateS
   const dDate = parseDateQ(deliveryDateStr);
   const rDate = parseDateQ(returnDateStr);
 
-  const allItems = await prisma.clothingItem.findMany({
-    where: {
-      status: { not: "maintenance" },
-      ...(categoryFilter ? { category: categoryFilter } : {}),
-    },
-  });
-
-  const [overlapWhere, returningOnDeliveryWhere, deliveryOnReturnWhere] = await Promise.all([
+  const [allItems, overlapWhere, returningOnDeliveryWhere, deliveryOnReturnWhere] = await Promise.all([
+    prisma.clothingItem.findMany({
+      where: {
+        status: { not: "maintenance" },
+        ...(categoryFilter ? { category: categoryFilter } : {}),
+      },
+      select: { id: true, name: true, category: true, color: true, size: true },
+    }),
     whereBookingOverlapsPeriod(deliveryDateStr, returnDateStr),
     whereReturnInRange(deliveryDateStr, deliveryDateStr),
     whereDeliveryInRange(returnDateStr, returnDateStr),
   ]);
 
-  const overlappingBookings = await prisma.booking.findMany({
-    where: {
-      status: { in: ["booked", "delivered"] },
-      ...overlapWhere,
-    },
-    select: {
-      itemId: true,
-      bookingItems: { select: { itemId: true } },
-    },
-  });
+  const [
+    overlappingBookings,
+    overlappingRentals,
+    returningOnDeliveryBookings,
+    bookingsOnReturnDate,
+  ] = await Promise.all([
+    prisma.booking.findMany({
+      where: {
+        status: { in: ["booked", "delivered"] },
+        ...overlapWhere,
+      },
+      select: {
+        itemId: true,
+        bookingItems: { select: { itemId: true } },
+      },
+    }),
+    prisma.rental.findMany({
+      where: {
+        status: { in: ["active", "overdue"] },
+        startDate: { lte: rDate },
+        endDate: { gte: dDate },
+      },
+      include: { items: true },
+    }),
+    prisma.booking.findMany({
+      where: { status: { in: ["booked", "delivered"] }, ...returningOnDeliveryWhere },
+      select: {
+        itemId: true,
+        dressName: true,
+        bookingNumber: true,
+        monthlySerial: true,
+        customerName: true,
+        contact1: true,
+        totalPrice: true,
+        price: true,
+        returnTime: true,
+        returnDate: true,
+        venue: true,
+        bookingItems: { select: { itemId: true, dressName: true, category: true } },
+      },
+    }),
+    prisma.booking.findMany({
+      where: { status: { in: ["booked", "delivered"] }, ...deliveryOnReturnWhere },
+      select: {
+        itemId: true,
+        bookingNumber: true,
+        monthlySerial: true,
+        customerName: true,
+        totalPrice: true,
+        price: true,
+        deliveryTime: true,
+        venue: true,
+        bookingItems: { select: { itemId: true } },
+      },
+    }),
+  ]);
 
   const bookedItemIds = new Set<number>();
   for (const b of overlappingBookings) {
@@ -213,56 +278,16 @@ export async function getDashboardFreeItems(deliveryDateStr: string, returnDateS
     else if (b.itemId) bookedItemIds.add(b.itemId);
   }
 
-  const overlappingRentals = await prisma.rental.findMany({
-    where: {
-      status: { in: ["active", "overdue"] },
-      startDate: { lte: rDate },
-      endDate: { gte: dDate },
-    },
-    include: { items: true },
-  });
   const rentedItemIds = new Set<number>();
   for (const r of overlappingRentals) r.items.forEach((ri) => rentedItemIds.add(ri.itemId));
 
   const busyIds = new Set([...bookedItemIds, ...rentedItemIds]);
 
-  const returningOnDeliveryBookings = await prisma.booking.findMany({
-    where: { status: { in: ["booked", "delivered"] }, ...returningOnDeliveryWhere },
-    select: {
-      itemId: true,
-      dressName: true,
-      bookingNumber: true,
-      monthlySerial: true,
-      customerName: true,
-      contact1: true,
-      totalPrice: true,
-      price: true,
-      returnTime: true,
-      returnDate: true,
-      venue: true,
-      bookingItems: { select: { itemId: true, dressName: true, category: true } },
-    },
-  });
   const returningOnDeliveryIds = new Set<number>();
   for (const b of returningOnDeliveryBookings) {
     if (b.bookingItems.length) b.bookingItems.forEach((bi) => returningOnDeliveryIds.add(bi.itemId));
     else if (b.itemId) returningOnDeliveryIds.add(b.itemId);
   }
-
-  const bookingsOnReturnDate = await prisma.booking.findMany({
-    where: { status: { in: ["booked", "delivered"] }, ...deliveryOnReturnWhere },
-    select: {
-      itemId: true,
-      bookingNumber: true,
-      monthlySerial: true,
-      customerName: true,
-      totalPrice: true,
-      price: true,
-      deliveryTime: true,
-      venue: true,
-      bookingItems: { select: { itemId: true } },
-    },
-  });
   const bookedOnReturnIds = new Set<number>();
   const bookedOnReturnInfo: Record<string, object> = {};
   for (const b of bookingsOnReturnDate) {
@@ -334,6 +359,18 @@ export async function getDashboardFreeItems(deliveryDateStr: string, returnDateS
   }
 
   return { free_items, returning_on_delivery, warnings };
+}
+
+export function getDashboardFreeItemsCached(
+  deliveryDateStr: string,
+  returnDateStr: string,
+  categoryFilter = "",
+) {
+  return cachedQuery(
+    ["dashboard-free-items", deliveryDateStr, returnDateStr, categoryFilter],
+    () => getDashboardFreeItems(deliveryDateStr, returnDateStr, categoryFilter),
+    30,
+  );
 }
 
 export async function bookingDateCheck(
@@ -531,18 +568,81 @@ export async function getPackingList(deliveryDateStr: string, returnDateStr: str
 
   const bookings = await prisma.booking.findMany({
     where,
-    include: { bookingItems: { include: { item: true } }, legacyItem: true },
+    select: {
+      id: true,
+      monthlySerial: true,
+      customerName: true,
+      contact1: true,
+      whatsappNo: true,
+      deliveryDate: true,
+      deliveryTime: true,
+      returnDate: true,
+      returnTime: true,
+      venue: true,
+      totalPrice: true,
+      totalAdvance: true,
+      totalRemaining: true,
+      commonNotes: true,
+      status: true,
+      itemId: true,
+      dressName: true,
+      price: true,
+      advance: true,
+      remaining: true,
+      notes: true,
+      bookingItems: {
+        select: {
+          id: true,
+          itemId: true,
+          dressName: true,
+          category: true,
+          size: true,
+          price: true,
+          advance: true,
+          remaining: true,
+          notes: true,
+          preparedBy: true,
+          checkedBy: true,
+          isPackedReady: true,
+          packingNote: true,
+          item: { select: { photo: true, size: true } },
+        },
+      },
+      orders: {
+        where: { status: "active" },
+        select: {
+          id: true,
+          description: true,
+          cost: true,
+          advance: true,
+          balance: true,
+          photo: true,
+          deliveryDate: true,
+          deliveryTime: true,
+          status: true,
+        },
+        orderBy: { deliveryDate: "asc" },
+      },
+      legacyItem: { select: { size: true, category: true } },
+    },
     orderBy: [{ deliveryDate: "asc" }, { deliveryTime: "asc" }],
   });
 
   const deliveryDateStrs = [...new Set(bookings.map((b) => formatDate(b.deliveryDate, "iso")))];
-  type ReturningBooking = Awaited<
-    ReturnType<
-      typeof prisma.booking.findMany<{
-        include: { bookingItems: true };
-      }>
-    >
-  >[number];
+  type ReturningBooking = {
+    id: number;
+    itemId: number | null;
+    returnDate: Date;
+    customerName: string;
+    monthlySerial: number;
+    deliveryDate: Date;
+    deliveryTime: string;
+    returnTime: string;
+    venue: string | null;
+    totalPrice: number;
+    contact1: string;
+    bookingItems: { itemId: number }[];
+  };
   const returningByDeliveryDate = new Map<number, ReturningBooking[]>();
   if (deliveryDateStrs.length) {
     const returningBookings = await prisma.booking.findMany({
@@ -550,7 +650,20 @@ export async function getPackingList(deliveryDateStr: string, returnDateStr: str
         ...(await whereReturnOnAnyDates(deliveryDateStrs)),
         status: { in: ["booked", "delivered"] },
       },
-      include: { bookingItems: { include: { item: true } }, legacyItem: true },
+      select: {
+        id: true,
+        itemId: true,
+        returnDate: true,
+        customerName: true,
+        monthlySerial: true,
+        deliveryDate: true,
+        deliveryTime: true,
+        returnTime: true,
+        venue: true,
+        totalPrice: true,
+        contact1: true,
+        bookingItems: { select: { itemId: true } },
+      },
     });
     for (const rb of returningBookings) {
       const key = rb.returnDate.getTime();
@@ -571,7 +684,7 @@ export async function getPackingList(deliveryDateStr: string, returnDateStr: str
         for (const rb of returning) {
           const rbIds = rb.bookingItems.length ? rb.bookingItems.map((rbi) => rbi.itemId) : rb.itemId ? [rb.itemId] : [];
           if (rbIds.includes(bi.itemId)) {
-            retWarning = packingWarningFromBooking(rb);
+            retWarning = packingWarningFromBooking(rb as unknown as BookingForPackingRecord);
             break;
           }
         }
@@ -611,10 +724,12 @@ export async function getPackingList(deliveryDateStr: string, returnDateStr: str
         returning_warning: null,
       });
     }
-    if (!items_data.length) continue;
+    const orders_data = serializeActiveOrders(b.orders);
+    if (!items_data.length && !(orders_data.length && !categoryFilter)) continue;
     results.push({
       ...packingRecordFromBooking(b),
       items: items_data,
+      orders: categoryFilter ? [] : orders_data,
     });
   }
   results.sort((a, b) => Number(b.is_star) - Number(a.is_star));
@@ -937,6 +1052,7 @@ export async function saveReturn(
     if (booking.status === "incomplete_return") {
       return resolveIncompleteReturn(bookingId, by);
     }
+    await clearIncompletePhotos(booking);
     await clearBookingIdPhotos(booking);
     await prisma.$transaction(async (tx) => {
       await tx.booking.update({
@@ -945,6 +1061,8 @@ export async function saveReturn(
           status: "returned",
           returnedAt: new Date(),
           securityHeld: 0,
+          incompletePhoto: null,
+          incompleteNotes: null,
           idPhoto1: null,
           idPhoto2: null,
         },
@@ -981,6 +1099,10 @@ export async function saveReturn(
       if (!bi) throw new Error("Dress not found on this booking.");
       if (!bi.isDelivered) throw new Error("Dress must be delivered before it can be returned.");
       if (bi.isReturned) throw new Error("This dress is already marked returned.");
+
+      if (bi.isIncompleteReturn && bi.itemIncompletePhoto) {
+        await deleteUploads([bi.itemIncompletePhoto]);
+      }
 
       await prisma.$transaction(async (tx) => {
         if (bi.isIncompleteReturn) {
@@ -1139,10 +1261,20 @@ export async function resolveIncompleteReturn(bookingId: number, by?: string) {
 
   const beforeSnapshot = snapshotBooking(booking as unknown as Record<string, unknown>);
 
+  await clearIncompletePhotos(booking);
+  await clearBookingIdPhotos(booking);
+
   await prisma.$transaction(async (tx) => {
     await tx.booking.update({
       where: { id: bookingId },
-      data: { status: "returned", securityHeld: 0 },
+      data: {
+        status: "returned",
+        securityHeld: 0,
+        incompletePhoto: null,
+        incompleteNotes: null,
+        idPhoto1: null,
+        idPhoto2: null,
+      },
     });
     for (const bi of booking.bookingItems) {
       await tx.bookingItem.update({
@@ -1272,6 +1404,20 @@ export async function getReturningToday(targetDateStr: string) {
   });
 
   const data = [];
+  const deliveryByItemId = new Map<number, typeof candidates>();
+  for (const nxt of candidates) {
+    const nxtIds = nxt.bookingItems.length
+      ? nxt.bookingItems.map((bi) => bi.itemId)
+      : nxt.itemId
+        ? [nxt.itemId]
+        : [];
+    for (const id of nxtIds) {
+      const list = deliveryByItemId.get(id);
+      if (list) list.push(nxt);
+      else deliveryByItemId.set(id, [nxt]);
+    }
+  }
+
   for (const b of returning) {
     const itemRows = serializeBookingItems(b);
     const itemIds = b.bookingItems.length
@@ -1279,19 +1425,20 @@ export async function getReturningToday(targetDateStr: string) {
       : b.itemId
         ? [b.itemId]
         : [];
-    const retIdSet = new Set(itemIds);
 
     let next_booking: ReturnType<typeof alternateBookingSide> | null = null;
 
-    for (const nxt of candidates) {
-      if (nxt.id === b.id) continue;
-      const nxtIds = nxt.bookingItems.length
-        ? nxt.bookingItems.map((bi) => bi.itemId)
-        : nxt.itemId
+    for (const id of itemIds) {
+      const matches = deliveryByItemId.get(id);
+      if (!matches) continue;
+      const nxt = matches.find((c) => c.id !== b.id);
+      if (!nxt) continue;
+
+      const matchedIds = nxt.bookingItems.length
+        ? nxt.bookingItems.map((bi) => bi.itemId).filter((nid) => itemIds.includes(nid))
+        : nxt.itemId && itemIds.includes(nxt.itemId)
           ? [nxt.itemId]
           : [];
-      const matchedIds = nxtIds.filter((id) => retIdSet.has(id));
-      if (!matchedIds.length) continue;
 
       const matchedNames = nxt.bookingItems.length
         ? nxt.bookingItems
@@ -1315,6 +1462,14 @@ export async function getReturningToday(targetDateStr: string) {
     });
   }
   return data;
+}
+
+export function getReturningTodayCached(targetDateStr: string) {
+  return cachedQuery(
+    ["returning-today", targetDateStr.slice(0, 10)],
+    () => getReturningToday(targetDateStr),
+    30,
+  );
 }
 
 export async function cancelBooking(bookingId: number, refundAmount = 0, by?: string) {
@@ -1435,6 +1590,7 @@ export async function getDeliveryDetail(bookingId: number) {
       bookingItems: {
         include: { item: { select: { photo: true, size: true, color: true, category: true } } },
       },
+      orders: { where: { status: "active" }, orderBy: { deliveryDate: "asc" } },
     },
   });
   if (!booking) return null;

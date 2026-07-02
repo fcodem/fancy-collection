@@ -1,5 +1,7 @@
 import { FinanceSecurityDeposit } from "@/components/finance/FinancePages";
+import { monthStartIso, todayIso } from "@/lib/constants";
 
 export default function SecurityDepositPage() {
-  return <FinanceSecurityDeposit />;
+  const today = todayIso();
+  return <FinanceSecurityDeposit monthStartIso={monthStartIso(today)} todayIso={today} />;
 }

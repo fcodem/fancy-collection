@@ -6,6 +6,34 @@ import { formatDate } from "@/lib/constants";
 import { logActivity, snapshotBooking } from "@/lib/activityLog";
 import { broadcastShopEvent } from "@/lib/realtime/broadcast";
 import { monthBasedSearchBookings } from "@/lib/services/bookingSearchCore";
+import { cachedQuery } from "@/lib/perfCache";
+
+const postponedListSelect = {
+  id: true,
+  monthlySerial: true,
+  status: true,
+  totalAdvance: true,
+  advance: true,
+  postponedAt: true,
+  customerName: true,
+  contact1: true,
+  whatsappNo: true,
+  dressName: true,
+  venue: true,
+  deliveryDate: true,
+  returnDate: true,
+  deliveryTime: true,
+  returnTime: true,
+  bookingItems: {
+    select: {
+      dressName: true,
+      category: true,
+      size: true,
+      item: { select: { size: true } },
+    },
+  },
+  legacyItem: { select: { size: true, category: true } },
+} as const;
 
 export type PostponedBookingRow = ReturnType<typeof bookingListRecordFrom> & {
   id: number;
@@ -59,14 +87,11 @@ export async function listPostponedBookings(searchQ?: string) {
   const q = (searchQ || "").trim().toLowerCase();
   const rows = await prisma.booking.findMany({
     where: { status: "postponed" },
-    include: {
-      bookingItems: { include: { item: { select: { size: true } } } },
-      legacyItem: { select: { size: true, category: true } },
-    },
+    select: postponedListSelect,
     orderBy: [{ createdAt: "desc" }, { monthlySerial: "desc" }],
   });
 
-  let list = rows.map((b) => serializePostponedRow(b));
+  let list = rows.map((b) => serializePostponedRow(b as BookingForListRecord & typeof b));
   if (q) {
     list = list.filter((r) => {
       const hay = [
@@ -85,6 +110,12 @@ export async function listPostponedBookings(searchQ?: string) {
 
   const total_advance_held = list.reduce((s, r) => s + (r.total_advance || 0), 0);
   return { results: list, total_advance_held, count: list.length };
+}
+
+export function listPostponedBookingsCached(searchQ?: string) {
+  const q = (searchQ || "").trim();
+  if (q) return listPostponedBookings(q);
+  return cachedQuery(["postponed-booking-list"], () => listPostponedBookings(""), 30);
 }
 
 export async function postponeBooking(bookingId: number, by?: string) {
