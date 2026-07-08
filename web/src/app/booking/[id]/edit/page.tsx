@@ -5,6 +5,7 @@ import { isBookingLocked } from "@/lib/bookingLock";
 import BookingFormClient from "@/components/BookingFormClient";
 import { getAllCategories } from "@/lib/categories";
 import { todayIso } from "@/lib/constants";
+import { catalogPhotoRef } from "@/lib/catalogPhotoRef";
 
 export default async function EditBookingPage({
   params,
@@ -73,7 +74,7 @@ export default async function EditBookingPage({
             name: bi.dressName,
             category: bi.category || "",
             size: bi.size || bi.item?.size || "",
-            photo: bi.item?.photo || "",
+            photo: bi.item ? catalogPhotoRef(bi.item) : "",
             price: bi.price,
             advance: bi.advance,
             notes: bi.notes || "",

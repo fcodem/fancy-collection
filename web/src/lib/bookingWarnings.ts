@@ -37,7 +37,7 @@ export type WarningMapBooking = {
   dressName?: string | null;
   itemId?: number | null;
   bookingItems: Array<{
-    itemId: number;
+    itemId: number | null;
     dressName: string;
     category?: string | null;
     size?: string | null;
@@ -48,7 +48,9 @@ export type WarningMapBooking = {
 };
 
 function itemIds(b: Pick<WarningMapBooking, "itemId" | "bookingItems">): number[] {
-  if (b.bookingItems.length) return b.bookingItems.map((bi) => bi.itemId);
+  if (b.bookingItems.length) {
+    return b.bookingItems.map((bi) => bi.itemId).filter((id): id is number => id != null);
+  }
   if (b.itemId) return [b.itemId];
   return [];
 }
@@ -106,9 +108,10 @@ export function buildWarningMaps(edgeBookings: WarningMapBooking[]) {
 export function pickWarning(
   map: Map<string, WarningInfo[]>,
   dateIso: string,
-  itemId: number,
+  itemId: number | undefined,
   excludeBookingId: number,
 ): BookingWarningRecord | null {
+  if (itemId == null) return null;
   const list = map.get(`${dateIso}-${itemId}`);
   if (!list?.length) return null;
   const hit = list.find((w) => w.booking_id !== excludeBookingId);
@@ -130,11 +133,11 @@ export function warningItemsForBooking(
     for (const bi of b.bookingItems) {
       const display = dressDisplayName(bi.dressName, bi.category, bookingItemSize(bi));
       items.push({
-        item_id: bi.itemId,
+        item_id: bi.itemId ?? undefined,
         display_name: display,
         dress_name: bi.dressName,
-        returning_warning: pickWarning(returningMap, delIso, bi.itemId, b.id),
-        booked_warning: pickWarning(bookedMap, retIso, bi.itemId, b.id),
+        returning_warning: pickWarning(returningMap, delIso, bi.itemId ?? undefined, b.id),
+        booked_warning: pickWarning(bookedMap, retIso, bi.itemId ?? undefined, b.id),
       });
     }
   } else if (b.itemId && b.dressName) {

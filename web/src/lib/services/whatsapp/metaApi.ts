@@ -170,7 +170,7 @@ export async function uploadWhatsAppMedia(
   const form = new FormData();
   form.append("messaging_product", "whatsapp");
   form.append("type", mimeType);
-  form.append("file", new Blob([fileBuffer], { type: mimeType }), filename);
+  form.append("file", new Blob([new Uint8Array(fileBuffer)], { type: mimeType }), filename);
 
   const url = `https://graph.facebook.com/${GRAPH_API_VERSION}/${metaPhoneId()}/media`;
 

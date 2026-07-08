@@ -4,6 +4,7 @@ import { buildDressSearchWhere, dressDisplayName } from "@/lib/dress";
 import { bookingUsesItem } from "@/lib/booking";
 import { parseDate, formatDate } from "@/lib/constants";
 import { jsonError, jsonOk, requireUser, isResponse } from "@/lib/api";
+import { catalogPhotoRef } from "@/lib/catalogPhotoRef";
 import type { Booking, BookingItem, ClothingItem } from "@prisma/client";
 
 type BookingWithItems = Booking & { bookingItems: BookingItem[] };
@@ -166,7 +167,7 @@ export async function GET(req: NextRequest) {
       category: item.category,
       size: item.size || "",
       color: item.color || "",
-      photo: item.photo || "",
+      photo: catalogPhotoRef(item) || "",
       inventory_status: item.status,
       ...avail,
     };

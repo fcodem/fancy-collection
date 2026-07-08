@@ -40,6 +40,7 @@ import {
 } from "../financeBookingAmounts";
 import { getInactiveBookingStats } from "../financeInactiveBookings";
 import { cachedQuery } from "../perfCache";
+import { catalogPhotoRef } from "../catalogPhotoRef";
 
 const financeOrderSelect = {
   select: {
@@ -836,7 +837,7 @@ export async function getTopPerformers(
         name: bi.dressName,
         category: bi.category || "",
         size: bi.item?.size || bi.size || "",
-        photo: bi.item?.photo || "",
+        photo: bi.item ? catalogPhotoRef(bi.item) : "",
         bookings: 0,
         total_earned: 0,
       };
@@ -1116,6 +1117,7 @@ export async function getInventoryProfitability(fromStr?: string, toStr?: string
   const revenueByItem = new Map<number, { revenue: number; bookings: number }>();
 
   for (const row of modernAgg) {
+    if (row.itemId == null) continue;
     revenueByItem.set(row.itemId, {
       revenue: row._sum.price ?? 0,
       bookings: row._count._all,
@@ -1154,7 +1156,7 @@ export async function getInventoryProfitability(fromStr?: string, toStr?: string
         name: item.name,
         category: item.category,
         size: item.size,
-        photo: item.photo,
+        photo: catalogPhotoRef(item),
         status: item.status,
         bookingCount: stats?.bookings ?? 0,
         lifetimeRevenue: stats?.revenue ?? 0,

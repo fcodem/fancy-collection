@@ -1,6 +1,7 @@
 import { NextRequest, NextResponse } from "next/server";
 import prisma from "@/lib/prisma";
 import { requireJsonContentType } from "@/lib/api";
+import { handleInboundAutoReply } from "@/lib/services/whatsapp/autoReply";
 
 export async function GET(req: NextRequest) {
   const { searchParams } = req.nextUrl;
@@ -133,6 +134,7 @@ async function processIncomingMessage(
   let conversation = await prisma.whatsAppConversation.findUnique({
     where: { customerPhone: phone },
   });
+  const isNewConversation = !conversation;
 
   if (!conversation) {
     const booking = await prisma.booking.findFirst({
@@ -186,6 +188,15 @@ async function processIncomingMessage(
   });
 
   console.log(`[webhook] Incoming from ${phone}: "${body}"`);
+
+  // Auto-reply chatbot: responds until a human team member takes over the chat.
+  await handleInboundAutoReply({
+    conversationId: conversation.id,
+    phone,
+    inboundText: body,
+    messageType,
+    isFirstContact: isNewConversation,
+  });
 }
 
 async function processMessageStatus(status: MessageStatus) {

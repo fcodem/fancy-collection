@@ -13,7 +13,7 @@ const { id } = await params;
           <p><strong>Customer:</strong> {rental.customer.name}</p>
           <p><strong>Status:</strong> {rental.status}</p>
           <p><strong>Total:</strong> ₹{rental.totalAmount.toLocaleString()}</p>
-          <ul>{rental.items.map((ri) => <li key={ri.id}>{ri.item.name} — ₹{ri.dailyRate}/day</li>)}</ul>
+          <ul>{rental.items.map((ri) => <li key={ri.id}>{ri.item?.name ?? "—"} — ₹{ri.dailyRate}/day</li>)}</ul>
         </div>
       </div>
   );

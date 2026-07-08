@@ -20,6 +20,7 @@ import {
   type BookingForStandardDetails,
 } from "@/lib/bookingDetails";
 import { isDeliverySlipEligible, isCommonDeliverySlipEligible, isIncompleteSlipEligible, isReturnSlipEligible, isCommonReturnSlipEligible, hasPartialReturn, deliverySlipHref, returnSlipHref } from "@/lib/bookingStatus";
+import { navigatePrintTab, openBlankPrintTab, withSlipPrintQuery } from "@/lib/slipPrintUrl";
 import type { BookingItemPricingRow } from "@/lib/dress";
 import { formatInr } from "@/lib/format";
 import { photoUrl } from "@/lib/photoUrl";
@@ -35,7 +36,7 @@ function paymentModeLabel(mode?: string | null): string | null {
 
 type ItemDeliveryRow = {
   id: number;
-  itemId?: number;
+  itemId?: number | null;
   dressName: string;
   category?: string | null;
   size?: string;
@@ -303,9 +304,10 @@ export default function ReturnDetailClient({
     });
   }
 
-  async function act(action: string, bookingItemId?: number) {
+  async function act(action: string, bookingItemId?: number, opts?: { openPrintSlip?: boolean }) {
     setReturnError("");
     setSaving(true);
+    const printWindow = opts?.openPrintSlip ? openBlankPrintTab() : null;
     try {
       const res = await fetch(`/api/return/${booking.id}/save`, {
         method: "POST",
@@ -317,8 +319,21 @@ export default function ReturnDetailClient({
       });
       const data = await res.json().catch(() => ({}));
       if (!res.ok) {
+        printWindow?.close();
         setReturnError(typeof data.error === "string" ? data.error : "Save failed");
         return;
+      }
+      if (opts?.openPrintSlip) {
+        const href = bookingItemId
+          ? returnSlipHref(booking.id, returnSlipSource, bookingItemId)
+          : returnSlipHref(booking.id, {
+              status: data.status ?? "returned",
+              bookingItems: returnSlipSource.bookingItems?.map((row) => ({
+                ...row,
+                isReturned: true,
+              })),
+            });
+        navigatePrintTab(printWindow, href);
       }
       router.refresh();
     } finally {
@@ -335,7 +350,7 @@ export default function ReturnDetailClient({
     setIncompleteError("");
     setSaving(true);
     try {
-      const form = new FormData();
+        const form = new FormData();
       form.append("action", "incomplete_return");
 
       if (returnableItems.length === 1 && returnableItems[0].id === 0) {
@@ -376,14 +391,36 @@ export default function ReturnDetailClient({
       <div style={{ display: "flex",gap: 12, marginBottom: 16, flexWrap: "wrap" }} className="no-print">
         <Link href={`/booking/${booking.id}`} className="btn btn-outline">View Booking</Link>
         {isDeliverySlipEligible(slipStatusSource) && isCommonDeliverySlipEligible(slipStatusSource) && (
-          <Link href={deliverySlipHref(booking.id, slipStatusSource)} className="btn btn-outline" style={{ color: "#1565c0", borderColor: "#1565c0" }}>
-            <i className="fa-solid fa-truck-fast" style={{ marginRight: 6 }} />Delivery Slip
-          </Link>
+          <>
+            <Link href={deliverySlipHref(booking.id, slipStatusSource)} className="btn btn-outline" style={{ color: "#1565c0", borderColor: "#1565c0" }}>
+              <i className="fa-solid fa-truck-fast" style={{ marginRight: 6 }} />Delivery Slip
+            </Link>
+            <Link
+              href={withSlipPrintQuery(deliverySlipHref(booking.id, slipStatusSource))}
+              className="btn btn-outline"
+              style={{ color: "#1565c0", borderColor: "#1565c0" }}
+              target="_blank"
+              rel="noopener noreferrer"
+            >
+              <i className="fa-solid fa-print" style={{ marginRight: 6 }} />Print Delivery Slip
+            </Link>
+          </>
         )}
         {isReturnSlipEligible(returnSlipSource) && isCommonReturnSlipEligible(returnSlipSource) && (
-          <Link href={returnSlipHref(booking.id, returnSlipSource)} className="btn btn-outline" style={{ color: "#b8860b", borderColor: "#c9a84c" }}>
-            <i className="fa-solid fa-circle-check" style={{ marginRight: 6 }} />Return Receipt
-          </Link>
+          <>
+            <Link href={returnSlipHref(booking.id, returnSlipSource)} className="btn btn-outline" style={{ color: "#b8860b", borderColor: "#c9a84c" }}>
+              <i className="fa-solid fa-circle-check" style={{ marginRight: 6 }} />Return Receipt
+            </Link>
+            <Link
+              href={withSlipPrintQuery(returnSlipHref(booking.id, returnSlipSource))}
+              className="btn btn-outline"
+              style={{ color: "#b8860b", borderColor: "#c9a84c" }}
+              target="_blank"
+              rel="noopener noreferrer"
+            >
+              <i className="fa-solid fa-print" style={{ marginRight: 6 }} />Print A4 Slip
+            </Link>
+          </>
         )}
         {isReturnSlipEligible(returnSlipSource) && partialReturn && returnedItems.length >= 2 && (
           <Link href={returnSlipHref(booking.id, returnSlipSource)} className="btn btn-outline" style={{ color: "#b8860b", borderColor: "#c9a84c" }}>
@@ -775,6 +812,7 @@ export default function ReturnDetailClient({
                         </div>
                       )}
                     </div>
+                    <div style={{ display: "flex", gap: 8, flexWrap: "wrap" }}>
                     <button
                       type="button"
                       className="btn btn-sm btn-primary"
@@ -784,6 +822,17 @@ export default function ReturnDetailClient({
                       <i className="fa-solid fa-circle-check" style={{ marginRight: 6 }} />
                       Mark Returned
                     </button>
+                    <button
+                      type="button"
+                      className="btn btn-sm btn-outline"
+                      disabled={saving}
+                      onClick={() => void act("mark_item_returned", row.id, { openPrintSlip: true })}
+                      style={{ color: "#b8860b", borderColor: "#c9a84c" }}
+                    >
+                      <i className="fa-solid fa-print" style={{ marginRight: 6 }} />
+                      Print A4 Slip
+                    </button>
+                    </div>
                     </div>
                     {itemWarnings && <BookingItemWarningsBlock item={itemWarnings} />}
                   </div>
@@ -811,15 +860,26 @@ export default function ReturnDetailClient({
               </div>
             )}
 
+            <div style={{ display: "flex", gap: 12, flexWrap: "wrap", alignItems: "center" }}>
             <button
               className="btn btn-primary"
-              style={{ marginRight: 12 }}
               disabled={saving || pendingReturnCount === 0}
               onClick={() => void act("mark_returned")}
             >
               <i className="fa-solid fa-circle-check" style={{ marginRight: 6 }} />
               {multiDress ? "Mark All Remaining Returned" : "Mark Returned (Complete)"}
             </button>
+            <button
+              type="button"
+              className="btn btn-outline"
+              disabled={saving || pendingReturnCount === 0}
+              onClick={() => void act("mark_returned", undefined, { openPrintSlip: true })}
+              style={{ color: "#b8860b", borderColor: "#c9a84c" }}
+            >
+              <i className="fa-solid fa-print" style={{ marginRight: 6 }} />
+              Print A4 Slip
+            </button>
+            </div>
 
             <div style={{ marginTop: 24, paddingTop: 24, borderTop: "1px solid var(--border)" }}>
               <h4 style={{ marginBottom: 8 }}>
@@ -878,7 +938,7 @@ export default function ReturnDetailClient({
                       </label>
 
                       <div style={{ marginTop: 16, paddingTop: 16, borderTop: "1px dashed rgba(243,156,18,0.4)" }}>
-                        <div style={{ marginBottom: 12 }}>
+              <div style={{ marginBottom: 12 }}>
                           <label className="form-label">What is missing / notes for this dress</label>
                           <textarea
                             className="form-control"
@@ -888,8 +948,8 @@ export default function ReturnDetailClient({
                             placeholder="e.g. Dupatta missing, dress damaged…"
                             disabled={!selected}
                           />
-                        </div>
-                        <div style={{ marginBottom: 12 }}>
+              </div>
+              <div style={{ marginBottom: 12 }}>
                           <label className="form-label">Security to hold for this dress (₹)</label>
                           <input
                             type="number"
@@ -900,7 +960,7 @@ export default function ReturnDetailClient({
                             step="0.01"
                             disabled={!selected}
                           />
-                        </div>
+              </div>
                         <div>
                           <label className="form-label">
                             Photo <span style={{ fontWeight: 400, color: "var(--text-muted)" }}>(optional)</span>
@@ -917,8 +977,8 @@ export default function ReturnDetailClient({
                             <p style={{ fontSize: 12, color: "var(--text-muted)", margin: 0 }}>
                               Check the dress above to enable photo capture.
                             </p>
-                          )}
-                        </div>
+                )}
+              </div>
                       </div>
                     </div>
                   );
@@ -1021,19 +1081,19 @@ export default function ReturnDetailClient({
                 ))
             ) : (
               <>
-                <p><strong>Missing Items:</strong> {booking.incompleteNotes || "—"}</p>
-                {booking.incompletePhoto && (
-                  <div style={{ marginTop: 16 }}>
-                    <p style={{ fontWeight: 600, marginBottom: 8 }}>Photo</p>
-                    <a href={photoUrl(booking.incompletePhoto)} target="_blank" rel="noreferrer">
-                      <img
-                        src={photoUrl(booking.incompletePhoto)}
-                        alt="Incomplete item"
-                        style={{ maxWidth: "100%", maxHeight: 320, borderRadius: 8, border: "1px solid var(--border)" }}
-                      />
-                    </a>
-                  </div>
-                )}
+            <p><strong>Missing Items:</strong> {booking.incompleteNotes || "—"}</p>
+            {booking.incompletePhoto && (
+              <div style={{ marginTop: 16 }}>
+                <p style={{ fontWeight: 600, marginBottom: 8 }}>Photo</p>
+                <a href={photoUrl(booking.incompletePhoto)} target="_blank" rel="noreferrer">
+                  <img
+                    src={photoUrl(booking.incompletePhoto)}
+                    alt="Incomplete item"
+                    style={{ maxWidth: "100%", maxHeight: 320, borderRadius: 8, border: "1px solid var(--border)" }}
+                  />
+                </a>
+              </div>
+            )}
                 <div style={{ marginTop: 12 }}>
                   <button
                     type="button"
@@ -1103,8 +1163,8 @@ export default function ReturnDetailClient({
                 Mark All Returned (Resolve)
               </button>
               <Link href="/incomplete-return" className="btn btn-outline">
-                View in Incomplete Returns
-              </Link>
+              View in Incomplete Returns
+            </Link>
             </div>
           </div>
         </div>

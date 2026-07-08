@@ -34,10 +34,13 @@ export function parseQrScanPayload(raw: string): ParsedQrScan | null {
   return { token, sig };
 }
 
-export function bookingQrNavigatePath(parsed: ParsedQrScan): string {
+export function bookingQrNavigatePath(parsed: ParsedQrScan, target?: string): string {
   const base = `/booking/qr/${encodeURIComponent(parsed.token)}`;
-  if (parsed.sig) return `${base}?s=${encodeURIComponent(parsed.sig)}`;
-  return base;
+  const qs = new URLSearchParams();
+  if (parsed.sig) qs.set("s", parsed.sig);
+  if (target) qs.set("to", target);
+  const q = qs.toString();
+  return q ? `${base}?${q}` : base;
 }
 
 /** Mobile / tablet → back camera; PC / laptop → front camera. */

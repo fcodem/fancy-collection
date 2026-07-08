@@ -21,7 +21,20 @@ import {
 
 type PermissionUi = "idle" | "requesting" | "granted" | "denied";
 
-export default function SearchQrClient() {
+export default function SearchQrClient({
+  navigateTarget,
+  title = "Search QR Code",
+  subtitle = "Signed bill QRs only — opens booking in Fancy Collection",
+  backHref = "/",
+  backLabel = "Dashboard",
+}: {
+  /** When set, redirect resolves to this section (e.g. "jewellery" → jewellery selection record). */
+  navigateTarget?: string;
+  title?: string;
+  subtitle?: string;
+  backHref?: string;
+  backLabel?: string;
+} = {}) {
   const router = useRouter();
   const [manualToken, setManualToken] = useState("");
   const [error, setError] = useState("");
@@ -57,9 +70,9 @@ export default function SearchQrClient() {
       await sessionRef.current?.stop();
       sessionRef.current = null;
       setCameraReady(false);
-      router.push(bookingQrNavigatePath(parsed));
+      router.push(bookingQrNavigatePath(parsed, navigateTarget));
     },
-    [router]
+    [router, navigateTarget]
   );
 
   decodeHandlerRef.current = (text: string) => {
@@ -197,19 +210,19 @@ export default function SearchQrClient() {
         <div>
           <div style={{ fontSize: 20, fontWeight: 700, fontFamily: "Playfair Display, serif" }}>
             <i className="fa-solid fa-qrcode" style={{ marginRight: 10 }} />
-            Search QR Code
+            {title}
           </div>
           <div style={{ fontSize: 12, opacity: 0.85, marginTop: 4 }}>
-            Signed bill QRs only — opens booking in Fancy Collection
+            {subtitle}
           </div>
         </div>
         <Link
-          href="/"
+          href={backHref}
           className="btn btn-sm"
           style={{ background: "rgba(255,255,255,0.15)", color: "white", border: "1.5px solid rgba(255,255,255,0.35)" }}
         >
           <i className="fa-solid fa-arrow-left" style={{ marginRight: 6 }} />
-          Dashboard
+          {backLabel}
         </Link>
       </div>
 

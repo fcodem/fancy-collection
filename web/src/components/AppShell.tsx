@@ -3,7 +3,7 @@
 import Link from "next/link";
 import { usePathname } from "next/navigation";
 import { ReactNode, useEffect, useMemo, useRef, useState } from "react";
-import { fetchJson } from "@/lib/fetchJson";
+import { fetchJson, parseResponseJson } from "@/lib/fetchJson";
 import { useToast } from "@/components/ui/Toast";
 import { useMounted } from "@/lib/useMounted";
 import RealtimeProvider, { useRealtime } from "@/components/RealtimeProvider";
@@ -20,8 +20,10 @@ const NAV_MAIN = [
   { href: "/", label: "Dashboard", icon: "fa-house-chimney" },
   { href: "/booking", label: "Booking Panel", icon: "fa-calendar-plus" },
   { href: "/search-booking", label: "Search Booking", icon: "fa-magnifying-glass-plus" },
+  { href: "/booking-assistant", label: "AI Booking Assistant", icon: "fa-robot" },
   { href: "/free-items", label: "Free Item List", icon: "fa-magnifying-glass" },
   { href: "/booking-delivery", label: "Booking Delivery", icon: "fa-truck-fast" },
+  { href: "/jewellery-selection", label: "Jewellery Selection", icon: "fa-gem" },
   { href: "/return", label: "Return", icon: "fa-rotate-left" },
   { href: "/packing-list", label: "Packing List", icon: "fa-boxes-packing" },
   { href: "/booking-list", label: "Booked Items", icon: "fa-list-check" },
@@ -40,6 +42,7 @@ const NAV_COMMON = [
 ];
 
 const NAV_FINANCE = [
+  { href: "/finance/ledger", label: "Ledger", icon: "fa-book" },
   { href: "/finance/daily-sale", label: "Daily Sale", icon: "fa-coins" },
   { href: "/finance/daily-booking", label: "Daily Booking Amount", icon: "fa-receipt" },
   { href: "/finance/monthly-sale", label: "Monthly Sale", icon: "fa-calendar-days" },
@@ -62,6 +65,7 @@ const NAV_OWNER = [
   { href: "/reports", label: "Reports & Backup", icon: "fa-file-export" },
   { href: "/admin/restore", label: "Restore Database", icon: "fa-upload" },
   { href: "/admin/image-sync", label: "Bulk Image Sync", icon: "fa-images" },
+  { href: "/admin/recognition", label: "AI Recognition", icon: "fa-fingerprint" },
   { href: "/admin/reset-data", label: "Reset All Data", icon: "fa-triangle-exclamation", danger: true },
 ];
 
@@ -79,10 +83,15 @@ function pageTitle(pathname: string) {
   if (pathname.startsWith("/search-booking")) return "Search Booking";
   if (pathname.startsWith("/booking/new")) return "New Booking";
   if (pathname.startsWith("/booking/") && pathname.endsWith("/edit")) return "Edit Booking";
+  if (pathname.startsWith("/booking/") && pathname.endsWith("/customer-slips")) return "Customer Slips";
+  if (pathname.startsWith("/booking/") && pathname.endsWith("/delivery-slip")) return "Delivery Slip";
+  if (pathname.startsWith("/booking/") && pathname.endsWith("/return-slip")) return "Return Slip";
+  if (pathname.startsWith("/booking/") && pathname.endsWith("/incomplete-slip")) return "Incomplete Slip";
   if (pathname.startsWith("/booking/") && pathname.endsWith("/slip")) return "Booking Slip";
   if (pathname.startsWith("/booking/") && pathname.endsWith("/print")) return "Booking Slip";
   if (pathname.startsWith("/booking/")) return "Booking Details";
   if (pathname.startsWith("/postponed-booking")) return "Postponed Booking";
+  if (pathname.startsWith("/jewellery-selection")) return "Jewellery Selection";
   if (pathname.startsWith("/finance/")) return "Finance";
   if (pathname.startsWith("/inventory/")) return "Inventory";
   if (pathname.startsWith("/customers/")) return "Customer";
@@ -91,6 +100,7 @@ function pageTitle(pathname: string) {
   if (pathname.startsWith("/prospect-leads")) return "Prospect & Enquiries";
   if (pathname.startsWith("/shop-enquiries")) return "Shop Enquiry";
   if (pathname.startsWith("/whatsapp")) return "WhatsApp";
+  if (pathname.startsWith("/ai-dashboard")) return "AI Mode";
   return "Fancy Collection";
 }
 
@@ -186,7 +196,7 @@ export default function AppShell({
     let cancelled = false;
     function loadWhatsappUnread() {
       fetch("/api/whatsapp/conversations")
-        .then((r) => r.json())
+        .then((r) => parseResponseJson<{ conversations?: Array<{ unreadCount: number }> }>(r))
         .then((d: { conversations?: Array<{ unreadCount: number }> }) => {
           if (!cancelled) {
             const total = (d.conversations || []).reduce(
@@ -346,6 +356,31 @@ function AppLayoutInner({
           <span className="sidebar-brand-text">Rental Management System</span>
         </div>
         <nav className="sidebar-nav">
+          {isOwner && (
+            <Link
+              href="/ai-dashboard"
+              className={`nav-item ${pathname === "/ai-dashboard" ? "active" : ""}`}
+              onClick={onCloseMobile}
+              style={{
+                marginBottom: 8,
+                background: pathname === "/ai-dashboard"
+                  ? undefined
+                  : "linear-gradient(135deg, #7B1F45, #C9A846)",
+                color: "#fff",
+                fontWeight: 700,
+                borderRadius: 8,
+              }}
+            >
+              <i className="fa-solid fa-wand-magic-sparkles" />{" "}
+              <span className="nav-label">AI Mode</span>
+              <span
+                className="nav-badge"
+                style={{ background: "rgba(255,255,255,0.25)", color: "#fff" }}
+              >
+                NEW
+              </span>
+            </Link>
+          )}
           <div className="nav-section-label">Main Menu</div>
           {NAV_MAIN.map((item) => (
             <Link key={item.href} href={item.href} className={`nav-item ${pathname === item.href ? "active" : ""}`} onClick={onCloseMobile}>

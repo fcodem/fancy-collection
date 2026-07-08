@@ -1,3 +1,5 @@
+import Link from "next/link";
+
 export default function OfflinePage() {
   return (
     <div
@@ -35,7 +37,7 @@ export default function OfflinePage() {
       <p style={{ margin: 0, maxWidth: 320, lineHeight: 1.5, color: "rgba(255,255,255,0.85)" }}>
         Please reconnect to view the rental schedule.
       </p>
-      <a
+      <Link
         href="/"
         style={{
           marginTop: 28,
@@ -48,7 +50,7 @@ export default function OfflinePage() {
         }}
       >
         Try again
-      </a>
+      </Link>
     </div>
   );
 }

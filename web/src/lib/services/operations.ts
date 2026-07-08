@@ -5,6 +5,7 @@ import { whereBookingOverlapsPeriod, whereDeliveryInRange, whereReturnInRange, w
 import { formatDate, parseDate } from "../constants";
 import { Prisma } from "@prisma/client";
 import { dressDisplayName, bookingItemSize, serializeBookingItems } from "../dress";
+import { catalogPhotoRef } from "../catalogPhotoRef";
 import { serializeStandardBookingDetails, bookingWarningRecordFrom } from "../bookingDetails";
 import { isStarBooking } from "../starBooking";
 import { getAvailableItemsApi, bookingUsesItem, findItemIdsStillInActiveBookings } from "../booking";
@@ -274,24 +275,38 @@ export async function getDashboardFreeItems(deliveryDateStr: string, returnDateS
 
   const bookedItemIds = new Set<number>();
   for (const b of overlappingBookings) {
-    if (b.bookingItems.length) b.bookingItems.forEach((bi) => bookedItemIds.add(bi.itemId));
+    if (b.bookingItems.length) {
+      b.bookingItems.forEach((bi) => {
+        if (bi.itemId != null) bookedItemIds.add(bi.itemId);
+      });
+    }
     else if (b.itemId) bookedItemIds.add(b.itemId);
   }
 
   const rentedItemIds = new Set<number>();
-  for (const r of overlappingRentals) r.items.forEach((ri) => rentedItemIds.add(ri.itemId));
+  for (const r of overlappingRentals) {
+    r.items.forEach((ri) => {
+      if (ri.itemId != null) rentedItemIds.add(ri.itemId);
+    });
+  }
 
   const busyIds = new Set([...bookedItemIds, ...rentedItemIds]);
 
   const returningOnDeliveryIds = new Set<number>();
   for (const b of returningOnDeliveryBookings) {
-    if (b.bookingItems.length) b.bookingItems.forEach((bi) => returningOnDeliveryIds.add(bi.itemId));
+    if (b.bookingItems.length) {
+      b.bookingItems.forEach((bi) => {
+        if (bi.itemId != null) returningOnDeliveryIds.add(bi.itemId);
+      });
+    }
     else if (b.itemId) returningOnDeliveryIds.add(b.itemId);
   }
   const bookedOnReturnIds = new Set<number>();
   const bookedOnReturnInfo: Record<string, object> = {};
   for (const b of bookingsOnReturnDate) {
-    const ids = b.bookingItems.length ? b.bookingItems.map((bi) => bi.itemId) : b.itemId ? [b.itemId] : [];
+    const ids = b.bookingItems.length
+      ? b.bookingItems.map((bi) => bi.itemId).filter((id): id is number => id != null)
+      : b.itemId ? [b.itemId] : [];
     for (const bid of ids) {
       bookedOnReturnIds.add(bid);
       bookedOnReturnInfo[String(bid)] = {
@@ -326,7 +341,11 @@ export async function getDashboardFreeItems(deliveryDateStr: string, returnDateS
   const returning_on_delivery = [];
   const returnItemIds = new Set<number>();
   for (const b of returningOnDeliveryBookings) {
-    if (b.bookingItems.length) b.bookingItems.forEach((bi) => returnItemIds.add(bi.itemId));
+    if (b.bookingItems.length) {
+      b.bookingItems.forEach((bi) => {
+        if (bi.itemId != null) returnItemIds.add(bi.itemId);
+      });
+    }
     else if (b.itemId) returnItemIds.add(b.itemId);
   }
   const returnItemsById = new Map(
@@ -335,7 +354,9 @@ export async function getDashboardFreeItems(deliveryDateStr: string, returnDateS
 
   for (const b of returningOnDeliveryBookings) {
     const itemsInB = b.bookingItems.length
-      ? b.bookingItems.map((bi) => ({ id: bi.itemId, name: bi.dressName, cat: bi.category || "" }))
+      ? b.bookingItems
+          .filter((bi) => bi.itemId != null)
+          .map((bi) => ({ id: bi.itemId as number, name: bi.dressName, cat: bi.category || "" }))
       : b.itemId ? [{ id: b.itemId, name: b.dressName || "", cat: "" }] : [];
     for (const { id: bid, name: bname, cat: bcat } of itemsInB) {
       const item = returnItemsById.get(bid);
@@ -503,9 +524,9 @@ export type BookingDateCheckResult = Awaited<ReturnType<typeof bookingDateCheck>
 
 function itemIdsFromBooking(booking: {
   itemId: number | null;
-  bookingItems: Array<{ itemId: number }>;
+  bookingItems: Array<{ itemId: number | null }>;
 }) {
-  const ids = booking.bookingItems.map((bi) => bi.itemId);
+  const ids = booking.bookingItems.map((bi) => bi.itemId).filter((id): id is number => id != null);
   if (booking.itemId) ids.push(booking.itemId);
   return [...new Set(ids)];
 }
@@ -605,7 +626,12 @@ export async function getPackingList(deliveryDateStr: string, returnDateStr: str
           checkedBy: true,
           isPackedReady: true,
           packingNote: true,
-          item: { select: { photo: true, size: true } },
+          item: {
+            select: {
+              photo: true,
+              size: true,
+            },
+          },
         },
       },
       orders: {
@@ -641,7 +667,7 @@ export async function getPackingList(deliveryDateStr: string, returnDateStr: str
     venue: string | null;
     totalPrice: number;
     contact1: string;
-    bookingItems: { itemId: number }[];
+    bookingItems: { itemId: number | null }[];
   };
   const returningByDeliveryDate = new Map<number, ReturningBooking[]>();
   if (deliveryDateStrs.length) {
@@ -698,7 +724,7 @@ export async function getPackingList(deliveryDateStr: string, returnDateStr: str
           advance: bi.advance,
           remaining: bi.remaining,
           notes: bi.notes || "",
-          photo: itemObj?.photo || "",
+          photo: itemObj ? catalogPhotoRef(itemObj) : "",
           prepared_by: bi.preparedBy || "",
           checked_by: bi.checkedBy || "",
           is_packed_ready: bi.isPackedReady,
@@ -1071,7 +1097,9 @@ export async function saveReturn(
         if (bi.isDelivered) {
           await tx.bookingItem.update({ where: { id: bi.id }, data: { isReturned: true } });
         }
-        await tx.clothingItem.update({ where: { id: bi.itemId }, data: { status: "available" } });
+        if (bi.itemId != null) {
+          await tx.clothingItem.update({ where: { id: bi.itemId }, data: { status: "available" } });
+        }
       }
     });
   } else if (action === "mark_item_returned") {
@@ -1116,10 +1144,12 @@ export async function saveReturn(
               itemSecurityHeld: 0,
             },
           });
-          await tx.clothingItem.update({
-            where: { id: bi.itemId },
-            data: { status: "available" },
-          });
+          if (bi.itemId != null) {
+            await tx.clothingItem.update({
+              where: { id: bi.itemId },
+              data: { status: "available" },
+            });
+          }
           await syncIncompleteReturnStatus(bookingId, tx);
           return;
         }
@@ -1128,10 +1158,12 @@ export async function saveReturn(
           where: { id: bi.id },
           data: { isReturned: true, isIncompleteReturn: false },
         });
-        await tx.clothingItem.update({
-          where: { id: bi.itemId },
-          data: { status: "available" },
-        });
+        if (bi.itemId != null) {
+          await tx.clothingItem.update({
+            where: { id: bi.itemId },
+            data: { status: "available" },
+          });
+        }
         await finalizeFullReturnIfComplete(bookingId, tx);
       });
     }
@@ -1210,10 +1242,12 @@ export async function saveReturn(
                 itemSecurityHeld: 0,
               },
             });
-            await tx.clothingItem.update({
-              where: { id: bi.itemId },
-              data: { status: "available" },
-            });
+            if (bi.itemId != null) {
+              await tx.clothingItem.update({
+                where: { id: bi.itemId },
+                data: { status: "available" },
+              });
+            }
           }
         }
 
@@ -1287,10 +1321,12 @@ export async function resolveIncompleteReturn(bookingId: number, by?: string) {
           itemSecurityHeld: 0,
         },
       });
-      await tx.clothingItem.update({
-        where: { id: bi.itemId },
-        data: { status: "available" },
-      });
+      if (bi.itemId != null) {
+        await tx.clothingItem.update({
+          where: { id: bi.itemId },
+          data: { status: "available" },
+        });
+      }
     }
     if (booking.itemId && !booking.bookingItems.length) {
       await tx.clothingItem.update({
@@ -1407,7 +1443,7 @@ export async function getReturningToday(targetDateStr: string) {
   const deliveryByItemId = new Map<number, typeof candidates>();
   for (const nxt of candidates) {
     const nxtIds = nxt.bookingItems.length
-      ? nxt.bookingItems.map((bi) => bi.itemId)
+      ? nxt.bookingItems.map((bi) => bi.itemId).filter((id): id is number => id != null)
       : nxt.itemId
         ? [nxt.itemId]
         : [];
@@ -1421,7 +1457,7 @@ export async function getReturningToday(targetDateStr: string) {
   for (const b of returning) {
     const itemRows = serializeBookingItems(b);
     const itemIds = b.bookingItems.length
-      ? b.bookingItems.map((bi) => bi.itemId)
+      ? b.bookingItems.map((bi) => bi.itemId).filter((id): id is number => id != null)
       : b.itemId
         ? [b.itemId]
         : [];
@@ -1435,14 +1471,14 @@ export async function getReturningToday(targetDateStr: string) {
       if (!nxt) continue;
 
       const matchedIds = nxt.bookingItems.length
-        ? nxt.bookingItems.map((bi) => bi.itemId).filter((nid) => itemIds.includes(nid))
+        ? nxt.bookingItems.map((bi) => bi.itemId).filter((nid): nid is number => nid != null && itemIds.includes(nid))
         : nxt.itemId && itemIds.includes(nxt.itemId)
           ? [nxt.itemId]
           : [];
 
       const matchedNames = nxt.bookingItems.length
         ? nxt.bookingItems
-            .filter((bi) => matchedIds.includes(bi.itemId))
+            .filter((bi): bi is typeof bi & { itemId: number } => bi.itemId != null && matchedIds.includes(bi.itemId))
             .map((bi) => dressDisplayName(bi.dressName, bi.category, bookingItemSize(bi)))
         : itemRows.map((i) => i.display_name || i.name);
 
@@ -1487,10 +1523,10 @@ export async function cancelBooking(bookingId: number, refundAmount = 0, by?: st
         refundedAt: refundAmount > 0 ? new Date() : null,
       },
     });
-    const itemIds = booking.bookingItems.map((bi) => bi.itemId);
+    const itemIds = booking.bookingItems.map((bi) => bi.itemId).filter((id): id is number => id != null);
     const stillUsed = await findItemIdsStillInActiveBookings(itemIds, bookingId, tx);
     for (const bi of booking.bookingItems) {
-      if (!stillUsed.has(bi.itemId)) {
+      if (bi.itemId != null && !stillUsed.has(bi.itemId)) {
         await tx.clothingItem.update({ where: { id: bi.itemId }, data: { status: "available" } });
       }
     }
@@ -1553,7 +1589,9 @@ export async function restoreBooking(
   await prisma.$transaction(async (tx) => {
     await tx.booking.update({ where: { id: bookingId }, data: { status: "booked" } });
     for (const bi of booking.bookingItems) {
-      await tx.clothingItem.update({ where: { id: bi.itemId }, data: { status: "rented" } });
+      if (bi.itemId != null) {
+        await tx.clothingItem.update({ where: { id: bi.itemId }, data: { status: "rented" } });
+      }
     }
   });
   const updated = await prisma.booking.findUnique({ where: { id: bookingId }, include: { bookingItems: true } });
@@ -1591,11 +1629,12 @@ export async function getDeliveryDetail(bookingId: number) {
         include: { item: { select: { photo: true, size: true, color: true, category: true } } },
       },
       orders: { where: { status: "active" }, orderBy: { deliveryDate: "asc" } },
+      selectedJewellery: { where: { status: "active" }, orderBy: { id: "asc" } },
     },
   });
   if (!booking) return null;
 
-  const itemIds = booking.bookingItems.map((bi) => bi.itemId);
+  const itemIds = booking.bookingItems.map((bi) => bi.itemId).filter((id): id is number => id != null);
   const nextCandidates =
     itemIds.length > 0
       ? await prisma.booking.findMany({
@@ -1612,12 +1651,14 @@ export async function getDeliveryDetail(bookingId: number) {
   const nextByItemId = new Map<number, (typeof nextCandidates)[number]>();
   for (const nxt of nextCandidates) {
     for (const bi of nxt.bookingItems) {
+      if (bi.itemId == null) continue;
       if (!nextByItemId.has(bi.itemId)) nextByItemId.set(bi.itemId, nxt);
     }
   }
 
   const next_bookings = [];
   for (const bi of booking.bookingItems) {
+    if (bi.itemId == null) continue;
     const nxt = nextByItemId.get(bi.itemId);
     if (nxt) {
       next_bookings.push({

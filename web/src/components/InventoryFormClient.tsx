@@ -2,23 +2,58 @@
 
 import { useRouter } from "next/navigation";
 import { useEffect, useState } from "react";
-import DressNameSuggestInput from "@/components/DressNameSuggestInput";
-import { photoUrl } from "@/lib/photoUrl";
-import { BASE_MENS, BASE_WOMENS, BASE_JEWELLERY, BASE_ACCESSORY, SIZES, MENS_CATEGORIES } from "@/lib/constants";
+import { type CatalogPhotoItem } from "@/lib/catalogPhotoUrl";
+import { BASE_MENS, BASE_WOMENS, BASE_JEWELLERY, BASE_ACCESSORY, SIZES, MENS_CATEGORIES, JEWELLERY_CATEGORIES } from "@/lib/constants";
+import { formatJewelleryPartsLabel, partsPresentOnItem } from "@/lib/jewelleryParts";
 
-const ALL_CATS = [...BASE_MENS, ...BASE_WOMENS, ...BASE_JEWELLERY, ...BASE_ACCESSORY];
+type InventoryFormItem = CatalogPhotoItem & {
+  id?: number;
+  name?: string;
+  category?: string;
+  size?: string | null;
+  color?: string | null;
+  dailyRate?: number;
+  deposit?: number;
+  subCategory?: string | null;
+  status?: string;
+  conditionNotes?: string | null;
+  hasNecklace?: boolean;
+  hasEarrings?: boolean;
+  hasTeeka?: boolean;
+  hasPasa?: boolean;
+};
 
-export default function InventoryFormClient({ item }: { item?: Record<string, unknown> }) {
+export default function InventoryFormClient({
+  item,
+  initialPhotoUrl = "",
+}: {
+  item?: InventoryFormItem;
+  initialPhotoUrl?: string;
+}) {
   const router = useRouter();
-  const [category, setCategory] = useState((item?.category as string) || "");
-  const [name, setName] = useState((item?.name as string) || "");
+  const [category, setCategory] = useState(item?.category || "");
+  const [name, setName] = useState(item?.name || "");
   const [selectedSizes, setSelectedSizes] = useState<string[]>([]);
+  const [hasNecklace, setHasNecklace] = useState(Boolean(item?.hasNecklace));
+  const [hasEarrings, setHasEarrings] = useState(Boolean(item?.hasEarrings));
+  const [hasTeeka, setHasTeeka] = useState(Boolean(item?.hasTeeka));
+  const [hasPasa, setHasPasa] = useState(Boolean(item?.hasPasa));
   const [saving, setSaving] = useState(false);
-  const [photoPreview, setPhotoPreview] = useState("");
+  const [checkingDuplicate, setCheckingDuplicate] = useState(false);
+  const [duplicateWarning, setDuplicateWarning] = useState<{
+    sku: string;
+    name: string;
+    similarity: number;
+  } | null>(null);
+  const [pendingForm, setPendingForm] = useState<FormData | null>(null);
+  const [localPreview, setLocalPreview] = useState("");
+  const [photoUrl, setPhotoUrl] = useState(initialPhotoUrl || "");
   const [subCategories, setSubCategories] = useState<string[]>(["Normal"]);
   const isEdit = Boolean(item?.id);
   const isMens = MENS_CATEGORIES.includes(category);
-  const existingPhoto = photoUrl(item?.photo as string | undefined);
+  const isJewellery = JEWELLERY_CATEGORIES.includes(category);
+
+  const displayPhoto = localPreview || photoUrl;
 
   useEffect(() => {
     fetch("/api/sub-categories")
@@ -34,26 +69,99 @@ export default function InventoryFormClient({ item }: { item?: Record<string, un
   function handlePhotoChange(e: React.ChangeEvent<HTMLInputElement>) {
     const file = e.target.files?.[0];
     if (!file) {
-      setPhotoPreview("");
+      setLocalPreview("");
       return;
     }
     const reader = new FileReader();
     reader.onload = () => {
-      if (typeof reader.result === "string") setPhotoPreview(reader.result);
+      if (typeof reader.result === "string") setLocalPreview(reader.result);
     };
     reader.readAsDataURL(file);
   }
 
+  async function saveForm(form: FormData, url: string, method: string) {
+    setSaving(true);
+    const res = await fetch(url, { method, body: form, credentials: "same-origin" });
+    const data = await res.json().catch(() => ({}));
+    setSaving(false);
+    if (!res.ok) {
+      alert(data.error || "Failed");
+      return;
+    }
+
+    const hadPhoto = form.get("photo") instanceof File && (form.get("photo") as File).size > 0;
+    const savedId = data.id ?? data.ids?.[0] ?? item?.id;
+    const savedPhotoUrl = data.original_photo_url || data.display_photo_url || "";
+
+    if (hadPhoto && savedPhotoUrl) {
+      setLocalPreview("");
+      setPhotoUrl(savedPhotoUrl);
+      if (!isEdit && savedId) {
+        router.replace(`/inventory/${savedId}/edit`);
+        return;
+      }
+      return;
+    }
+
+    if (!isEdit && savedId && data.count === 1) {
+      router.replace(`/inventory/${savedId}/edit`);
+      return;
+    }
+    router.push("/inventory");
+  }
+
   async function submit(e: React.FormEvent<HTMLFormElement>) {
     e.preventDefault();
-    setSaving(true);
     const form = new FormData(e.currentTarget);
     if (!isEdit && isMens) selectedSizes.forEach((s) => form.append("sizes[]", s));
+    if (isJewellery) {
+      if (hasNecklace) form.set("has_necklace", "1");
+      if (hasEarrings) form.set("has_earrings", "1");
+      if (hasTeeka) form.set("has_teeka", "1");
+      if (hasPasa) form.set("has_pasa", "1");
+    }
+
     const url = isEdit ? `/api/inventory/${item!.id}` : "/api/inventory";
-    const res = await fetch(url, { method: isEdit ? "PUT" : "POST", body: form, credentials: "same-origin" });
-    setSaving(false);
-    if (res.ok) router.push("/inventory");
-    else alert((await res.json()).error || "Failed");
+    const method = isEdit ? "PUT" : "POST";
+    const photo = form.get("photo");
+
+    if (!isEdit && photo instanceof File && photo.size > 0 && category) {
+      setCheckingDuplicate(true);
+      const dupForm = new FormData();
+      dupForm.append("photo", photo);
+      dupForm.append("category", category);
+      try {
+        const dupRes = await fetch("/api/inventory/duplicate-check", {
+          method: "POST",
+          body: dupForm,
+          credentials: "same-origin",
+        });
+        const dupData = await dupRes.json().catch(() => ({}));
+        if (dupRes.ok && dupData.is_duplicate && dupData.match) {
+          setDuplicateWarning({
+            sku: dupData.match.sku,
+            name: dupData.match.name,
+            similarity: dupData.match.similarity,
+          });
+          setPendingForm(form);
+          setCheckingDuplicate(false);
+          return;
+        }
+      } catch {
+        // proceed if duplicate check fails
+      }
+      setCheckingDuplicate(false);
+    }
+
+    await saveForm(form, url, method);
+  }
+
+  async function confirmDuplicateSave() {
+    if (!pendingForm) return;
+    const url = "/api/inventory";
+    setDuplicateWarning(null);
+    await saveForm(pendingForm, url, "POST");
+    setPendingForm(null);
   }
 
   return (
@@ -61,22 +169,62 @@ export default function InventoryFormClient({ item }: { item?: Record<string, un
       <div className="card-header"><h3 className="card-title">{isEdit ? "Edit Item" : "Add Item"}</h3></div>
       <div className="card-body" style={{ display: "grid", gap: 16, maxWidth: 600 }}>
         <div><label className="form-label">Name *</label>
-          <DressNameSuggestInput
+          <input
+            type="text"
             name="name"
+            className="form-control"
             required
+            autoComplete="off"
             value={name}
             onChange={(e) => setName(e.target.value)}
-            onSuggestSelect={(item) => setName(item.name)}
-            category={category}
-            showPhotos
           />
         </div>
         <div><label className="form-label">Category *</label>
           <select id="invCategory" name="category" className="form-control" required value={category} onChange={(e) => setCategory(e.target.value)}>
             <option value="">Select…</option>
-            {ALL_CATS.map((c) => <option key={c} value={c}>{c}</option>)}
+            <optgroup label="Men's">
+              {BASE_MENS.map((c) => <option key={c} value={c}>{c}</option>)}
+            </optgroup>
+            <optgroup label="Women's">
+              {BASE_WOMENS.map((c) => <option key={c} value={c}>{c}</option>)}
+            </optgroup>
+            <optgroup label="Jewellery">
+              {BASE_JEWELLERY.map((c) => <option key={c} value={c}>{c}</option>)}
+            </optgroup>
+            <optgroup label="Accessories">
+              {BASE_ACCESSORY.map((c) => <option key={c} value={c}>{c}</option>)}
+            </optgroup>
           </select>
         </div>
+        {isJewellery && (
+          <div>
+            <label className="form-label">Set includes (tick what is present in this jewellery)</label>
+            <div style={{ display: "flex", flexWrap: "wrap", gap: 16, marginTop: 8 }}>
+              <label style={{ display: "flex", gap: 6, alignItems: "center" }}>
+                <input type="checkbox" checked={hasNecklace} onChange={(e) => setHasNecklace(e.target.checked)} />
+                Necklace present
+              </label>
+              <label style={{ display: "flex", gap: 6, alignItems: "center" }}>
+                <input type="checkbox" checked={hasEarrings} onChange={(e) => setHasEarrings(e.target.checked)} />
+                Earrings present
+              </label>
+              <label style={{ display: "flex", gap: 6, alignItems: "center" }}>
+                <input type="checkbox" checked={hasTeeka} onChange={(e) => setHasTeeka(e.target.checked)} />
+                Teeka present
+              </label>
+              <label style={{ display: "flex", gap: 6, alignItems: "center" }}>
+                <input type="checkbox" checked={hasPasa} onChange={(e) => setHasPasa(e.target.checked)} />
+                Pasa present
+              </label>
+            </div>
+            <small className="text-muted" style={{ display: "block", marginTop: 8 }}>
+              Parts can be booked separately to different customers.{" "}
+              {partsPresentOnItem({ hasNecklace, hasEarrings, hasTeeka, hasPasa }).length > 0 && (
+                <span>Set: {formatJewelleryPartsLabel(partsPresentOnItem({ hasNecklace, hasEarrings, hasTeeka, hasPasa }))}</span>
+              )}
+            </small>
+          </div>
+        )}
         {isMens && !isEdit ? (
           <div><label className="form-label">Sizes *</label>
             <div style={{ display: "flex", flexWrap: "wrap", gap: 8 }}>
@@ -88,48 +236,94 @@ export default function InventoryFormClient({ item }: { item?: Record<string, un
             </div>
           </div>
         ) : (
-          <div><label className="form-label">Size</label><input name="size" className="form-control" defaultValue={item?.size as string} /></div>
+          <div><label className="form-label">Size</label><input name="size" className="form-control" defaultValue={item?.size ?? ""} /></div>
         )}
-        <div><label className="form-label">Color</label><input name="color" className="form-control" defaultValue={item?.color as string} /></div>
+        <div><label className="form-label">Color</label><input name="color" className="form-control" defaultValue={item?.color ?? ""} /></div>
         {!isEdit && (
           <div><label className="form-label">Quantity</label>
             <input name="quantity" type="number" min={1} max={50} defaultValue={1} className="form-control" />
             <small className="text-muted">Each unit is a separate bookable item (named #1, #2, … when quantity &gt; 1).</small>
           </div>
         )}
-        <div><label className="form-label">Daily Rate (₹)</label><input name="daily_rate" type="number" className="form-control" defaultValue={item?.dailyRate as number} /></div>
-        <div><label className="form-label">Deposit (₹)</label><input name="deposit" type="number" className="form-control" defaultValue={item?.deposit as number} /></div>
+        <div><label className="form-label">Daily Rate (₹)</label><input name="daily_rate" type="number" className="form-control" defaultValue={item?.dailyRate} /></div>
+        <div><label className="form-label">Deposit (₹)</label><input name="deposit" type="number" className="form-control" defaultValue={item?.deposit} /></div>
         <div><label className="form-label">Sub-Category</label>
-          <select name="sub_category" className="form-control" defaultValue={(item?.subCategory as string) || "Normal"}>
+          <select name="sub_category" className="form-control" defaultValue={item?.subCategory ?? "Normal"}>
             {subCategories.map((s) => <option key={s} value={s}>{s}</option>)}
           </select>
         </div>
         {isEdit && (
           <div><label className="form-label">Status</label>
-            <select name="status" className="form-control" defaultValue={item?.status as string}>
+            <select name="status" className="form-control" defaultValue={item?.status}>
               <option value="available">Available</option><option value="rented">Rented</option><option value="maintenance">Maintenance</option>
             </select>
           </div>
         )}
-        <div><label className="form-label">Condition Notes</label><textarea name="condition_notes" className="form-control" defaultValue={item?.conditionNotes as string} /></div>
+        <div><label className="form-label">Condition Notes</label><textarea name="condition_notes" className="form-control" defaultValue={item?.conditionNotes ?? ""} /></div>
         <div>
           <label className="form-label">Photo</label>
           <input name="photo" type="file" accept="image/*" className="form-control" onChange={handlePhotoChange} />
-          {(photoPreview || existingPhoto) && (
+          {displayPhoto ? (
             <div className="inv-form-photo-preview">
               <img
-                src={photoPreview || existingPhoto}
+                key={displayPhoto}
+                src={displayPhoto}
                 alt="Stock preview"
                 className="inv-form-photo-img"
               />
-              <span className="inv-form-photo-label">
-                {photoPreview ? "New photo preview" : "Current photo"}
-              </span>
+              <span className="inv-form-photo-label">Uploaded image</span>
             </div>
+          ) : (
+            <p style={{ fontSize: 12, color: "var(--text-muted)", marginTop: 8 }}>
+              Select a photo to see an instant preview.
+            </p>
           )}
         </div>
-        <button className="btn btn-primary" disabled={saving}>{saving ? "Saving…" : isEdit ? "Update" : "Add Item"}</button>
+        <button className="btn btn-primary" disabled={saving || checkingDuplicate}>
+          {checkingDuplicate ? "Checking for duplicates…" : saving ? "Saving…" : isEdit ? "Update" : "Add Item"}
+        </button>
       </div>
+      {duplicateWarning && (
+        <div
+          style={{
+            position: "fixed",
+            inset: 0,
+            background: "rgba(0,0,0,0.5)",
+            display: "flex",
+            alignItems: "center",
+            justifyContent: "center",
+            zIndex: 1000,
+          }}
+        >
+          <div className="card" style={{ maxWidth: 420, margin: 16 }}>
+            <div className="card-header">
+              <h3 className="card-title">Possible duplicate inventory item</h3>
+            </div>
+            <div className="card-body">
+              <p>
+                This appears to be the same dress as <strong>{duplicateWarning.name}</strong> (
+                {duplicateWarning.sku}) — {duplicateWarning.similarity}% fingerprint match.
+              </p>
+              <p style={{ fontSize: 13, color: "var(--text-muted)" }}>Continue adding as a new item?</p>
+              <div style={{ display: "flex", gap: 8, marginTop: 16 }}>
+                <button type="button" className="btn btn-primary" onClick={() => void confirmDuplicateSave()}>
+                  Continue
+                </button>
+                <button
+                  type="button"
+                  className="btn btn-secondary"
+                  onClick={() => {
+                    setDuplicateWarning(null);
+                    setPendingForm(null);
+                  }}
+                >
+                  Cancel
+                </button>
+              </div>
+            </div>
+          </div>
+        </div>
+      )}
     </form>
   );
 }

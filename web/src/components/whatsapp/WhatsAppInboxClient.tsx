@@ -22,6 +22,8 @@ type Conversation = {
   unreadCount: number;
   lastMessageAt: string | null;
   isWindowOpen: boolean;
+  botActive?: boolean;
+  humanHandled?: boolean;
   messages: Message[];
   booking?: {
     publicBookingId: string;
@@ -58,10 +60,15 @@ export default function WhatsAppInboxClient() {
     setSelected(conv);
     try {
       const res = await fetch(`/api/whatsapp/conversations/${conv.id}`);
-      const data = await res.json() as { conversation?: { messages: Message[] } };
+      const data = await res.json() as {
+        conversation?: { messages: Message[]; botActive?: boolean; humanHandled?: boolean };
+      };
       setMessages(data.conversation?.messages || []);
+      const botActive = data.conversation?.botActive;
+      const humanHandled = data.conversation?.humanHandled;
+      setSelected((prev) => (prev && prev.id === conv.id ? { ...prev, botActive, humanHandled } : prev));
       setConversations((prev) =>
-        prev.map((c) => (c.id === conv.id ? { ...c, unreadCount: 0 } : c)),
+        prev.map((c) => (c.id === conv.id ? { ...c, unreadCount: 0, botActive, humanHandled } : c)),
       );
     } catch (e) {
       if (!isTransientNetworkError(e)) console.error(e);
@@ -81,6 +88,11 @@ export default function WhatsAppInboxClient() {
       if (data.message) {
         setMessages((prev) => [...prev, data.message!]);
         setReplyText("");
+        // A manual reply hands control from the bot to the team.
+        setSelected((prev) => (prev ? { ...prev, botActive: false, humanHandled: true } : prev));
+        setConversations((prev) =>
+          prev.map((c) => (c.id === selected.id ? { ...c, botActive: false, humanHandled: true } : c)),
+        );
       }
     } catch (e) {
       if (!isTransientNetworkError(e)) console.error(e);
@@ -181,7 +193,20 @@ export default function WhatsAppInboxClient() {
       {selected ? (
         <div style={{ flex: 1, display: "flex", flexDirection: "column", minWidth: 0 }}>
           <div style={{ padding: "16px", borderBottom: "1px solid #e5e7eb", background: "#fff", boxShadow: "0 1px 3px rgba(0,0,0,0.1)" }}>
-            <div style={{ fontWeight: 600, color: "#1f2937" }}>{selected.customerName}</div>
+            <div style={{ display: "flex", alignItems: "center", justifyContent: "space-between", gap: 8 }}>
+              <div style={{ fontWeight: 600, color: "#1f2937" }}>{selected.customerName}</div>
+              {selected.botActive ? (
+                <span title="The chatbot is answering this customer automatically. Send a message to take over." style={{ background: "#ecfdf5", color: "#047857", border: "1px solid #a7f3d0", fontSize: 11, fontWeight: 600, padding: "3px 8px", borderRadius: 20, display: "flex", alignItems: "center", gap: 4, whiteSpace: "nowrap" }}>
+                  <i className="fa-solid fa-robot" style={{ fontSize: 10 }} />
+                  Bot auto-replying
+                </span>
+              ) : (
+                <span title="A team member has taken over this chat. The bot will stay silent here." style={{ background: "#eff6ff", color: "#1d4ed8", border: "1px solid #bfdbfe", fontSize: 11, fontWeight: 600, padding: "3px 8px", borderRadius: 20, display: "flex", alignItems: "center", gap: 4, whiteSpace: "nowrap" }}>
+                  <i className="fa-solid fa-user-headset" style={{ fontSize: 10 }} />
+                  Team handling
+                </span>
+              )}
+            </div>
             <div style={{ fontSize: 13, color: "#6b7280", display: "flex", alignItems: "center", gap: 8, marginTop: 2 }}>
               <i className="fa-solid fa-phone" style={{ fontSize: 11 }} />
               {selected.customerPhone}
@@ -207,6 +232,11 @@ export default function WhatsAppInboxClient() {
           </div>
 
           <div style={{ padding: 16, borderTop: "1px solid #e5e7eb", background: "#fff" }}>
+            {selected.botActive && (
+              <div style={{ background: "#ecfdf5", color: "#047857", borderRadius: 8, padding: "6px 10px", marginBottom: 8, fontSize: 12, textAlign: "center" }}>
+                🤖 The chatbot is auto-replying to this customer. Send a message to take over the chat.
+              </div>
+            )}
             {!selected.isWindowOpen && (
               <div style={{ background: "#fffbeb", color: "#d97706", borderRadius: 8, padding: "6px 10px", marginBottom: 8, fontSize: 12, textAlign: "center" }}>
                 ⚠️ 24-hour messaging window is closed. You can only send approved templates.
@@ -294,8 +324,11 @@ function ConversationItem({
             {conv.customerName.charAt(0).toUpperCase()}
           </div>
           <div style={{ minWidth: 0 }}>
-            <div style={{ fontWeight: 500, fontSize: 13, color: "#1f2937", overflow: "hidden", textOverflow: "ellipsis", whiteSpace: "nowrap" }}>
+            <div style={{ fontWeight: 500, fontSize: 13, color: "#1f2937", overflow: "hidden", textOverflow: "ellipsis", whiteSpace: "nowrap", display: "flex", alignItems: "center", gap: 5 }}>
               {conv.customerName}
+              {conv.botActive && (
+                <i className="fa-solid fa-robot" title="Bot auto-replying" style={{ fontSize: 10, color: "#059669", flexShrink: 0 }} />
+              )}
             </div>
             <div style={{ fontSize: 12, color: "#6b7280", overflow: "hidden", textOverflow: "ellipsis", whiteSpace: "nowrap" }}>
               {lastMsg?.body || "No messages yet"}

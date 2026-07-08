@@ -33,6 +33,7 @@ export type BookingSlipProps = {
     advance: number;
     remaining: number;
     notes?: string | null;
+    photoUrl?: string | null;
   }>;
   orders?: SlipOrderDisplay[];
   qrDataUrl?: string | null;
@@ -168,6 +169,7 @@ export default function BookingSlip(props: BookingSlipProps) {
   const half = Math.ceil(TERMS.length / 2);
   const termsLeft = TERMS.slice(0, half);
   const termsRight = TERMS.slice(half);
+  const outfitItems = items.filter((it) => it.photoUrl);
 
   const inclusiveRent = b.totalPrice;
   const taxableAmount = Math.round(inclusiveRent / (1 + GST_RATE / 100));
@@ -180,8 +182,9 @@ export default function BookingSlip(props: BookingSlipProps) {
       {/* ── Print Styles ─────────────────────────────────────── */}
       <style dangerouslySetInnerHTML={{ __html: `
         @media print {
-          body > *:not(#booking-slip-root) { display: none !important; }
+          .slip-page-wrap { padding: 0 !important; margin: 0 !important; background: #fff !important; }
           #booking-slip-root { width: 210mm; min-height: 297mm; margin: 0 !important; padding: 0 !important; box-shadow: none !important; border-radius: 0 !important; }
+          .slip-outfit-page { width: 210mm; min-height: 297mm; margin: 0 !important; padding: 0 !important; box-shadow: none !important; border-radius: 0 !important; page-break-before: always; break-before: page; }
           .slip-screen-only { display: none !important; }
           * { -webkit-print-color-adjust: exact !important; print-color-adjust: exact !important; }
           .no-break { page-break-inside: avoid; }
@@ -189,6 +192,7 @@ export default function BookingSlip(props: BookingSlipProps) {
         }
         @media screen {
           #booking-slip-root { max-width: 800px; margin: 0 auto; box-shadow: 0 4px 24px rgba(0,0,0,0.13); border-radius: 12px; overflow: hidden; }
+          .slip-outfit-page { max-width: 800px; margin: 24px auto 0; box-shadow: 0 4px 24px rgba(0,0,0,0.13); border-radius: 12px; overflow: hidden; }
         }
       ` }} />
 
@@ -259,17 +263,19 @@ export default function BookingSlip(props: BookingSlipProps) {
             <table style={{ width: "100%", borderCollapse: "collapse" }}>
               <tbody>
                 {[
-                  ["👤", "Name", <span style={{ fontWeight: 700, fontSize: 14, color: "#1a1a1a" }}>{b.customerName}</span>],
-                  ["📍", "Address", b.customerAddress],
-                  ["📞", "Contact", b.contact1],
-                  ...(b.whatsappNo ? [["💬", "WhatsApp", b.whatsappNo] as [string, string, string]] : []),
-                  ["🏛️", "Venue", b.venue || "—"],
-                  ["👨‍💼", "Staff", b.staffNames || "—"],
-                ].map(([icon, label, value], i) => (
+                  ["👤", "Name", b.customerName, true],
+                  ["📍", "Address", b.customerAddress, false],
+                  ["📞", "Contact", b.contact1, false],
+                  ...(b.whatsappNo ? [["💬", "WhatsApp", b.whatsappNo, false] as [string, string, string, boolean]] : []),
+                  ["🏛️", "Venue", b.venue || "—", false],
+                  ["👨‍💼", "Staff", b.staffNames || "—", false],
+                ].map(([icon, label, value, bold], i) => (
                   <tr key={i}>
-                    <td style={{ width: 20, paddingBottom: 5, fontSize: 12, verticalAlign: "top", paddingTop: 1 }}>{icon as string}</td>
-                    <td style={{ width: 60, paddingBottom: 5, fontSize: 11, color: GREY, fontWeight: 600, verticalAlign: "top", paddingTop: 1 }}>{label as string}</td>
-                    <td style={{ paddingBottom: 5, fontSize: 12, color: "#1a1a1a", verticalAlign: "top", paddingTop: 1 }}>{value as ReactNode}</td>
+                    <td style={{ width: 20, paddingBottom: 5, fontSize: 12, verticalAlign: "top", paddingTop: 1 }}>{icon}</td>
+                    <td style={{ width: 60, paddingBottom: 5, fontSize: 11, color: GREY, fontWeight: 600, verticalAlign: "top", paddingTop: 1 }}>{label}</td>
+                    <td style={{ paddingBottom: 5, fontSize: 12, verticalAlign: "top", paddingTop: 1 }}>
+                      {bold ? <span style={{ fontWeight: 700, fontSize: 14, color: "#1a1a1a" }}>{value}</span> : value}
+                    </td>
                   </tr>
                 ))}
               </tbody>
@@ -611,6 +617,56 @@ export default function BookingSlip(props: BookingSlipProps) {
         </div>
 
       </div>
+
+      {/* ══════════════════════════════════════════
+          FULL-PAGE OUTFIT PAGES (after bill, one dress per page)
+      ══════════════════════════════════════════ */}
+      {outfitItems.map((it, i) => (
+        <div
+          key={`outfit-${it.dressName}-${i}`}
+          className="slip-outfit-page"
+          style={{
+            background: "#fff",
+            fontFamily: "system-ui, -apple-system, sans-serif",
+            color: "#1a1a1a",
+            display: "flex",
+            flexDirection: "column",
+            minHeight: props.printMode ? "297mm" : undefined,
+          }}
+        >
+          <div style={{ background: `linear-gradient(135deg, ${G} 0%, #2d8a45 100%)`, padding: "14px 20px", textAlign: "center" }}>
+            <div style={{ fontSize: 10, fontWeight: 700, color: GOLD, textTransform: "uppercase", letterSpacing: "0.12em", marginBottom: 4 }}>
+              Your Booked Outfit
+            </div>
+            <div style={{ fontSize: 20, fontWeight: 800, color: "#fff", fontFamily: "Georgia, serif" }}>{it.dressName}</div>
+            <div style={{ fontSize: 11, color: "rgba(255,255,255,0.9)", marginTop: 4 }}>
+              {it.category || "—"} · Size {it.size || "—"}{it.color ? ` · ${it.color}` : ""}
+            </div>
+          </div>
+
+          <div style={{ flex: 1, display: "flex", alignItems: "center", justifyContent: "center", padding: "12px 16px", background: "#fafafa" }}>
+            {/* eslint-disable-next-line @next/next/no-img-element */}
+            <img
+              src={it.photoUrl!}
+              alt={it.dressName}
+              style={{
+                width: "100%",
+                maxWidth: "178mm",
+                maxHeight: props.printMode ? "230mm" : "70vh",
+                objectFit: "contain",
+                display: "block",
+                borderRadius: 8,
+                boxShadow: "0 4px 20px rgba(0,0,0,0.12)",
+              }}
+            />
+          </div>
+
+          <div style={{ background: G, padding: "10px 20px", display: "flex", alignItems: "center", justifyContent: "space-between" }}>
+            <div style={{ fontSize: 11, color: "#fff", fontWeight: 600 }}>{businessName}</div>
+            <div style={{ fontSize: 10, color: GOLD, fontFamily: "monospace" }}>{b.publicBookingId}</div>
+          </div>
+        </div>
+      ))}
     </>
   );
 }

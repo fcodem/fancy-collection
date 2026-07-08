@@ -11,15 +11,17 @@ import BookingItemWarningsBlock, {
 import PhotoCaptureButton from "@/components/PhotoCaptureButton";
 import PaymentModePicker, { type PaymentMode } from "@/components/PaymentModePicker";
 import type { BookingForStandardDetails } from "@/lib/bookingDetails";
+import { WARNING_BOOKED_ON_RETURN, WARNING_RETURNING_ON_DELIVERY } from "@/lib/bookingDetails";
 import type { ItemWarningSource } from "@/lib/bookingWarningPdf";
 import { formatInr } from "@/lib/format";
 import { photoUrl } from "@/lib/photoUrl";
 import ZoomableImage from "@/components/ZoomableImage";
 import { deliverySlipHref, hasPartialDelivery } from "@/lib/bookingStatus";
+import { navigatePrintTab, openBlankPrintTab, withSlipPrintQuery } from "@/lib/slipPrintUrl";
 
 type ItemRow = {
   id: number;
-  itemId?: number;
+  itemId?: number | null;
   dressName: string;
   category?: string | null;
   size?: string | null;
@@ -65,6 +67,16 @@ type OrderRow = {
   includedInRent: boolean;
 };
 
+type JewelleryRow = {
+  id: number;
+  name: string;
+  category?: string | null;
+  photo?: string | null;
+  source: string;
+  note?: string | null;
+  partsLabel?: string;
+};
+
 type ItemFormState = {
   remaining: string;
   security: string;
@@ -88,6 +100,7 @@ export default function DeliveryDetailClient({
   idPhoto1 = null,
   idPhoto2 = null,
   orders = [],
+  jewellery = [],
 }: {
   booking: BookingData;
   items: ItemRow[];
@@ -97,6 +110,7 @@ export default function DeliveryDetailClient({
   idPhoto1?: string | null;
   idPhoto2?: string | null;
   orders?: OrderRow[];
+  jewellery?: JewelleryRow[];
 }) {
   const router = useRouter();
   const [localItems, setLocalItems] = useState(initialItems);
@@ -188,11 +202,16 @@ export default function DeliveryDetailClient({
     setItemForms((prev) => ({ ...prev, [id]: { ...prev[id], [field]: value } }));
   }
 
-  async function saveItem(itemId: number) {
+  async function saveItem(itemId: number, opts?: { openPrintSlip?: boolean }) {
     setSaving(true);
     setError("");
+    const printWindow = opts?.openPrintSlip ? openBlankPrintTab() : null;
     const it = localItems.find((i) => i.id === itemId);
-    if (!it) { setSaving(false); return; }
+    if (!it) {
+      printWindow?.close();
+      setSaving(false);
+      return;
+    }
 
     const payload = {
       payment_mode: paymentMode,
@@ -216,18 +235,42 @@ export default function DeliveryDetailClient({
     const data = await res.json();
     setSaving(false);
     if (!res.ok) {
+      printWindow?.close();
       setError(data.error || "Save failed");
       return;
     }
     applySaveResponse(data);
+    if (opts?.openPrintSlip) {
+      const updatedItems = localItems.map((row) => {
+        const saved = data.items?.find((s: SaveItemResponse) => s.id === row.id);
+        if (!saved) return row;
+        return { ...row, isDelivered: saved.isDelivered };
+      });
+      const merged = updatedItems.map((row) =>
+        row.id === itemId ? { ...row, isDelivered: true } : row,
+      );
+      navigatePrintTab(
+        printWindow,
+        deliverySlipHref(
+          booking.id,
+          { status: data.status ?? booking.status, bookingItems: merged },
+          itemId,
+        ),
+      );
+    }
     if (data.status === "delivered") router.refresh();
   }
 
-  async function saveAll(markDelivered = false) {
+  async function saveAll(markDelivered = false, opts?: { openPrintSlip?: boolean }) {
     setSaving(true);
     setError("");
+    const printWindow = opts?.openPrintSlip && markDelivered ? openBlankPrintTab() : null;
     const pending = localItems.filter((it) => !it.isDelivered);
-    if (!pending.length) { setSaving(false); return; }
+    if (!pending.length) {
+      printWindow?.close();
+      setSaving(false);
+      return;
+    }
     const payload = {
       slip_finalize: true,
       payment_mode: paymentMode,
@@ -250,10 +293,23 @@ export default function DeliveryDetailClient({
     const data = await res.json();
     setSaving(false);
     if (!res.ok) {
+      printWindow?.close();
       setError(data.error || "Save failed");
       return;
     }
     applySaveResponse(data);
+    if (opts?.openPrintSlip && markDelivered) {
+      const merged = localItems.map((row) => {
+        const saved = data.items?.find((s: SaveItemResponse) => s.id === row.id);
+        if (saved) return { ...row, isDelivered: saved.isDelivered };
+        if (pending.some((p) => p.id === row.id)) return { ...row, isDelivered: true };
+        return row;
+      });
+      navigatePrintTab(
+        printWindow,
+        deliverySlipHref(booking.id, { status: data.status ?? booking.status, bookingItems: merged }),
+      );
+    }
     if (data.status === "delivered") router.refresh();
   }
 
@@ -368,6 +424,16 @@ export default function DeliveryDetailClient({
           >
             <i className="fa-solid fa-truck-fast" style={{ marginRight: 6 }} />
             View Delivery Slip
+          </Link>
+          <Link
+            href={withSlipPrintQuery(`/booking/${booking.id}/delivery-slip`)}
+            className="btn btn-outline"
+            style={{ color: "#1565c0", borderColor: "#1565c0" }}
+            target="_blank"
+            rel="noopener noreferrer"
+          >
+            <i className="fa-solid fa-print" style={{ marginRight: 6 }} />
+            Print A4 Slip
           </Link>
         </div>
       )}
@@ -561,14 +627,26 @@ export default function DeliveryDetailClient({
                 />
               </div>
               {!it.isDelivered && (
-                <button
-                  className="btn btn-primary btn-sm"
-                  disabled={saving}
-                  onClick={() => saveItem(it.id)}
-                >
-                  <i className="fa-solid fa-truck" style={{ marginRight: 6 }} />
-                  Deliver This Dress
-                </button>
+                <div style={{ display: "flex", gap: 8, flexWrap: "wrap" }}>
+                  <button
+                    className="btn btn-primary btn-sm"
+                    disabled={saving}
+                    onClick={() => void saveItem(it.id)}
+                  >
+                    <i className="fa-solid fa-truck" style={{ marginRight: 6 }} />
+                    Deliver This Dress
+                  </button>
+                  <button
+                    type="button"
+                    className="btn btn-outline btn-sm"
+                    disabled={saving}
+                    onClick={() => void saveItem(it.id, { openPrintSlip: true })}
+                    style={{ color: "#1565c0", borderColor: "#1565c0" }}
+                  >
+                    <i className="fa-solid fa-print" style={{ marginRight: 6 }} />
+                    Print A4 Slip
+                  </button>
+                </div>
               )}
               {it.isDelivered && !editingDelivered[it.id] && (
                 <div style={{ display: "flex", gap: 8, flexWrap: "wrap" }}>
@@ -621,12 +699,24 @@ export default function DeliveryDetailClient({
           {!allDelivered && (
             <div style={{ display: "flex", gap: 12, marginTop: 8, flexWrap: "wrap" }}>
               {localItems.length > 0 && (
-                <button className="btn btn-primary" disabled={saving} onClick={() => saveAll(true)}>
+                <button className="btn btn-primary" disabled={saving} onClick={() => void saveAll(true)}>
                   <i className="fa-solid fa-truck" style={{ marginRight: 6 }} />
                   Deliver All Dresses
                 </button>
               )}
-              <button className="btn btn-outline" disabled={saving} onClick={() => saveAll(false)}>
+              {localItems.length > 0 && (
+                <button
+                  type="button"
+                  className="btn btn-outline"
+                  disabled={saving}
+                  onClick={() => void saveAll(true, { openPrintSlip: true })}
+                  style={{ color: "#1565c0", borderColor: "#1565c0" }}
+                >
+                  <i className="fa-solid fa-print" style={{ marginRight: 6 }} />
+                  Print A4 Slip
+                </button>
+              )}
+              <button className="btn btn-outline" disabled={saving} onClick={() => void saveAll(false)}>
                 Save Details Only
               </button>
             </div>
@@ -722,6 +812,60 @@ export default function DeliveryDetailClient({
                 </div>
               );
             })}
+          </div>
+        </div>
+      )}
+
+      {jewellery.length > 0 && (
+        <div className="card" style={{ marginTop: 24 }}>
+          <div className="card-header">
+            <h3 className="card-title" style={{ color: "#8a6d1a" }}>
+              <i className="fa-solid fa-gem" style={{ marginRight: 8 }} />
+              Selected Jewellery ({jewellery.length})
+            </h3>
+          </div>
+          <div className="card-body">
+            <div style={{ display: "grid", gridTemplateColumns: "repeat(auto-fill, minmax(240px, 1fr))", gap: 12 }}>
+              {jewellery.map((j) => (
+                <div key={j.id} style={{ display: "flex", gap: 12, padding: 12, border: "1px solid var(--border)", borderRadius: 10 }}>
+                  {j.photo ? (
+                    <ZoomableImage src={photoUrl(j.photo)} alt={j.name} overlayCaption={j.name} style={{ width: 56, height: 56, borderRadius: 8, objectFit: "cover", flexShrink: 0 }} />
+                  ) : (
+                    <div style={{ width: 56, height: 56, borderRadius: 8, background: "var(--cream-dark)", display: "flex", alignItems: "center", justifyContent: "center", color: "var(--text-muted)", flexShrink: 0 }}>
+                      <i className="fa-solid fa-gem" />
+                    </div>
+                  )}
+                  <div style={{ flex: 1, minWidth: 0 }}>
+                    <div style={{ fontWeight: 600 }}>{j.name}</div>
+                    <div style={{ fontSize: 11, color: "var(--text-muted)" }}>
+                      {j.source === "inventory" ? "Inventory" : "Manual"}
+                      {j.category ? ` · ${j.category}` : ""}
+                      {j.partsLabel ? ` · ${j.partsLabel}` : ""}
+                    </div>
+                    {j.note && j.note.split(" · ").filter(Boolean).map((p, i) => {
+                      const isWarning = p === WARNING_RETURNING_ON_DELIVERY || p === WARNING_BOOKED_ON_RETURN;
+                      return (
+                        <div
+                          key={i}
+                          style={{
+                            fontSize: 11,
+                            color: isWarning ? "#E65100" : "var(--text-muted)",
+                            marginTop: 4,
+                            fontStyle: isWarning ? "normal" : "italic",
+                          }}
+                        >
+                          {isWarning ? (
+                            <><i className="fa-solid fa-triangle-exclamation" /> {p}</>
+                          ) : (
+                            <><i className="fa-solid fa-note-sticky" style={{ marginRight: 4 }} />{p}</>
+                          )}
+                        </div>
+                      );
+                    })}
+                  </div>
+                </div>
+              ))}
+            </div>
           </div>
         </div>
       )}

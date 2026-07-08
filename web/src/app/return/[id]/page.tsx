@@ -5,6 +5,7 @@ import { serializeBookingItemRows } from "@/lib/dress";
 import { formatDate } from "@/lib/constants";
 import { loadWarningItemsForBooking } from "@/lib/bookingWarnings";
 import { serializeActiveOrders } from "@/lib/slipBookingData";
+import { catalogPhotoRef } from "@/lib/catalogPhotoRef";
 export default async function ReturnDetailPage({ params }: { params: Promise<{ id: string }> }) {
   const { id } = await params;
   const booking = await prisma.booking.findUnique({
@@ -29,7 +30,7 @@ export default async function ReturnDetailPage({ params }: { params: Promise<{ i
         dressName: bi.dressName,
         category: bi.category,
         size: bi.size || bi.item?.size || "",
-        photo: bi.item?.photo || "",
+        photo: bi.item ? catalogPhotoRef(bi.item) : "",
         isDelivered: bi.isDelivered || booking.status === "delivered",
         isReturned: bi.isReturned,
         isIncompleteReturn: bi.isIncompleteReturn,
@@ -50,7 +51,7 @@ export default async function ReturnDetailPage({ params }: { params: Promise<{ i
           dressName: booking.dressName,
           category: booking.legacyItem?.category || "",
           size: booking.legacyItem?.size || "",
-          photo: booking.legacyItem?.photo || "",
+          photo: booking.legacyItem ? catalogPhotoRef(booking.legacyItem) : "",
           isDelivered: booking.status === "delivered",
           isReturned: booking.status === "returned",
           isIncompleteReturn: booking.status === "incomplete_return",

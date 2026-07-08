@@ -167,7 +167,7 @@ export default async function BookingPanelPage({
             <div className="empty-icon"><i className="fa-solid fa-calendar-xmark" /></div>
             <h3>No bookings for {panelLabel}</h3>
             <p>Try another month or year, or create a new booking.</p>
-            <a href="/booking/new" className="btn btn-primary mt-16"><i className="fa-solid fa-plus" /> New Booking</a>
+            <Link href="/booking/new" className="btn btn-primary mt-16"><i className="fa-solid fa-plus" /> New Booking</Link>
           </div>
         ) : (
           <div className="table-wrapper">

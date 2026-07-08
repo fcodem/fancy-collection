@@ -1,6 +1,21 @@
 export const BASE_MENS = ["Sherwani", "Indowestern", "Jodhpuri", "Coat Suit", "Suit", "Blazer", "Kurta"];
 export const BASE_WOMENS = ["Saree", "Lehenga", "Gown"];
-export const BASE_JEWELLERY = ["Jewellery", "Necklace", "Bangles", "Earrings", "Maang Tikka", "Haath Phool", "Anklet", "Nose Ring", "Matha Patti"];
+export const BASE_JEWELLERY = [
+  "Jewellery",
+  "Kundan Jewellery",
+  "Jerkan Jewellery",
+  "Polki Jewellery",
+  "AD Jewellery",
+  "Bridal Jewellery",
+  "Necklace",
+  "Bangles",
+  "Earrings",
+  "Maang Tikka",
+  "Haath Phool",
+  "Anklet",
+  "Nose Ring",
+  "Matha Patti",
+];
 export const BASE_ACCESSORY = ["Accessory", "Dupatta", "Belt", "Clutch", "Crown/Tiara"];
 export const SIZES = [...Array.from({ length: 14 }, (_, i) => String(32 + i * 2)), "Free Size", "Custom"];
 export const SUB_CATEGORIES = ["Premium", "Normal", "Cheap"];

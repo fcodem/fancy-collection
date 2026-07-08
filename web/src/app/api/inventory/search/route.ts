@@ -3,6 +3,7 @@ import prisma from "@/lib/prisma";
 import { dressDisplayName } from "@/lib/dress";
 import { buildDressSearchWhere } from "@/lib/dress";
 import { jsonOk, requireUser, isResponse } from "@/lib/api";
+import { catalogPhotoRef } from "@/lib/catalogPhotoRef";
 
 export async function GET(req: NextRequest) {
   const user = await requireUser();
@@ -23,7 +24,7 @@ export async function GET(req: NextRequest) {
       size: i.size,
       color: i.color,
       status: i.status,
-      photo: i.photo,
+      photo: catalogPhotoRef(i),
       sub_category: i.subCategory,
       daily_rate: i.dailyRate,
       deposit: i.deposit,

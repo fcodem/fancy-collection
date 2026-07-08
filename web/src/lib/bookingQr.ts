@@ -43,18 +43,9 @@ export function bookingQrScanUrl(qrToken: string, requestOrigin?: string) {
   return `${base}/booking/qr/${encodeURIComponent(qrToken)}?s=${encodeURIComponent(sig)}`;
 }
 
-/** Where to send staff after scanning — status-aware. */
-export function bookingQrTargetPath(status: string, bookingId: number): string {
-  switch (status) {
-    case "delivered":
-    case "returned":
-    case "incomplete_return":
-      return `/return/${bookingId}`;
-    case "cancelled":
-      return `/booking/${bookingId}`;
-    default:
-      return `/booking/${bookingId}`;
-  }
+/** Where to send staff after scanning — always open the booking panel for that booking. */
+export function bookingQrTargetPath(_status: string, bookingId: number): string {
+  return `/booking/${bookingId}`;
 }
 
 export async function ensureBookingQrToken(bookingId: number): Promise<string> {

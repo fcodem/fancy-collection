@@ -7,6 +7,9 @@ const prisma = new PrismaClient();
 async function main() {
   const passwordHash = await bcrypt.hash("admin123", 10);
 
+  const cleared = await prisma.loginAttempt.deleteMany({});
+  console.log(`Cleared ${cleared.count} login attempt record(s) (rate-limit reset).`);
+
   const owner = await prisma.user.upsert({
     where: { username: "owner" },
     update: {

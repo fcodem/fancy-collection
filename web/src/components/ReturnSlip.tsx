@@ -1,3 +1,4 @@
+import { CustomOrdersSection, type SlipOrderDisplay } from "@/components/BookingSlip";
 import {
   SLIP_AMBER,
   SLIP_BORDER,
@@ -58,6 +59,7 @@ export type ReturnSlipProps = {
     returnCondition?: string;
     notes?: string | null;
   }>;
+  orders?: SlipOrderDisplay[];
   qrDataUrl?: string | null;
   businessName: string;
   businessPhone: string;
@@ -74,7 +76,7 @@ function normalizeCondition(raw?: string | null): "good" | "damaged" | "stained"
 }
 
 export default function ReturnSlip(props: ReturnSlipProps) {
-  const { booking: b, items, qrDataUrl, businessPhone, businessAddress, slipSubtitle } = props;
+  const { booking: b, items, orders, qrDataUrl, businessPhone, businessAddress, slipSubtitle } = props;
   const slipNo = slipPadSerial(b.monthlySerial);
   const displayPhone = businessPhone?.trim() || SLIP_DEFAULT_PHONE;
   const displayAddress = businessAddress?.trim() || SLIP_DEFAULT_ADDRESS;
@@ -421,6 +423,8 @@ export default function ReturnSlip(props: ReturnSlipProps) {
             </table>
           </div>
         </section>
+
+        <CustomOrdersSection orders={orders} showPhoto={false} />
 
         <section style={{ padding: "0 clamp(12px, 2.5vw, 24px) 14px" }}>
           <div

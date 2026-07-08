@@ -1,5 +1,7 @@
 import { formatDate } from "@/lib/constants";
 import { resolvePublicBookingId } from "@/lib/services/whatsapp/publicBookingId";
+import { inventoryPhotoRef } from "@/lib/catalogPhotoRef";
+import { photoUrl } from "@/lib/photoUrl";
 import {
   formatSlipDateTime,
   isLateReturn,
@@ -63,7 +65,10 @@ type BookingWithItems = {
     itemSecurityCollected?: number;
     itemDeliveryNotes?: string | null;
     deliveredAt?: Date | null;
-    item: { color: string | null } | null;
+    item: {
+      color: string | null;
+      photo?: string | null;
+    } | null;
   }>;
   orders?: Array<{
     id: number;
@@ -321,6 +326,7 @@ export function buildReturnSlipData(
 ): {
   booking: ReturnSlipProps["booking"];
   items: ReturnSlipProps["items"];
+  orders: SlipOrder[];
   slipSubtitle?: string;
 } {
   const publicId = resolvePublicBookingId(booking);
@@ -428,6 +434,7 @@ export function buildReturnSlipData(
         isLateReturn: late,
       },
       items,
+      orders: activeSlipOrders(booking),
     };
   }
 
@@ -496,6 +503,7 @@ export function buildReturnSlipData(
       isLateReturn: late,
     },
     items: sourceItems.map(mapReturnSlipItem),
+    orders: activeSlipOrders(booking),
   };
 }
 
@@ -527,6 +535,7 @@ export function buildBookingSlipData(booking: BookingWithItems): {
           advance: bi.advance,
           remaining: bi.remaining,
           notes: bi.notes,
+          photoUrl: bi.item ? photoUrl(inventoryPhotoRef(bi.item)) || null : null,
         }))
       : booking.dressName
         ? [

@@ -5,8 +5,11 @@ import { getCurrentUser, isOwner } from "@/lib/auth";
 import InventoryFilterBar from "@/components/InventoryFilterBar";
 import InventoryDeleteButton from "@/components/InventoryDeleteButton";
 import { dressDisplayName, stripUnitSuffix, buildDressSearchWhere } from "@/lib/dress";
+import { catalogPhotoUrl } from "@/lib/catalogPhotoUrl";
 import { photoUrl } from "@/lib/photoUrl";
 import type { ClothingItem } from "@prisma/client";
+
+export const dynamic = "force-dynamic";
 
 type InventoryGroup = {
   key: string;
@@ -98,7 +101,7 @@ export default async function InventoryPage({
                   <tr key={group.key}>
                     <td>
                       {(() => {
-                        const thumb = photoUrl(primary.photo);
+                        const thumb = catalogPhotoUrl(primary);
                         return thumb ? (
                           <img src={thumb} alt="" className="inv-list-thumb" />
                         ) : (

@@ -10,7 +10,7 @@ export default function InventoryDeleteButton({
   async function handleDelete() {
     const name = label || "this dress";
     if (!confirm(`Delete ${name} from inventory? This cannot be undone.`)) return;
-    const res = await fetch(`/api/inventory/${id}`, { method: "DELETE" });
+    const res = await fetch(`/api/inventory/${id}`, { method: "DELETE", credentials: "same-origin" });
     const data = await res.json().catch(() => ({}));
     if (!res.ok) {
       alert((data as { error?: string }).error || "Delete failed");

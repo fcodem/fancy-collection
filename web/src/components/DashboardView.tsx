@@ -6,7 +6,7 @@ import { useCallback, useEffect, useRef, useState } from "react";
 import DressNameSuggestInput from "@/components/DressNameSuggestInput";
 import { formatDate } from "@/lib/constants";
 import { formatInr } from "@/lib/format";
-import { fetchJson } from "@/lib/fetchJson";
+import { fetchJson, parseResponseJson } from "@/lib/fetchJson";
 import { useToast } from "@/components/ui/Toast";
 import { BookingNotesBlock } from "@/components/BookingNotesBlock";
 import StarBookingBadge from "@/components/StarBookingBadge";
@@ -171,8 +171,16 @@ export default function DashboardView({ data: initialData, isOwner, pendingStaff
         { credentials: "same-origin" },
       );
       if (!res.ok) return;
-      const json = await res.json();
-      setFiData(json);
+      const json = await parseResponseJson<{
+        free_items?: Array<Record<string, unknown>>;
+        returning_on_delivery?: Array<Record<string, unknown>>;
+        warnings?: Record<string, Record<string, unknown>>;
+      }>(res);
+      setFiData({
+        free_items: json.free_items ?? [],
+        returning_on_delivery: json.returning_on_delivery ?? [],
+        warnings: json.warnings,
+      });
       setFreeItemCount(`${(json.free_items || []).length} free items`);
     } catch {
       /* ignore transient network errors */
@@ -245,7 +253,12 @@ export default function DashboardView({ data: initialData, isOwner, pendingStaff
     const url = `/api/dress-checker?delivery_date=${dcDelivery}&return_date=${dcReturn}&dress_name=${encodeURIComponent(dcDress)}&category=${encodeURIComponent(dcCategory)}`;
     try {
       const res = await fetch(url, { credentials: "same-origin" });
-      const json = await res.json();
+      const json = await parseResponseJson<{
+        error?: string;
+        items?: DressCheckerItem[];
+        message?: string;
+        dress_name?: string;
+      }>(res);
       if (json.error) {
         setDcState({ kind: "error", message: json.error });
         return;
@@ -254,7 +267,7 @@ export default function DashboardView({ data: initialData, isOwner, pendingStaff
         setDcState({ kind: "warning", message: json.message || "No matching dress found." });
         return;
       }
-      setDcState({ kind: "results", dressName: json.dress_name, items: json.items });
+      setDcState({ kind: "results", dressName: json.dress_name ?? "", items: json.items });
     } catch {
       setDcState({ kind: "error", message: "Could not reach the server. Check your connection and try again." });
     }
@@ -413,7 +426,7 @@ export default function DashboardView({ data: initialData, isOwner, pendingStaff
           <button type="button" className="btn" style={{ background: "rgba(255,255,255,0.15)", color: "white", border: "none" }} onClick={() => window.print()}>
             <i className="fa-solid fa-print" /> Print
           </button>
-          <a href="/booking/new" className="btn btn-gold"><i className="fa-solid fa-plus" /> New Booking</a>
+          <Link href="/booking/new" className="btn btn-gold"><i className="fa-solid fa-plus" /> New Booking</Link>
           <Link href="/booking" className="btn" style={{ background: "rgba(255,255,255,0.15)", color: "white", border: "1.5px solid rgba(255,255,255,0.4)" }}>
             <i className="fa-solid fa-list" /> All Bookings
           </Link>

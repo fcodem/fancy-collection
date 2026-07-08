@@ -42,6 +42,7 @@ export default function CustomersClient() {
           <div style={{ display: "flex", gap: 12, flexWrap: "wrap" }}>
             <input className="form-control" placeholder="Search name or phone…" value={q} onChange={(e) => setQ(e.target.value)} onKeyDown={(e) => e.key === "Enter" && load()} />
             <button className="btn btn-primary" onClick={load}>Search</button>
+            {/* eslint-disable-next-line @next/next/no-html-link-for-pages -- file download endpoint */}
             <a href="/api/customers/export/whatsapp" className="btn btn-outline">
               <i className="fa-brands fa-whatsapp" style={{ marginRight: 6 }} />
               Export AiSensy CSV

@@ -1,0 +1,43 @@
+{
+  "generated_at": "2026-07-07T14:59:37.329Z",
+  "catalog_size": 10,
+  "indexed_items": 10,
+  "scale_projections": [
+    {
+      "target_catalog": 100,
+      "note": "projected linear from 10 items — re-run after seeding"
+    },
+    {
+      "target_catalog": 500,
+      "note": "projected linear from 10 items — re-run after seeding"
+    },
+    {
+      "target_catalog": 1000,
+      "note": "projected linear from 10 items — re-run after seeding"
+    },
+    {
+      "target_catalog": 5000,
+      "note": "projected linear from 10 items — re-run after seeding"
+    }
+  ],
+  "accuracy": {
+    "top1": 67,
+    "top5": 67,
+    "cases": 3,
+    "false_positives": 1,
+    "false_negatives": 1
+  },
+  "timing": {
+    "embed_ms": [
+      94764,
+      97368,
+      101350
+    ],
+    "search_ms": [
+      95641,
+      97977,
+      101681
+    ]
+  },
+  "memory_mb": 338
+}

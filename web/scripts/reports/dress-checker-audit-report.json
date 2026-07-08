@@ -1,0 +1,451 @@
+{
+  "generatedAt": "2026-07-07T14:12:30.048Z",
+  "phases": {
+    "architectureAudit": {
+      "checks": {
+        "inventoryAiProfileExists": true,
+        "aiMetadataCanonicalOnProfile": true,
+        "legacyMirrorOnClothingItem": true,
+        "modularEngine": "web/src/lib/dressChecker/",
+        "serviceLayer": "web/src/lib/dressChecker/services/",
+        "productionSearchPath": "dressChecker/search.ts → searchDressesByPhoto",
+        "asyncInventorySave": "scheduleInventoryPhotoPipeline → setImmediate",
+        "usesStoredFingerprints": true,
+        "usesStoredEmbeddings": true,
+        "engineVersion": 5,
+        "fingerprintVersion": 5
+      },
+      "deadCodeNotes": [
+        "dressIdentificationPipeline.indexIdentificationFingerprint — legacy indexer, superseded by processInventoryAiProfile",
+        "dressCheckerDecisions.ts — superseded by dressChecker/confidenceService.ts (tests only)",
+        "recognitionPipeline/hybridSimilarity.shouldExcludeFromResults — legacy rejection rules (admin compare only)"
+      ],
+      "gaps": [
+        "Benchmark dataset admin UI (Phase 5) — not implemented; eval uses fixed asset paths",
+        "Rebuild progress streaming — POST returns after full batch; no per-item SSE",
+        "ClothingItem legacy mirror still written for backward-compatible catalog reads",
+        "generateInventoryAiProfile reads ClothingItem.recognitionFingerprint (v5 writes to profile only)"
+      ]
+    },
+    "codeAudit": {
+      "deadCodeNotes": [
+        "dressIdentificationPipeline.indexIdentificationFingerprint — legacy indexer, superseded by processInventoryAiProfile",
+        "dressCheckerDecisions.ts — superseded by dressChecker/confidenceService.ts (tests only)",
+        "recognitionPipeline/hybridSimilarity.shouldExcludeFromResults — legacy rejection rules (admin compare only)"
+      ],
+      "duplicatePipelines": [
+        "legacy indexIdentificationFingerprint",
+        "recognitionPipeline hybridSimilarity"
+      ]
+    },
+    "profileValidation": {
+      "totalItems": 10,
+      "readyProfiles": 10,
+      "missingProfiles": 0,
+      "incompleteProfiles": 0,
+      "items": [
+        {
+          "sku": "ITM-0001",
+          "itemId": 21,
+          "status": "ready",
+          "recognitionVersion": 5,
+          "viewCount": 6,
+          "qualityScore": 94,
+          "missing": [],
+          "imageIssues": {
+            "ok": true,
+            "issues": [],
+            "width": 1200,
+            "height": 1800,
+            "bytes": 349014
+          }
+        },
+        {
+          "sku": "ITM-0026",
+          "itemId": 26,
+          "status": "ready",
+          "recognitionVersion": 5,
+          "viewCount": 6,
+          "qualityScore": 98,
+          "missing": [],
+          "imageIssues": {
+            "ok": true,
+            "issues": [],
+            "width": 2500,
+            "height": 3750,
+            "bytes": 1373498
+          }
+        },
+        {
+          "sku": "ITM-0027",
+          "itemId": 27,
+          "status": "ready",
+          "recognitionVersion": 5,
+          "viewCount": 6,
+          "qualityScore": 98,
+          "missing": [],
+          "imageIssues": {
+            "ok": true,
+            "issues": [],
+            "width": 735,
+            "height": 877,
+            "bytes": 115231
+          }
+        },
+        {
+          "sku": "ITM-0028",
+          "itemId": 28,
+          "status": "ready",
+          "recognitionVersion": 5,
+          "viewCount": 6,
+          "qualityScore": 88,
+          "missing": [],
+          "imageIssues": {
+            "ok": true,
+            "issues": [],
+            "width": 600,
+            "height": 900,
+            "bytes": 101944
+          }
+        },
+        {
+          "sku": "ITM-1035",
+          "itemId": 1035,
+          "status": "ready",
+          "recognitionVersion": 5,
+          "viewCount": 6,
+          "qualityScore": 89,
+          "missing": [],
+          "imageIssues": {
+            "ok": true,
+            "issues": [],
+            "width": 1440,
+            "height": 1920,
+            "bytes": 937544
+          }
+        },
+        {
+          "sku": "ITM-1036",
+          "itemId": 1036,
+          "status": "ready",
+          "recognitionVersion": 5,
+          "viewCount": 6,
+          "qualityScore": 93,
+          "missing": [],
+          "imageIssues": {
+            "ok": true,
+            "issues": [],
+            "width": 1440,
+            "height": 1920,
+            "bytes": 901608
+          }
+        },
+        {
+          "sku": "ITM-1037",
+          "itemId": 1037,
+          "status": "ready",
+          "recognitionVersion": 5,
+          "viewCount": 6,
+          "qualityScore": 89,
+          "missing": [],
+          "imageIssues": {
+            "ok": true,
+            "issues": [],
+            "width": 1080,
+            "height": 1920,
+            "bytes": 598670
+          }
+        },
+        {
+          "sku": "ITM-1040",
+          "itemId": 1040,
+          "status": "ready",
+          "recognitionVersion": 5,
+          "viewCount": 6,
+          "qualityScore": 83,
+          "missing": [],
+          "imageIssues": {
+            "ok": true,
+            "issues": [],
+            "width": 1440,
+            "height": 1920,
+            "bytes": 712079
+          }
+        },
+        {
+          "sku": "ITM-1042",
+          "itemId": 1042,
+          "status": "ready",
+          "recognitionVersion": 5,
+          "viewCount": 6,
+          "qualityScore": 83,
+          "missing": [],
+          "imageIssues": {
+            "ok": true,
+            "issues": [],
+            "width": 3024,
+            "height": 4032,
+            "bytes": 4894704
+          }
+        },
+        {
+          "sku": "ITM-1043",
+          "itemId": 1043,
+          "status": "ready",
+          "recognitionVersion": 5,
+          "viewCount": 6,
+          "qualityScore": 100,
+          "missing": [],
+          "imageIssues": {
+            "ok": true,
+            "issues": [],
+            "width": 944,
+            "height": 1304,
+            "bytes": 315792
+          }
+        }
+      ]
+    },
+    "databaseAudit": {
+      "catalogSize": 10,
+      "orphanAiProfiles": 0,
+      "correctionsStored": 4,
+      "indexes": [
+        "inventory_ai_profiles.status",
+        "inventory_ai_profiles.health_score",
+        "dress_checker_corrections.correct_item_id"
+      ],
+      "relationship": "InventoryAiProfile.itemId → ClothingItem.id (1:1 cascade)"
+    },
+    "imageValidation": {
+      "flagged": []
+    },
+    "modelValidation": {
+      "modelId": "Xenova/siglip-base-patch16-224",
+      "embeddingDimension": 768,
+      "modelLoadMs": 3664,
+      "modelCacheHitMs": 487,
+      "cacheWorking": true,
+      "embeddingNormalized": true,
+      "embeddingLength": 768
+    },
+    "benchmark": {
+      "casesRun": 3,
+      "top1Accuracy": 100,
+      "top3Accuracy": 100,
+      "top5Accuracy": 100,
+      "avgConfidence": 86,
+      "avgSearchMs": 52073,
+      "falsePositives": 0,
+      "falseNegatives": 0,
+      "results": [
+        {
+          "name": "PISTA floor",
+          "expectedSku": "ITM-1037",
+          "actualSku": "ITM-1037",
+          "confidence": 98,
+          "correct": true,
+          "inTop3": true,
+          "inTop5": true,
+          "searchMs": 37471,
+          "top5": [
+            {
+              "sku": "ITM-1037",
+              "score": 98
+            },
+            {
+              "sku": "ITM-0001",
+              "score": 72
+            },
+            {
+              "sku": "ITM-0028",
+              "score": 69
+            },
+            {
+              "sku": "ITM-0027",
+              "score": 66
+            },
+            {
+              "sku": "ITM-1040",
+              "score": 66
+            }
+          ]
+        },
+        {
+          "name": "PISTA hanger",
+          "expectedSku": "ITM-1037",
+          "actualSku": "ITM-1037",
+          "confidence": 84,
+          "correct": true,
+          "inTop3": true,
+          "inTop5": true,
+          "searchMs": 36176,
+          "top5": [
+            {
+              "sku": "ITM-1037",
+              "score": 84
+            },
+            {
+              "sku": "ITM-1043",
+              "score": 81
+            },
+            {
+              "sku": "ITM-0001",
+              "score": 77
+            },
+            {
+              "sku": "ITM-0028",
+              "score": 76
+            },
+            {
+              "sku": "ITM-1040",
+              "score": 65
+            }
+          ]
+        },
+        {
+          "name": "MULTI RAJWADA",
+          "expectedSku": "ITM-1043",
+          "actualSku": "ITM-1043",
+          "confidence": 76,
+          "correct": true,
+          "inTop3": true,
+          "inTop5": true,
+          "searchMs": 82573,
+          "top5": [
+            {
+              "sku": "ITM-1043",
+              "score": 76
+            },
+            {
+              "sku": "ITM-1037",
+              "score": 75
+            },
+            {
+              "sku": "ITM-0028",
+              "score": 74
+            },
+            {
+              "sku": "ITM-0001",
+              "score": 73
+            },
+            {
+              "sku": "ITM-1040",
+              "score": 72
+            }
+          ]
+        }
+      ]
+    },
+    "performance": {
+      "case": "PISTA floor",
+      "embeddingGenerationMs": 56140,
+      "searchMs": 57003,
+      "totalSearchMs": 57311,
+      "dbQueryMs": 145,
+      "memoryMb": 43.7,
+      "pipelineStages": [
+        {
+          "stage": "image_validation",
+          "durationMs": 164
+        },
+        {
+          "stage": "garment_detection",
+          "durationMs": 935
+        },
+        {
+          "stage": "feature_extraction",
+          "durationMs": 198
+        },
+        {
+          "stage": "multi_view_embedding",
+          "durationMs": 54842
+        }
+      ],
+      "candidateFilterStages": [
+        {
+          "stage": 1,
+          "name": "category_group",
+          "before": 9,
+          "after": 9
+        },
+        {
+          "stage": 2,
+          "name": "category",
+          "before": 9,
+          "after": 9
+        },
+        {
+          "stage": 3,
+          "name": "embroidery_density",
+          "before": 9,
+          "after": 9
+        },
+        {
+          "stage": 4,
+          "name": "multi_view_embedding_prefilter",
+          "before": 9,
+          "after": 9
+        }
+      ],
+      "inventoryImagesUsed": 9
+    },
+    "stressTest": {
+      "measuredCatalogSize": 10,
+      "measuredAvgSearchMs": 52073,
+      "memoryMb": 249,
+      "projections": [
+        {
+          "catalogSize": 100,
+          "estimatedSearchMs": 216103,
+          "note": "linear_projection_from_measured"
+        },
+        {
+          "catalogSize": 500,
+          "estimatedSearchMs": 945125,
+          "note": "linear_projection_from_measured"
+        },
+        {
+          "catalogSize": 1000,
+          "estimatedSearchMs": 1856402,
+          "note": "linear_projection_from_measured"
+        },
+        {
+          "catalogSize": 5000,
+          "estimatedSearchMs": 9146622,
+          "note": "linear_projection_from_measured"
+        }
+      ]
+    }
+  },
+  "scores": {
+    "architecture": 88,
+    "codeQuality": 82,
+    "recognitionAccuracy": 100,
+    "performance": 75,
+    "databaseHealth": 90,
+    "aiProfileHealth": 100
+  },
+  "knownWeaknesses": [
+    "Search latency ~45–50s dominated by SigLIP embedding generation (4 query rotations)",
+    "Small benchmark dataset (3 cases, 10-item catalog)",
+    "Dual storage on ClothingItem + InventoryAiProfile",
+    "MULTI RAJWADA confidence 76% — correct Top-1 but below reliable threshold"
+  ],
+  "recommendations": [
+    "Remove dead recognitionPipeline/processQuery.ts",
+    "Consolidate catalog reads to InventoryAiProfile only; stop ClothingItem mirror",
+    "Warm SigLIP model on server startup",
+    "Add benchmark dataset table when catalog grows beyond pilot",
+    "Consider GPU inference or embedding cache for query rotations"
+  ],
+  "successCriteria": {
+    "projectBuilds": "pending",
+    "testsPass": "pending",
+    "profilesRebuilt": true,
+    "benchmarkCompleted": true,
+    "architectureAuditCompleted": true,
+    "debugToolsOperational": true,
+    "apisBackwardCompatible": true
+  }
+}

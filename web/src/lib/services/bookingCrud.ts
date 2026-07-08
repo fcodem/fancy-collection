@@ -227,7 +227,7 @@ export async function updateBooking(bookingId: number, input: BookingFormInput, 
   if (!input.items.length) throw new Error("Please select at least one dress.");
 
   const oldItemIds = new Set([
-    ...booking.bookingItems.map((bi) => bi.itemId),
+    ...booking.bookingItems.map((bi) => bi.itemId).filter((id): id is number => id != null),
     ...(booking.itemId ? [booking.itemId] : []),
   ]);
 
