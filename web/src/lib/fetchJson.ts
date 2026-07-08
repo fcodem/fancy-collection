@@ -20,6 +20,19 @@ export function isTransientNetworkError(err: unknown): boolean {
   );
 }
 
+export async function parseResponseJson<T = Record<string, unknown>>(res: Response): Promise<T> {
+  const text = await res.text();
+  if (!text.trim()) return {} as T;
+  try {
+    return JSON.parse(text) as T;
+  } catch {
+    throw new ApiError(
+      res.ok ? "Invalid server response" : `Request failed (${res.status})`,
+      res.status,
+    );
+  }
+}
+
 export async function fetchJson<T = Record<string, unknown>>(
   input: RequestInfo | URL,
   init?: RequestInit,
@@ -31,18 +44,7 @@ export async function fetchJson<T = Record<string, unknown>>(
     if (e instanceof Error && e.name === "AbortError") throw e;
     throw new ApiError(e instanceof Error ? e.message : "Network request failed", 0);
   }
-  const text = await res.text();
-  let data: T & { error?: string } = {} as T & { error?: string };
-  if (text) {
-    try {
-      data = JSON.parse(text) as T & { error?: string };
-    } catch {
-      throw new ApiError(
-        res.ok ? "Invalid server response" : `Request failed (${res.status})`,
-        res.status,
-      );
-    }
-  }
+  const data = await parseResponseJson<T & { error?: string }>(res);
   if (!res.ok) {
     throw new ApiError(data.error || `Request failed (${res.status})`, res.status);
   }

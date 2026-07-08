@@ -32,10 +32,10 @@ export default async function ReturnSlipPage({
   searchParams,
 }: {
   params: Promise<{ id: string }>;
-  searchParams: Promise<{ item?: string; items?: string; pdfSecret?: string; scope?: string }>;
+  searchParams: Promise<{ item?: string; items?: string; pdfSecret?: string; scope?: string; print?: string }>;
 }) {
   const { id } = await params;
-  const { item: itemParam, items: itemsParam, pdfSecret, scope: scopeParam } = await searchParams;
+  const { item: itemParam, items: itemsParam, pdfSecret, scope: scopeParam, print } = await searchParams;
   const bookingId = parseInt(id, 10);
 
   await requireSlipPageAccess(pdfSecret);
@@ -47,6 +47,7 @@ export default async function ReturnSlipPage({
       bookingItems: {
         include: { item: { select: { color: true } } },
       },
+      orders: { where: { status: "active" }, orderBy: { id: "asc" } },
     },
   });
   if (!booking) notFound();
@@ -92,7 +93,7 @@ export default async function ReturnSlipPage({
     redirect(`/return/${bookingId}`);
   }
 
-  const { booking: slipBooking, items, slipSubtitle } = slipData;
+  const { booking: slipBooking, items, orders: slipOrders, slipSubtitle } = slipData;
 
   const qrToken = await ensureBookingQrToken(bookingId);
   const qrDataUrl = await bookingQrDataUrl(qrToken, undefined, 280);
@@ -100,11 +101,12 @@ export default async function ReturnSlipPage({
   return (
     <>
       {pdfRender && <SlipPdfPrintStyles />}
-      {!pdfRender && <ReturnSlipActions bookingId={bookingId} />}
+      {!pdfRender && <ReturnSlipActions bookingId={bookingId} autoPrint={print === "1"} />}
       <div className="slip-page-wrap">
         <ReturnSlip
           booking={slipBooking}
           items={items}
+          orders={slipOrders}
           qrDataUrl={qrDataUrl}
           businessName={SLIP_BIZ.name}
           businessPhone={SLIP_BIZ.phone}

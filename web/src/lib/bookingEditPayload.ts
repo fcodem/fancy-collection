@@ -1,6 +1,7 @@
 import prisma from "./prisma";
 import { getAllCategories } from "./categories";
 import { getActiveStaffNames } from "./staffList";
+import { catalogPhotoRef } from "./catalogPhotoRef";
 
 const itemInclude = {
   bookingItems: {
@@ -48,7 +49,7 @@ export async function loadBookingEditFormPayload(bookingId: number) {
         category: bi.category || "",
         size: bi.size || bi.item?.size || "",
         color: bi.item?.color || "",
-        photo: bi.item?.photo || "",
+        photo: bi.item ? catalogPhotoRef(bi.item) : "",
         price: bi.price,
         advance: bi.advance,
         notes: bi.notes || "",

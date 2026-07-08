@@ -134,10 +134,10 @@ export async function postponeBooking(bookingId: number, by?: string) {
       data: { status: "postponed" },
     });
     await tx.$executeRaw`UPDATE bookings SET postponed_at = NOW() WHERE id = ${bookingId}`;
-    const itemIds = booking.bookingItems.map((bi) => bi.itemId);
+    const itemIds = booking.bookingItems.map((bi) => bi.itemId).filter((id): id is number => id != null);
     const stillUsed = await findItemIdsStillInActiveBookings(itemIds, bookingId, tx);
     for (const bi of booking.bookingItems) {
-      if (!stillUsed.has(bi.itemId)) {
+      if (bi.itemId != null && !stillUsed.has(bi.itemId)) {
         await tx.clothingItem.update({ where: { id: bi.itemId }, data: { status: "available" } });
       }
     }

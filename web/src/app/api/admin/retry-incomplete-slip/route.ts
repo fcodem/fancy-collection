@@ -24,7 +24,7 @@ export async function POST(req: NextRequest) {
       req.nextUrl.origin,
     );
 
-    return jsonOk({ ok: result.ok, ...result });
+    return jsonOk({ ...result });
   } catch (e) {
     return jsonError(e instanceof Error ? e.message : "Retry failed", 500);
   }

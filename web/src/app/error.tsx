@@ -1,6 +1,7 @@
 "use client";
 
 import { useEffect } from "react";
+import Link from "next/link";
 import * as Sentry from "@sentry/nextjs";
 
 export default function GlobalError({
@@ -30,8 +31,8 @@ export default function GlobalError({
         <div style={{ display: "flex", gap: 12 }}>
           <button type="button" className="btn btn-primary btn-block"
             onClick={reset}>Try again</button>
-          <a href="/" className="btn btn-outline btn-block"
-            style={{ textAlign: "center" }}>Go home</a>
+          <Link href="/" className="btn btn-outline btn-block"
+            style={{ textAlign: "center" }}>Go home</Link>
         </div>
       </div>
     </div>

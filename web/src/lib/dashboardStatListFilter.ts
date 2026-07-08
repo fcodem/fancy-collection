@@ -1,5 +1,5 @@
 import { dressDisplayName } from "./dress";
-import { digitsOnly } from "./services/bookingSearchCore";
+import { digitsOnly } from "./phone";
 
 export type StatListBooking = {
   id: number;

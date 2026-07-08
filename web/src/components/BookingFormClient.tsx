@@ -19,6 +19,7 @@
  * either panel manually via the chevron when the list is long.
  */
 
+import Link from "next/link";
 import type { CSSProperties, ReactNode } from "react";
 import { useRouter } from "next/navigation";
 import { useCallback, useEffect, useMemo, useRef, useState } from "react";
@@ -144,7 +145,7 @@ type FreeItem = {
 
 type SelectedDress = {
 
-  id: number;
+  id: number | null;
 
   name: string;
 
@@ -851,7 +852,7 @@ export default function BookingFormClient(props: Props) {
 
 
   /** Validates form, POST/PUT booking (or prospect lead), then redirects. */
-  async function save() {
+  async function save(opts?: { openPrintSlip?: boolean }) {
     if (readOnly) return;
 
     setError("");
@@ -899,6 +900,9 @@ export default function BookingFormClient(props: Props) {
     }
 
     setSaving(true);
+
+    const printWindow =
+      opts?.openPrintSlip && !isProspect ? window.open("about:blank", "_blank") : null;
 
     const payload = {
 
@@ -974,21 +978,28 @@ export default function BookingFormClient(props: Props) {
     setSaving(false);
 
     if (!res.ok) {
-
+      printWindow?.close();
       setError(data.error || "Save failed");
 
       return;
-
     }
 
     const bookingId = data.id;
     if (!bookingId) {
+      printWindow?.close();
       setError("Booking saved but could not open the record. Check the Booking Panel.");
       return;
     }
 
+    if (printWindow) {
+      printWindow.location.href = `/booking/${bookingId}/slip?print=1`;
+    }
+
     if (!isProspect) {
-      toast("✅ Booking Saved!", "success");
+      toast(
+        opts?.openPrintSlip ? "✅ Booking Saved — opening A4 slip for print" : "✅ Booking Saved!",
+        "success",
+      );
     }
 
     if (isProspect) router.replace("/prospect-leads");
@@ -1731,9 +1742,22 @@ export default function BookingFormClient(props: Props) {
             />
           )}
           <div style={{ display: "flex", gap: 12, flexWrap: "wrap", alignItems: "center" }}>
-          <button type="button" className="btn btn-primary btn-lg" disabled={saving || dateCheckLoading || !selectedDresses.length || hasHardBlock} onClick={() => save()}>
+          <button type="button" className="btn btn-primary btn-lg" disabled={saving || dateCheckLoading || !selectedDresses.length || hasHardBlock} onClick={() => void save()}>
             {hasHardBlock ? "Cannot Save — Dress Already Booked" : saving ? "Saving…" : dateCheckLoading ? "Checking dates…" : isProspect ? "Save Prospect Lead" : props.editId ? "Update Booking" : "Save Booking"}
           </button>
+          {!props.editId && !isProspect && (
+            <button
+              type="button"
+              className="btn btn-outline btn-lg"
+              disabled={saving || dateCheckLoading || !selectedDresses.length || hasHardBlock}
+              onClick={() => void save({ openPrintSlip: true })}
+              style={{ color: "#1a5c2a", borderColor: "#1a5c2a", display: "inline-flex", alignItems: "center", gap: 8 }}
+              title="Save booking, send WhatsApp slip to customer, and open A4 print preview"
+            >
+              <i className="fa-solid fa-print" />
+              {saving ? "Saving…" : "Print A4 Slip"}
+            </button>
+          )}
           <a href={isProspect ? "/prospect-leads" : props.editId ? `/booking/${props.editId}` : "/booking"} className="btn btn-outline">Cancel</a>
           </div>
         </div>
@@ -1775,7 +1799,7 @@ function LinkBreadcrumb({ editId, serial, mode }: { editId?: number; serial?: nu
 
     <div style={{ fontSize: 13, color: "var(--text-muted)" }}>
 
-      <a href="/booking" style={{ color: "var(--primary)", textDecoration: "none" }}>Bookings</a>
+      <Link href="/booking" style={{ color: "var(--primary)", textDecoration: "none" }}>Bookings</Link>
 
       {" › "}
 

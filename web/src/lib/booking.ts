@@ -12,7 +12,16 @@ import { nextValidSerial, serialPositionToValue, generateNumber } from "./serial
 import { formatDate } from "./constants";
 import { resolveBookingStatus } from "./bookingStatus";
 import { cachedQuery } from "./perfCache";
+import {
+  itemHasJewelleryParts,
+  partsPresentOnItem,
+  mergeBookedParts,
+  availablePartsForItem,
+  allPartsBooked,
+  type JewelleryPartKey,
+} from "./jewelleryParts";
 import type { Booking, BookingItem, ClothingItem, Prisma } from "@prisma/client";
+import { catalogPhotoRef } from "./catalogPhotoRef";
 
 type DbClient = Prisma.TransactionClient | typeof prisma;
 
@@ -28,8 +37,10 @@ const bookingWarningInclude = {
   legacyItem: { select: { size: true } },
 } as const;
 
-function bookingItemIds(b: Pick<Booking, "itemId"> & { bookingItems: { itemId: number }[] }): number[] {
-  if (b.bookingItems.length) return b.bookingItems.map((bi) => bi.itemId);
+function bookingItemIds(b: Pick<Booking, "itemId"> & { bookingItems: { itemId: number | null }[] }): number[] {
+  if (b.bookingItems.length) {
+    return b.bookingItems.map((bi) => bi.itemId).filter((id): id is number => id != null);
+  }
   if (b.itemId) return [b.itemId];
   return [];
 }
@@ -38,7 +49,10 @@ function warningRecordFromBooking(b: BookingWithItems) {
   return bookingWarningRecordFrom({ ...b, id: b.id, monthlySerial: b.monthlySerial });
 }
 
-export function bookingUsesItem(booking: BookingWithItems, itemId: number): boolean {
+export function bookingUsesItem(
+  booking: Pick<Booking, "itemId"> & { bookingItems?: { itemId: number | null }[] },
+  itemId: number,
+): boolean {
   if (booking.bookingItems?.length) {
     return booking.bookingItems.some((bi) => bi.itemId === itemId);
   }
@@ -71,7 +85,7 @@ export async function findItemIdsStillInActiveBookings(
   for (const b of bookings) {
     if (b.itemId != null && itemIds.includes(b.itemId)) stillUsed.add(b.itemId);
     for (const bi of b.bookingItems) {
-      if (itemIds.includes(bi.itemId)) stillUsed.add(bi.itemId);
+      if (bi.itemId != null && itemIds.includes(bi.itemId)) stillUsed.add(bi.itemId);
     }
   }
   return stillUsed;
@@ -92,7 +106,7 @@ function serializeBookingConflict(b: Booking) {
   };
 }
 
-type BookingWithBookingItems = Booking & { bookingItems: BookingItem[] };
+type BookingWithBookingItems = Booking & { bookingItems: { itemId: number | null }[] };
 
 /**
  * Find an existing booked/delivered booking that blocks these items for the date range.
@@ -176,7 +190,7 @@ export async function checkItemAvailabilityForDates(
   let blocking_booking: ReturnType<typeof serializeBookingConflict> | null = null;
 
   for (const b of overlapping) {
-    if (!bookingUsesItem(b as BookingWithItems, item.id)) continue;
+    if (!bookingUsesItem(b, item.id)) continue;
     const bD = formatDate(b.deliveryDate, "iso");
     const bR = formatDate(b.returnDate, "iso");
     const dIso = formatDate(dDate, "iso");
@@ -340,7 +354,14 @@ export async function getAvailableItemsApi(
     whereDeliveryInRange(returnDateStr, returnDateStr),
   ]);
 
-  const [allItems, overlappingBookings, returningOnDeliveryBookings, bookedOnReturnBookings, overlappingRentals] =
+  const [
+    allItems,
+    overlappingBookings,
+    returningOnDeliveryBookings,
+    bookedOnReturnBookings,
+    overlappingRentals,
+    overlappingJewellery,
+  ] =
     await Promise.all([
       prisma.clothingItem.findMany({
         where: {
@@ -357,6 +378,10 @@ export async function getAvailableItemsApi(
           itemType: true,
           subCategory: true,
           photo: true,
+          hasNecklace: true,
+          hasEarrings: true,
+          hasTeeka: true,
+          hasPasa: true,
         },
         orderBy: [{ category: "asc" }, { name: "asc" }],
       }),
@@ -392,6 +417,26 @@ export async function getAvailableItemsApi(
         },
         include: { items: true },
       }),
+      prisma.bookingJewellery.findMany({
+        where: {
+          status: "active",
+          itemId: { not: null },
+          booking: {
+            ...exclude,
+            status: { in: ["booked", "delivered"] },
+            deliveryDate: { lte: rDate },
+            returnDate: { gte: dDate },
+          },
+        },
+        select: {
+          itemId: true,
+          pickNecklace: true,
+          pickEarrings: true,
+          pickTeeka: true,
+          pickPasa: true,
+          booking: { include: bookingWarningInclude },
+        },
+      }),
     ]);
 
   const busyItemIds = new Set<number>();
@@ -420,25 +465,96 @@ export async function getAvailableItemsApi(
 
   const rentedItemIds = new Set<number>();
   for (const r of overlappingRentals) {
-    for (const ri of r.items) rentedItemIds.add(ri.itemId);
+    for (const ri of r.items) {
+      if (ri.itemId != null) rentedItemIds.add(ri.itemId);
+    }
+  }
+
+  // Jewellery part-level availability from Jewellery Selection records.
+  type JewPick = { itemId: number | null; pickNecklace: boolean; pickEarrings: boolean; pickTeeka: boolean; pickPasa: boolean };
+  const jewInteriorByItem = new Map<number, JewPick[]>();
+  for (const js of overlappingJewellery) {
+    if (js.itemId == null) continue;
+    const bD = formatDate(js.booking.deliveryDate, "iso");
+    const bR = formatDate(js.booking.returnDate, "iso");
+    if (bR === dIso) {
+      if (!returningInfo[js.itemId]) {
+        const rec = warningRecordFromBooking(js.booking as unknown as BookingWithItems);
+        returningInfo[js.itemId] = { ...rec, customer: rec.customer_name, contact: rec.contact_1 };
+      }
+    } else if (bD === rIso) {
+      if (!bookedOnReturnInfo[js.itemId]) {
+        const rec = warningRecordFromBooking(js.booking as unknown as BookingWithItems);
+        bookedOnReturnInfo[js.itemId] = { ...rec, customer: rec.customer_name, contact: rec.contact_1 };
+      }
+    } else {
+      const arr = jewInteriorByItem.get(js.itemId) || [];
+      arr.push({
+        itemId: js.itemId,
+        pickNecklace: js.pickNecklace,
+        pickEarrings: js.pickEarrings,
+        pickTeeka: js.pickTeeka,
+        pickPasa: js.pickPasa,
+      });
+      jewInteriorByItem.set(js.itemId, arr);
+    }
+  }
+
+  const jewBookedParts: Record<number, JewelleryPartKey[]> = {};
+  const jewFreeParts: Record<number, JewelleryPartKey[]> = {};
+  for (const it of allItems) {
+    if (it.itemType !== "jewellery") continue;
+    const itemParts = {
+      hasNecklace: it.hasNecklace,
+      hasEarrings: it.hasEarrings,
+      hasTeeka: it.hasTeeka,
+      hasPasa: it.hasPasa,
+    };
+    const hasParts = itemHasJewelleryParts(itemParts);
+    const interior = jewInteriorByItem.get(it.id) || [];
+    if (!interior.length) continue;
+    const booked = mergeBookedParts(itemParts, interior, it.id);
+    if (hasParts && !allPartsBooked(itemParts, booked)) {
+      jewBookedParts[it.id] = Array.from(booked);
+      jewFreeParts[it.id] = availablePartsForItem(itemParts, booked);
+    } else {
+      // Fully booked (either all parts taken, or a partless jewellery item is taken).
+      busyItemIds.add(it.id);
+    }
   }
 
   const free_items = allItems
     .filter((i) => !busyItemIds.has(i.id) && !rentedItemIds.has(i.id))
-    .map((i) => ({
-      id: i.id,
-      name: i.name,
-      display_name: dressDisplayName(i.name, i.category, i.size),
-      sku: i.sku,
-      category: i.category,
-      color: i.color,
-      size: i.size,
-      item_type: i.itemType,
-      sub_category: i.subCategory || "Normal",
-      photo: i.photo || "",
-      returning_warning: returningInfo[i.id] || null,
-      booked_warning: bookedOnReturnInfo[i.id] || null,
-    }));
+    .map((i) => {
+      const isJewellery = i.itemType === "jewellery";
+      const itemParts = {
+        hasNecklace: i.hasNecklace,
+        hasEarrings: i.hasEarrings,
+        hasTeeka: i.hasTeeka,
+        hasPasa: i.hasPasa,
+      };
+      const hasParts = isJewellery && itemHasJewelleryParts(itemParts);
+      return {
+        id: i.id,
+        name: i.name,
+        display_name: dressDisplayName(i.name, i.category, i.size),
+        sku: i.sku,
+        category: i.category,
+        color: i.color,
+        size: i.size,
+        item_type: i.itemType,
+        sub_category: i.subCategory || "Normal",
+        photo: catalogPhotoRef(i),
+        has_necklace: i.hasNecklace,
+        has_earrings: i.hasEarrings,
+        has_teeka: i.hasTeeka,
+        has_pasa: i.hasPasa,
+        booked_parts: isJewellery ? jewBookedParts[i.id] || [] : [],
+        available_parts: hasParts ? jewFreeParts[i.id] ?? partsPresentOnItem(itemParts) : [],
+        returning_warning: returningInfo[i.id] || null,
+        booked_warning: bookedOnReturnInfo[i.id] || null,
+      };
+    });
 
   const returning_on_delivery = returningOnDeliveryBookings.flatMap((b) =>
     bookingItemIds(b).map((itemId) => ({

@@ -1,5 +1,6 @@
 "use client";
 
+import Link from "next/link";
 import { useRouter } from "next/navigation";
 import { useState } from "react";
 import DressNameSuggestInput from "@/components/DressNameSuggestInput";
@@ -28,9 +29,9 @@ export default function InventoryFilterBar({ q, status, showAdd }: Props) {
       <div className="card-header">
         <h3 className="card-title">Manage Inventory</h3>
         {showAdd && (
-          <a href="/inventory/add" className="btn btn-primary btn-sm">
+          <Link href="/inventory/add" className="btn btn-primary btn-sm">
             Add Item
-          </a>
+          </Link>
         )}
       </div>
       <div className="card-body">

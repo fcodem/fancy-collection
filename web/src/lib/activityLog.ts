@@ -11,7 +11,10 @@ export type AuditAction =
   | "restored"
   | "packed"
   | "attendance"
-  | "salary";
+  | "salary"
+  | "expense"
+  | "jewellery"
+  | "viewed";
 
 export type AuditEntity =
   | "booking"
@@ -21,7 +24,10 @@ export type AuditEntity =
   | "shop_enquiry"
   | "staff_attendance"
   | "salary_ledger"
-  | "customer";
+  | "ledger_expense"
+  | "booking_jewellery"
+  | "customer"
+  | "ai_briefing";
 
 interface LogOpts {
   username: string;
@@ -103,8 +109,25 @@ export function snapshotBooking(b: Record<string, unknown>) {
   };
 }
 
+const INVENTORY_SNAPSHOT_OMIT = new Set([
+  "identificationIndex",
+  "recognitionFingerprint",
+  "siglipEmbedding",
+  "aiFingerprint",
+  "rentalItems",
+  "bookings",
+  "bookingItems",
+  "prospectLeadItems",
+  "dressCheckerCorrectionsCorrect",
+  "dressCheckerCorrectionsPredicted",
+]);
+
 export function snapshotInventory(i: Record<string, unknown>) {
   const { rentalItems, bookings, bookingItems, prospectLeadItems, ...rest } = i;
-  const name = typeof rest.name === "string" ? rest.name : null;
-  return { ...rest, dressName: name, dresses: name };
+  const slim: Record<string, unknown> = {};
+  for (const [key, value] of Object.entries(rest)) {
+    if (!INVENTORY_SNAPSHOT_OMIT.has(key)) slim[key] = value;
+  }
+  const name = typeof slim.name === "string" ? slim.name : null;
+  return { ...slim, dressName: name, dresses: name };
 }

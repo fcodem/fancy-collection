@@ -7,6 +7,7 @@ import {
   processWhatsAppJobQueue,
 } from "@/lib/services/whatsapp/jobQueue";
 import { BookingFormSchema } from "@/lib/validation";
+import { catalogPhotoRef } from "@/lib/catalogPhotoRef";
 
 export async function POST(req: NextRequest) {
   const _ct = requireJsonContentType(req);
@@ -70,7 +71,7 @@ export async function GET(req: NextRequest) {
       price: bi.price,
       advance: bi.advance,
       notes: bi.notes || "",
-      photo: bi.item?.photo || "",
+      photo: bi.item ? catalogPhotoRef(bi.item) : "",
     })),
   });
 }

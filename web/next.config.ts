@@ -11,7 +11,14 @@ const withPWA = withPWAInit({
 });
 
 const nextConfig: NextConfig = {
-  serverExternalPackages: ["puppeteer-core", "@sparticuz/chromium", "puppeteer"],
+  serverExternalPackages: [
+    "puppeteer-core",
+    "@sparticuz/chromium",
+    "puppeteer",
+    "@xenova/transformers",
+    "onnxruntime-node",
+    "sharp",
+  ],
   compress: true,
   images: {
     remotePatterns: [

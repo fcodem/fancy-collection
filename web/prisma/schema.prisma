@@ -89,15 +89,49 @@ model ClothingItem {
   conditionNotes  String?  @map("condition_notes")
   createdAt       DateTime @default(now()) @map("created_at")
   subCategory     String?  @map("sub_category")
+  hasNecklace     Boolean  @default(false) @map("has_necklace")
+  hasEarrings     Boolean  @default(false) @map("has_earrings")
+  hasTeeka        Boolean  @default(false) @map("has_teeka")
+  hasPasa         Boolean  @default(false) @map("has_pasa")
+  aiFingerprint   String?  @map("ai_fingerprint")
+  aiIndexedAt     DateTime? @map("ai_indexed_at")
+  siglipEmbedding Json?    @map("siglip_embedding")
+  siglipIndexedAt DateTime? @map("siglip_indexed_at")
+  identificationIndex Json? @map("identification_index")
+  identificationIndexedAt DateTime? @map("identification_indexed_at")
+  recognitionImage        String?   @map("recognition_image")
+  recognitionFingerprint  Json?     @map("recognition_fingerprint")
 
-  rentalItems       RentalItem[]
-  bookings          Booking[]          @relation("LegacyBookingItem")
-  bookingItems      BookingItem[]
-  prospectLeadItems ProspectLeadItem[]
+  rentalItems         RentalItem[]
+  referencePhotos     ClothingItemReferencePhoto[]
+  aiProfile           InventoryAiProfile?
+  dressCheckerCorrectionsCorrect   DressCheckerCorrection[] @relation("DressCheckerCorrectionCorrect")
+  dressCheckerCorrectionsPredicted DressCheckerCorrection[] @relation("DressCheckerCorrectionPredicted")
+  bookings            Booking[]          @relation("LegacyBookingItem")
+  bookingItems        BookingItem[]
+  prospectLeadItems   ProspectLeadItem[]
+  jewellerySelections BookingJewellery[]
 
   @@index([status])
   @@index([category, status])
   @@map("clothing_items")
+}
+
+model ClothingItemReferencePhoto {
+  id                  Int       @id @default(autoincrement())
+  itemId              Int       @map("item_id")
+  photo               String
+  label               String?
+  sortOrder           Int       @default(0) @map("sort_order")
+  contentHash         String?   @map("content_hash")
+  identificationIndex Json?     @map("identification_index")
+  indexedAt           DateTime? @map("indexed_at")
+  createdAt           DateTime  @default(now()) @map("created_at")
+
+  item ClothingItem @relation(fields: [itemId], references: [id], onDelete: Cascade)
+
+  @@index([itemId])
+  @@map("clothing_item_reference_photos")
 }
 
 model Rental {
@@ -129,12 +163,12 @@ model Rental {
 model RentalItem {
   id        Int   @id @default(autoincrement())
   rentalId  Int   @map("rental_id")
-  itemId    Int   @map("item_id")
+  itemId    Int?     @map("item_id")
   dailyRate Float @map("daily_rate")
   deposit   Float @default(0)
 
   rental Rental       @relation(fields: [rentalId], references: [id], onDelete: Cascade)
-  item   ClothingItem @relation(fields: [itemId], references: [id])
+  item   ClothingItem? @relation(fields: [itemId], references: [id], onDelete: SetNull)
 
   @@map("rental_items")
 }
@@ -226,9 +260,10 @@ model Booking {
   whatsappError      String?   @map("whatsapp_error")
   lateReminderSentAt DateTime? @map("late_reminder_sent_at")
 
-  legacyItem            ClothingItem?          @relation("LegacyBookingItem", fields: [itemId], references: [id])
+  legacyItem            ClothingItem?          @relation("LegacyBookingItem", fields: [itemId], references: [id], onDelete: SetNull)
   bookingItems          BookingItem[]
   orders                BookingOrder[]
+  selectedJewellery     BookingJewellery[]
   whatsAppJobs          WhatsAppJob[]
   whatsAppMessages      WhatsAppMessage[]
   whatsAppConversations WhatsAppConversation[]
@@ -249,7 +284,7 @@ model Booking {
 model BookingItem {
   id            Int     @id @default(autoincrement())
   bookingId     Int     @map("booking_id")
-  itemId        Int     @map("item_id")
+  itemId        Int?    @map("item_id")
   dressName     String  @map("dress_name")
   category      String?
   price         Float   @default(0)
@@ -275,7 +310,7 @@ model BookingItem {
   returnSlipNotifiedAt   DateTime? @map("return_slip_notified_at")
 
   booking Booking      @relation(fields: [bookingId], references: [id], onDelete: Cascade)
-  item    ClothingItem @relation(fields: [itemId], references: [id])
+  item    ClothingItem? @relation(fields: [itemId], references: [id], onDelete: SetNull)
 
   @@index([itemId])
   @@index([dressName])
@@ -312,6 +347,30 @@ model BookingOrder {
   @@index([deliveryDate])
   @@index([status, deliveryDate])
   @@map("booking_orders")
+}
+
+model BookingJewellery {
+  id        Int      @id @default(autoincrement())
+  bookingId Int      @map("booking_id")
+  itemId    Int?     @map("item_id")
+  name      String
+  category  String?
+  photo     String?
+  source    String   @default("manual")
+  note          String?
+  pickNecklace  Boolean  @default(false) @map("pick_necklace")
+  pickEarrings  Boolean  @default(false) @map("pick_earrings")
+  pickTeeka     Boolean  @default(false) @map("pick_teeka")
+  pickPasa      Boolean  @default(false) @map("pick_pasa")
+  status        String   @default("active")
+  createdAt DateTime @default(now()) @map("created_at")
+
+  booking Booking       @relation(fields: [bookingId], references: [id], onDelete: Cascade)
+  item    ClothingItem? @relation(fields: [itemId], references: [id], onDelete: SetNull)
+
+  @@index([bookingId])
+  @@index([itemId])
+  @@map("booking_jewellery")
 }
 
 model CustomCategory {
@@ -381,6 +440,20 @@ model SalaryLedgerEntry {
   @@map("salary_ledger")
 }
 
+model LedgerExpense {
+  id          Int      @id @default(autoincrement())
+  date        DateTime
+  category    String
+  amount      Float    @default(0)
+  paymentMode String   @default("cash") @map("payment_mode")
+  notes       String?
+  createdBy   String?  @map("created_by")
+  createdAt   DateTime @default(now()) @map("created_at")
+
+  @@index([date])
+  @@map("ledger_expenses")
+}
+
 model Supplier {
   id             Int      @id @default(autoincrement())
   name           String
@@ -440,7 +513,7 @@ model ProspectLeadItem {
   rent           Float @default(0)
 
   prospectLead ProspectLead @relation(fields: [prospectLeadId], references: [id], onDelete: Cascade)
-  item         ClothingItem @relation(fields: [itemId], references: [id])
+  item         ClothingItem @relation(fields: [itemId], references: [id], onDelete: Cascade)
 
   @@map("prospect_lead_items")
 }
@@ -570,4 +643,150 @@ model WhatsAppBroadcast {
   createdAt    DateTime  @default(now()) @map("created_at")
 
   @@map("whatsapp_broadcasts")
+}
+
+model DressCheckerCorrection {
+  id                Int      @id @default(autoincrement())
+  correctItemId     Int      @map("correct_item_id")
+  predictedItemId   Int?     @map("predicted_item_id")
+  predictedSku      String?  @map("predicted_sku")
+  confidence        Float?
+  hybridScore       Float?   @map("hybrid_score")
+  featureComparison Json?    @map("feature_comparison")
+  feedbackType      String   @default("positive") @map("feedback_type")
+  rejectedItemId    Int?     @map("rejected_item_id")
+  uploadedPhoto     String   @map("uploaded_photo")
+  correctedBy       String?  @map("corrected_by")
+  searchId          String?  @map("search_id")
+  createdAt         DateTime @default(now()) @map("created_at")
+
+  correctItem   ClothingItem  @relation("DressCheckerCorrectionCorrect", fields: [correctItemId], references: [id], onDelete: Cascade)
+  predictedItem ClothingItem? @relation("DressCheckerCorrectionPredicted", fields: [predictedItemId], references: [id], onDelete: SetNull)
+
+  @@index([correctItemId])
+  @@index([createdAt])
+  @@map("dress_checker_corrections")
+}
+
+/// Enterprise AI Inventory Profile — semantic metadata, versioned embeddings, health.
+model InventoryAiProfile {
+  itemId Int @id @map("item_id")
+
+  status          String    @default("none")
+  error           String?
+  currentVersion  Int       @default(0) @map("current_version")
+  pipelineVersion String    @default("1") @map("pipeline_version")
+  indexedAt       DateTime? @map("indexed_at")
+  updatedAt       DateTime  @updatedAt @map("updated_at")
+
+  description         String? @db.Text
+  searchText          String? @db.Text @map("search_text")
+  colourAnalysis      Json?   @map("colour_analysis")
+  garmentAttributes   Json?   @map("garment_attributes")
+  jewelleryAttributes Json?   @map("jewellery_attributes")
+  qualityScores       Json?   @map("quality_scores")
+  duplicateFingerprint Json?  @map("duplicate_fingerprint")
+  healthScore         Float?  @map("health_score")
+  healthIssues        Json?   @map("health_issues")
+
+  recognitionImage       String?   @map("recognition_image")
+  recognitionFingerprint Json?     @map("recognition_fingerprint")
+  recognitionVersion     Int       @default(0) @map("recognition_version")
+  modelVersion           String?   @map("model_version")
+  qualityScore           Float?    @map("quality_score")
+  lastProcessed          DateTime? @map("last_processed")
+
+  item      ClothingItem                @relation(fields: [itemId], references: [id], onDelete: Cascade)
+  versions  InventoryAiProfileVersion[]
+  tags      InventoryAiProfileTag[]
+  override  InventoryAiProfileOverride?
+  logs      InventoryAiProfileLog[]
+
+  @@index([status])
+  @@index([healthScore])
+  @@map("inventory_ai_profiles")
+}
+
+/// Append-only version history — never overwrite previous embedding/metadata snapshots.
+model InventoryAiProfileVersion {
+  id        Int      @id @default(autoincrement())
+  itemId    Int      @map("item_id")
+  version   Int
+  createdAt DateTime @default(now()) @map("created_at")
+
+  embeddingModel        String? @map("embedding_model")
+  embeddingModelVersion String? @map("embedding_model_version")
+  visionModel             String? @map("vision_model")
+  pipelineVersion         String? @map("pipeline_version")
+
+  embeddings           Json?
+  featureFingerprint   Json?   @map("feature_fingerprint")
+  duplicateFingerprint Json?   @map("duplicate_fingerprint")
+  colourAnalysis       Json?   @map("colour_analysis")
+  garmentAttributes    Json?   @map("garment_attributes")
+  jewelleryAttributes  Json?   @map("jewellery_attributes")
+  qualityScores        Json?   @map("quality_scores")
+  description          String? @db.Text
+  tagsSnapshot         Json?   @map("tags_snapshot")
+  sourceImages         Json?   @map("source_images")
+
+  profile InventoryAiProfile @relation(fields: [itemId], references: [itemId], onDelete: Cascade)
+
+  @@unique([itemId, version])
+  @@index([itemId])
+  @@map("inventory_ai_profile_versions")
+}
+
+model InventoryAiProfileTag {
+  id        Int      @id @default(autoincrement())
+  itemId    Int      @map("item_id")
+  tag       String
+  source    String   @default("ai")
+  createdAt DateTime @default(now()) @map("created_at")
+
+  profile InventoryAiProfile @relation(fields: [itemId], references: [itemId], onDelete: Cascade)
+
+  @@unique([itemId, tag, source])
+  @@index([tag])
+  @@index([itemId])
+  @@map("inventory_ai_profile_tags")
+}
+
+/// Manual administrator overrides — AI originals preserved in versions.
+model InventoryAiProfileOverride {
+  itemId Int @id @map("item_id")
+
+  description         String? @db.Text
+  tags                Json?
+  colourAnalysis      Json?   @map("colour_analysis")
+  garmentAttributes   Json?   @map("garment_attributes")
+  jewelleryAttributes Json?   @map("jewellery_attributes")
+  category            String?
+  subCategory         String? @map("sub_category")
+  qualityNotes        String? @db.Text @map("quality_notes")
+  updatedAt           DateTime @updatedAt @map("updated_at")
+  updatedBy           String?  @map("updated_by")
+
+  profile InventoryAiProfile @relation(fields: [itemId], references: [itemId], onDelete: Cascade)
+
+  @@map("inventory_ai_profile_overrides")
+}
+
+model InventoryAiProfileLog {
+  id           Int      @id @default(autoincrement())
+  itemId       Int      @map("item_id")
+  event        String
+  message      String?
+  version      Int?
+  modelVersion String?  @map("model_version")
+  durationMs   Int?     @map("duration_ms")
+  retryCount   Int?     @map("retry_count")
+  createdAt    DateTime @default(now()) @map("created_at")
+
+  profile InventoryAiProfile @relation(fields: [itemId], references: [itemId], onDelete: Cascade)
+
+  @@index([itemId])
+  @@index([createdAt])
+  @@index([event])
+  @@map("inventory_ai_profile_logs")
 }

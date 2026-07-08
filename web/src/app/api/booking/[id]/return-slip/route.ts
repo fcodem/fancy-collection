@@ -22,6 +22,7 @@ export async function GET(
       bookingItems: {
         include: { item: { select: { color: true } } },
       },
+      orders: { where: { status: "active" }, orderBy: { id: "asc" } },
     },
   });
 
@@ -47,7 +48,7 @@ export async function GET(
     return jsonError(msg, 400);
   }
 
-  const { booking: slipBooking, items, slipSubtitle } = slipData;
+  const { booking: slipBooking, items, orders: slipOrders, slipSubtitle } = slipData;
 
   const qrToken = await ensureBookingQrToken(bookingId);
   const qrDataUrl = await bookingQrDataUrl(qrToken, undefined, 280);
@@ -55,6 +56,7 @@ export async function GET(
   return jsonOk({
     booking: slipBooking,
     items,
+    orders: slipOrders,
     slipSubtitle,
     qrDataUrl,
     businessName: SLIP_BIZ.name,

@@ -1,11 +1,23 @@
 "use client";
 
 import Link from "next/link";
-import { useState } from "react";
+import { useEffect, useState } from "react";
 
-export default function DeliverySlipActions({ bookingId }: { bookingId: number }) {
+export default function DeliverySlipActions({
+  bookingId,
+  autoPrint = false,
+}: {
+  bookingId: number;
+  autoPrint?: boolean;
+}) {
   const [sending, setSending] = useState(false);
   const [sent, setSent] = useState(false);
+
+  useEffect(() => {
+    if (!autoPrint) return;
+    const t = window.setTimeout(() => window.print(), 400);
+    return () => window.clearTimeout(t);
+  }, [autoPrint]);
 
   async function sendWhatsApp() {
     setSending(true);

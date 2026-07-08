@@ -33,10 +33,10 @@ export default async function DeliverySlipPage({
   searchParams,
 }: {
   params: Promise<{ id: string }>;
-  searchParams: Promise<{ item?: string; items?: string; pdfSecret?: string; scope?: string }>;
+  searchParams: Promise<{ item?: string; items?: string; pdfSecret?: string; scope?: string; print?: string }>;
 }) {
   const { id } = await params;
-  const { item: itemParam, items: itemsParam, pdfSecret, scope: scopeParam } = await searchParams;
+  const { item: itemParam, items: itemsParam, pdfSecret, scope: scopeParam, print } = await searchParams;
   const bookingId = parseInt(id, 10);
 
   await requireSlipPageAccess(pdfSecret);
@@ -100,7 +100,7 @@ export default async function DeliverySlipPage({
   return (
     <>
       {pdfRender && <SlipPdfPrintStyles />}
-      {!pdfRender && <DeliverySlipActions bookingId={bookingId} />}
+      {!pdfRender && <DeliverySlipActions bookingId={bookingId} autoPrint={print === "1"} />}
       <div className="slip-page-wrap">
         <DeliverySlip
           booking={slipBooking}

@@ -4,6 +4,7 @@ import prisma from "@/lib/prisma";
 import { getCurrentUser, isOwner } from "@/lib/auth";
 import InventoryDeleteButton from "@/components/InventoryDeleteButton";
 import { dressDisplayName } from "@/lib/dress";
+import { catalogPhotoUrl } from "@/lib/catalogPhotoUrl";
 import { photoUrl } from "@/lib/photoUrl";
 import { formatDate } from "@/lib/constants";
 
@@ -23,7 +24,7 @@ export default async function InventoryDetailPage({ params }: { params: Promise<
 
   const owner = isOwner(user);
   const displayName = dressDisplayName(item.name, item.category, item.size);
-  const thumb = photoUrl(item.photo);
+  const thumb = catalogPhotoUrl(item);
 
   const fields: Array<{ label: string; value: React.ReactNode }> = [
     { label: "SKU", value: item.sku },

@@ -2,7 +2,7 @@
 
 import { useCallback, useEffect, useRef, useState } from "react";
 import { isAbortError } from "@/lib/bookingQrClient";
-import { photoUrl } from "@/lib/photoUrl";
+import { catalogPhotoUrl } from "@/lib/catalogPhotoUrl";
 
 type SuggestItem = {
   id?: number;
@@ -19,6 +19,8 @@ type Props = Omit<React.InputHTMLAttributes<HTMLInputElement>, "onSelect"> & {
   categorySelect?: string;
   /** Static category filter (used when category is controlled in React) */
   category?: string;
+  /** Restrict suggestions to a specific inventory item type (e.g. "jewellery") */
+  itemType?: string;
   onSuggestSelect?: (item: SuggestItem) => void;
   minChars?: number;
   /** Show dress photo thumbnails in the suggestion dropdown */
@@ -30,6 +32,7 @@ type Props = Omit<React.InputHTMLAttributes<HTMLInputElement>, "onSelect"> & {
 export default function DressNameSuggestInput({
   categorySelect,
   category,
+  itemType,
   onSuggestSelect,
   minChars = 1,
   showPhotos = false,
@@ -52,9 +55,11 @@ export default function DressNameSuggestInput({
   const suggestAbortRef = useRef<AbortController | null>(null);
   const suppressUntilRef = useRef(0);
   const categoryRef = useRef(category);
+  const itemTypeRef = useRef(itemType);
   const valueRef = useRef(value);
 
   categoryRef.current = category;
+  itemTypeRef.current = itemType;
   valueRef.current = value;
 
   const closeSuggestions = useCallback(() => {
@@ -76,6 +81,7 @@ export default function DressNameSuggestInput({
 
     const params = new URLSearchParams({ q, limit: "12" });
     if (cat) params.set("category", cat);
+    if (itemTypeRef.current) params.set("item_type", itemTypeRef.current);
 
     try {
       suggestAbortRef.current?.abort();
@@ -209,7 +215,7 @@ export default function DressNameSuggestInput({
             const meta = [item.category, item.size ? `Size ${item.size}` : "", item.sku]
               .filter(Boolean)
               .join(" · ");
-            const thumb = showPhotos ? photoUrl(item.photo) : "";
+            const thumb = showPhotos ? catalogPhotoUrl(item) : "";
             return (
               <button
                 key={`${item.id ?? item.name}-${item.sku || idx}`}

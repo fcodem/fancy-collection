@@ -3,11 +3,12 @@ import { notFound } from "next/navigation";
 import prisma from "@/lib/prisma";
 import { ensureBookingQrToken, bookingQrDataUrl } from "@/lib/bookingQr";
 import BookingSlip from "@/components/BookingSlip";
-import SlipActions from "./SlipActions";
+import SlipActionsClient from "./SlipActionsClient";
 import { buildBookingSlipData, SLIP_BIZ } from "@/lib/slipBookingData";
 import { requireSlipPageAccess } from "@/lib/requireSlipPageAccess";
 import { isValidPdfRenderSecret } from "@/lib/slipPdfAccess";
-import { SlipPdfPrintStyles } from "@/components/SlipPdfPrintStyles";import "@/styles/slip-print.css";
+import { SlipPdfPrintStyles } from "@/components/SlipPdfPrintStyles";
+import "@/styles/slip-print.css";
 
 export async function generateMetadata({
   params,
@@ -46,7 +47,14 @@ export default async function BookingSlipPage({
     where: { id: bookingId },
     include: {
       bookingItems: {
-        include: { item: { select: { color: true } } },
+        include: {
+          item: {
+            select: {
+              color: true,
+              photo: true,
+            },
+          },
+        },
       },
       orders: { where: { status: "active" }, orderBy: { id: "asc" } },
     },
@@ -60,7 +68,7 @@ export default async function BookingSlipPage({
   return (
     <>
       {pdfRender && <SlipPdfPrintStyles />}
-      {!pdfRender && <SlipActions bookingId={bookingId} autoPrint={print === "1"} />}
+      {!pdfRender && <SlipActionsClient bookingId={bookingId} autoPrint={print === "1"} />}
       <div className="slip-page-wrap">
         <BookingSlip
           booking={slipBooking}

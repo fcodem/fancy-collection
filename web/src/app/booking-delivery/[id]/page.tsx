@@ -3,7 +3,9 @@ import DeliveryDetailClient from "@/components/DeliveryDetailClient";
 import DeliveredBookingEditSection from "@/components/DeliveredBookingEditSection";
 import { getDeliveryDetail } from "@/lib/services/operations";
 import { formatDate } from "@/lib/constants";
+import { formatJewelleryPartsLabel } from "@/lib/jewelleryParts";
 import { loadWarningItemsForBooking } from "@/lib/bookingWarnings";
+import { catalogPhotoRef } from "@/lib/catalogPhotoRef";
 
 export const dynamic = "force-dynamic";
 
@@ -23,7 +25,7 @@ export default async function DeliveryDetailPage({ params }: { params: Promise<{
     size: bi.size || bi.item?.size,
     price: bi.price,
     remaining: bi.remaining,
-    photo: bi.item?.photo || "",
+    photo: bi.item ? catalogPhotoRef(bi.item) : "",
     isDelivered: bi.isDelivered,
     itemRemainingCollected: bi.itemRemainingCollected,
     itemSecurityCollected: bi.itemSecurityCollected,
@@ -48,6 +50,21 @@ export default async function DeliveryDetailPage({ params }: { params: Promise<{
       includedInRent: (o.cost || 0) === 0,
     }));
 
+  const jewellery = (booking.selectedJewellery ?? []).map((j) => ({
+    id: j.id,
+    name: j.name,
+    category: j.category,
+    photo: j.photo,
+    source: j.source,
+    note: j.note,
+    partsLabel: formatJewelleryPartsLabel({
+      pickNecklace: j.pickNecklace,
+      pickEarrings: j.pickEarrings,
+      pickTeeka: j.pickTeeka,
+      pickPasa: j.pickPasa,
+    }),
+  }));
+
   const allDelivered = items.length > 0 ? items.every((i) => i.isDelivered) : booking.status === "delivered";
   const isDelivered = allDelivered;
 
@@ -66,6 +83,7 @@ export default async function DeliveryDetailPage({ params }: { params: Promise<{
         idPhoto1={booking.idPhoto1}
         idPhoto2={booking.idPhoto2}
         orders={orderRecords}
+        jewellery={jewellery}
       />
       {isDelivered && <DeliveredBookingEditSection bookingId={booking.id} />}
     </>

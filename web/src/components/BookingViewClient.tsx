@@ -70,6 +70,15 @@ export default function BookingViewClient({
           </Link>
         )}
         <Link
+          href={`/booking/${booking.id}/customer-slips`}
+          className="btn btn-outline slip-action-btn"
+          style={{ color: "#5b21b6", borderColor: "#7c3aed", minHeight: 44, display: "inline-flex", alignItems: "center", gap: 6 }}
+          title="View booking, delivery and return slips sent to the customer"
+        >
+          <i className="fa-solid fa-file-pdf" />
+          <span className="slip-btn-label">All Customer Slips</span>
+        </Link>
+        <Link
           href={`/booking/${booking.id}/slip`}
           className="btn btn-outline slip-action-btn"
           style={{ color: "#1a5c2a", borderColor: "#1a5c2a", minHeight: 44, display: "inline-flex", alignItems: "center", gap: 6 }}

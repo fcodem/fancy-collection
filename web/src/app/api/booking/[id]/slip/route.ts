@@ -1,6 +1,7 @@
 import { NextRequest } from "next/server";
 import prisma from "@/lib/prisma";
 import { jsonError, jsonOk, requireUser, isResponse } from "@/lib/api";
+import { catalogPhotoRef } from "@/lib/catalogPhotoRef";
 import { formatDate } from "@/lib/constants";
 import { ensureBookingQrToken, bookingQrDataUrl } from "@/lib/bookingQr";
 import { resolvePublicBookingId } from "@/lib/services/whatsapp/publicBookingId";
@@ -28,7 +29,14 @@ export async function GET(
     where: { id: bookingId },
     include: {
       bookingItems: {
-        include: { item: { select: { color: true, photo: true } } },
+        include: {
+          item: {
+            select: {
+              color: true,
+              photo: true,
+            },
+          },
+        },
       },
     },
   });
@@ -67,7 +75,7 @@ export async function GET(
       category: bi.category || "",
       size: bi.size || "",
       color: bi.item?.color ?? null,
-      photoUrl: bi.item?.photo ?? null,
+      photoUrl: bi.item ? catalogPhotoRef(bi.item) || null : null,
       price: bi.price,
       advance: bi.advance,
       remaining: bi.remaining,

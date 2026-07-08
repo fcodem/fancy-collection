@@ -19,12 +19,17 @@ export function SlipPdfPrintStyles() {
           #delivery-slip-root,
           #return-slip-root,
           #incomplete-slip-root,
-          .slip-container {
+          .slip-container,
+          .slip-outfit-page {
             width: 210mm !important;
             min-height: 297mm !important;
             margin: 0 auto !important;
             box-shadow: none !important;
             border-radius: 0 !important;
+          }
+          .slip-outfit-page {
+            page-break-before: always !important;
+            break-before: page !important;
           }
           .slip-screen-only,
           .no-print {

@@ -13,6 +13,7 @@ import { resolveBookingStatus } from "@/lib/bookingStatus";
 import { buildWarningMaps, pickWarning, type WarningInfo } from "@/lib/bookingWarnings";
 import { isStarBooking } from "@/lib/starBooking";
 import { cachedQuery } from "@/lib/perfCache";
+import { formatJewelleryPartsLabel } from "@/lib/jewelleryParts";
 
 type ItemRow = {
   dress_name: string;
@@ -74,6 +75,21 @@ const bookingSelect = {
     },
   },
   legacyItem: { select: { size: true, category: true } },
+  selectedJewellery: {
+    where: { status: "active" },
+    select: {
+      id: true,
+      itemId: true,
+      name: true,
+      category: true,
+      note: true,
+      photo: true,
+      pickNecklace: true,
+      pickEarrings: true,
+      pickTeeka: true,
+      pickPasa: true,
+    },
+  },
 } as const;
 
 type BookingLite = Awaited<ReturnType<typeof prisma.booking.findMany<{ select: typeof bookingSelect }>>>[number];
@@ -100,8 +116,8 @@ function buildItems(
         price: bi.price,
         notes: bi.notes || "",
         photo: "",
-        returning_warning: pickWarning(returningMap, delIso, bi.itemId, b.id),
-        booked_warning: pickWarning(bookedMap, retIso, bi.itemId, b.id),
+        returning_warning: pickWarning(returningMap, delIso, bi.itemId ?? undefined, b.id),
+        booked_warning: pickWarning(bookedMap, retIso, bi.itemId ?? undefined, b.id),
       });
     }
   } else if (b.itemId && b.dressName) {
@@ -118,6 +134,29 @@ function buildItems(
       photo: "",
       returning_warning: pickWarning(returningMap, delIso, b.itemId, b.id),
       booked_warning: pickWarning(bookedMap, retIso, b.itemId, b.id),
+    });
+  }
+
+  for (const j of b.selectedJewellery || []) {
+    const cat = j.category || "Jewellery";
+    if (categoryFilter && cat !== categoryFilter) continue;
+    const partsLabel = formatJewelleryPartsLabel({
+      pickNecklace: j.pickNecklace,
+      pickEarrings: j.pickEarrings,
+      pickTeeka: j.pickTeeka,
+      pickPasa: j.pickPasa,
+    });
+    const noteParts = [partsLabel ? `Parts: ${partsLabel}` : "", j.note || ""].filter(Boolean);
+    rows.push({
+      dress_name: j.name,
+      display_name: j.name,
+      category: cat,
+      size: "",
+      price: 0,
+      notes: noteParts.join(" · "),
+      photo: j.photo || "",
+      returning_warning: j.itemId ? pickWarning(returningMap, delIso, j.itemId, b.id) : null,
+      booked_warning: j.itemId ? pickWarning(bookedMap, retIso, j.itemId, b.id) : null,
     });
   }
 

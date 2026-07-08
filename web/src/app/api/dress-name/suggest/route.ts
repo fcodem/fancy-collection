@@ -2,6 +2,7 @@ import { NextRequest } from "next/server";
 import prisma from "@/lib/prisma";
 import { buildDressSearchWhere, dressDisplayName } from "@/lib/dress";
 import { jsonOk, requireUserReadOnly, isResponse } from "@/lib/api";
+import { catalogPhotoRef } from "@/lib/catalogPhotoRef";
 
 export async function GET(req: NextRequest) {
   const user = await requireUserReadOnly();
@@ -9,6 +10,7 @@ export async function GET(req: NextRequest) {
 
   const q = req.nextUrl.searchParams.get("q")?.trim() || "";
   const category = req.nextUrl.searchParams.get("category")?.trim() || "";
+  const itemType = req.nextUrl.searchParams.get("item_type")?.trim() || "";
   const limit = Math.min(parseInt(req.nextUrl.searchParams.get("limit") || "12", 10), 30);
 
   if (!q) return jsonOk([]);
@@ -18,6 +20,7 @@ export async function GET(req: NextRequest) {
     where: {
       ...where,
       ...(category ? { category } : {}),
+      ...(itemType ? { itemType } : {}),
     },
     select: {
       id: true,
@@ -41,7 +44,7 @@ export async function GET(req: NextRequest) {
       category: i.category,
       size: i.size || "",
       color: i.color || "",
-      photo: i.photo || "",
+      photo: catalogPhotoRef(i),
     })),
   );
 }

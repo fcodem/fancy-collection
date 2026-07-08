@@ -1,4 +1,5 @@
 import prisma from "@/lib/prisma";
+import { Prisma } from "@prisma/client";
 import { formatDate, parseDate } from "@/lib/constants";
 import {
   sendBookingBillWhatsApp,
@@ -16,8 +17,10 @@ export type WhatsAppJobType =
   | "postponement_notice"
   | "postponement_held"
   | "booking_bill"
+  | "booking_reminder"
   | "delivery_slip"
   | "return_slip"
+  | "return_receipt"
   | "incomplete_slip"
   | "custom_template";
 
@@ -374,7 +377,7 @@ export async function processWhatsAppJobQueue(
           payload: mergeSendMetaIntoPayload(job.payload, {
             phone: sendMeta.phone,
             messageId: sendMeta.messageId,
-          }),
+          }) as Prisma.InputJsonValue,
         },
       });
       results.push({ jobId: job.id, jobType: job.jobType, ok: true });

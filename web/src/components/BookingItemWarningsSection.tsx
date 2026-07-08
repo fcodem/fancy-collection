@@ -3,7 +3,7 @@ import type { ItemWarningSource } from "@/lib/bookingWarningPdf";
 
 export function findItemWarnings(
   items: ItemWarningSource[],
-  opts: { itemId?: number; dressName?: string },
+  opts: { itemId?: number | null; dressName?: string },
 ): ItemWarningSource | undefined {
   let hit: ItemWarningSource | undefined;
   if (opts.itemId) {

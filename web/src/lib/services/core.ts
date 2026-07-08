@@ -1,5 +1,5 @@
+import { cache } from "react";
 import { NextRequest, NextResponse } from "next/server";
-import { unstable_cache } from "next/cache";
 import prisma, { todayStartQ, dateQ } from "../prisma";
 import {
   whereDeliveryInRange,
@@ -20,6 +20,7 @@ import {
   formatDate,
 } from "../constants";
 import { getAllSubCategories } from "../subCategories";
+import { memoryCachedQuery } from "../perfCache";
 
 const SEED_ITEMS = [
   { name: "Red Bridal Lehenga", sku: "LRG-001", category: "Lehenga", itemType: "clothing", size: "M", color: "Red", dailyRate: 2500, deposit: 10000 },
@@ -106,9 +107,10 @@ const _getDashboardDataRaw = async () => {
     overdueRentals,
     monthlyRevenueAgg,
     outstandingAgg,
-    todayDeliveriesList,
-    todayReturnsList,
-    allUndeliveredList,
+    todayDeliveryTotal,
+    todayDelivered,
+    todayRemainingDelivery,
+    todayReturning,
     undeliveredCount,
     overdueList,
     subCategories,
@@ -124,21 +126,11 @@ const _getDashboardDataRaw = async () => {
       _sum: { total: true, amountPaid: true },
       where: { status: { in: ["unpaid", "partial"] } },
     }),
-    prisma.booking.findMany({
-      where: deliveryTodayWhere,
-      include: { bookingItems: true, legacyItem: true },
-      orderBy: { deliveryTime: "asc" },
-    }),
-    prisma.booking.findMany({
+    prisma.booking.count({ where: deliveryTodayWhere }),
+    prisma.booking.count({ where: { ...deliveryTodayWhere, status: "delivered" } }),
+    prisma.booking.count({ where: { ...deliveryTodayWhere, status: "booked" } }),
+    prisma.booking.count({
       where: { ...returnTodayWhere, status: { in: ["booked", "delivered"] } },
-      include: { bookingItems: true, legacyItem: true },
-      orderBy: { returnTime: "asc" },
-    }),
-    prisma.booking.findMany({
-      where: undeliveredWhere,
-      include: { bookingItems: true, legacyItem: true },
-      orderBy: [{ deliveryDate: "asc" }, { deliveryTime: "asc" }],
-      take: 200,
     }),
     prisma.booking.count({ where: undeliveredWhere }),
     prisma.rental.findMany({
@@ -187,15 +179,12 @@ const _getDashboardDataRaw = async () => {
       outstanding,
     },
     today_stats: {
-      total_orders: todayDeliveriesList.length,
-      delivered: todayDeliveriesList.filter((b) => b.status === "delivered").length,
-      remaining_delivery: todayDeliveriesList.filter((b) => b.status === "booked").length,
-      returning: todayReturnsList.length,
+      total_orders: todayDeliveryTotal,
+      delivered: todayDelivered,
+      remaining_delivery: todayRemainingDelivery,
+      returning: todayReturning,
       all_undelivered: undeliveredCount,
     },
-    today_deliveries_list: todayDeliveriesList,
-    today_returns_list: todayReturnsList,
-    all_undelivered_list: allUndeliveredList,
     overdue_list: overdueList,
     late_return_count: lateReturnCount,
     orders_due_soon_list: ordersDueSoonList,
@@ -213,11 +202,12 @@ const _getDashboardDataRaw = async () => {
   };
 };
 
-export const getDashboardData = unstable_cache(
-  _getDashboardDataRaw,
-  ["dashboard-data"],
-  { revalidate: 60, tags: ["dashboard-data"] },
-);
+const _getDashboardDataDeduped = cache(_getDashboardDataRaw);
+
+/** Cached dashboard payload — in-memory TTL (Next.js data cache rejects entries > 2MB). */
+export async function getDashboardData() {
+  return memoryCachedQuery(["dashboard-data"], () => _getDashboardDataDeduped(), 60);
+}
 
 /** Uncached dashboard payload for live refresh (API + realtime). */
 export async function getDashboardDataFresh() {
@@ -230,34 +220,37 @@ function iso(d: Date | string | null | undefined) {
   return d.toISOString();
 }
 
-/** JSON-safe dashboard shape for client fetch. */
+/** JSON-safe dashboard shape for client fetch and RSC props. */
 export function serializeDashboardData(raw: Awaited<ReturnType<typeof _getDashboardDataRaw>>) {
-  const booking = (b: (typeof raw.today_deliveries_list)[number]) => ({
-    ...b,
-    deliveryDate: iso(b.deliveryDate) ?? b.deliveryDate,
-    returnDate: iso(b.returnDate) ?? b.returnDate,
-    deliveredAt: iso(b.deliveredAt),
-    returnedAt: iso(b.returnedAt),
-    refundedAt: iso(b.refundedAt),
-    createdAt: iso(b.createdAt) ?? b.createdAt,
-  });
   return {
-    ...raw,
-    today_deliveries_list: raw.today_deliveries_list.map(booking),
-    today_returns_list: raw.today_returns_list.map(booking),
-    all_undelivered_list: raw.all_undelivered_list.map(booking),
+    stats: raw.stats,
+    today_stats: raw.today_stats,
+    late_return_count: raw.late_return_count,
+    orders_due_soon_count: raw.orders_due_soon_count,
+    today_iso: raw.today_iso,
+    today_display: raw.today_display,
+    categories: raw.categories,
     overdue_list: raw.overdue_list.map((r) => ({
-      ...r,
-      startDate: iso(r.startDate),
+      id: r.id,
+      rentalNumber: r.rentalNumber,
       endDate: iso(r.endDate),
+      totalAmount: r.totalAmount,
+      customer: { name: r.customer.name },
     })),
     orders_due_soon_list: raw.orders_due_soon_list.map((o) => ({
-      ...o,
+      id: o.id,
+      description: o.description,
+      cost: o.cost,
+      advance: o.advance,
+      balance: o.balance,
       deliveryDate: iso(o.deliveryDate) ?? o.deliveryDate,
-      collectedAt: iso(o.collectedAt),
-      cancelledAt: iso(o.cancelledAt),
-      createdAt: iso(o.createdAt) ?? o.createdAt,
-      reminderSentAt: iso(o.reminderSentAt),
+      deliveryTime: o.deliveryTime,
+      booking: {
+        id: o.booking.id,
+        monthlySerial: o.booking.monthlySerial,
+        customerName: o.booking.customerName,
+        contact1: o.booking.contact1,
+      },
     })),
   };
 }

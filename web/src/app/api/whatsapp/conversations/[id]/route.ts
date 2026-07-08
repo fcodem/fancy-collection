@@ -27,5 +27,10 @@ export async function GET(
     data: { unreadCount: 0 },
   });
 
-  return jsonOk({ conversation });
+  // The bot stays active until a human sends a manual (non-automated) reply.
+  const humanHandled = conversation.messages.some(
+    (m) => m.direction === "outbound" && !m.isAutomated,
+  );
+
+  return jsonOk({ conversation: { ...conversation, humanHandled, botActive: !humanHandled } });
 }

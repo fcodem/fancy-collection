@@ -1,5 +1,7 @@
 "use client";
+
 import { useEffect } from "react";
+import { parseResponseJson } from "@/lib/fetchJson";
 import { useRouter } from "next/navigation";
 
 let lastCheckedAt = 0;
@@ -20,7 +22,7 @@ export default function SessionHeartbeat() {
           router.replace("/login");
           return;
         }
-        const data = await res.json();
+        const data = await parseResponseJson<{ active?: boolean }>(res);
         if (!data.active) router.replace("/login");
       } catch {
         // network error — do not redirect (user may be offline)

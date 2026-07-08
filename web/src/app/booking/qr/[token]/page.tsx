@@ -8,13 +8,13 @@ import {
   verifyBookingQrSignature,
 } from "@/lib/bookingQr";
 
-/** Smart router: scan signed bill QR → open booking / return record by status. */
+/** Smart router: scan signed bill QR → open booking panel for that booking. */
 export default async function BookingQrRedirectPage({
   params,
   searchParams,
 }: {
   params: Promise<{ token: string }>;
-  searchParams: Promise<{ s?: string }>;
+  searchParams: Promise<{ s?: string; to?: string }>;
 }) {
   const user = await getCurrentUser();
   if (!user) redirect("/login");
@@ -22,7 +22,7 @@ export default async function BookingQrRedirectPage({
   await backfillMissingQrTokens(50);
 
   const { token } = await params;
-  const { s } = await searchParams;
+  const { s, to } = await searchParams;
   const cleanToken = decodeURIComponent(token);
 
   if (!verifyBookingQrSignature(cleanToken, s)) {
@@ -34,6 +34,10 @@ export default async function BookingQrRedirectPage({
 
   if (!booking.qrToken) {
     await ensureBookingQrToken(booking.id);
+  }
+
+  if (to === "jewellery") {
+    redirect(`/jewellery-selection/${booking.id}`);
   }
 
   redirect(bookingQrTargetPath(booking.status, booking.id));
