@@ -1,19 +1,13 @@
 /**
  * dressFingerprint.ts
  *
- * Uses Claude Vision to extract a structured "visual fingerprint" from a
+ * Uses OpenAI Vision to extract a structured "visual fingerprint" from a
  * dress photo. The fingerprint captures design elements that are stable
  * across different angles, lighting conditions, and crop levels.
  */
 
-import Anthropic from "@anthropic-ai/sdk";
 import { normalizeImageBuffer } from "./photoHash";
-
-function anthropicClient(): Anthropic {
-  const apiKey = process.env.ANTHROPIC_API_KEY;
-  if (!apiKey) throw new Error("ANTHROPIC_API_KEY is not set");
-  return new Anthropic({ apiKey });
-}
+import { generateVisionMetadataFromOpenAi } from "@/lib/ai/openaiVision";
 
 export interface DressFingerprint {
   style: string;
@@ -30,102 +24,42 @@ export interface DressFingerprint {
 
 export async function describeDressImage(imageBuffer: Buffer): Promise<DressFingerprint> {
   const processedBuffer = await normalizeImageBuffer(imageBuffer);
-
-  const base64Image = processedBuffer.toString("base64");
-
-  const systemPrompt = `You are an expert Indian fashion cataloguer for a cloth rental business.
-Your job is to describe dress/outfit photos with extreme precision so that the same dress
-photographed from different angles can be matched together.
-
-CRITICAL RULES:
-1. Focus on the DESIGN PATTERN above everything else — arch patterns, floral motifs,
-   honeycomb/hexagonal mesh panels, vertical panel layouts, paisley, geometric shapes.
-   This is what distinguishes two dresses of the same color (e.g. CUTDANA 2 vs CUTDANA 3).
-2. Note whether embroidery is arranged in vertical panels, all-over jaal, or border bands.
-2. If you can only see part of the dress (hem, sleeve, detail shot), describe what IS
-   visible and infer the overall style.
-3. Be consistent — always use the same terminology for the same things.
-4. For embroideryPattern, be very specific: "Concentric arch/fan pattern with floral
-   infill" is better than just "floral".
-5. Return ONLY valid JSON. No markdown. No explanation. No code fences.`;
-
-  const userPrompt = `Examine this dress/outfit image carefully. Extract a structured description
-as a JSON object with EXACTLY these fields:
-
-{
-  "style": "one of: Lehenga, Saree, Sherwani, Anarkali, Gown, Kurta, Sharara, Other",
-  "primaryColor": "the main color of the garment — be precise e.g. Teal Green not just Green",
-  "secondaryColor": "color of embroidery/border thread — usually Gold, Silver, White, or None",
-  "embroideryStyle": "one of: Heavy Zari, Light Zari, Mirror Work, Thread Work, Sequin Work, Stone Work, Minimal Embroidery, No Embroidery",
-  "embroideryPattern": "VERY specific pattern name — e.g. Honeycomb Hex Panel, Vertical Floral Panel with Hex Mesh, Concentric Arch, Fan/Peacock, All-over Floral Jaal, Jaal/Net, Paisley, Geometric. Be as specific as possible.",
-  "borderDesign": "describe the hem/border design in 1 sentence — e.g. Scalloped gold zari border with small floral motifs and fringe",
-  "fabric": "one of: Silk, Raw Silk, Net, Georgette, Velvet, Cotton, Chiffon, Brocade, Crepe, Organza, Other",
-  "distinctiveFeatures": "2-3 sentences describing what makes THIS dress uniquely identifiable — patterns, motifs, layout, any unusual design elements",
-  "occasion": "one of: Bridal, Wedding Guest, Reception, Sangeet, Party, Festive, Casual"
-}
-
-If this is a partial/close-up photo (only showing hem, sleeve, or detail),
-still describe what you can see and make reasonable inferences about the full garment.`;
-
-  const response = await anthropicClient().messages.create({
-    model: "claude-sonnet-4-6",
-    max_tokens: 600,
-    system: systemPrompt,
-    messages: [
-      {
-        role: "user",
-        content: [
-          {
-            type: "image",
-            source: {
-              type: "base64",
-              media_type: "image/jpeg",
-              data: base64Image,
-            },
-          },
-          {
-            type: "text",
-            text: userPrompt,
-          },
-        ],
-      },
-    ],
+  const parsed = await generateVisionMetadataFromOpenAi(processedBuffer, {
+    category: "unknown",
+    itemType: "clothing",
   });
-
-  const raw = response.content
-    .filter((c) => c.type === "text")
-    .map((c) => (c as { type: "text"; text: string }).text)
-    .join("")
-    .trim();
-
-  const cleaned = raw
-    .replace(/^```json\s*/i, "")
-    .replace(/^```\s*/i, "")
-    .replace(/\s*```$/i, "")
-    .trim();
-
-  const parsed = JSON.parse(cleaned) as Omit<DressFingerprint, "searchText">;
+  const fingerprint: Omit<DressFingerprint, "searchText"> = {
+    style: String(parsed.subcategory || parsed.category || "Other"),
+    primaryColor: parsed.primaryColours?.[0] || "Unknown",
+    secondaryColor: parsed.secondaryColours?.[0] || "None",
+    embroideryStyle: String(parsed.embroideryType || "Unknown"),
+    embroideryPattern: String(parsed.pattern || "Unknown"),
+    borderDesign: String(parsed.borderStyle || "Unknown"),
+    fabric: String(parsed.fabric || "Unknown"),
+    distinctiveFeatures: String(parsed.visualDescription || ""),
+    occasion: String(parsed.occasion || "Festive"),
+  };
 
   const searchText = [
-    parsed.style,
-    parsed.primaryColor,
-    parsed.primaryColor,
-    parsed.secondaryColor,
-    parsed.embroideryStyle,
-    parsed.embroideryPattern,
-    parsed.embroideryPattern,
-    parsed.embroideryPattern,
-    parsed.borderDesign,
-    parsed.fabric,
-    parsed.distinctiveFeatures,
-    parsed.distinctiveFeatures,
-    parsed.occasion,
+    fingerprint.style,
+    fingerprint.primaryColor,
+    fingerprint.primaryColor,
+    fingerprint.secondaryColor,
+    fingerprint.embroideryStyle,
+    fingerprint.embroideryPattern,
+    fingerprint.embroideryPattern,
+    fingerprint.embroideryPattern,
+    fingerprint.borderDesign,
+    fingerprint.fabric,
+    fingerprint.distinctiveFeatures,
+    fingerprint.distinctiveFeatures,
+    fingerprint.occasion,
   ]
     .filter(Boolean)
     .join(" ")
     .toLowerCase();
 
-  return { ...parsed, searchText };
+  return { ...fingerprint, searchText };
 }
 
 export function fingerprintSimilarity(a: DressFingerprint, b: DressFingerprint): number {

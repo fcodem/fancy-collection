@@ -1,4 +1,5 @@
 import prisma from "./prisma";
+import { BRAND_FULL_NAME } from "./branding";
 
 export const BACKUP_VERSION = "2.1";
 
@@ -231,7 +232,7 @@ export async function buildFullBackup(exportedBy: string): Promise<BackupPayload
   const now = new Date();
   return {
     meta: {
-      app: "Fancy Collection Management System",
+      app: `${BRAND_FULL_NAME} Management System`,
       exported_at: now.toISOString(),
       exported_by: exportedBy,
       version: BACKUP_VERSION,

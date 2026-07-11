@@ -34,6 +34,8 @@ export default function BookingViewClient({
     remainingCollected?: number;
     whatsappNo?: string | null;
     contact1?: string;
+    whatsappSentAt?: string | Date | null;
+    whatsappStatus?: string | null;
     bookingItems?: Array<{ id?: number; isDelivered: boolean; isReturned?: boolean; isIncompleteReturn?: boolean }>;
   };
   qrSlot?: React.ReactNode;
@@ -145,6 +147,9 @@ export default function BookingViewClient({
         <BookingWhatsAppButton
           bookingId={booking.id}
           hasPhone={!!(booking.whatsappNo || booking.contact1)}
+          whatsappSentAt={booking.whatsappSentAt}
+          whatsappStatus={booking.whatsappStatus}
+          mode="resend"
         />
         {status === "booked" && (
           <>

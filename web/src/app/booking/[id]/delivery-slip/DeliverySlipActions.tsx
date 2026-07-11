@@ -22,16 +22,16 @@ export default function DeliverySlipActions({
   async function sendWhatsApp() {
     setSending(true);
     try {
-      const res = await fetch(`/api/booking/${bookingId}/whatsapp`, {
+      const res = await fetch(`/api/booking/${bookingId}/delivery-slip/whatsapp`, {
         method: "POST",
         credentials: "same-origin",
       });
-      const data = (await res.json()) as { ok?: boolean; error?: string };
+      const data = (await res.json()) as { ok?: boolean; error?: string; message?: string };
       if (data.ok) {
         setSent(true);
         setTimeout(() => setSent(false), 4000);
       } else {
-        alert(data.error || "Failed to queue WhatsApp");
+        alert(data.error || data.message || "Failed to queue delivery slip WhatsApp");
       }
     } catch {
       alert("Request failed");

@@ -345,6 +345,8 @@ export function histogramIndicatesMulti(hist: number[]): boolean {
   const yellow = band(8, 9);
 
   if (green >= 0.12 && green > red * 1.15 && blue < 0.07) return false;
+  // Green body with gold zari — not a multi-panel bridal.
+  if (green >= 0.1 && green >= red && green >= blue && green >= yellow) return false;
 
   // Solid blue lehenga — gold zari adds yellow/red traces but blue body dominates.
   if (blue >= 0.13 && blue >= red * 1.2 && blue >= green * 1.15) return false;
@@ -658,11 +660,15 @@ export function finalPhotoSearchScore(
 
   let base: number;
   if (effectiveQuery === "multi" && storedFamily === "multi") {
-    const panelCap = Math.min(panelOverlap, designScore + 12);
+    // Multi bridal lehengas: decide by design/layout, not warm histogram overlap.
+    // Cap colour and panel so a different multi dress with similar gold/red tones
+    // cannot outrank the true match on colour alone.
+    const cappedColor = Math.min(colorScore, 65);
+    const panelCap = Math.min(panelOverlap, designScore + 8);
     base =
       aiScore > 0
         ? Math.round(aiScore * 0.55 + designScore * 0.45)
-        : Math.round(colorScore * 0.08 + designScore * 0.75 + panelCap * 0.17);
+        : Math.round(cappedColor * 0.05 + designScore * 0.9 + panelCap * 0.05);
   } else if (sameColorVariant) {
     base =
       aiScore > 0

@@ -182,7 +182,7 @@ export async function searchDressesByPhoto(
   const { candidates: retrieved, stages: filterStages } = retrieveCandidates(query, pool);
   const reranked = rerankCandidates(query, retrieved);
 
-  // Precision stage — Claude Vision decides SAME physical dress among local shortlist.
+  // Precision stage — OpenAI Vision decides SAME physical dress among local shortlist.
   const vlm: VlmVerificationOutcome = await applyVlmVerification(photoBuffer, reranked);
   const rankedForSelection = vlm.reranked;
 

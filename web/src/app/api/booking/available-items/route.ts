@@ -1,5 +1,5 @@
 import { NextRequest } from "next/server";
-import { getAvailableItemsApiCached } from "@/lib/booking";
+import { getAvailableItemsApi } from "@/lib/booking";
 import { jsonOk, requireUserReadOnly, isResponse } from "@/lib/api";
 
 export async function GET(req: NextRequest) {
@@ -15,6 +15,8 @@ export async function GET(req: NextRequest) {
   }
 
   const exclude = parseInt(req.nextUrl.searchParams.get("exclude_booking") || "0", 10) || undefined;
-  const data = await getAvailableItemsApiCached(deliveryDate, returnDate, category, exclude);
+  // Live DB read — New Booking must not show dresses that are already booked.
+  // (Cached path remains available for non-critical consumers via getAvailableItemsApiCached.)
+  const data = await getAvailableItemsApi(deliveryDate, returnDate, category, exclude);
   return jsonOk(data);
 }

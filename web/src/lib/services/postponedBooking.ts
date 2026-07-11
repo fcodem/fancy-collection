@@ -70,17 +70,13 @@ export async function searchBookingsToPostpone(
   page?: string | number | null,
   pageSize?: string | number | null,
 ) {
-  const result = await monthBasedSearchBookings(
+  return monthBasedSearchBookings(
     queryText,
     date,
     "",
     page != null ? String(page) : null,
     pageSize != null ? String(pageSize) : null,
   );
-  return {
-    ...result,
-    results: result.results.filter((r) => r.status === "booked"),
-  };
 }
 
 export async function listPostponedBookings(searchQ?: string) {

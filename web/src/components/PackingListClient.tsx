@@ -5,6 +5,7 @@ import CategorySelect from "./CategorySelect";
 import {
   PackingBookingDetailsGrid,
   PackingReturningWarningPanel,
+  BookingCardHeaderDates,
   type PackingReturningWarning,
 } from "@/components/BookingDetailsColumns";
 import type { StandardBookingDetails } from "@/lib/bookingDetails";
@@ -193,6 +194,7 @@ export default function PackingListClient({
               #{String(b.serial_no).padStart(2, "0")} — {b.customer_name}
               {b.is_star && <StarBookingBadge />}
             </h3>
+            <BookingCardHeaderDates d={b} />
           </div>
           <div className="card-body packing-booking-details" style={{ paddingTop: 0, paddingBottom: 16 }}>
             <PackingBookingDetailsGrid

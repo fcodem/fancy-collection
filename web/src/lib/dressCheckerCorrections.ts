@@ -17,7 +17,7 @@ export async function saveCorrectionPhoto(buffer: Buffer): Promise<string> {
 }
 
 /** Add staff-confirmed photo as a reference image and reprocess AI profile. */
-async function learnFromPositiveCorrection(itemId: number, photoRelPath: string): Promise<void> {
+export async function learnFromPositiveCorrection(itemId: number, photoRelPath: string): Promise<void> {
   const maxOrder = await prisma.clothingItemReferencePhoto.aggregate({
     where: { itemId },
     _max: { sortOrder: true },
@@ -62,6 +62,57 @@ export async function recordDressCheckerCorrection(
 
   if (feedbackType === "positive" && input.correctItemId && row.uploadedPhoto) {
     await learnFromPositiveCorrection(input.correctItemId, row.uploadedPhoto);
+    try {
+      await prisma.$executeRaw`
+        INSERT INTO dress_checker_positive_pairs
+          (item_id, query_photo, source, confirmed_by, search_id, confidence)
+        VALUES (
+          ${input.correctItemId},
+          ${row.uploadedPhoto},
+          ${"staff_correction"},
+          ${correctedBy ?? null},
+          ${input.searchId ?? null},
+          ${input.confidence ?? null}
+        )
+      `;
+      await prisma.$executeRaw`
+        INSERT INTO dress_admin_feedback (item_id, search_id, feedback, notes, query_photo, created_by)
+        VALUES (
+          ${input.correctItemId},
+          ${input.searchId ?? null},
+          ${"correct"},
+          ${"staff_correction"},
+          ${row.uploadedPhoto},
+          ${correctedBy ?? null}
+        )
+      `;
+    } catch (err) {
+      console.warn(
+        "[dress-checker] positive pair save skipped:",
+        err instanceof Error ? err.message : err,
+      );
+    }
+  }
+
+  if (feedbackType === "negative" && (input.rejectedItemId || input.predictedItemId)) {
+    const rejectedId = input.rejectedItemId || input.predictedItemId!;
+    try {
+      const { recordNegativePair } = await import("./dressChecker/positivePairLearning");
+      await recordNegativePair({
+        rejectedItemId: rejectedId,
+        queryItemId: input.correctItemId ?? null,
+        queryPhotoRelPath: row.uploadedPhoto,
+        reason: "staff_rejected_suggestion",
+        confirmedBy: correctedBy ?? null,
+        searchId: input.searchId ?? null,
+        source: "staff_reject",
+      });
+    } catch (err) {
+      console.warn(
+        "[dress-checker] negative pair save skipped:",
+        err instanceof Error ? err.message : err,
+      );
+    }
   }
 
   logDressChecker({

@@ -1,6 +1,5 @@
 import prisma from "./prisma";
 import { broadcastShopEvent } from "./realtime/broadcast";
-import { runRecognitionPipeline } from "./dressCheckerIndexing";
 import { photoUrl } from "./photoUrl";
 import type { PipelineStage, PipelineStatus } from "./inventoryPhotoPipelineTypes";
 export type { PipelineStage, PipelineStatus } from "./inventoryPhotoPipelineTypes";
@@ -62,17 +61,22 @@ export function computePipelineStatus(item: {
   };
 }
 
-/** Run recognition/search indexing asynchronously. Never call from the save request path. */
+/**
+ * Run recognition / metadata / search indexing asynchronously.
+ * Never call from the save request path.
+ *
+ * Embedding (FashionCLIP → SigLIP → OpenCLIP) runs on every photo save.
+ * Full Dress Checker identity pipeline runs in parallel.
+ */
 export async function runInventoryPhotoPipeline(
   itemId: number,
-  category: string,
+  _category: string,
   reason: string,
 ): Promise<void> {
-  await runRecognitionPipeline(itemId, category, reason);
+  // Instant enqueue — worker performs embeddings + signatures + validation.
+  const { scheduleInventoryAiProfile } = await import("./dressChecker/processInventory");
+  scheduleInventoryAiProfile(itemId, reason);
   broadcastShopEvent({ type: "inventory.changed", itemIds: [itemId] });
-
-  const { scheduleInventoryAiProfile } = await import("./inventoryAiProfile/queue");
-  scheduleInventoryAiProfile(itemId, "full", reason);
 }
 
 /** Queue search indexing — returns immediately. */
@@ -87,6 +91,7 @@ export function scheduleInventoryPhotoPipeline(
   setImmediate(() => {
     void (async () => {
       try {
+        console.log(`[inventory-pipeline] item=${itemId} scheduled reason=${reason}`);
         await runInventoryPhotoPipeline(itemId, category, reason);
       } catch (err) {
         console.error("[inventory-pipeline]", itemId, err);

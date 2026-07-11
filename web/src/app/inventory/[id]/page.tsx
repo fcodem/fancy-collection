@@ -3,9 +3,9 @@ import { redirect, notFound } from "next/navigation";
 import prisma from "@/lib/prisma";
 import { getCurrentUser, isOwner } from "@/lib/auth";
 import InventoryDeleteButton from "@/components/InventoryDeleteButton";
+import InventoryDetailPhoto from "@/components/InventoryDetailPhoto";
 import { dressDisplayName } from "@/lib/dress";
 import { catalogPhotoUrl } from "@/lib/catalogPhotoUrl";
-import { photoUrl } from "@/lib/photoUrl";
 import { formatDate } from "@/lib/constants";
 
 export const dynamic = "force-dynamic";
@@ -19,12 +19,38 @@ export default async function InventoryDetailPage({ params }: { params: Promise<
   const itemId = parseInt(id, 10);
   if (!itemId) notFound();
 
-  const item = await prisma.clothingItem.findUnique({ where: { id: itemId } });
+  const item = await prisma.clothingItem.findUnique({
+    where: { id: itemId },
+    include: {
+      aiProfile: {
+        select: {
+          aiStatus: true,
+          needsReindex: true,
+          indexFailureReason: true,
+          pipelineVersion: true,
+          recognitionVersion: true,
+          matchingVersion: true,
+        },
+      },
+    },
+  });
   if (!item) notFound();
 
   const owner = isOwner(user);
   const displayName = dressDisplayName(item.name, item.category, item.size);
-  const thumb = catalogPhotoUrl(item);
+  // Enhancement paused — always show the latest uploaded photo field.
+  const photoSrc = catalogPhotoUrl(item) || null;
+  const aiStatus = item.aiProfile?.aiStatus || "PENDING";
+  const aiIncomplete = aiStatus !== "READY" || item.aiProfile?.needsReindex;
+
+  const aiTone =
+    aiStatus === "READY"
+      ? { bg: "#c6f6d5", color: "#1a7a3c" }
+      : aiStatus === "PROCESSING" || aiStatus === "PENDING"
+        ? { bg: "#fefcbf", color: "#975a16" }
+        : aiStatus === "STALE"
+          ? { bg: "#feebc8", color: "#c05621" }
+          : { bg: "#fed7d7", color: "#c53030" };
 
   const fields: Array<{ label: string; value: React.ReactNode }> = [
     { label: "SKU", value: item.sku },
@@ -37,6 +63,32 @@ export default async function InventoryDetailPage({ params }: { params: Promise<
       label: "Status",
       value: <span className={`badge badge-${item.status}`}>{item.status}</span>,
     },
+    {
+      label: "AI Profile",
+      value: (
+        <span style={{ display: "inline-flex", flexDirection: "column", gap: 4 }}>
+          <span
+            style={{
+              display: "inline-block",
+              padding: "2px 8px",
+              borderRadius: 4,
+              fontSize: 11,
+              fontWeight: 700,
+              background: aiTone.bg,
+              color: aiTone.color,
+              width: "fit-content",
+            }}
+          >
+            {aiStatus}
+          </span>
+          {aiIncomplete ? (
+            <span style={{ fontSize: 12, color: "#c05621" }}>
+              AI profile incomplete. Reindex required.
+            </span>
+          ) : null}
+        </span>
+      ),
+    },
     { label: "Daily Rate", value: `₹${item.dailyRate.toLocaleString()}` },
     { label: "Deposit", value: `₹${item.deposit.toLocaleString()}` },
     { label: "Item Type", value: item.itemType },
@@ -45,7 +97,8 @@ export default async function InventoryDetailPage({ params }: { params: Promise<
   ];
 
   return (
-    <div className="card" style={{ marginBottom: 16 }}>
+    <div style={{ display: "grid", gap: 16 }}>
+      <div className="card">
         <div
           className="card-header"
           style={{
@@ -74,10 +127,10 @@ export default async function InventoryDetailPage({ params }: { params: Promise<
         <div className="card-body">
           <div className="inv-detail-layout">
             <div className="inv-detail-photo">
-              {thumb ? (
-                <img src={thumb} alt={displayName} className="inv-detail-photo-img" />
+              {photoSrc ? (
+                <InventoryDetailPhoto src={photoSrc} alt={displayName} />
               ) : (
-                <div className="inv-detail-photo-empty">No photo</div>
+                <div className="inv-detail-photo-empty">No photo uploaded</div>
               )}
             </div>
             <div className="inv-detail-grid">
@@ -91,5 +144,6 @@ export default async function InventoryDetailPage({ params }: { params: Promise<
           </div>
         </div>
       </div>
+    </div>
   );
 }

@@ -5,7 +5,6 @@ import { saveUpload } from "@/lib/upload";
 import { jsonError, jsonOk, requireUser, isResponse, requireJsonContentType } from "@/lib/api";
 import {
   finalizeSlipTrigger,
-  scheduleDebouncedSlipTrigger,
 } from "@/lib/services/whatsapp/slipDebounce";
 import {
   newlyReturnedItemIdsFromAction,
@@ -72,13 +71,20 @@ async function triggerReturnSlipIfNeeded(
   const baseOpts = {
     requestOrigin: slip.requestOrigin,
     createdBy: slip.createdBy,
+    ...(slip.returnItemIds.length ? { returnItemIds: slip.returnItemIds } : {}),
+    ...(slip.incompleteItemIds.length
+      ? { incompleteItemIds: slip.incompleteItemIds }
+      : {}),
   };
 
   try {
-    if (action === "mark_item_returned") {
-      if (!slip.hasWork) return;
-      scheduleDebouncedSlipTrigger(bookingId, "return", baseOpts);
-    } else if (IMMEDIATE_RETURN_SLIP_ACTIONS.has(action)) {
+    if (
+      action === "mark_item_returned" ||
+      IMMEDIATE_RETURN_SLIP_ACTIONS.has(action)
+    ) {
+      // Always finalize for full return actions — even if delta IDs are empty
+      // (e.g. race), scheduleReturnSlipsForBooking can still pick unsent items.
+      if (!slip.hasWork && action === "mark_item_returned") return;
       await finalizeSlipTrigger(bookingId, "return", baseOpts);
     }
   } catch (e) {

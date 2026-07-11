@@ -1,4 +1,4 @@
-import { formatDate } from "./constants";
+import { formatDate, formatBookingDateTime } from "./constants";
 import { bookingDressLabels, dressDisplayName, serializeBookingItems } from "./dress";
 import { isStarBooking } from "./starBooking";
 
@@ -15,6 +15,8 @@ export type StandardBookingDetails = {
   delivery_time: string;
   return_date: string;
   return_time: string;
+  booking_date: string;
+  booking_time: string;
   is_star?: boolean;
 };
 
@@ -46,6 +48,7 @@ export type BookingForStandardDetails = Parameters<typeof serializeBookingItems>
   deliveryTime: string;
   returnDate: Date | string;
   returnTime: string;
+  createdAt?: Date | string | null;
 };
 
 export function serializeStandardBookingDetails(b: BookingForStandardDetails): StandardBookingDetails {
@@ -72,6 +75,8 @@ export function serializeStandardBookingDetails(b: BookingForStandardDetails): S
     itemNotes = b.notes;
   }
 
+  const bookingWhen = b.createdAt ? formatBookingDateTime(b.createdAt) : { date: "", time: "" };
+
   return {
     customer_name: b.customerName,
     customer_address: b.customerAddress || "",
@@ -84,6 +89,8 @@ export function serializeStandardBookingDetails(b: BookingForStandardDetails): S
     delivery_time: b.deliveryTime,
     return_date: formatDate(b.returnDate, "display"),
     return_time: b.returnTime,
+    booking_date: bookingWhen.date,
+    booking_time: bookingWhen.time,
     is_star: isStarBooking(b as Parameters<typeof isStarBooking>[0]),
   };
 }

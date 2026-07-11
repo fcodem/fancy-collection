@@ -2,26 +2,10 @@ import sharp from "sharp";
 import {
   computeAverageHash,
   computeDifferenceHash,
-  computeColorHistogram,
-  detectFabricColorFamily,
   type FabricColorFamily,
 } from "../photoHash";
+import { extractDressColoursLab, type DressColourDiagnostics } from "../dressChecker/dressColourLab";
 import type { GarmentBounds } from "./types";
-
-function rgbToName(r: number, g: number, b: number): string {
-  const max = Math.max(r, g, b);
-  const min = Math.min(r, g, b);
-  if (max - min < 25) {
-    if (max > 200) return "ivory";
-    if (max < 60) return "black";
-    return "grey";
-  }
-  if (r > g + 30 && r > b + 30) return r > 180 ? "pink" : "maroon";
-  if (g > r + 20 && g > b + 20) return "green";
-  if (b > r + 20 && b > g + 20) return "blue";
-  if (r > 180 && g > 150) return "gold";
-  return "multi";
-}
 
 export async function extractDominantColours(buf: Buffer): Promise<{
   primary: string;
@@ -29,41 +13,17 @@ export async function extractDominantColours(buf: Buffer): Promise<{
   accents: string[];
   histogram: number[];
   family: FabricColorFamily;
+  diagnostics: DressColourDiagnostics;
 }> {
-  const histogram = await computeColorHistogram(buf);
-  const family = await detectFabricColorFamily(buf);
-  const { data } = await sharp(buf)
-    .resize(48, 48, { fit: "fill" })
-    .removeAlpha()
-    .raw()
-    .toBuffer({ resolveWithObject: true });
-
-  const buckets = new Map<string, { r: number; g: number; b: number; n: number }>();
-  for (let i = 0; i < data.length; i += 3) {
-    const rq = Math.round(data[i] / 48) * 48;
-    const gq = Math.round(data[i + 1] / 48) * 48;
-    const bq = Math.round(data[i + 2] / 48) * 48;
-    const key = `${rq},${gq},${bq}`;
-    const e = buckets.get(key);
-    if (e) {
-      e.r += data[i];
-      e.g += data[i + 1];
-      e.b += data[i + 2];
-      e.n++;
-    } else {
-      buckets.set(key, { r: data[i], g: data[i + 1], b: data[i + 2], n: 1 });
-    }
-  }
-
-  const sorted = [...buckets.values()].sort((a, b) => b.n - a.n);
-  const toColour = (b: { r: number; g: number; b: number; n: number }) =>
-    rgbToName(Math.round(b.r / b.n), Math.round(b.g / b.n), Math.round(b.b / b.n));
-
-  const primary = sorted[0] ? toColour(sorted[0]) : "unknown";
-  const secondary = sorted[1] ? toColour(sorted[1]) : primary;
-  const accents = sorted.slice(2, 5).map(toColour);
-
-  return { primary, secondary, accents, histogram, family };
+  const result = await extractDressColoursLab(buf);
+  return {
+    primary: result.primary,
+    secondary: result.secondary,
+    accents: result.accents,
+    histogram: result.histogram,
+    family: result.family,
+    diagnostics: result.diagnostics,
+  };
 }
 
 async function regionCrop(buf: Buffer, w: number, h: number, l: number, t: number, rw: number, rh: number) {

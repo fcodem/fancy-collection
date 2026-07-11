@@ -4,9 +4,9 @@ import prisma from "@/lib/prisma";
 import { getCurrentUser, isOwner } from "@/lib/auth";
 import InventoryFilterBar from "@/components/InventoryFilterBar";
 import InventoryDeleteButton from "@/components/InventoryDeleteButton";
+import InventoryListThumb from "@/components/InventoryListThumb";
 import { dressDisplayName, stripUnitSuffix, buildDressSearchWhere } from "@/lib/dress";
 import { catalogPhotoUrl } from "@/lib/catalogPhotoUrl";
-import { photoUrl } from "@/lib/photoUrl";
 import type { ClothingItem } from "@prisma/client";
 
 export const dynamic = "force-dynamic";
@@ -102,8 +102,9 @@ export default async function InventoryPage({
                     <td>
                       {(() => {
                         const thumb = catalogPhotoUrl(primary);
+                        const caption = dressDisplayName(primary.name, primary.category, primary.size);
                         return thumb ? (
-                          <img src={thumb} alt="" className="inv-list-thumb" />
+                          <InventoryListThumb src={thumb} caption={caption} />
                         ) : (
                           <span className="inv-list-thumb-empty">—</span>
                         );

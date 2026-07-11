@@ -12,6 +12,21 @@
       "path": "/api/cron/late-return-reminders",
       "schedule": "0 10 * * *",
       "timezone": "Asia/Kolkata"
+    },
+    {
+      "path": "/api/cron/ai-job-worker",
+      "schedule": "* * * * *",
+      "timezone": "Asia/Kolkata"
+    },
+    {
+      "path": "/api/cron/ai-queue-watchdog",
+      "schedule": "*/5 * * * *",
+      "timezone": "Asia/Kolkata"
+    },
+    {
+      "path": "/api/cron/dress-checker-repair",
+      "schedule": "0 */6 * * *",
+      "timezone": "Asia/Kolkata"
     }
   ]
 }

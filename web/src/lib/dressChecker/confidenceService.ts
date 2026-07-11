@@ -59,49 +59,16 @@ export function scoreToBand(score: number): ConfidenceBand {
 
 
 export function bandLabel(band: ConfidenceBand): string {
-
-
-
   switch (band) {
-
-
-
     case "same_dress":
-
-
-
-      return "Same dress";
-
-
-
+      return "Exact match";
     case "very_likely":
-
-
-
-      return "Very likely same dress — please confirm";
-
-
-
+      return "Highly likely same dress";
     case "possible":
-
-
-
-      return "Possible match";
-
-
-
+      return "Possible match — please confirm";
     default:
-
-
-
       return "No reliable match found.";
-
-
-
   }
-
-
-
 }
 
 
@@ -207,7 +174,7 @@ export function resolveSearchDecision(
 
 
   /**
-   * Identity engine (Claude Vision) is OFF — embeddings alone cannot be trusted to
+   * Identity engine (OpenAI Vision) is OFF — embeddings alone cannot be trusted to
    * confirm a specific garment. Never auto-identify; always ask staff to confirm
    * against the shortlisted candidates instead of showing a confident wrong label.
    */
@@ -216,7 +183,7 @@ export function resolveSearchDecision(
       decision: "unreliable",
       requires_manual_confirmation: true,
       ambiguous_match: false,
-      message: "AI identity engine is off — confirm manually (set ANTHROPIC_API_KEY).",
+      message: "AI identity engine is off — confirm manually (set OPENAI_API_KEY).",
       top_confidence: top.identity.final,
       second_confidence: second?.identity.final ?? null,
       confidence_gap: gap,

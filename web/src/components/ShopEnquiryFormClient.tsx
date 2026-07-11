@@ -5,13 +5,16 @@ import { useRouter } from "next/navigation";
 import { useState } from "react";
 import { todayIso } from "@/lib/constants";
 import { useToast } from "@/components/ui/Toast";
+import { SaveConfirmedBanner } from "@/components/SaveConfirmedBanner";
+import { buildSaveRedirectUrl } from "@/components/SaveConfirmedBanner";
 
 type Props = {
   staffList: string[];
   today?: string;
+  saveConfirmed?: { title: string; detail?: string };
 };
 
-export default function ShopEnquiryFormClient({ staffList, today }: Props) {
+export default function ShopEnquiryFormClient({ staffList, today, saveConfirmed }: Props) {
   const router = useRouter();
   const toast = useToast();
   const visitDefault = today || todayIso();
@@ -28,6 +31,17 @@ export default function ShopEnquiryFormClient({ staffList, today }: Props) {
 
   function toggleStaff(name: string) {
     setStaffNames((prev) => (prev.includes(name) ? prev.filter((n) => n !== name) : [...prev, name]));
+  }
+
+  function resetForm() {
+    setCustomerName("");
+    setCustomerAddress("");
+    setContact1("");
+    setWhatsapp("");
+    setEnquiryNotes("");
+    setVisitDate(visitDefault);
+    setStaffNames([]);
+    setError("");
   }
 
   async function save(e: React.FormEvent) {
@@ -58,9 +72,17 @@ export default function ShopEnquiryFormClient({ staffList, today }: Props) {
         setError(data.error || "Save failed");
         return;
       }
+      const savedName = customerName.trim();
       toast("Shop enquiry saved", "success");
-      router.push("/prospect-leads");
+      resetForm();
+      router.replace(
+        buildSaveRedirectUrl("/shop-enquiries/new", {
+          title: "Shop enquiry saved",
+          detail: savedName,
+        }),
+      );
       router.refresh();
+      window.scrollTo(0, 0);
     } finally {
       setSaving(false);
     }
@@ -74,6 +96,14 @@ export default function ShopEnquiryFormClient({ staffList, today }: Props) {
         </Link>
         {" › Add Enquiry"}
       </div>
+
+      {saveConfirmed && (
+        <SaveConfirmedBanner
+          title={saveConfirmed.title}
+          detail={saveConfirmed.detail}
+          hint="Enter the next enquiry below."
+        />
+      )}
 
       {error && <div className="alert alert-error" style={{ marginBottom: 16 }}>{error}</div>}
 

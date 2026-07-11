@@ -38,11 +38,12 @@ const bookingWarningInclude = {
 } as const;
 
 function bookingItemIds(b: Pick<Booking, "itemId"> & { bookingItems: { itemId: number | null }[] }): number[] {
-  if (b.bookingItems.length) {
-    return b.bookingItems.map((bi) => bi.itemId).filter((id): id is number => id != null);
+  const ids = new Set<number>();
+  for (const bi of b.bookingItems) {
+    if (bi.itemId != null) ids.add(bi.itemId);
   }
-  if (b.itemId) return [b.itemId];
-  return [];
+  if (b.itemId != null) ids.add(b.itemId);
+  return [...ids];
 }
 
 function warningRecordFromBooking(b: BookingWithItems) {
@@ -53,10 +54,8 @@ export function bookingUsesItem(
   booking: Pick<Booking, "itemId"> & { bookingItems?: { itemId: number | null }[] },
   itemId: number,
 ): boolean {
-  if (booking.bookingItems?.length) {
-    return booking.bookingItems.some((bi) => bi.itemId === itemId);
-  }
-  return booking.itemId === itemId;
+  if (booking.itemId === itemId) return true;
+  return booking.bookingItems?.some((bi) => bi.itemId === itemId) ?? false;
 }
 
 /** Batch check which item IDs are still on other active (booked/delivered) bookings. */
@@ -378,6 +377,8 @@ export async function getAvailableItemsApi(
           itemType: true,
           subCategory: true,
           photo: true,
+          originalPhoto: true,
+          enhancedPhoto: true,
           hasNecklace: true,
           hasEarrings: true,
           hasTeeka: true,

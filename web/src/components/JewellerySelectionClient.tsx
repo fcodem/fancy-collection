@@ -3,8 +3,8 @@
 import { useCallback, useEffect, useState } from "react";
 import { useRouter } from "next/navigation";
 import { BookingRecordDetails } from "@/components/BookingRecordDetails";
-import { BookingWarningPanel } from "@/components/BookingDetailsColumns";
-import { WARNING_BOOKED_ON_RETURN, WARNING_RETURNING_ON_DELIVERY, type BookingWarningRecord } from "@/lib/bookingDetails";
+import { BookingWarningPanel, BookingCardHeaderDates } from "@/components/BookingDetailsColumns";
+import { serializeStandardBookingDetails, WARNING_BOOKED_ON_RETURN, WARNING_RETURNING_ON_DELIVERY, type BookingWarningRecord } from "@/lib/bookingDetails";
 
 function buildStoredNote(warning: string | null, userNote: string | null): string | null {
   const parts = [warning, userNote?.trim()].filter(Boolean) as string[];
@@ -452,11 +452,14 @@ export default function JewellerySelectionClient({
     );
   }
 
+  const bookingDetails = serializeStandardBookingDetails(booking);
+
   return (
     <>
       <div className="card" style={{ marginBottom: 16 }}>
-        <div className="card-header" style={{ flexWrap: "wrap", gap: 8 }}>
+        <div className="card-header" style={{ flexWrap: "wrap", gap: 8, alignItems: "center" }}>
           <h3 className="card-title">Booking #{String(monthlySerial).padStart(2, "0")} — Record</h3>
+          <BookingCardHeaderDates d={bookingDetails} />
           <button type="button" className="btn btn-primary btn-sm" onClick={() => router.push("/jewellery-selection")}>
             <i className="fa-solid fa-check" style={{ marginRight: 6 }} /> Save &amp; Back
           </button>

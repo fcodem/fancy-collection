@@ -1,6 +1,6 @@
 import type { FabricColorFamily } from "./photoHash";
 
-export const IDENTIFICATION_INDEX_VERSION = 3;
+export const IDENTIFICATION_INDEX_VERSION = 4;
 
 /** Weighted components for inventory identification (not generic similarity). */
 export const IDENTIFICATION_WEIGHTS = {
@@ -13,13 +13,51 @@ export const IDENTIFICATION_WEIGHTS = {
 
 export const IDENTIFICATION_RELIABLE_THRESHOLD = 90;
 
+/**
+ * Cross-view region embeddings per image.
+ * Aliases: fullEmbedding=global, panelEmbedding=skirt, motifEmbedding=motif,
+ * dupattEmbedding=dupatta, silhouetteEmbedding=silhouette.
+ */
 export type RegionEmbeddings = {
+  /** fullEmbedding */
   global: number[];
+  /** borderEmbedding */
   border: number[];
+  /** blouseEmbedding */
   blouse: number[];
+  /** panelEmbedding (skirt / panel structure) */
   skirt: number[];
   embroidery: number[];
+  /** motifEmbedding — optional on older indexes */
+  motif?: number[];
+  /** dupattEmbedding — optional; never dominate identity */
+  dupatta?: number[];
+  /** silhouetteEmbedding — optional */
+  silhouette?: number[];
 };
+
+/** Explicit cross-view embedding bag (storage / diagnostics naming). */
+export type CrossViewEmbeddingBag = {
+  fullEmbedding: number[];
+  borderEmbedding: number[];
+  motifEmbedding: number[];
+  blouseEmbedding: number[];
+  panelEmbedding: number[];
+  dupattEmbedding: number[];
+  silhouetteEmbedding: number[];
+};
+
+export function toCrossViewEmbeddingBag(e: RegionEmbeddings): CrossViewEmbeddingBag {
+  return {
+    fullEmbedding: e.global,
+    borderEmbedding: e.border,
+    motifEmbedding: e.motif ?? e.embroidery,
+    blouseEmbedding: e.blouse,
+    panelEmbedding: e.skirt,
+    dupattEmbedding: e.dupatta ?? [],
+    silhouetteEmbedding: e.silhouette ?? e.global,
+  };
+}
 
 export type TextureFingerprint = {
   averageHash: string;

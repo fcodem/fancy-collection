@@ -20,7 +20,7 @@ export async function GET(
     where: { id: bookingId },
     include: {
       bookingItems: {
-        include: { item: { select: { color: true } } },
+        include: { item: { select: { color: true, photo: true, originalPhoto: true, enhancedPhoto: true } } },
       },
     },
   });

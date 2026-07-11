@@ -40,7 +40,8 @@ function outcomeFromSend(
 }
 
 const JOB_TIMEOUT_MS = 120_000;
-const STUCK_PROCESSING_MS = 5 * 60 * 1000;
+/** Recover hung PDF/send jobs quickly — previously 5 min left slips "not sent". */
+const STUCK_PROCESSING_MS = 90_000;
 
 function withJobTimeout<T>(promise: Promise<T>, jobId: number, jobType: string): Promise<T> {
   return Promise.race([

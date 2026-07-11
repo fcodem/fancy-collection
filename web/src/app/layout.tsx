@@ -2,16 +2,17 @@ import type { Metadata, Viewport } from "next";
 import AuthShellGate from "@/components/AuthShellGate";
 import ClientProviders from "@/components/ClientProviders";
 import SessionHeartbeat from "@/components/SessionHeartbeat";
+import { BRAND_APP_TITLE, BRAND_FULL_NAME, BRAND_HOUSE_TAGLINE, BRAND_THEME_COLOR } from "@/lib/branding";
 import "./globals.css";
 
-const APP_NAME = "Rental Manager";
+const APP_NAME = BRAND_APP_TITLE;
 
 export const metadata: Metadata = {
   title: {
     default: APP_NAME,
     template: `%s · ${APP_NAME}`,
   },
-  description: "Fancy Collection cloth rental management for staff",
+  description: `${BRAND_FULL_NAME} — ${BRAND_HOUSE_TAGLINE}. Staff rental management.`,
   applicationName: APP_NAME,
   manifest: "/manifest.json",
   appleWebApp: {
@@ -35,7 +36,7 @@ export const viewport: Viewport = {
   width: "device-width",
   initialScale: 1,
   viewportFit: "cover",
-  themeColor: "#5A1433",
+  themeColor: BRAND_THEME_COLOR,
 };
 
 export default function RootLayout({ children }: { children: React.ReactNode }) {
@@ -43,7 +44,7 @@ export default function RootLayout({ children }: { children: React.ReactNode }) 
     <html lang="en" suppressHydrationWarning>
       <head>
         <link rel="manifest" href="/manifest.json" />
-        <meta name="theme-color" content="#5A1433" />
+        <meta name="theme-color" content={BRAND_THEME_COLOR} />
         <meta name="apple-mobile-web-app-capable" content="yes" />
         <meta name="apple-mobile-web-app-status-bar-style" content="default" />
         <meta name="apple-mobile-web-app-title" content={APP_NAME} />

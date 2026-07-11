@@ -1,4 +1,5 @@
 import prisma from "@/lib/prisma";
+import { BRAND_APP_TITLE } from "@/lib/branding";
 import { isWhatsAppConfigured, sendWhatsAppText } from "./metaApi";
 
 /**
@@ -18,7 +19,7 @@ import { isWhatsAppConfigured, sendWhatsAppText } from "./metaApi";
  *   WHATSAPP_BOT_PHONE
  */
 
-const SHOP_NAME = process.env.WHATSAPP_BOT_SHOP_NAME?.trim() || "Fancy Collection";
+const SHOP_NAME = process.env.WHATSAPP_BOT_SHOP_NAME?.trim() || BRAND_APP_TITLE;
 const SHOP_ADDRESS = process.env.WHATSAPP_BOT_ADDRESS?.trim() || "";
 const SHOP_HOURS = process.env.WHATSAPP_BOT_HOURS?.trim() || "10:00 AM – 9:00 PM (all days)";
 const SHOP_PHONE = process.env.WHATSAPP_BOT_PHONE?.trim() || "";

@@ -46,7 +46,7 @@ export default async function DeliverySlipPage({
     where: { id: bookingId },
     include: {
       bookingItems: {
-        include: { item: { select: { color: true } } },
+        include: { item: { select: { color: true, photo: true, enhancedPhoto: true } } },
       },
       orders: { where: { status: "active" }, orderBy: { id: "asc" } },
     },

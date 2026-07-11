@@ -1,6 +1,9 @@
 "use client";
 
 import { useEffect, useState } from "react";
+import { useRouter } from "next/navigation";
+import { SaveConfirmedBanner } from "@/components/SaveConfirmedBanner";
+import { buildSaveRedirectUrl } from "@/components/SaveConfirmedBanner";
 
 type CategoryEntry = {
   name: string;
@@ -22,7 +25,12 @@ const GROUP_LABELS: Record<string, string> = {
 
 const GROUP_ORDER = ["mens", "womens", "jewellery", "accessory", "other"];
 
-export default function ManageCategoriesClient() {
+export default function ManageCategoriesClient({
+  saveConfirmed,
+}: {
+  saveConfirmed?: { title: string; detail?: string };
+}) {
+  const router = useRouter();
   const [groups, setGroups] = useState<Record<string, CategoryEntry[]> | null>(null);
   const [subCategories, setSubCategories] = useState<SubCategoryRow[]>([]);
   const [name, setName] = useState("");
@@ -59,13 +67,27 @@ export default function ManageCategoriesClient() {
 
   async function addCategory(e: React.FormEvent) {
     e.preventDefault();
-    await fetch("/api/categories", {
+    const catName = name.trim();
+    if (!catName) return;
+    const res = await fetch("/api/categories", {
       method: "POST",
       headers: { "Content-Type": "application/json" },
-      body: JSON.stringify({ name, group }),
+      body: JSON.stringify({ name: catName, group }),
     });
+    if (!res.ok) {
+      const err = await res.json().catch(() => ({}));
+      alert(err.error || "Failed to add category");
+      return;
+    }
     setName("");
     void load();
+    router.replace(
+      buildSaveRedirectUrl("/manage-categories", {
+        title: "Category saved",
+        detail: catName,
+      }),
+    );
+    window.scrollTo(0, 0);
   }
 
   async function hideBaseCategory(catName: string) {
@@ -103,13 +125,27 @@ export default function ManageCategoriesClient() {
 
   async function addSubCategory(e: React.FormEvent) {
     e.preventDefault();
-    await fetch("/api/sub-categories", {
+    const label = subName.trim();
+    if (!label) return;
+    const res = await fetch("/api/sub-categories", {
       method: "POST",
       headers: { "Content-Type": "application/json" },
-      body: JSON.stringify({ name: subName }),
+      body: JSON.stringify({ name: label }),
     });
+    if (!res.ok) {
+      const err = await res.json().catch(() => ({}));
+      alert(err.error || "Failed to add sub-category");
+      return;
+    }
     setSubName("");
     void load();
+    router.replace(
+      buildSaveRedirectUrl("/manage-categories", {
+        title: "Sub-category saved",
+        detail: label,
+      }),
+    );
+    window.scrollTo(0, 0);
   }
 
   function startEditSub(s: SubCategoryRow) {
@@ -138,6 +174,13 @@ export default function ManageCategoriesClient() {
 
   return (
     <div>
+      {saveConfirmed && (
+        <SaveConfirmedBanner
+          title={saveConfirmed.title}
+          detail={saveConfirmed.detail}
+          hint="Add another category or sub-category below."
+        />
+      )}
       <div className="card" style={{ marginBottom: 24 }}>
         <div className="card-header"><h3 className="card-title">Add Category</h3></div>
         <div className="card-body">

@@ -2,6 +2,8 @@
 
 import { useSearchParams } from "next/navigation";
 import { useEffect, useState } from "react";
+import { BrandLogo } from "@/components/BrandMark";
+import { BRAND_APP_TITLE } from "@/lib/branding";
 
 export default function LoginPending() {
   const searchParams = useSearchParams();
@@ -72,7 +74,9 @@ export default function LoginPending() {
   return (
     <div className="login-page">
       <div className="login-card card" style={{ textAlign: "center" }}>
-        <div className="brand-icon" style={{ margin: "0 auto 16px" }}>⏳</div>
+        <BrandLogo size={64} style={{ margin: "0 auto 12px" }} />
+        <div style={{ fontSize: 12, fontWeight: 700, color: "var(--primary)", marginBottom: 12 }}>{BRAND_APP_TITLE}</div>
+        <div className="brand-icon" style={{ margin: "0 auto 16px", width: 48, height: 48, fontSize: 22 }}>⏳</div>
         <h2>Waiting for Owner Approval</h2>
         <p style={{ color: "var(--text-muted)", marginTop: 12 }}>
           Your login request has been sent. Please wait while the owner approves your access.

@@ -3,7 +3,7 @@ import prisma from "@/lib/prisma";
 export async function saveWhatsAppOutboundMessage(opts: {
   bookingId?: number | null;
   phone: string;
-  messageType: "text" | "document";
+  messageType: "text" | "document" | "template";
   body?: string | null;
   mediaUrl?: string | null;
   filename?: string | null;

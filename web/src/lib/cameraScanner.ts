@@ -521,7 +521,9 @@ export class QrCameraSession {
     await new Promise<void>((resolve, reject) => {
       video.onloadedmetadata = () => resolve();
       video.onerror = () => reject(new Error("Video failed to load"));
-      void video.play().catch(reject);
+      void video.play().catch((err) => {
+        reject(err instanceof Error ? err : new Error("Video failed to play"));
+      });
     });
 
     this.engine = "native";

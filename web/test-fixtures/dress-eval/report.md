@@ -1,0 +1,14 @@
+# Dress Checker Eval
+
+Generated: 2026-07-10T20:38:54.703Z
+OpenAI: disabled
+
+## Summary
+- Runnable: 1
+- Passed: 1
+- Failed: 0
+- Skipped (missing fixtures): 0
+- Top1 (sameDress only): 100.0%
+
+## Cases
+- **rajwada-self**: pass (top1=ITM-1047 score=100)

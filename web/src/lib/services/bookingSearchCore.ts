@@ -449,9 +449,10 @@ export async function universalSearchBookings(
   };
 }
 
+/** Search Booking — active bookings only (not delivered, returned, or incomplete). */
 function activeStatusBookingWhere(category: string): Prisma.BookingWhereInput {
   return {
-    status: { in: ["booked", "delivered"] },
+    status: "booked",
     ...categoryWhere(category),
   };
 }
@@ -530,11 +531,17 @@ export async function monthBasedSearchBookings(
     return { mode: "date", results: [], total: 0, page, pageSize, hasMore: false };
   }
 
+  const monthWhere = await monthDeliveryWhereFromRefDate(refDate);
+
   let { where, mode } = buildActiveQueryWhere(q, category);
+  where = { ...where, ...monthWhere };
   let pageResult = await fetchBookingsPage(where, orderBy, page, pageSize);
 
   if (!pageResult.total && mode === "customer") {
-    ({ where, mode } = { where: { ...activeStatusBookingWhere(category), ...dressNameWhere(q) }, mode: "dress" });
+    ({ where, mode } = {
+      where: { ...activeStatusBookingWhere(category), ...dressNameWhere(q), ...monthWhere },
+      mode: "dress",
+    });
     pageResult = await fetchBookingsPage(where, orderBy, page, pageSize);
   }
 

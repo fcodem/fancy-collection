@@ -61,6 +61,49 @@ html {
   margin-bottom: 28px;
 }
 
+.login-brand-image {
+  width: min(100%, 360px);
+  height: auto;
+  margin: 0 auto 12px;
+  display: block;
+  border-radius: 14px;
+  box-shadow: 0 10px 32px rgba(0, 0, 0, 0.28);
+  object-fit: contain;
+  background: #1a1a1a;
+}
+
+.login-brand-motto {
+  display: inline-flex;
+  align-items: center;
+  justify-content: center;
+  gap: 0;
+  margin: 8px auto 10px;
+  padding: 5px 14px;
+  border-radius: 999px;
+  border: 2px solid var(--gold);
+  background: linear-gradient(90deg, #fff8e1, #fffef8, #fff8e1);
+  font-size: 11px;
+  font-weight: 800;
+  letter-spacing: 0.18em;
+  color: #1a5c2a;
+  text-transform: uppercase;
+}
+
+.login-brand-sub {
+  color: var(--primary);
+  font-size: 12px;
+  font-weight: 700;
+  letter-spacing: 0.08em;
+  text-transform: uppercase;
+  margin: 0 0 4px;
+}
+
+.login-brand-hint {
+  color: var(--text-muted);
+  font-size: 12px;
+  margin: 0;
+}
+
 .login-brand .brand-icon {
   width: 64px;
   height: 64px;

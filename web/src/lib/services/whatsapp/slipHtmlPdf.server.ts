@@ -12,10 +12,15 @@ export type SlipPdfRenderOptions = {
 };
 
 export function resolveAppOrigin(requestOrigin?: string): string {
+  const vercelOrigin = process.env.VERCEL_URL
+    ? `https://${process.env.VERCEL_URL.replace(/\/$/, "")}`
+    : undefined;
+
   const raw =
     requestOrigin?.replace(/\/$/, "") ||
     process.env.BASE_URL?.replace(/\/$/, "") ||
     process.env.NEXT_PUBLIC_APP_URL?.replace(/\/$/, "") ||
+    vercelOrigin ||
     "http://127.0.0.1:3000";
   return raw.replace("://localhost", "://127.0.0.1");
 }

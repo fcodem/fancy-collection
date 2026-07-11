@@ -1,5 +1,5 @@
 /* ========================================================
-   Fancy Collection – Rental Management System
+   Fancy Collection by Renu Agarwal – Rental Management System
    Luxury Theme: Burgundy × Gold × Cream
    ======================================================== */
 
@@ -113,17 +113,92 @@ body {
 
 .sidebar-brand .brand-icon {
   width: 52px; height: 52px;
-  background: linear-gradient(135deg, var(--gold), var(--gold-light));
-  border-radius: 14px;
+  background: transparent;
+  border-radius: 50%;
   display: flex; align-items: center; justify-content: center;
   margin: 0 auto 12px;
   font-size: 24px;
-  box-shadow: 0 4px 15px rgba(201,168,70,0.4);
+  box-shadow: none;
+  overflow: hidden;
+}
+
+.sidebar-brand .brand-icon-logo {
+  padding: 0;
+}
+
+.sidebar-brand .brand-title-main {
+  font-family: 'Playfair Display', serif;
+  font-size: 14px;
+  font-weight: 700;
+  color: var(--gold-light);
+  letter-spacing: 0.3px;
+  line-height: 1.25;
+  margin: 0;
+}
+
+.sidebar-brand .brand-title-owner {
+  font-size: 11px;
+  color: rgba(255,255,255,0.92);
+  font-weight: 700;
+  letter-spacing: 0.12em;
+  text-transform: uppercase;
+  margin-top: 4px;
+  display: block;
+}
+
+.sidebar-brand .brand-title-since {
+  display: inline-block;
+  margin-top: 6px;
+  padding: 2px 8px;
+  border-radius: 4px;
+  background: rgba(201,168,76,0.22);
+  border: 1px solid rgba(201,168,76,0.55);
+  color: var(--gold-light);
+  font-size: 9px;
+  font-weight: 800;
+  letter-spacing: 0.14em;
+}
+
+.sidebar-brand .brand-title-motto {
+  display: block;
+  margin-top: 6px;
+  font-size: 9px;
+  font-weight: 800;
+  letter-spacing: 0.16em;
+  color: var(--gold);
+  text-transform: uppercase;
+}
+
+.sidebar-brand .brand-title-sub {
+  display: block;
+  margin-top: 6px;
+  font-size: 9px;
+  color: rgba(255,255,255,0.45);
+  text-transform: uppercase;
+  letter-spacing: 1.2px;
+  font-weight: 500;
+}
+
+.brand-breadcrumb-name {
+  font-weight: 700;
+  color: var(--primary);
+  font-size: 13px;
+}
+
+.brand-breadcrumb-since {
+  font-size: 11px;
+  font-weight: 700;
+  color: var(--gold);
+  letter-spacing: 0.06em;
+}
+
+.breadcrumb-trail .brand-breadcrumb-dot {
+  color: var(--text-muted);
 }
 
 .sidebar-brand h1 {
   font-family: 'Playfair Display', serif;
-  font-size: 18px;
+  font-size: 14px;
   font-weight: 700;
   color: var(--gold-light);
   letter-spacing: 0.5px;
@@ -227,6 +302,10 @@ body {
 }
 
 .app-layout.sidebar-collapsed .sidebar-brand-text,
+.app-layout.sidebar-collapsed .brand-title-owner,
+.app-layout.sidebar-collapsed .brand-title-since,
+.app-layout.sidebar-collapsed .brand-title-motto,
+.app-layout.sidebar-collapsed .brand-title-sub,
 .app-layout.sidebar-collapsed .nav-section-label,
 .app-layout.sidebar-collapsed .nav-label,
 .app-layout.sidebar-collapsed .nav-badge,
@@ -244,6 +323,11 @@ body {
   height: 44px;
   font-size: 20px;
   margin-bottom: 0;
+}
+
+.app-layout.sidebar-collapsed .sidebar-brand .brand-icon-logo img {
+  width: 44px !important;
+  height: 44px !important;
 }
 
 .app-layout.sidebar-collapsed .sidebar-toggle-row {

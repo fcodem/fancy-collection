@@ -8,6 +8,10 @@ type SuggestItem = {
   label: string;
   meta: string;
   customer_name: string;
+  delivery_date?: string;
+  return_date?: string;
+  delivery_time?: string;
+  return_time?: string;
 };
 
 type Props = Omit<React.InputHTMLAttributes<HTMLInputElement>, "onSelect"> & {
@@ -102,7 +106,40 @@ export default function BookingSearchSuggestInput({
               className={`dress-suggest-item${idx === activeIdx ? " active" : ""}`}
               onMouseDown={(e) => { e.preventDefault(); selectItem(item); }}
             >
-              <span className="dress-suggest-name">{item.label}</span>
+              <div
+                style={{
+                  display: "flex",
+                  justifyContent: "space-between",
+                  alignItems: "flex-start",
+                  gap: 10,
+                  width: "100%",
+                }}
+              >
+                <span className="dress-suggest-name">{item.label}</span>
+                {(item.delivery_date || item.return_date) && (
+                  <span
+                    className="dress-suggest-dates"
+                    style={{
+                      fontSize: 11,
+                      color: "var(--text-muted)",
+                      textAlign: "right",
+                      lineHeight: 1.35,
+                      flexShrink: 0,
+                    }}
+                  >
+                    <span style={{ display: "block", whiteSpace: "nowrap" }}>
+                      <i className="fa-solid fa-truck" style={{ marginRight: 4, fontSize: 10 }} />
+                      {item.delivery_date}
+                      {item.delivery_time ? ` ${item.delivery_time}` : ""}
+                    </span>
+                    <span style={{ display: "block", whiteSpace: "nowrap" }}>
+                      <i className="fa-solid fa-rotate-left" style={{ marginRight: 4, fontSize: 10 }} />
+                      {item.return_date}
+                      {item.return_time ? ` ${item.return_time}` : ""}
+                    </span>
+                  </span>
+                )}
+              </div>
               {item.meta && <span className="dress-suggest-meta">{item.meta}</span>}
             </button>
           ))}

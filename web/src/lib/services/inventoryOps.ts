@@ -12,12 +12,21 @@ import { broadcastShopEvent } from "../realtime/broadcast";
 import { logActivity, snapshotInventory } from "../activityLog";
 import { onInventoryPhotoRemoved } from "../dressCheckerIndexing";
 import { scheduleInventoryPhotoPipeline } from "../inventoryPhotoPipeline";
-import {
-  siglipPhotoSearch,
-  type SiglipSearchFilters,
-  type SiglipSearchResponse,
-} from "./siglipSearch";
 import { mapConfidence } from "../siglipMath";
+import { ensurePendingAiProfile } from "../dressChecker/profileLifecycle";
+
+export type InventoryPhotoSearchFilters = {
+  category?: string;
+  subCategory?: string;
+  mode?: "AUTO" | "MANUAL" | "ALL";
+  size?: string;
+  color?: string;
+  gender?: string;
+  status?: string;
+  designer?: string;
+  minPrice?: number;
+  maxPrice?: number;
+};
 
 function itemTypeForCategory(category: string) {
   if (JEWELLERY_CATEGORIES.includes(category)) return "jewellery";
@@ -69,7 +78,10 @@ async function createInventoryUnits(
         deposit: base.deposit || 0,
         conditionNotes: base.condition_notes || "",
         itemType: base.itemType,
+        // Pipeline 1 only while enhancement is paused: store the upload as-is.
+        // Metadata / recognition still run via scheduleInventoryPhotoPipeline.
         photo: base.photo,
+        originalPhoto: base.photo || null,
         subCategory: base.subCategory,
         hasNecklace: base.hasNecklace ?? false,
         hasEarrings: base.hasEarrings ?? false,
@@ -77,6 +89,9 @@ async function createInventoryUnits(
         hasPasa: base.hasPasa ?? false,
       },
     });
+    if (base.photo) {
+      await ensurePendingAiProfile(item.id);
+    }
     created.push(item);
   }
   return created;
@@ -215,14 +230,25 @@ export async function updateInventoryItem(
   const beforeSnapshot = snapshotInventory(existing as unknown as Record<string, unknown>);
 
   let photo = existing.photo;
+  let newOriginalPhoto: string | null | undefined = undefined; // undefined = don't change
   const uploadsToDelete: string[] = [];
+
   if (form.remove_photo) {
     if (existing.photo) uploadsToDelete.push(existing.photo);
     photo = null;
+    // Keep originalPhoto on record for legal reference — don't delete it
   }
   if (form.photo) {
+    // Replace both photo and originalPhoto with the new upload so list/detail
+    // never keep showing a different older picture of the same dress.
     if (existing.photo) uploadsToDelete.push(existing.photo);
+    if (existing.originalPhoto && existing.originalPhoto !== existing.photo) {
+      uploadsToDelete.push(existing.originalPhoto);
+    }
+    if (existing.enhancedPhoto) uploadsToDelete.push(existing.enhancedPhoto);
+    if (existing.marketingPhoto) uploadsToDelete.push(existing.marketingPhoto);
     photo = await saveFastInventoryPhoto(form.photo);
+    newOriginalPhoto = photo;
   }
 
   const updated = await prisma.clothingItem.update({
@@ -238,8 +264,12 @@ export async function updateInventoryItem(
       status: form.status || existing.status,
       subCategory: form.sub_category || existing.subCategory,
       photo,
+      ...(newOriginalPhoto !== undefined ? { originalPhoto: newOriginalPhoto } : {}),
       ...(form.photo
         ? {
+            enhancedPhoto: null,
+            enhancementStatus: "none",
+            enhancementError: null,
             recognitionImage: null,
             recognitionFingerprint: Prisma.JsonNull,
             identificationIndex: Prisma.JsonNull,
@@ -323,17 +353,34 @@ export async function deleteInventoryItem(id: number, by?: string) {
   });
 }
 
-export type PhotoSearchResult = SiglipSearchResponse & {
+export type PhotoSearchResult = {
+  ok: true;
+  category: string;
+  category_results: Array<Record<string, unknown>>;
+  other_results: Array<Record<string, unknown>>;
+  used_fallback: boolean;
+  fallback_reason?: string | null;
+  fallback_code?: string | null;
+  search_degraded?: boolean;
+  degradation?: import("../dressChecker/searchHealth").SearchDegradation | null;
+  results: Array<Record<string, unknown>>;
+  search_engine: string;
+  best_similarity: number;
+  reliable_identification: boolean;
+  identification_meta?: Record<string, unknown>;
+  image_warnings?: string[];
   detectedStyle?: string;
   detectedColor?: string;
   detectedPattern?: string;
   detectedEmbroidery?: string;
   screenshot_warning?: boolean;
+  similar_available?: Array<Record<string, unknown>>;
+  ai_diagnostics?: Record<string, unknown>;
 };
 
 export async function photoSearchInventory(
   photoBuffer: Buffer,
-  filters: SiglipSearchFilters = {},
+  filters: InventoryPhotoSearchFilters = {},
   options: { debug?: boolean; mime?: string } = {},
 ): Promise<PhotoSearchResult> {
   const { validateDressCheckerImage } = await import("../dressCheckerValidation");
@@ -357,35 +404,103 @@ export async function photoSearchInventory(
     );
   }
 
+  console.log("[DressSearch] VECTOR SEARCH path=pgvector");
   try {
-    const result = await siglipPhotoSearch(safeBuffer, filters, options);
-    return { ...result, screenshot_warning: screenshotWarning, image_warnings: imageWarnings };
-  } catch (siglipErr) {
-    console.warn("[DressSearch] SigLIP search failed, using hash fallback:", siglipErr);
-  }
-
-  try {
-    const hashResult = await photoSearchInventoryHash(safeBuffer, filters.category || "");
-    return { ...hashResult, screenshot_warning: screenshotWarning, image_warnings: imageWarnings };
-  } catch (hashErr) {
-    console.error("[DressSearch] Hash search failed:", hashErr);
+    const { searchInventoryByDressCheckerEnterprise, VectorSearchFailure } = await import(
+      "../dressChecker/enterpriseSearch"
+    );
+    const enterprise = await searchInventoryByDressCheckerEnterprise(
+      safeBuffer,
+      {
+        category: filters.category || "",
+        subCategory: filters.subCategory || "",
+        mode: filters.mode || "MANUAL",
+      },
+      { debug: options.debug },
+    );
+    console.log(
+      `[DressSearch] VECTOR SEARCH OK engine=pgvector results=${enterprise.results.length} ms=${enterprise.processing_time_ms}`,
+    );
     return {
-      ok: true as const,
-      category: filters.category || "",
-      category_results: [],
-      other_results: [],
+      ...(enterprise as unknown as PhotoSearchResult),
+      similar_available: enterprise.similar_available,
+      ai_diagnostics: enterprise.ai_diagnostics,
+      screenshot_warning: screenshotWarning,
+      image_warnings: imageWarnings,
       used_fallback: false,
-      results: [],
-      search_engine: "hash",
-      best_similarity: 0,
-      reliable_identification: false,
+      fallback_reason: null,
+      fallback_code: null,
+      search_degraded: false,
+      degradation: null,
+    };
+  } catch (enterpriseErr) {
+    const { VectorSearchFailure } = await import("../dressChecker/enterpriseSearch");
+    const { buildSearchDegradation, logSearchDegradation } = await import(
+      "../dressChecker/searchHealth"
+    );
+
+    const exactReason =
+      enterpriseErr instanceof VectorSearchFailure
+        ? enterpriseErr.reason
+        : enterpriseErr instanceof Error
+          ? `Unexpected search error: ${enterpriseErr.message}`
+          : "Unexpected search error";
+
+    const failureCode =
+      enterpriseErr instanceof VectorSearchFailure
+        ? enterpriseErr.code
+        : "UNEXPECTED_SEARCH_ERROR";
+
+    // Hash fallback ONLY for true infrastructure / pgvector unavailability — never for app coding errors.
+    const infraCodes = new Set([
+      "PGVECTOR_MISSING",
+      "EMBEDDINGS_MISSING",
+      "EMBEDDINGS_MISSING_ALL",
+      "VECTOR_COLUMN_MISSING",
+      "DATABASE_UNAVAILABLE",
+    ]);
+    if (!infraCodes.has(String(failureCode))) {
+      console.error(
+        `[DressSearch] Refusing hash fallback for application/search error code=${failureCode}`,
+      );
+      throw enterpriseErr;
+    }
+
+    const vectorDiagnostics =
+      enterpriseErr instanceof VectorSearchFailure ? enterpriseErr.diagnostics : {};
+
+    const degradation = buildSearchDegradation(
+      exactReason,
+      { ...vectorDiagnostics, failure_code: failureCode },
+      filters.category || undefined,
+    );
+    degradation.code = failureCode;
+
+    logSearchDegradation(degradation);
+
+    const hashResult = await photoSearchInventoryHash(
+      safeBuffer,
+      filters.category || "",
+      degradation,
+    );
+    return {
+      ...hashResult,
       screenshot_warning: screenshotWarning,
       image_warnings: imageWarnings,
     };
   }
 }
 
-async function photoSearchInventoryHash(photoBuffer: Buffer, category = "") {
+async function photoSearchInventoryHash(
+  photoBuffer: Buffer,
+  category = "",
+  degradation?: import("../dressChecker/searchHealth").SearchDegradation,
+) {
+  console.log("[DressSearch] HASH FALLBACK ACTIVE — degraded search, not primary engine");
+  if (degradation) {
+    console.log(`[DressSearch] HASH FALLBACK cause code=${degradation.code}`);
+    console.log(`[DressSearch] HASH FALLBACK cause reason=${degradation.reason}`);
+  }
   const { computeImageFingerprint, combinedImageSimilarity, PHOTO_MATCH_MIN_SCORE } = await import("../photoHash");
   const { loadPhotoBuffer } = await import("./siglipSearch");
 
@@ -458,15 +573,31 @@ async function photoSearchInventoryHash(photoBuffer: Buffer, category = "") {
   }
 
   const results = [...category_results, ...other_results];
+  const fallbackReason = degradation
+    ? `Hash fallback after pgvector failed [${degradation.code}]: ${degradation.reason}`
+    : "Hash fallback — pgvector search was not attempted";
+  console.log(`[DressSearch] HASH FALLBACK COMPLETE results=${results.length} code=${degradation?.code ?? "unknown"}`);
   return {
     ok: true as const,
     category,
     category_results,
     other_results,
-    used_fallback,
+    used_fallback: true,
+    search_degraded: true,
+    degradation: degradation ?? null,
+    fallback_reason: fallbackReason,
+    fallback_code: degradation?.code ?? "SEARCH_DEGRADED_HASH",
     results,
     search_engine: "hash" as const,
     best_similarity: results[0]?.similarity ?? 0,
-    reliable_identification: (results[0]?.similarity ?? 0) >= 55,
+    // Hash results must never auto-identify a dress
+    reliable_identification: false,
+    ai_diagnostics: degradation
+      ? {
+          search_degradation: degradation,
+          warning:
+            "Hash results are approximate — fix pgvector/infrastructure. Do not auto-identify.",
+        }
+      : undefined,
   };
 }

@@ -48,6 +48,8 @@ export type SiglipSearchResponse = {
   identification_meta?: DressCheckerSearchMeta;
   dress_checker_debug?: DressCheckerDebugPayload;
   image_warnings?: string[];
+  identity_engine_active?: boolean;
+  stale_index_count?: number;
 };
 
 export async function loadPhotoBuffer(photo: string): Promise<Buffer | null> {

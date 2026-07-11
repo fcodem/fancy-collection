@@ -12,9 +12,9 @@ export default async function ReturnDetailPage({ params }: { params: Promise<{ i
     where: { id: parseInt(id, 10) },
     include: {
       bookingItems: {
-        include: { item: { select: { photo: true, size: true, color: true, category: true } } },
+        include: { item: { select: { photo: true, enhancedPhoto: true, size: true, color: true, category: true } } },
       },
-      legacyItem: { select: { photo: true, size: true, category: true } },
+      legacyItem: { select: { photo: true, enhancedPhoto: true, size: true, category: true } },
       orders: { where: { status: "active" }, orderBy: { deliveryDate: "asc" } },
     },
   });

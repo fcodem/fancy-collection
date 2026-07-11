@@ -1,10 +1,11 @@
 "use client";
 
 import Link from "next/link";
-import { useCallback, useEffect, useState } from "react";
+import { useCallback, useEffect, useMemo, useState } from "react";
 import BookingSearchSuggestInput from "@/components/BookingSearchSuggestInput";
 import { StandardBookingTableCells, StandardBookingTableHead } from "@/components/BookingDetailsColumns";
 import type { StandardBookingDetails } from "@/lib/bookingDetails";
+import { bookingMonthKey, formatBookingMonthLabel } from "@/lib/bookingMonth";
 import { formatInr } from "@/lib/format";
 import { pdfCurrency } from "@/lib/pdfFormat";
 import { useRealtimeRefresh } from "@/hooks/useRealtimeRefresh";
@@ -49,7 +50,7 @@ const MODE_HINTS: Record<string, string> = {
   dress: "Dress name match — sorted nearest to selected date",
   mixed: "Combined matches — sorted nearest to selected date",
   year: "All records in selected year",
-  month: "Booked & delivered only for the selected month — sorted by serial",
+  month: "Booked only for the selected month — delivered and returned records are hidden",
   date: "Showing bookings nearest to the selected date",
 };
 
@@ -63,6 +64,7 @@ export default function BookingSearchPage({
   showDeliveryInfo = false,
   showCategoryFilter = false,
   monthBased = false,
+  monthGroupField,
   hint,
   todayIso,
   categories,
@@ -79,6 +81,8 @@ export default function BookingSearchPage({
   showDeliveryInfo?: boolean;
   showCategoryFilter?: boolean;
   monthBased?: boolean;
+  /** When set, insert month section headers while walking rows (API must return ASC by that date). */
+  monthGroupField?: "delivery" | "return";
   hint?: string;
   todayIso: string;
   categories?: Categories;
@@ -163,8 +167,32 @@ export default function BookingSearchPage({
   const colSpan = 10 + (showRemaining ? 1 : 0) + (showStatus ? 1 : 0) + (showDeliveryInfo ? 1 : 0);
   const suggestMode = apiPath.includes("return") ? "return" : "delivery";
   const defaultHint = monthBased
-    ? "Pick any date in a month — booked and delivered records for that month appear below (returned records are hidden). Use Search to filter by customer, dress, phone, or serial. Large lists are paginated — use Next/Previous at the bottom."
-    : "Search by customer name, dress, phone, WhatsApp, or serial. Includes booked, delivered, and returned records. Customer name searches full lifetime; other fields search within the selected year. Results are paginated for large datasets.";
+    ? "Pick any date in a month — only active booked records for that month appear below (delivered and returned are hidden). Use Search to filter by customer, dress, phone, or serial. Large lists are paginated — use Next/Previous at the bottom."
+    : monthGroupField
+      ? "All matching bookings appear below, grouped by month, oldest date first. Use Search to filter by customer, dress, phone, or serial."
+      : "Search by customer name, dress, phone, WhatsApp, or serial. Includes booked, delivered, and returned records. Customer name searches full lifetime; other fields search within the selected year. Results are paginated for large datasets.";
+
+  const tableBodyRows = useMemo(() => {
+    if (!rows.length) return null;
+    if (!monthGroupField) {
+      return rows.map((b) => ({ type: "booking" as const, booking: b }));
+    }
+    const out: Array<
+      | { type: "month"; key: string; label: string }
+      | { type: "booking"; booking: BookingRow }
+    > = [];
+    let lastMonth = "";
+    for (const b of rows) {
+      const dateVal = monthGroupField === "return" ? b.return_date : b.delivery_date;
+      const key = bookingMonthKey(dateVal);
+      if (key && key !== lastMonth) {
+        lastMonth = key;
+        out.push({ type: "month", key, label: formatBookingMonthLabel(dateVal) });
+      }
+      out.push({ type: "booking", booking: b });
+    }
+    return out;
+  }, [rows, monthGroupField]);
 
   const pdfHeaders = [
     ...STANDARD_BOOKING_HEADERS,
@@ -322,8 +350,29 @@ export default function BookingSearchPage({
                   </tr>
                 </thead>
                 <tbody>
-                  {rows.length ? (
-                    rows.map((b) => (
+                  {tableBodyRows ? (
+                    tableBodyRows.map((entry) => {
+                      if (entry.type === "month") {
+                        return (
+                          <tr key={`month-${entry.key}`}>
+                            <td
+                              colSpan={colSpan}
+                              style={{
+                                background: "var(--cream-dark)",
+                                fontWeight: 700,
+                                fontSize: 13,
+                                color: "var(--primary)",
+                                padding: "10px 16px",
+                                borderTop: "2px solid var(--border)",
+                              }}
+                            >
+                              {entry.label}
+                            </td>
+                          </tr>
+                        );
+                      }
+                      const b = entry.booking;
+                      return (
                       <tr key={b.id}>
                         <td className="booking-col-serial">
                           <strong>{String(b.serial_no ?? b.serial).padStart(2, "0")}</strong>
@@ -391,7 +440,8 @@ export default function BookingSearchPage({
                           )}
                         </td>
                       </tr>
-                    ))
+                      );
+                    })
                   ) : (
                     <tr>
                       <td colSpan={colSpan} style={{ textAlign: "center", padding: 20 }}>

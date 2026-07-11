@@ -1,7 +1,8 @@
 import type { IdentificationIndex } from "../dressIdentificationTypes";
 import type { FeatureFingerprint } from "./types";
+import { DRESS_CHECKER_FINGERPRINT_VERSION } from "./types";
 
-export const DRESS_CHECKER_FINGERPRINT_VERSION = 7;
+export { DRESS_CHECKER_FINGERPRINT_VERSION };
 
 /** Permanent AI identity stored on InventoryAiProfile (not ClothingItem). */
 export type StoredIdentityEmbeddings = {

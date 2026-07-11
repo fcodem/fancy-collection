@@ -1,0 +1,28 @@
+{
+  "generatedAt": "2026-07-10T20:38:54.703Z",
+  "openai": "disabled",
+  "summary": {
+    "total": 1,
+    "runnable": 1,
+    "passed": 1,
+    "failed": 0,
+    "skipped": 0,
+    "top1AccuracySameDress": 1
+  },
+  "results": [
+    {
+      "id": "rajwada-self",
+      "status": "pass",
+      "top1Sku": "ITM-1047",
+      "top3Skus": [
+        "ITM-1047",
+        "ITM-1043",
+        "ITM-1049"
+      ],
+      "top1Score": 100,
+      "openaiCalled": false,
+      "expectedSku": "ITM-1047",
+      "relationship": "sameDress"
+    }
+  ]
+}

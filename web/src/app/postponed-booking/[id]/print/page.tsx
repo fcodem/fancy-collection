@@ -6,6 +6,10 @@ import { getPostponedPrintDetail } from "@/lib/services/postponedBooking";
 import { formatDate } from "@/lib/constants";
 import { formatInr } from "@/lib/format";
 import PrintPostponedActions from "./PrintPostponedActions";
+import SlipBrandTitle from "@/components/SlipBrandTitle";
+import SlipLogo from "@/components/SlipLogo";
+import SlipMottoBanner from "@/components/SlipMottoBanner";
+import { SLIP_BIZ } from "@/lib/slipBookingData";
 
 export async function generateMetadata({
   params,
@@ -16,9 +20,8 @@ export async function generateMetadata({
   return { title: `Postponed Slip — #${id}` };
 }
 
-const COMPANY_NAME = "FANCY COLLECTION BY RENU AGARWAL";
-const TAGLINE = "RENT | WEAR | RETURN";
-const PHONES = "8630834711, 8077843874";
+const COMPANY_NAME = SLIP_BIZ.name;
+const PHONES = SLIP_BIZ.phone;
 
 export default async function PostponedPrintPage({
   params,
@@ -68,8 +71,18 @@ export default async function PostponedPrintPage({
 
       <div id="postponed-slip-content" className="postponed-slip-content">
       <div style={{ textAlign: "center", marginBottom: 24 }}>
-        <h1 style={{ margin: 0, fontSize: 22, letterSpacing: 1 }}>{COMPANY_NAME}</h1>
-        <p style={{ margin: "4px 0", fontSize: 13, color: "#666" }}>{TAGLINE}</p>
+        <div style={{ display: "flex", justifyContent: "center", marginBottom: 12 }}>
+          <SlipLogo size={72} />
+        </div>
+        <SlipBrandTitle
+          name={COMPANY_NAME}
+          wrapStyle={{ justifyContent: "center" }}
+          nameStyle={{ fontSize: 22, fontWeight: 800, letterSpacing: 1, color: "#1a5c2a", fontFamily: "Georgia, serif" }}
+          badgeStyle={{ fontSize: 11 }}
+        />
+        <div style={{ display: "flex", justifyContent: "center", margin: "10px 0 6px" }}>
+          <SlipMottoBanner variant="light" />
+        </div>
         <p style={{ margin: 0, fontSize: 12, color: "#888" }}>{PHONES}</p>
       </div>
 

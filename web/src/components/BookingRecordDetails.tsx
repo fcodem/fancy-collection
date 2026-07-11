@@ -75,6 +75,10 @@ export function BookingRecordDetails({
     <div className="booking-record-details">
       <div style={gridStyle}>
         <Field label="Customer" value={<strong>{d.customer_name}</strong>} />
+        <Field
+          label="Booked On"
+          value={d.booking_date ? `${d.booking_date} ${d.booking_time}` : "—"}
+        />
         <Field label="Address" value={d.customer_address} />
         <Field label="Contact" value={d.contact1} />
         {d.whatsapp && (

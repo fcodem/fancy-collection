@@ -25,6 +25,15 @@ const PEACOCK_UPLOAD =
 const BRIDAL_SCREENSHOT =
   "C:/Users/asus/.cursor/projects/c-Projects-ssdn-soft/assets/c__Users_asus_AppData_Roaming_Cursor_User_workspaceStorage_empty-window_images_MIS-6d698e03-3e31-48f8-8fb1-0c5166226b06.png";
 
+/** Current inventory SKUs (renumbered after re-import). */
+const SKU = {
+  BLUE_CUTDANA_2: "ITM-1035",
+  BLUE_CUTDANA: "ITM-1042",
+  PISTA: "ITM-1046",
+  RAJWADA: "ITM-1047",
+  FLORAL_CT: "ITM-0027",
+} as const;
+
 async function loadCatalogPhoto(photo: string) {
   return readFile(join(process.cwd(), "public", "uploads", photo.replace(/^uploads\//, "")));
 }
@@ -38,8 +47,9 @@ async function scoreAgainstSkus(queryPath: string, skus: string[]) {
   });
 
   const scores: Record<string, number> = {};
-  const queryIsMulti =
-    query.colorFamily === "multi" || histogramIndicatesMulti(query.colorHistogram);
+  // Only treat as multi when the primary family is multi — green/blue bodies with
+  // gold zari can trip histogramIndicatesMulti without being bridal multi-panel.
+  const queryIsMulti = query.colorFamily === "multi";
   for (const item of items) {
     if (!item.photo) continue;
     const stored = await computeImageFingerprint(await loadCatalogPhoto(item.photo));
@@ -66,58 +76,58 @@ async function scoreAgainstSkus(queryPath: string, skus: string[]) {
 }
 
 async function scoreAgainstCatalog(queryPath: string) {
-  return scoreAgainstSkus(queryPath, ["ITM-1035", "ITM-1036", "ITM-1037"]);
+  return scoreAgainstSkus(queryPath, [SKU.BLUE_CUTDANA_2, SKU.BLUE_CUTDANA, SKU.PISTA]);
 }
 
 describe("green lehenga integration", () => {
   it("ranks PISTA above blue CUTDANAs for floor photo", async () => {
     const { scores } = await scoreAgainstCatalog(GREEN_FLOOR);
-    assert.ok((scores["ITM-1037"] ?? 0) > (scores["ITM-1036"] ?? 0));
-    assert.ok((scores["ITM-1037"] ?? 0) > (scores["ITM-1035"] ?? 0));
-    assert.ok((scores["ITM-1036"] ?? 0) <= 12);
+    assert.ok((scores[SKU.PISTA] ?? 0) > (scores[SKU.BLUE_CUTDANA] ?? 0));
+    assert.ok((scores[SKU.PISTA] ?? 0) > (scores[SKU.BLUE_CUTDANA_2] ?? 0));
+    assert.ok((scores[SKU.BLUE_CUTDANA] ?? 0) <= 12);
   });
 
   it("ranks PISTA above blue CUTDANAs for hanger photo", async () => {
     const { scores } = await scoreAgainstCatalog(GREEN_HANGER);
-    assert.ok((scores["ITM-1037"] ?? 0) > (scores["ITM-1036"] ?? 0));
-    assert.ok((scores["ITM-1036"] ?? 0) <= 12);
+    assert.ok((scores[SKU.PISTA] ?? 0) > (scores[SKU.BLUE_CUTDANA] ?? 0));
+    assert.ok((scores[SKU.BLUE_CUTDANA] ?? 0) <= 12);
   });
 });
 
 describe("blue cutdana integration", () => {
-  it("ranks CUTDANA 2 above CUTDANA 3 for blue query when AI pattern applied", async () => {
+  it("ranks CUTDANA 2 above CUTDANA for blue query when AI pattern applied", async () => {
     const { scores } = await scoreAgainstCatalog(BLUE_CUTDANA2);
-    const cutdana2 = finalPhotoSearchScore(88, scores["ITM-1035"] ?? 0, 85, 43, 100, "blue", "blue");
-    const cutdana3 = finalPhotoSearchScore(52, scores["ITM-1036"] ?? 0, 80, 67, 100, "blue", "blue");
-    assert.ok(cutdana2 > cutdana3);
+    const cutdana2 = finalPhotoSearchScore(88, scores[SKU.BLUE_CUTDANA_2] ?? 0, 85, 43, 100, "blue", "blue");
+    const cutdana = finalPhotoSearchScore(52, scores[SKU.BLUE_CUTDANA] ?? 0, 80, 67, 100, "blue", "blue");
+    assert.ok(cutdana2 > cutdana);
   });
 });
 
 describe("multi bridal Dn 7967", () => {
   it("ranks MULTI RAJWADA above FLORAL CT and blue CUTDANAs", async () => {
     const { queryFamily, scores } = await scoreAgainstSkus(PEACOCK_UPLOAD, [
-      "ITM-1043",
-      "ITM-0027",
-      "ITM-1035",
-      "ITM-1036",
+      SKU.RAJWADA,
+      SKU.FLORAL_CT,
+      SKU.BLUE_CUTDANA_2,
+      SKU.BLUE_CUTDANA,
     ]);
     assert.equal(queryFamily, "multi");
-    assert.ok((scores["ITM-1043"] ?? 0) > (scores["ITM-0027"] ?? 0));
-    assert.ok((scores["ITM-1043"] ?? 0) > (scores["ITM-1036"] ?? 0));
-    assert.ok((scores["ITM-1036"] ?? 0) <= 12);
+    assert.ok((scores[SKU.RAJWADA] ?? 0) > (scores[SKU.FLORAL_CT] ?? 0));
+    assert.ok((scores[SKU.RAJWADA] ?? 0) > (scores[SKU.BLUE_CUTDANA] ?? 0));
+    assert.ok((scores[SKU.BLUE_CUTDANA] ?? 0) <= 12);
   });
 
   it("ranks MULTI RAJWADA above FLORAL CT for phone screenshot upload", async () => {
-    const { scores } = await scoreAgainstSkus(BRIDAL_SCREENSHOT, ["ITM-1043", "ITM-0027"]);
-    assert.ok((scores["ITM-1043"] ?? 0) > (scores["ITM-0027"] ?? 0));
-    assert.ok((scores["ITM-1043"] ?? 0) >= 50);
+    const { scores } = await scoreAgainstSkus(BRIDAL_SCREENSHOT, [SKU.RAJWADA, SKU.FLORAL_CT]);
+    assert.ok((scores[SKU.RAJWADA] ?? 0) > (scores[SKU.FLORAL_CT] ?? 0));
+    assert.ok((scores[SKU.RAJWADA] ?? 0) >= 50);
   });
 
   it("ranks MULTI RAJWADA above PISTA SIKKIYA for META phone upload", async () => {
     const META =
       "C:/Users/asus/.cursor/projects/c-Projects-ssdn-soft/assets/c__Users_asus_AppData_Roaming_Cursor_User_workspaceStorage_empty-window_images_META-51995eef-bd72-46b6-9dc6-7df4244453cb.png";
-    const { scores } = await scoreAgainstSkus(META, ["ITM-1043", "ITM-1037", "ITM-0027"]);
-    assert.ok((scores["ITM-1043"] ?? 0) > (scores["ITM-1037"] ?? 0));
-    assert.ok((scores["ITM-1037"] ?? 0) <= 12);
+    const { scores } = await scoreAgainstSkus(META, [SKU.RAJWADA, SKU.PISTA, SKU.FLORAL_CT]);
+    assert.ok((scores[SKU.RAJWADA] ?? 0) > (scores[SKU.PISTA] ?? 0));
+    assert.ok((scores[SKU.PISTA] ?? 0) <= 12);
   });
 });

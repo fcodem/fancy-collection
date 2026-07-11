@@ -4,7 +4,6 @@ import { saveDelivery } from "@/lib/services/operations";
 import { jsonError, jsonOk, requireUser, isResponse, requireJsonContentType } from "@/lib/api";
 import {
   finalizeSlipTrigger,
-  scheduleDebouncedSlipTrigger,
 } from "@/lib/services/whatsapp/slipDebounce";
 import { newlyDeliveredItemIdsFromPayload } from "@/lib/slipDelta";
 
@@ -51,13 +50,12 @@ export async function POST(req: NextRequest, { params }: { params: Promise<{ id:
       const slipOpts = {
         requestOrigin: req.nextUrl.origin,
         createdBy: user.username,
+        deliveryItemIds,
       };
       try {
-        if (body.slip_finalize === true || deliveryItemIds.length > 1) {
-          await finalizeSlipTrigger(bookingId, "delivery", slipOpts);
-        } else {
-          scheduleDebouncedSlipTrigger(bookingId, "delivery", slipOpts);
-        }
+        // Always send immediately via durable DB jobs. In-memory debounce was lost
+        // on Next.js restarts and left delivered bookings with no WhatsApp slip.
+        await finalizeSlipTrigger(bookingId, "delivery", slipOpts);
       } catch (e) {
         console.error("[delivery save] WhatsApp slip error:", e);
       }

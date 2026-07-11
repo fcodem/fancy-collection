@@ -1,7 +1,10 @@
 import { NextRequest } from "next/server";
 import { jsonOk, jsonError, requireOwner, isResponse, requireJsonContentType } from "@/lib/api";
 import prisma from "@/lib/prisma";
+import { normalizeIndianPhone } from "@/lib/phone";
 import { sendWhatsAppTemplate } from "@/lib/services/whatsapp/metaApi";
+
+type Recipient = { phone: string; name: string };
 
 export async function GET(req: NextRequest) {
   const user = await requireOwner();
@@ -25,8 +28,11 @@ export async function POST(req: NextRequest) {
   const body = (await req.json()) as {
     templateName: string;
     templateLanguage?: string;
-    recipientType: "all_customers" | "pending_returns" | "custom_phones";
+    recipientType: "all_customers" | "pending_returns" | "custom_phones" | "excel_sheet";
     customPhones?: string[];
+    excelRecipients?: Array<{ phone?: string; name?: string }>;
+    /** When true, send customer name as template body {{1}}. */
+    injectNameAsBodyVar?: boolean;
     components?: unknown[];
     broadcastName: string;
   };
@@ -36,6 +42,8 @@ export async function POST(req: NextRequest) {
     templateLanguage = "en",
     recipientType,
     customPhones,
+    excelRecipients,
+    injectNameAsBodyVar = false,
     components = [],
     broadcastName,
   } = body;
@@ -44,10 +52,31 @@ export async function POST(req: NextRequest) {
     return jsonError("templateName and broadcastName are required", 400);
   }
 
-  let phones: Array<{ phone: string; name: string }> = [];
+  let phones: Recipient[] = [];
 
-  if (recipientType === "custom_phones" && customPhones) {
-    phones = customPhones.map((p) => ({ phone: p, name: "Customer" }));
+  if (recipientType === "excel_sheet") {
+    if (!excelRecipients?.length) {
+      return jsonError("Excel sheet has no valid recipients (need Name + Phone columns).", 400);
+    }
+    const seen = new Set<string>();
+    for (const row of excelRecipients) {
+      const normalized = normalizeIndianPhone(String(row.phone || ""));
+      if (!normalized) continue;
+      const key = normalized.replace(/\D/g, "").slice(-10);
+      if (seen.has(key)) continue;
+      seen.add(key);
+      phones.push({
+        phone: normalized,
+        name: (row.name || "Customer").trim() || "Customer",
+      });
+    }
+  } else if (recipientType === "custom_phones" && customPhones) {
+    phones = customPhones
+      .map((p) => {
+        const phone = normalizeIndianPhone(p) || p.trim();
+        return phone ? { phone, name: "Customer" } : null;
+      })
+      .filter((p): p is Recipient => Boolean(p));
   } else if (recipientType === "all_customers") {
     const bookings = await prisma.booking.findMany({
       where: {
@@ -92,7 +121,14 @@ export async function POST(req: NextRequest) {
     },
   });
 
-  void sendBroadcastMessages(broadcast.id, phones, templateName, templateLanguage, components);
+  void sendBroadcastMessages(
+    broadcast.id,
+    phones,
+    templateName,
+    templateLanguage,
+    components,
+    injectNameAsBodyVar || recipientType === "excel_sheet",
+  );
 
   return jsonOk({
     ok: true,
@@ -102,19 +138,35 @@ export async function POST(req: NextRequest) {
   });
 }
 
+function bodyComponentsForName(name: string): unknown[] {
+  return [
+    {
+      type: "body",
+      parameters: [{ type: "text", text: (name || "Customer").slice(0, 1024) }],
+    },
+  ];
+}
+
 async function sendBroadcastMessages(
   broadcastId: number,
-  phones: Array<{ phone: string; name: string }>,
+  phones: Recipient[],
   templateName: string,
   language: string,
   components: unknown[],
+  injectNameAsBodyVar: boolean,
 ) {
   let sent = 0;
   let failed = 0;
 
   for (const recipient of phones) {
     try {
-      const result = await sendWhatsAppTemplate(recipient.phone, templateName, language, components);
+      const comps =
+        components.length > 0
+          ? components
+          : injectNameAsBodyVar
+            ? bodyComponentsForName(recipient.name)
+            : [];
+      const result = await sendWhatsAppTemplate(recipient.phone, templateName, language, comps);
       if (result.ok) sent++;
       else failed++;
     } catch {

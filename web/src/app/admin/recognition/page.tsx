@@ -1,6 +1,12 @@
+import { redirect } from "next/navigation";
+import { getCurrentUser, isOwner } from "@/lib/auth";
 import RecognitionAdminClient from "@/components/RecognitionAdminClient";
 
-export default function RecognitionAdminPage() {
+export default async function RecognitionAdminPage() {
+  const user = await getCurrentUser();
+  if (!user) redirect("/login");
+  if (!isOwner(user)) redirect("/");
+
   return (
     <div className="page-content">
       <h1 className="page-title">Recognition Pipeline</h1>
