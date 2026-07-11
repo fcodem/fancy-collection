@@ -44,6 +44,23 @@ export function formatDate(d: Date | string, style: "iso" | "display" = "iso"): 
   });
 }
 
+/** When the booking record was created (matches booking form clock style). */
+export function formatBookingDateTime(d: Date | string): { date: string; time: string } {
+  const dt = typeof d === "string" ? new Date(d) : d;
+  return {
+    date: dt.toLocaleDateString("en-GB", {
+      day: "2-digit",
+      month: "short",
+      year: "numeric",
+    }),
+    time: dt.toLocaleTimeString("en-IN", {
+      hour: "2-digit",
+      minute: "2-digit",
+      hour12: true,
+    }),
+  };
+}
+
 export function localTodayStart(): Date {
   const now = new Date();
   return new Date(now.getFullYear(), now.getMonth(), now.getDate());

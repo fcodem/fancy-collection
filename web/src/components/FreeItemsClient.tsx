@@ -208,6 +208,7 @@ export default function FreeItemsClient({ today }: { today: string }) {
     try {
       const res = await fetch(
         `/api/booking/available-items?delivery_date=${deliveryDate}&return_date=${returnDate}&category=${encodeURIComponent(category)}`,
+        { cache: "no-store" },
       );
       if (!res.ok) return;
       const data = await res.json();

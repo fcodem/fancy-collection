@@ -4,11 +4,14 @@ import Link from "next/link";
 import { useCallback, useEffect, useRef, useState, type DragEvent, type ReactNode } from "react";
 import DressNameSuggestInput from "@/components/DressNameSuggestInput";
 import CategorySelect from "./CategorySelect";
+import CameraCaptureModal from "@/components/CameraCaptureModal";
 import { photoUrl } from "@/lib/photoUrl";
 import { useRealtimeRefresh } from "@/hooks/useRealtimeRefresh";
 import { INVENTORY_EVENTS } from "@/lib/realtime/types";
 import { SIZES, SUB_CATEGORIES } from "@/lib/constants";
 import type { DressCheckerSearchMeta } from "@/lib/dressCheckerTypes";
+import { remediationForIssueCode } from "@/lib/dressChecker/issueRemediation";
+import { subcategoryOptionsForCategory } from "@/lib/dressChecker/categorySearchScope";
 
 type Confidence = {
   stars: string;
@@ -45,6 +48,11 @@ type SearchItem = {
   similarity?: number;
   confidence?: Confidence;
   rank_reason?: string;
+  ai_explanation?: string;
+  expected_return_date?: string | null;
+  next_available_date?: string | null;
+  upcoming_booking_count?: number;
+  vector_similarity?: number;
   component_scores?: ComponentScores;
   best_reference?: { refId: string; label: string; querySource: string };
   match_explanation?: {
@@ -69,9 +77,29 @@ type SearchResponse = {
   category_results: SearchItem[];
   other_results: SearchItem[];
   used_fallback: boolean;
+  fallback_reason?: string | null;
+  fallback_code?: string | null;
+  search_degraded?: boolean;
+  degradation?: {
+    code: string;
+    reason: string;
+    from_engine: string;
+    to_engine: string;
+  } | null;
   category: string;
   detected_category?: string;
-  search_engine?: "identification" | "hash" | "siglip";
+  search_mode?: "AUTO" | "MANUAL" | "ALL";
+  search_scope_label?: string;
+  detected_subcategory?: string;
+  offer_search_entire_inventory?: boolean;
+  category_filter_diagnostics?: {
+    candidates_before_filtering: number;
+    candidates_after_filtering: number;
+    indexed_before_filtering: number;
+    indexed_after_filtering: number;
+  };
+  sub_category?: string;
+  search_engine?: "identification" | "hash" | "siglip" | "openai_pgvector_hybrid";
   screenshot_warning?: boolean;
   best_similarity?: number;
   reliable_identification?: boolean;
@@ -119,6 +147,8 @@ type SearchResponse = {
     }>;
     componentScores: Record<string, number> | null;
   };
+  similar_available?: SearchItem[];
+  ai_diagnostics?: Record<string, unknown>;
 };
 
 const PHOTO_ACCEPT = "image/jpeg,image/jpg,image/png,image/webp";
@@ -132,10 +162,63 @@ function statusColor(status: string) {
 }
 
 function simColor(pct: number) {
-  if (pct >= 90) return "#68d391";
-  if (pct >= 80) return "#9ae6b4";
-  if (pct >= 70) return "#fbd38d";
+  if (pct >= 95) return "#68d391";
+  if (pct >= 85) return "#9ae6b4";
+  if (pct >= 75) return "#fbd38d";
   return "#fc8181";
+}
+
+function SearchDegradationBanner({
+  code,
+  reason,
+  searchEngine,
+}: {
+  code: string;
+  reason: string;
+  searchEngine?: string;
+}) {
+  const remediation = remediationForIssueCode(code);
+
+  return (
+    <div
+      role="alert"
+      style={{
+        padding: "12px 14px",
+        marginBottom: 14,
+        borderRadius: 10,
+        border: "1px solid #c53030",
+        background: "rgba(197,48,48,0.08)",
+        borderLeft: "4px solid #c53030",
+      }}
+    >
+      <div style={{ display: "flex", alignItems: "flex-start", gap: 10 }}>
+        <i
+          className="fa-solid fa-triangle-exclamation"
+          style={{ color: "#c53030", marginTop: 2, flexShrink: 0 }}
+        />
+        <div style={{ flex: 1, fontSize: 13 }}>
+          <div style={{ fontWeight: 700, color: "#9b2c2c" }}>
+            Search degraded — hash fallback active
+          </div>
+          <div style={{ marginTop: 4, color: "#742a2a" }}>
+            <code style={{ fontSize: 11 }}>{code}</code>
+            <span style={{ marginLeft: 8 }}>{reason}</span>
+          </div>
+          {searchEngine && (
+            <div style={{ marginTop: 4, fontSize: 11, color: "#a0aec0" }}>
+              Engine: {searchEngine}
+            </div>
+          )}
+          <div style={{ marginTop: 6, fontSize: 12, color: "#744210" }}>
+            <strong>Fix:</strong> {remediation}
+          </div>
+          <div style={{ marginTop: 4, fontSize: 11, color: "#a0aec0" }}>
+            Vector search (pgvector) is required. Hash results are approximate and may miss matches.
+          </div>
+        </div>
+      </div>
+    </div>
+  );
 }
 
 function SectionHeader({ label, bg, color }: { label: string; bg: string; color: string }) {
@@ -231,6 +314,14 @@ function TextResultRow({ item }: { item: SearchItem }) {
               {item.deposit != null && <>Deposit: ₹{item.deposit.toLocaleString("en-IN")}</>}
             </div>
           )}
+          {item.upcoming_booking_count != null && (
+            <div>
+              Upcoming bookings: {item.upcoming_booking_count}
+              {item.expected_return_date ? ` · Return: ${new Date(item.expected_return_date).toLocaleDateString("en-GB")}` : ""}
+              {item.next_available_date ? ` · Next available: ${new Date(item.next_available_date).toLocaleDateString("en-GB")}` : ""}
+            </div>
+          )}
+          {item.ai_explanation ? <div>AI: {item.ai_explanation}</div> : null}
         </div>
       </div>
       <span
@@ -261,7 +352,15 @@ function PhotoResultRow({ item, debugMode }: { item: SearchItem; debugMode?: boo
   const color = simColor(simPct);
   const sColor = statusColor(item.status || "");
   const conf = item.confidence;
-  const matchText = conf?.matchLabel || (simPct >= 95 ? "Identified" : simPct >= 90 ? "Confirm match" : simPct >= 70 ? "Possible match" : "No reliable match");
+  const matchText =
+    conf?.matchLabel ||
+    (simPct >= 95
+      ? "Exact match"
+      : simPct >= 85
+        ? "Highly likely"
+        : simPct >= 75
+          ? "Possible match"
+          : "Below threshold");
   const comps = item.component_scores;
 
   return (
@@ -404,6 +503,8 @@ const inputStyle: React.CSSProperties = {
 export default function InventorySearchClient() {
   const [q, setQ] = useState("");
   const [category, setCategory] = useState("");
+  const [subCategory, setSubCategory] = useState("");
+  const [searchMode, setSearchMode] = useState<"AUTO" | "MANUAL" | "ALL">("MANUAL");
   const [textData, setTextData] = useState<SearchResponse | null>(null);
   const [textLoading, setTextLoading] = useState(false);
   const [photoData, setPhotoData] = useState<SearchResponse | null>(null);
@@ -418,7 +519,7 @@ export default function InventorySearchClient() {
   const [screenshotWarning, setScreenshotWarning] = useState(false);
   const textTimerRef = useRef<ReturnType<typeof setTimeout> | null>(null);
   const fileInputRef = useRef<HTMLInputElement>(null);
-  const cameraInputRef = useRef<HTMLInputElement>(null);
+  const [cameraOpen, setCameraOpen] = useState(false);
 
   const [filterSize, setFilterSize] = useState("");
   const [filterColor, setFilterColor] = useState("");
@@ -428,6 +529,8 @@ export default function InventorySearchClient() {
   const [filterMinPrice, setFilterMinPrice] = useState("");
   const [filterMaxPrice, setFilterMaxPrice] = useState("");
   const [debugMode, setDebugMode] = useState(false);
+
+  const subCategoryOptions = subcategoryOptionsForCategory(category);
 
   const runTextSearch = useCallback(async (query: string, cat: string) => {
     const trimmed = query.trim();
@@ -477,7 +580,10 @@ export default function InventorySearchClient() {
   });
 
   const runPhotoSearch = useCallback(
-    async (file: File) => {
+    async (
+      file: File,
+      overrides?: { mode?: "AUTO" | "MANUAL" | "ALL"; category?: string; subCategory?: string },
+    ) => {
       if (file.size > MAX_PHOTO_MB * 1024 * 1024) {
         setPhotoStatus(`File too large — max ${MAX_PHOTO_MB}MB`);
         return;
@@ -496,9 +602,15 @@ export default function InventorySearchClient() {
       setSearchEngine("");
       setScreenshotWarning(false);
 
+      const effectiveMode = overrides?.mode ?? searchMode;
+      const effectiveCategory = overrides?.category !== undefined ? overrides.category : category;
+      const effectiveSub = overrides?.subCategory !== undefined ? overrides.subCategory : subCategory;
+
       const form = new FormData();
       form.append("photo", file);
-      if (category) form.append("category", category);
+      form.append("mode", effectiveMode);
+      if (effectiveMode !== "ALL" && effectiveCategory) form.append("category", effectiveCategory);
+      if (effectiveMode === "MANUAL" && effectiveSub) form.append("sub_category", effectiveSub);
       if (filterSize) form.append("size", filterSize);
       if (filterColor) form.append("color", filterColor);
       if (filterGender) form.append("gender", filterGender);
@@ -521,8 +633,18 @@ export default function InventorySearchClient() {
           category_results: catResults,
           other_results: otherResults,
           used_fallback: !!data.used_fallback,
+          fallback_reason: data.fallback_reason ?? null,
+          fallback_code: data.fallback_code ?? null,
+          search_degraded: !!data.search_degraded,
+          degradation: data.degradation ?? null,
           category: data.category || category,
+          sub_category: data.sub_category || subCategory,
           detected_category: data.detected_category,
+          detected_subcategory: data.detected_subcategory,
+          search_mode: data.search_mode,
+          search_scope_label: data.search_scope_label,
+          offer_search_entire_inventory: !!data.offer_search_entire_inventory,
+          category_filter_diagnostics: data.category_filter_diagnostics,
           search_engine: data.search_engine,
           best_similarity: data.best_similarity,
           reliable_identification: data.reliable_identification,
@@ -530,27 +652,42 @@ export default function InventorySearchClient() {
           category_detection: data.category_detection,
           identification_meta: data.identification_meta,
           image_warnings: data.image_warnings,
+          similar_available: data.similar_available || [],
+          ai_diagnostics: data.ai_diagnostics,
         });
         setSearchEngine(
-          data.search_engine === "hash"
-            ? "Hash fallback"
-            : "Multi-stage identification",
+          data.search_degraded || data.search_engine === "hash"
+            ? `DEGRADED: hash fallback (${data.fallback_code || "SEARCH_DEGRADED_HASH"})`
+            : data.search_engine === "pgvector"
+              ? "pgvector ANN"
+              : data.search_engine === "openai_pgvector_hybrid"
+                ? "OpenAI + pgvector hybrid"
+                : "Multi-stage identification",
         );
         setScreenshotWarning(!!data.screenshot_warning);
         const meta = data.identification_meta;
-        if (data.screenshot_warning) {
+        const scopeLabel = data.search_scope_label || "";
+        if (data.search_degraded || (data.used_fallback && data.search_engine === "hash")) {
+          setPhotoStatus(
+            `Search degraded to hash fallback [${data.fallback_code || "SEARCH_DEGRADED_HASH"}]: ${data.fallback_reason || data.degradation?.reason || "pgvector unavailable"}`,
+          );
+        } else if (data.screenshot_warning) {
           setPhotoStatus(
             "This looks like a screenshot — upload the dress photo directly (camera or gallery) for best results.",
           );
-        } else if (meta?.ambiguous_match) {
+        } else if (data.offer_search_entire_inventory && !catResults.length && !otherResults.length) {
+          setPhotoStatus(meta?.message || "No matches in selected category.");
+        } else if (meta?.ambiguous_match || meta?.decision === "review_required") {
           setPhotoStatus("Multiple possible matches found — please confirm the correct dress below.");
-        } else if (meta?.decision === "unreliable" || !data.reliable_identification) {
+        } else if (
+          meta?.decision === "unreliable" ||
+          meta?.decision === "no_match" ||
+          !data.reliable_identification
+        ) {
           setPhotoStatus(meta?.message || "No reliable identification found. Please retake photo (full dress, better lighting).");
         } else if (!catResults.length && !otherResults.length) {
           setPhotoStatus(
-            category
-              ? `No visual match in ${category} or other categories`
-              : "No visually similar dresses found",
+            scopeLabel || (category ? `No visual match in ${category}` : "No visually similar dresses found"),
           );
         } else if (data.reliable_identification) {
           const top = catResults[0] || otherResults[0];
@@ -567,7 +704,7 @@ export default function InventorySearchClient() {
         setPhotoLoading(false);
       }
     },
-    [category, filterSize, filterColor, filterGender, filterStatus, filterDesigner, filterMinPrice, filterMaxPrice, debugMode],
+    [category, subCategory, searchMode, filterSize, filterColor, filterGender, filterStatus, filterDesigner, filterMinPrice, filterMaxPrice, debugMode],
   );
 
   function handleFileSelect(e: React.ChangeEvent<HTMLInputElement>) {
@@ -641,23 +778,92 @@ export default function InventorySearchClient() {
     <div>
       <div className="card" style={{ marginBottom: 20 }}>
         <div className="card-body" style={{ padding: "14px 20px" }}>
-          <div style={{ display: "flex", alignItems: "center", gap: 14, flexWrap: "wrap" }}>
-            <div style={{ display: "flex", alignItems: "center", gap: 8 }}>
-              <i className="fa-solid fa-tags" style={{ color: "var(--gold)", fontSize: 18 }} />
-              <label style={{ fontSize: 13, fontWeight: 700, whiteSpace: "nowrap" }}>Search Category</label>
+          <div style={{ display: "flex", flexDirection: "column", gap: 12 }}>
+            <div style={{ display: "flex", alignItems: "center", gap: 14, flexWrap: "wrap" }}>
+              <div style={{ display: "flex", alignItems: "center", gap: 8 }}>
+                <i className="fa-solid fa-sliders" style={{ color: "var(--gold)", fontSize: 18 }} />
+                <label style={{ fontSize: 13, fontWeight: 700, whiteSpace: "nowrap" }}>Mode</label>
+              </div>
+              <div style={{ display: "flex", gap: 8, flexWrap: "wrap" }}>
+                {(["AUTO", "MANUAL", "ALL"] as const).map((mode) => (
+                  <button
+                    key={mode}
+                    type="button"
+                    className={`btn btn-sm ${searchMode === mode ? "btn-primary" : "btn-secondary"}`}
+                    onClick={() => {
+                      setSearchMode(mode);
+                      if (mode === "ALL") {
+                        setCategory("");
+                        setSubCategory("");
+                      }
+                    }}
+                  >
+                    {mode}
+                  </button>
+                ))}
+              </div>
+              <span style={{ fontSize: 12, color: "var(--text-muted)" }}>
+                {searchMode === "AUTO"
+                  ? "Predict category from the photo, then search that category."
+                  : searchMode === "ALL"
+                    ? "Search complete inventory (no category filter)."
+                    : "Use the selected category / subcategory."}
+              </span>
             </div>
-            <div style={{ flex: 1, minWidth: 200 }}>
-              <CategorySelect value={category} onChange={setCategory} />
+
+            <div style={{ display: "flex", alignItems: "flex-end", gap: 14, flexWrap: "wrap" }}>
+              <div style={{ minWidth: 200, flex: 1 }}>
+                <label style={{ display: "block", fontSize: 12, fontWeight: 600, marginBottom: 4 }}>Category</label>
+                <CategorySelect
+                  value={category}
+                  onChange={(v) => {
+                    setCategory(v);
+                    setSubCategory("");
+                    if (v && searchMode === "ALL") setSearchMode("MANUAL");
+                  }}
+                />
+              </div>
+              <div style={{ minWidth: 200, flex: 1 }}>
+                <label style={{ display: "block", fontSize: 12, fontWeight: 600, marginBottom: 4 }}>Subcategory</label>
+                <select
+                  className="form-control"
+                  value={subCategory}
+                  disabled={searchMode === "ALL" || searchMode === "AUTO"}
+                  onChange={(e) => {
+                    setSubCategory(e.target.value);
+                    if (e.target.value && searchMode === "ALL") setSearchMode("MANUAL");
+                  }}
+                >
+                  <option value="">All subcategories</option>
+                  {subCategoryOptions.map((s) => (
+                    <option key={s} value={s}>{s}</option>
+                  ))}
+                </select>
+              </div>
             </div>
-            <span style={{ fontSize: 12, color: "var(--text-muted)" }}>
-              {category
-                ? (
-                  <>
-                    Searching in <strong style={{ color: "var(--primary)" }}>{category}</strong> first — other categories shown only if no match.
-                  </>
-                )
-                : "All categories — no filter applied."}
-            </span>
+
+            <div style={{ fontSize: 13, color: "var(--text-primary)" }}>
+              {searchMode === "ALL" || (!category && searchMode !== "AUTO") ? (
+                <strong>Searching entire inventory.</strong>
+              ) : searchMode === "AUTO" ? (
+                <span>
+                  <strong>AUTO</strong> — category will be predicted from the photo.
+                </span>
+              ) : category && subCategory ? (
+                <>
+                  Searching in:{" "}
+                  <strong style={{ color: "var(--primary)" }}>
+                    {category} &gt; {subCategory}
+                  </strong>
+                </>
+              ) : category ? (
+                <>
+                  Searching in: <strong style={{ color: "var(--primary)" }}>{category}</strong>
+                </>
+              ) : (
+                <strong>Searching entire inventory.</strong>
+              )}
+            </div>
           </div>
         </div>
       </div>
@@ -782,11 +988,15 @@ export default function InventorySearchClient() {
                   Upload
                   <input ref={fileInputRef} type="file" accept={PHOTO_ACCEPT} style={{ display: "none" }} onChange={handleFileSelect} />
                 </label>
-                <label className="btn btn-outline btn-sm" style={{ cursor: "pointer", display: "inline-flex", alignItems: "center", gap: 6 }}>
+                <button
+                  type="button"
+                  className="btn btn-outline btn-sm"
+                  style={{ display: "inline-flex", alignItems: "center", gap: 6 }}
+                  onClick={() => setCameraOpen(true)}
+                >
                   <i className="fa-solid fa-camera" />
                   Camera
-                  <input ref={cameraInputRef} type="file" accept={PHOTO_ACCEPT} capture="environment" style={{ display: "none" }} onChange={handleFileSelect} />
-                </label>
+                </button>
               </div>
               <div style={{ fontSize: 10, color: "var(--text-muted)", marginTop: 8 }}>
                 JPG, PNG, WEBP · max {MAX_PHOTO_MB}MB
@@ -914,6 +1124,85 @@ export default function InventorySearchClient() {
                 ))}
               </div>
             ) : null}
+
+            {photoData?.search_scope_label && !photoLoading && (
+              <div style={{ fontSize: 13, marginBottom: 10, color: "var(--text-primary)" }}>
+                {photoData.search_scope_label}
+                {photoData.search_mode === "AUTO" && photoData.detected_category ? (
+                  <span style={{ marginLeft: 8, fontSize: 11, color: "var(--text-muted)" }}>
+                    (AUTO predicted {photoData.detected_category}
+                    {photoData.detected_subcategory ? ` › ${photoData.detected_subcategory}` : ""})
+                  </span>
+                ) : null}
+              </div>
+            )}
+
+            {photoData?.category_filter_diagnostics && !photoLoading && (
+              <div
+                style={{
+                  fontSize: 11,
+                  color: "var(--text-muted)",
+                  marginBottom: 12,
+                  display: "flex",
+                  gap: 16,
+                  flexWrap: "wrap",
+                }}
+              >
+                <span>
+                  Candidates before filtering:{" "}
+                  <strong>{photoData.category_filter_diagnostics.candidates_before_filtering}</strong>
+                </span>
+                <span>
+                  Candidates after filtering:{" "}
+                  <strong>{photoData.category_filter_diagnostics.candidates_after_filtering}</strong>
+                </span>
+              </div>
+            )}
+
+            {photoData?.offer_search_entire_inventory && !photoLoading && photoFile && (
+              <div
+                role="status"
+                style={{
+                  padding: "12px 14px",
+                  marginBottom: 14,
+                  borderRadius: 10,
+                  border: "1px solid rgba(123,31,69,0.35)",
+                  background: "rgba(123,31,69,0.06)",
+                  fontSize: 13,
+                  display: "flex",
+                  alignItems: "center",
+                  justifyContent: "space-between",
+                  gap: 12,
+                  flexWrap: "wrap",
+                }}
+              >
+                <span>No matches in the selected category. Search entire inventory instead?</span>
+                <button
+                  type="button"
+                  className="btn btn-primary btn-sm"
+                  onClick={() => {
+                    setSearchMode("ALL");
+                    setCategory("");
+                    setSubCategory("");
+                    void runPhotoSearch(photoFile, { mode: "ALL", category: "", subCategory: "" });
+                  }}
+                >
+                  Search entire inventory
+                </button>
+              </div>
+            )}
+
+            {photoData?.search_degraded && !photoLoading && (
+              <SearchDegradationBanner
+                code={photoData.fallback_code || photoData.degradation?.code || "SEARCH_DEGRADED_HASH"}
+                reason={
+                  photoData.fallback_reason ||
+                  photoData.degradation?.reason ||
+                  "pgvector search failed — using hash brute-force"
+                }
+                searchEngine={photoData.search_engine}
+              />
+            )}
 
             {photoData?.identification_meta?.ambiguous_match && !photoLoading && !correctionRecordedId && (
               <div
@@ -1108,7 +1397,7 @@ export default function InventorySearchClient() {
                   return (
                     <>
                       <br />
-                      <strong>Claude Vision:</strong>{" "}
+                      <strong>OpenAI Vision:</strong>{" "}
                       {vlm.used
                         ? `match ${vlm.confidence}% — ${vlm.reasoning}`
                         : `not used${vlm.error ? ` (${vlm.error})` : ""}`}
@@ -1180,6 +1469,21 @@ export default function InventorySearchClient() {
               />
             )}
 
+            {photoData?.similar_available?.length ? (
+              <div style={{ marginTop: 14 }}>
+                <SectionHeader
+                  label="Similar Available Dresses"
+                  bg="rgba(104,211,145,0.12)"
+                  color="#1f6f45"
+                />
+                <div style={{ border: "1px solid var(--border)", borderTop: "none", borderRadius: "0 0 10px 10px" }}>
+                  {photoData.similar_available.slice(0, 5).map((item) => (
+                    <TextResultRow key={`similar-${item.id}`} item={item} />
+                  ))}
+                </div>
+              </div>
+            ) : null}
+
             {!photoPreview && (
               <div style={{ textAlign: "center", padding: "24px 20px", color: "var(--text-muted)" }}>
                 <i className="fa-solid fa-camera" style={{ fontSize: 36, marginBottom: 12, display: "block", opacity: 0.25 }} />
@@ -1189,6 +1493,16 @@ export default function InventorySearchClient() {
           </div>
         </div>
       </div>
+
+      <CameraCaptureModal
+        open={cameraOpen}
+        title="Dress Checker — Take Photo"
+        onClose={() => setCameraOpen(false)}
+        onCapture={(file) => {
+          setCameraOpen(false);
+          void runPhotoSearch(file);
+        }}
+      />
     </div>
   );
 }

@@ -1,7 +1,6 @@
 /**
- * Applies Claude Vision identity verification on top of local recall.
- * Local embeddings shortlist candidates; the VLM decides the actual same-dress match
- * and drives the final confidence used by the decision + UI layers.
+ * Applies gated OpenAI bridal forensic verification on top of local recall.
+ * Embeddings shortlist candidates; GPT only runs for ambiguous scores (70–92).
  */
 import prisma from "../prisma";
 import { loadPhotoBuffer } from "../services/siglipSearch";
@@ -9,14 +8,15 @@ import type { RankedCandidate } from "./types";
 import {
   isVlmAvailable,
   verifyDressIdentity,
+  OPENAI_VERIFY_TOP_N,
   type VlmCandidate,
   type VlmVerdict,
 } from "./vlmIdentity";
 
-const VLM_SHORTLIST = 8;
+const VLM_SHORTLIST = OPENAI_VERIFY_TOP_N;
 const MAX_REFS_PER_CANDIDATE = 2;
 /** Non-matched candidates are capped below the "possible" threshold so they never auto-identify. */
-const NON_MATCH_CAP = 60;
+const NON_MATCH_CAP = 69;
 const UNSEEN_CAP = 55;
 
 export type VlmVerificationOutcome = {
@@ -70,7 +70,13 @@ export async function applyVlmVerification(
   for (const c of shortlist) {
     const images = await loadCandidateImages(c);
     if (images.length === 0) continue;
-    vlmCandidates.push({ itemId: c.itemId, sku: c.sku, name: c.name, images });
+    vlmCandidates.push({
+      itemId: c.itemId,
+      sku: c.sku,
+      name: c.name,
+      images,
+      preGptScore: c.identity.final,
+    });
   }
 
   if (vlmCandidates.length === 0) {
@@ -94,11 +100,11 @@ export async function applyVlmVerification(
     if (!row) {
       return withFinal(c, Math.min(c.identity.final, NON_MATCH_CAP));
     }
-    if (row.sameDress) {
+    if (row.exactMatch || row.sameDress) {
       const score = c.itemId === verdict.matchItemId ? Math.max(row.confidence, verdict.confidence) : row.confidence;
-      return withFinal(c, score, row.notes);
+      return withFinal(c, score, row.reasoning || row.notes);
     }
-    return withFinal(c, Math.min(row.confidence, NON_MATCH_CAP), row.notes);
+    return withFinal(c, Math.min(row.confidence, NON_MATCH_CAP), row.reasoning || row.notes);
   });
 
   rescored.sort((a, b) => b.identity.final - a.identity.final);

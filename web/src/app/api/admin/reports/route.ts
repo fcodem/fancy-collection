@@ -2,6 +2,7 @@ import { NextRequest } from "next/server";
 import prisma from "@/lib/prisma";
 import { activeBookingWhere } from "@/lib/bookingActiveStatus";
 import { requireOwner, isResponse } from "@/lib/api";
+import { BRAND_FULL_NAME } from "@/lib/branding";
 import {
   Document, Packer, Paragraph, Table, TableRow, TableCell,
   TextRun, WidthType, AlignmentType, HeadingLevel, BorderStyle,
@@ -227,7 +228,7 @@ export async function GET(req: NextRequest) {
         },
       },
       children: [
-        titlePara("Fancy Collection"),
+        titlePara(BRAND_FULL_NAME),
         titlePara(title),
         subPara(subtitle),
         gap(),

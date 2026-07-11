@@ -104,7 +104,57 @@ export async function detectGarmentBounds(buffer: Buffer): Promise<GarmentBounds
   };
 }
 
-/** Crop to garment bounds and suppress peripheral background via radial vignette. */
+/** Sample average RGB from image corners (likely background). */
+async function sampleCornerBackground(data: Buffer, w: number, h: number): Promise<[number, number, number]> {
+  const corners = [
+    0,
+    (w - 1) * 3,
+    (h - 1) * w * 3,
+    ((h - 1) * w + (w - 1)) * 3,
+  ];
+  let r = 0;
+  let g = 0;
+  let b = 0;
+  for (const i of corners) {
+    r += data[i];
+    g += data[i + 1];
+    b += data[i + 2];
+  }
+  return [r / 4, g / 4, b / 4];
+}
+
+/** Remove background via corner-chroma distance mask + radial vignette. */
+async function suppressBackground(cropped: Buffer, cw: number, ch: number): Promise<Buffer> {
+  const { data } = await sharp(cropped).removeAlpha().raw().toBuffer({ resolveWithObject: true });
+  const [bgR, bgG, bgB] = await sampleCornerBackground(data, cw, ch);
+
+  const masked = Buffer.alloc(data.length);
+  const cx = cw / 2;
+  const cy = ch / 2;
+  const maxDist = Math.sqrt(cx * cx + cy * cy);
+
+  for (let y = 0; y < ch; y++) {
+    for (let x = 0; x < cw; x++) {
+      const i = (y * cw + x) * 3;
+      const dr = data[i] - bgR;
+      const dg = data[i + 1] - bgG;
+      const db = data[i + 2] - bgB;
+      const chromaDist = Math.sqrt(dr * dr + dg * dg + db * db);
+      const edgeDist = Math.sqrt((x - cx) ** 2 + (y - cy) ** 2) / maxDist;
+      const isForeground = chromaDist > 28 || edgeDist < 0.55;
+      const alpha = isForeground ? 1 : Math.max(0, 1 - (28 - chromaDist) / 28) * (1 - edgeDist * 0.5);
+      masked[i] = Math.round(data[i] * alpha + 240 * (1 - alpha));
+      masked[i + 1] = Math.round(data[i + 1] * alpha + 240 * (1 - alpha));
+      masked[i + 2] = Math.round(data[i + 2] * alpha + 240 * (1 - alpha));
+    }
+  }
+
+  return sharp(masked, { raw: { width: cw, height: ch, channels: 3 } })
+    .jpeg({ quality: 95, mozjpeg: true })
+    .toBuffer();
+}
+
+/** Crop to garment bounds and remove background (chroma key + vignette). */
 export async function isolateGarment(buffer: Buffer): Promise<ProcessedGarmentImage> {
   const rotated = await sharp(buffer, { failOn: "none" }).rotate().toBuffer();
   const meta = await sharp(rotated).metadata();
@@ -125,24 +175,7 @@ export async function isolateGarment(buffer: Buffer): Promise<ProcessedGarmentIm
   const cw = cropMeta.width ?? bounds.width;
   const ch = cropMeta.height ?? bounds.height;
 
-  const maskSvg = `<svg width="${cw}" height="${ch}">
-    <defs>
-      <radialGradient id="g" cx="50%" cy="45%" r="65%">
-        <stop offset="0%" stop-color="white" stop-opacity="1"/>
-        <stop offset="70%" stop-color="white" stop-opacity="0.95"/>
-        <stop offset="100%" stop-color="white" stop-opacity="0.15"/>
-      </radialGradient>
-    </defs>
-    <rect width="100%" height="100%" fill="url(#g)"/>
-  </svg>`;
-
-  const maskPng = await sharp(Buffer.from(maskSvg)).resize(cw, ch).png().toBuffer();
-
-  const suppressed = await sharp(cropped)
-    .composite([{ input: maskPng, blend: "dest-in" }])
-    .flatten({ background: { r: 240, g: 240, b: 240 } })
-    .jpeg({ quality: 95, mozjpeg: true })
-    .toBuffer();
+  const suppressed = await suppressBackground(cropped, cw, ch);
 
   return {
     buffer: suppressed,

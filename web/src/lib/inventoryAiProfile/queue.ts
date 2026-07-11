@@ -11,6 +11,14 @@ import { AI_PROFILE_MAX_RETRIES } from "./constants";
 const pending = new Set<number>();
 const retryCount = new Map<number, number>();
 
+export function getAiQueueSnapshot() {
+  return {
+    pending: pending.size,
+    pendingItemIds: [...pending.values()].slice(0, 100),
+    retries: [...retryCount.entries()].map(([itemId, attempts]) => ({ itemId, attempts })),
+  };
+}
+
 /** Queue AI profile generation — returns immediately, never blocks inventory save. */
 export function scheduleInventoryAiProfile(
   itemId: number,
@@ -23,6 +31,7 @@ export function scheduleInventoryAiProfile(
   setImmediate(() => {
     void (async () => {
       try {
+        console.log(`[ai-profile] item=${itemId} queued mode=${mode} reason=${reason}`);
         await logProfileEvent(itemId, "queued", reason);
         await generateInventoryAiProfile(itemId, mode, reason);
         broadcastShopEvent({ type: "inventory.changed", itemIds: [itemId] });

@@ -1,11 +1,13 @@
 "use client";
 
-import { useCallback, useEffect, useRef, useState, type CSSProperties } from "react";
+import { useCallback, useEffect, useMemo, useRef, useState, type CSSProperties } from "react";
 import {
   BookingWarningPanel,
+  BookingCardHeaderDates,
   PackingBookingDetailsGrid,
 } from "@/components/BookingDetailsColumns";
-import type { BookingWarningRecord } from "@/lib/bookingDetails";
+import type { BookingWarningRecord, StandardBookingDetails } from "@/lib/bookingDetails";
+import { bookingMonthKey, formatBookingMonthLabel } from "@/lib/bookingMonth";
 import { photoUrl } from "@/lib/photoUrl";
 import { formatInr } from "@/lib/format";
 import { useRealtimeRefresh } from "@/hooks/useRealtimeRefresh";
@@ -20,7 +22,7 @@ import {
 } from "@/lib/standardBookingPdfRows";
 
 const TIME_SLOTS = [
-  "9:00 AM", "10:00 AM", "11:00 AM", "12:00 Noon", "1:00 PM", "2:00 PM",
+  "8:00 AM", "9:00 AM", "10:00 AM", "11:00 AM", "12:00 Noon", "1:00 PM", "2:00 PM",
   "3:00 PM", "4:00 PM", "5:00 PM", "6:00 PM", "7:00 PM", "8:00 PM",
   "9:00 PM", "10:00 PM",
 ];
@@ -36,28 +38,16 @@ type ItemRow = {
   booked_warning: BookingWarningRecord | null;
 };
 
-type BookingRow = {
+type BookingRow = StandardBookingDetails & {
   id: number;
   serial_no: number;
   status: string;
-  customer_name: string;
-  customer_address: string;
   contact_1: string;
   whatsapp_no: string;
   venue: string;
   staff_names: string;
   total_advance: number;
-  total_rent: number;
-  security_deposit: number;
-  dress_names: string;
-  item_notes: string;
-  common_notes: string;
-  delivery_date: string;
-  delivery_time: string;
-  return_date: string;
-  return_time: string;
   items: ItemRow[];
-  is_star?: boolean;
   reason?: string;
 };
 
@@ -117,6 +107,13 @@ function BookingCard({ booking, idx, isUnavailable }: { booking: BookingRow; idx
               {booking.customer_name}
               {booking.is_star && <StarBookingBadge />}
             </strong>
+            {booking.booking_date ? (
+              <div style={{ fontSize: 11, color: "var(--text-muted)", marginTop: 3 }}>
+                <i className="fa-solid fa-calendar-plus" style={{ marginRight: 4, color: "var(--primary)" }} />
+                Booked {booking.booking_date}
+                {booking.booking_time ? ` ${booking.booking_time}` : ""}
+              </div>
+            ) : null}
             <div style={{ fontSize: 11, color: "var(--text-muted)", wordBreak: "break-word" }}>
               Serial #{serialLabel(booking.serial_no)} · {formatInr(booking.total_rent)}
               {booking.venue ? ` · ${booking.venue}` : ""}
@@ -133,16 +130,7 @@ function BookingCard({ booking, idx, isUnavailable }: { booking: BookingRow; idx
           <span className={`badge ${statusBadgeClass(booking.status)}`} style={{ fontSize: 10 }}>
             {statusLabel(booking.status)}
           </span>
-          <div className="booking-card-header-dates">
-            <div>
-              <i className="fa-solid fa-truck" style={{ marginRight: 4, color: "var(--primary)" }} />
-              {booking.delivery_date} {booking.delivery_time}
-            </div>
-            <div style={{ fontSize: 11, color: "var(--text-muted)" }}>
-              <i className="fa-solid fa-rotate-left" style={{ marginRight: 4 }} />
-              {booking.return_date} {booking.return_time}
-            </div>
-          </div>
+          <BookingCardHeaderDates d={booking} />
         </div>
       </div>
 
@@ -274,6 +262,23 @@ export default function BookingListClient({
   const { bookings, unavailable } = data;
   const empty = !bookings.length && !unavailable.length;
 
+  const bookingsByMonth = useMemo(() => {
+    const out: Array<
+      | { type: "month"; key: string; label: string }
+      | { type: "booking"; booking: BookingRow; idx: number }
+    > = [];
+    let lastMonth = "";
+    bookings.forEach((b, idx) => {
+      const key = bookingMonthKey(b.delivery_date);
+      if (key && key !== lastMonth) {
+        lastMonth = key;
+        out.push({ type: "month", key, label: formatBookingMonthLabel(b.delivery_date) });
+      }
+      out.push({ type: "booking", booking: b, idx });
+    });
+    return out;
+  }, [bookings]);
+
   const pdfHeaders = [...STANDARD_BOOKING_HEADERS, "Status"];
 
   const pdfResults = [
@@ -287,22 +292,9 @@ export default function BookingListClient({
     return standardBookingPdfRow(
       serialLabel(b.serial_no || idx + 1),
       {
-        customer_name: b.customer_name,
-        customer_address: b.customer_address || "",
-        contact_1: b.contact_1,
-        whatsapp_no: b.whatsapp_no,
-        venue: b.venue,
-        total_rent: b.total_rent,
-        total_advance: b.total_advance,
-        security_deposit: b.security_deposit,
+        ...b,
         dress_names:
           b.dress_names || b.items?.map((i) => i.display_name || i.dress_name).join(", ") || "",
-        item_notes: b.item_notes,
-        common_notes: b.common_notes,
-        delivery_date: b.delivery_date,
-        delivery_time: b.delivery_time,
-        return_date: b.return_date,
-        return_time: b.return_time,
       },
       [unavailableFlag ? `Unavailable — ${b.reason || "—"}` : statusLabel(b.status)],
       itemPanels.length ? itemPanels : undefined,
@@ -417,12 +409,30 @@ export default function BookingListClient({
           {!!bookings.length && (
             <div style={{ marginBottom: 8, fontSize: 13, fontWeight: 700, color: "var(--primary)" }}>
               <i className="fa-solid fa-calendar-check" style={{ marginRight: 6 }} />
-              Bookings in Period ({bookings.length})
+              Bookings in Period ({bookings.length}) — oldest delivery date first
             </div>
           )}
-          {bookings.map((b, idx) => (
-            <BookingCard key={b.id} booking={b} idx={idx} />
-          ))}
+          {bookingsByMonth.map((entry) =>
+            entry.type === "month" ? (
+              <div
+                key={`month-${entry.key}`}
+                style={{
+                  margin: "16px 0 8px",
+                  padding: "8px 14px",
+                  background: "var(--cream-dark)",
+                  borderRadius: 8,
+                  fontWeight: 700,
+                  fontSize: 13,
+                  color: "var(--primary)",
+                  borderLeft: "4px solid var(--primary)",
+                }}
+              >
+                {entry.label}
+              </div>
+            ) : (
+              <BookingCard key={entry.booking.id} booking={entry.booking} idx={entry.idx} />
+            ),
+          )}
 
           {!!unavailable.length && (
             <div className="card" style={{ border: "2px solid #e53e3e", marginTop: 28 }}>

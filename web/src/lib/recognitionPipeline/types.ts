@@ -19,6 +19,8 @@ export type RecognitionFeatureFingerprint = {
   accentColours: string[];
   colourHistogram: number[];
   colourFamily: FabricColorFamily;
+  /** LAB dress-mask colour diagnostics (optional — present after v9 colour pipeline). */
+  colourDiagnostics?: import("../dressChecker/dressColourLab").DressColourDiagnostics;
   fabricTextureDescriptor: number[];
   embroideryDensity: number;
   embroideryStyle: string;

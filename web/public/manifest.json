@@ -1,13 +1,13 @@
 {
-  "name": "Rental Manager",
-  "short_name": "Rental Manager",
-  "description": "Fancy Collection rental management for staff",
+  "name": "Fancy Collection by Renu Agarwal",
+  "short_name": "Fancy Collection by Renu Agarwal",
+  "description": "Fancy Collection by Renu Agarwal — wedding rental management for staff",
   "start_url": "/",
   "scope": "/",
   "display": "standalone",
   "orientation": "portrait-primary",
-  "background_color": "#5A1433",
-  "theme_color": "#5A1433",
+  "background_color": "#1a5c2a",
+  "theme_color": "#1a5c2a",
   "icons": [
     {
       "src": "/icon-192x192.png",

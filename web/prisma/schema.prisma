@@ -86,6 +86,9 @@ model ClothingItem {
   status          String   @default("available")
   itemType        String   @default("clothing") @map("item_type")
   photo           String?
+  originalPhoto   String?   @map("original_photo")
+  enhancedPhoto   String?   @map("enhanced_photo")
+  marketingPhoto  String?   @map("marketing_photo")
   conditionNotes  String?  @map("condition_notes")
   createdAt       DateTime @default(now()) @map("created_at")
   subCategory     String?  @map("sub_category")
@@ -101,18 +104,36 @@ model ClothingItem {
   identificationIndexedAt DateTime? @map("identification_indexed_at")
   recognitionImage        String?   @map("recognition_image")
   recognitionFingerprint  Json?     @map("recognition_fingerprint")
+  enhancementStatus       String    @default("none") @map("enhancement_status")
+  enhancementError        String?   @map("enhancement_error")
+  enhancementVersion      Int       @default(0) @map("enhancement_version")
+  enhancementModel        String?   @map("enhancement_model")
+  enhancementLatency      Int?      @map("enhancement_latency")
+  enhancementStartedAt    DateTime? @map("enhancement_started_at")
+  enhancementCompletedAt  DateTime? @map("enhancement_completed_at")
+  lastEnhancedAt          DateTime? @map("last_enhanced_at")
+  enhancementUpdatedAt    DateTime? @map("enhancement_updated_at")
 
   rentalItems         RentalItem[]
   referencePhotos     ClothingItemReferencePhoto[]
   aiProfile           InventoryAiProfile?
+  aiJobs              InventoryAiJob[]
   dressCheckerCorrectionsCorrect   DressCheckerCorrection[] @relation("DressCheckerCorrectionCorrect")
   dressCheckerCorrectionsPredicted DressCheckerCorrection[] @relation("DressCheckerCorrectionPredicted")
+  dressCheckerPositivePairs        DressCheckerPositivePair[]
+  inventoryAiFingerprints          InventoryAiFingerprint[]
+  dressNegativePairsRejected       DressNegativePair[] @relation("DressNegativeRejected")
+  dressAdminFeedback               DressAdminFeedback[]
+  dressSearchFeedback              DressSearchFeedback[]
   bookings            Booking[]          @relation("LegacyBookingItem")
   bookingItems        BookingItem[]
   prospectLeadItems   ProspectLeadItem[]
   jewellerySelections BookingJewellery[]
 
   @@index([status])
+  @@index([category])
+  @@index([subCategory])
+  @@index([category, subCategory])
   @@index([category, status])
   @@map("clothing_items")
 }
@@ -126,6 +147,14 @@ model ClothingItemReferencePhoto {
   contentHash         String?   @map("content_hash")
   identificationIndex Json?     @map("identification_index")
   indexedAt           DateTime? @map("indexed_at")
+  /// SigLIP/OpenCLIP 768-d embedding for multi-reference ANN search
+  embeddingVector     Unsupported("vector(768)")? @map("embedding_vector")
+  embeddingJson       Json?     @map("embedding_json")
+  /// Cross-view region embeddings: full/upper/skirt/border/embroidery/motif/dupatta/blouse
+  regionEmbeddings    Json?     @map("region_embeddings")
+  /// Bridal fingerprints + motif detections for this reference view
+  regionSignatures    Json?     @map("region_signatures")
+  lastIndexedAt       DateTime? @map("last_indexed_at")
   createdAt           DateTime  @default(now()) @map("created_at")
 
   item ClothingItem @relation(fields: [itemId], references: [id], onDelete: Cascade)
@@ -668,16 +697,201 @@ model DressCheckerCorrection {
   @@map("dress_checker_corrections")
 }
 
+/// Admin-confirmed same-dress pairs for cross-view auto-learning.
+model DressCheckerPositivePair {
+  id                  Int      @id @default(autoincrement())
+  itemId              Int      @map("item_id")
+  queryPhoto          String   @map("query_photo")
+  catalogPhoto        String?  @map("catalog_photo")
+  queryType           String?  @map("query_type")
+  confidence          Float?
+  matchedIdentifiers  Json?    @map("matched_identifiers")
+  source              String   @default("admin_confirm") 
+  confirmedBy         String?  @map("confirmed_by")
+  searchId            String?  @map("search_id")
+  createdAt           DateTime @default(now()) @map("created_at")
+
+  item ClothingItem @relation(fields: [itemId], references: [id], onDelete: Cascade)
+
+  @@index([itemId])
+  @@index([createdAt])
+  @@map("dress_checker_positive_pairs")
+}
+
+/// Permanent GPT bridal fingerprint — extracted once at index time, never on every search.
+model InventoryAiFingerprint {
+  id                 Int       @id @default(autoincrement())
+  itemId             Int       @map("item_id")
+  inputImageHash     String?   @map("input_image_hash")
+  sourceImage        String?   @map("source_image")
+  fingerprintVersion Int       @default(1) @map("fingerprint_version")
+  primaryColor       String?   @map("primary_color")
+  secondaryColors    Json?     @map("secondary_colors")
+  colorFamilies      Json?     @map("color_families")
+  embroideryDensity  String?   @map("embroidery_density")
+  embroideryStyle    String?   @map("embroidery_style")
+  motifs             Json?
+  motifCount         Int       @default(0) @map("motif_count")
+  motifPositions     Json?     @map("motif_positions")
+  panelCount         Int       @default(0) @map("panel_count")
+  panelSequence      Json?     @map("panel_sequence")
+  borderType         String?   @map("border_type")
+  borderPatterns     Json?     @map("border_patterns")
+  blouseStyle        String?   @map("blouse_style")
+  dupattaStyle       String?   @map("dupatta_style")
+  silhouette         String?
+  uniqueIdentifiers  Json?     @map("unique_identifiers")
+  stoneWork          Boolean   @default(false) @map("stone_work")
+  mirrorWork         Boolean   @default(false) @map("mirror_work")
+  zariWork           Boolean   @default(false) @map("zari_work")
+  threadWork         Boolean   @default(false) @map("thread_work")
+  confidence         Float?
+  gptDescription     String?   @map("gpt_description") @db.Text
+  rawStructuredJson  Json?     @map("raw_structured_json")
+  deterministicJson  Json?     @map("deterministic_json")
+  validationStatus   String    @default("VALID") @map("validation_status")
+  validationErrors   Json?     @map("validation_errors")
+  rawJson            Json?     @map("raw_json")
+  model              String?
+  promptVersion      String?   @default("bridal_fp_v1") @map("prompt_version")
+  extractedAt        DateTime? @map("extracted_at")
+  createdAt          DateTime  @default(now()) @map("created_at")
+  updatedAt          DateTime  @updatedAt @map("updated_at")
+
+  item ClothingItem @relation(fields: [itemId], references: [id], onDelete: Cascade)
+
+  @@unique([itemId, inputImageHash, fingerprintVersion])
+  @@index([itemId])
+  @@index([fingerprintVersion])
+  @@index([validationStatus])
+  @@map("inventory_ai_fingerprints")
+}
+
+/// Forensic audit of every dress search / GPT decision.
+model DressSearchAudit {
+  id                   Int      @id @default(autoincrement())
+  searchId             String   @map("search_id")
+  queryImage           String?  @map("query_image")
+  queryHash            String?  @map("query_hash")
+  queryType            String?  @map("query_type")
+  queryTypeConfidence  Float?   @map("query_type_confidence")
+  queryFingerprint      Json?    @map("query_fingerprint")
+  candidateIds         Json?    @map("candidate_ids")
+  embeddingsMeta       Json?    @map("embeddings_meta")
+  fingerprintsMeta     Json?    @map("fingerprints_meta")
+  regionRanking         Json?    @map("region_ranking")
+  gptInputCandidates    Json?    @map("gpt_input_candidates")
+  gptPrompt            String?  @map("gpt_prompt") @db.Text
+  gptResponse          Json?    @map("gpt_response")
+  gptCalled            Boolean  @default(false) @map("gpt_called")
+  gptSkipReason        String?  @map("gpt_skip_reason")
+  fusionMeta           Json?    @map("fusion_meta")
+  rejectionReasons     Json?    @map("rejection_reasons")
+  dropStages           Json?    @map("drop_stages")
+  cacheMeta            Json?    @map("cache_meta")
+  modelVersions        Json?    @map("model_versions")
+  degradedModeReason   String?  @map("degraded_mode_reason")
+  stageTimings         Json?    @map("stage_timings")
+  finalDecision        Json?    @map("final_decision")
+  finalItemId          Int?     @map("final_item_id")
+  finalScore           Float?   @map("final_score")
+  createdAt            DateTime @default(now()) @map("created_at")
+
+  @@index([searchId])
+  @@index([createdAt])
+  @@map("dress_search_audits")
+}
+
+/// Admin-rejected near-duplicates (false positive prevention / learning).
+model DressNegativePair {
+  id              Int      @id @default(autoincrement())
+  queryItemId     Int?     @map("query_item_id")
+  rejectedItemId  Int      @map("rejected_item_id")
+  queryPhoto      String?  @map("query_photo")
+  reason          String?
+  source          String   @default("admin_reject")
+  confirmedBy     String?  @map("confirmed_by")
+  searchId        String?  @map("search_id")
+  createdAt       DateTime @default(now()) @map("created_at")
+
+  rejectedItem ClothingItem @relation("DressNegativeRejected", fields: [rejectedItemId], references: [id], onDelete: Cascade)
+
+  @@index([rejectedItemId])
+  @@index([createdAt])
+  @@map("dress_negative_pairs")
+}
+
+model DressAdminFeedback {
+  id         Int      @id @default(autoincrement())
+  itemId     Int?     @map("item_id")
+  searchId   String?  @map("search_id")
+  feedback   String
+  notes      String?
+  queryPhoto String?  @map("query_photo")
+  createdBy  String?  @map("created_by")
+  createdAt  DateTime @default(now()) @map("created_at")
+
+  item ClothingItem? @relation(fields: [itemId], references: [id], onDelete: SetNull)
+
+  @@index([itemId])
+  @@index([createdAt])
+  @@map("dress_admin_feedback")
+}
+
+model DressSearchFeedback {
+  id                 Int      @id @default(autoincrement())
+  searchId           String?  @map("search_id")
+  queryHash          String?  @map("query_hash")
+  correctItemId      Int?     @map("correct_item_id")
+  predictedItemId    Int?     @map("predicted_item_id")
+  feedback           String
+  visibleQueryRegions Json?   @map("visible_query_regions")
+  candidateScores    Json?    @map("candidate_scores")
+  modelVersions      Json?    @map("model_versions")
+  indexVersions      Json?    @map("index_versions")
+  notes              String?
+  createdBy          String?  @map("created_by")
+  createdAt          DateTime @default(now()) @map("created_at")
+
+  correctItem ClothingItem? @relation(fields: [correctItemId], references: [id], onDelete: SetNull)
+
+  @@index([queryHash])
+  @@index([correctItemId])
+  @@index([predictedItemId])
+  @@index([createdAt])
+  @@map("dress_search_feedback")
+}
+
 /// Enterprise AI Inventory Profile — semantic metadata, versioned embeddings, health.
 model InventoryAiProfile {
   itemId Int @id @map("item_id")
 
+  /// Legacy lowercase mirror of aiStatus (ready/processing/failed/pending/stale/none).
   status          String    @default("none")
+  /// Canonical enterprise lifecycle: PENDING | PROCESSING | READY | FAILED | STALE
+  aiStatus        String    @default("PENDING") @map("ai_status")
   error           String?
   currentVersion  Int       @default(0) @map("current_version")
   pipelineVersion String    @default("1") @map("pipeline_version")
   indexedAt       DateTime? @map("indexed_at")
   updatedAt       DateTime  @updatedAt @map("updated_at")
+
+  lastIndexAttemptAt    DateTime? @map("last_index_attempt_at")
+  lastSuccessfulIndexAt DateTime? @map("last_successful_index_at")
+  indexFailureReason    String?   @map("index_failure_reason") @db.Text
+  indexChecksum         String?   @map("index_checksum")
+  needsReindex          Boolean   @default(false) @map("needs_reindex")
+  autoRepairCount       Int       @default(0) @map("auto_repair_count")
+
+  hasEmbedding            Boolean @default(false) @map("has_embedding")
+  hasColourData           Boolean @default(false) @map("has_colour_data")
+  hasEmbroiderySignature  Boolean @default(false) @map("has_embroidery_signature")
+  hasBorderSignature      Boolean @default(false) @map("has_border_signature")
+  hasMotifSignature       Boolean @default(false) @map("has_motif_signature")
+  hasTextureSignature     Boolean @default(false) @map("has_texture_signature")
+  hasPanelSignature       Boolean @default(false) @map("has_panel_signature")
+  hasStoneSignature       Boolean @default(false) @map("has_stone_signature")
+  hasIdentificationIndex  Boolean @default(false) @map("has_identification_index")
 
   description         String? @db.Text
   searchText          String? @db.Text @map("search_text")
@@ -688,6 +902,12 @@ model InventoryAiProfile {
   duplicateFingerprint Json?  @map("duplicate_fingerprint")
   healthScore         Float?  @map("health_score")
   healthIssues        Json?   @map("health_issues")
+  enhancedImage       String?   @map("enhanced_image")
+  enhancementStatus   String    @default("none") @map("enhancement_status")
+  enhancementError    String?   @map("enhancement_error")
+  enhancementVersion  Int       @default(0) @map("enhancement_version")
+  enhancementModel    String?   @map("enhancement_model")
+  enhancementLatencyMs Int?     @map("enhancement_latency_ms")
 
   recognitionImage       String?   @map("recognition_image")
   recognitionFingerprint Json?     @map("recognition_fingerprint")
@@ -695,6 +915,30 @@ model InventoryAiProfile {
   modelVersion           String?   @map("model_version")
   qualityScore           Float?    @map("quality_score")
   lastProcessed          DateTime? @map("last_processed")
+  /// SigLIP 768-d image embedding (pgvector). Requires pgvector extension.
+  embeddingVector        Unsupported("vector(768)")? @map("embedding_vector")
+  /// JSON fallback when pgvector is not installed locally
+  imageEmbeddingJson     Json?     @map("image_embedding_json")
+  photoHash              String?   @map("photo_hash")
+  differenceHash         String?   @map("difference_hash")
+  colorHistogram         Json?     @map("color_histogram")
+  verificationMetadata   Json?     @map("verification_metadata")
+  processingError        String?   @map("processing_error")
+  reindexedAt            DateTime? @map("reindexed_at")
+  promptVersion          String?   @map("prompt_version")
+  aiVersion              String?   @map("ai_version")
+  /// Enterprise dress checker explicit identity fields (STEP 4 pipeline output)
+  dominantColor          String?   @map("dominant_color")
+  secondaryColor         String?   @map("secondary_color")
+  embroiderySignature    Json?     @map("embroidery_signature")
+  borderSignature        Json?     @map("border_signature")
+  motifSignature         Json?     @map("motif_signature")
+  textureSignature       Json?     @map("texture_signature")
+  silhouetteSignature    Json?     @map("silhouette_signature")
+  stoneSignature         Json?     @map("stone_signature")
+  panelSignature         Json?     @map("panel_signature")
+  matchingVersion        Int       @default(0) @map("matching_version")
+  lastIndexedAt          DateTime? @map("last_indexed_at")
 
   item      ClothingItem                @relation(fields: [itemId], references: [id], onDelete: Cascade)
   versions  InventoryAiProfileVersion[]
@@ -703,8 +947,56 @@ model InventoryAiProfile {
   logs      InventoryAiProfileLog[]
 
   @@index([status])
+  @@index([aiStatus])
+  @@index([needsReindex])
   @@index([healthScore])
   @@map("inventory_ai_profiles")
+}
+
+/// Durable AI indexing job queue (Postgres-backed — survives process restart).
+model InventoryAiJob {
+  id           Int       @id @default(autoincrement())
+  itemId       Int       @map("item_id")
+  /// PENDING | PROCESSING | READY | FAILED | RETRYING | STALE | CANCELLED | DEAD_LETTER
+  status       String    @default("PENDING")
+  reason       String    @default("enqueue")
+  priority     Int       @default(100)
+  retryCount   Int       @default(0) @map("retry_count")
+  maxRetries   Int       @default(3) @map("max_retries")
+  errorMessage String?   @map("error_message") @db.Text
+  lastError    String?   @map("last_error") @db.Text
+  nextRetryAt  DateTime? @map("next_retry_at")
+  startedAt    DateTime? @map("started_at")
+  completedAt  DateTime? @map("completed_at")
+  lockedAt     DateTime? @map("locked_at")
+  lockedBy     String?   @map("locked_by")
+  createdAt    DateTime  @default(now()) @map("created_at")
+  updatedAt    DateTime  @updatedAt @map("updated_at")
+
+  item ClothingItem @relation(fields: [itemId], references: [id], onDelete: Cascade)
+
+  @@index([status, nextRetryAt, priority])
+  @@index([itemId, status])
+  @@index([createdAt])
+  @@map("inventory_ai_jobs")
+}
+
+/// Durable singleton heartbeat — source of truth for worker health (serverless-safe).
+model InventoryAiWorkerHeartbeat {
+  id                 Int       @id @default(1)
+  workerId           String    @default("unknown") @map("worker_id")
+  mode               String    @default("CRON_WORKER")
+  hostname           String    @default("unknown")
+  lastHeartbeatAt    DateTime  @default(now()) @map("last_heartbeat_at")
+  lastDrainAt        DateTime? @map("last_drain_at")
+  processedJobs      Int       @default(0) @map("processed_jobs")
+  processedJobsToday Int       @default(0) @map("processed_jobs_today")
+  processedTodayDate DateTime? @map("processed_today_date") @db.Date
+  lastError          String?   @map("last_error") @db.Text
+  source             String    @default("unknown")
+  updatedAt          DateTime  @updatedAt @map("updated_at")
+
+  @@map("inventory_ai_worker_heartbeats")
 }
 
 /// Append-only version history — never overwrite previous embedding/metadata snapshots.
@@ -729,6 +1021,9 @@ model InventoryAiProfileVersion {
   description          String? @db.Text
   tagsSnapshot         Json?   @map("tags_snapshot")
   sourceImages         Json?   @map("source_images")
+  enhancedImage        String? @map("enhanced_image")
+  enhancementStatus    String? @map("enhancement_status")
+  enhancementModel     String? @map("enhancement_model")
 
   profile InventoryAiProfile @relation(fields: [itemId], references: [itemId], onDelete: Cascade)
 
@@ -789,4 +1084,14 @@ model InventoryAiProfileLog {
   @@index([createdAt])
   @@index([event])
   @@map("inventory_ai_profile_logs")
+}
+
+model AiRuntimeSetting {
+  key       String   @id
+  value     String?  @db.Text
+  encrypted Boolean  @default(false)
+  updatedAt DateTime @updatedAt @map("updated_at")
+  updatedBy String?  @map("updated_by")
+
+  @@map("ai_runtime_settings")
 }

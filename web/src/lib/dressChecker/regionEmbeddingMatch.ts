@@ -8,6 +8,7 @@ import type {
 import type { FeatureFingerprint } from "./types";
 import type { PartialViewType } from "./partialViewDetection";
 import { FINGERPRINT_MATCH_WEIGHTS, PARTIAL_REGION_WEIGHTS_V6 } from "./constants";
+import { computePanelStructureScore, maxCrossViewEmbeddingScore } from "./viewInvariantMatching";
 
 export type RegionMatchResult = {
   global: number;
@@ -28,7 +29,7 @@ export type RegionMatchResult = {
   bestQuerySource: string;
 };
 
-function embPercent(a: number[], b: number[]): number {
+function embPercent(a: number[] | undefined, b: number[] | undefined): number {
   if (!a?.length || !b?.length) return 0;
   return cosineToPercent(cosineSimilarity(a, b));
 }
@@ -48,6 +49,26 @@ function vectorPercent(a: number[], b: number[]): number {
   return d ? Math.round((dot / d) * 100) : 0;
 }
 
+function hashBorderSim(a: string, b: string): number {
+  if (!a || !b) return 0;
+  try {
+    const ba = BigInt(a.startsWith("0x") ? a : a);
+    const bb = BigInt(b.startsWith("0x") ? b : b);
+    let xor = ba ^ bb;
+    let bits = 0;
+    const one = BigInt(1);
+    const z = BigInt(0);
+    while (xor > z) {
+      bits += Number(xor & one);
+      xor >>= one;
+    }
+    const maxBits = Math.max(16, Math.max(a.length, b.length) * 4);
+    return Math.round((1 - bits / maxBits) * 100);
+  } catch {
+    return a === b ? 100 : 0;
+  }
+}
+
 function scorePair(
   query: QueryReferenceFingerprint,
   ref: StoredReferenceFingerprint,
@@ -59,29 +80,65 @@ function scorePair(
   const re = ref.embeddings;
 
   const global = embPercent(qe.global, re.global);
-  const embroidery = embPercent(qe.embroidery, re.embroidery);
-  const border = embPercent(qe.border, re.border);
+  const borderEmb = embPercent(qe.border, re.border);
   const blouse = embPercent(qe.blouse, re.blouse);
   const skirt = embPercent(qe.skirt, re.skirt);
+  const embroideryEmb = embPercent(qe.embroidery, re.embroidery);
+  const motifEmb = embPercent(qe.motif ?? qe.embroidery, re.motif ?? re.embroidery);
 
-  const motifs = storedFp
+  const borderFp = storedFp
+    ? Math.round(
+        ((hashBorderSim(queryFp.borderPattern.averageHash, storedFp.borderPattern.averageHash) +
+          hashBorderSim(
+            queryFp.borderPattern.differenceHash,
+            storedFp.borderPattern.differenceHash,
+          )) /
+          2) *
+          0.75 +
+          (100 -
+            Math.min(
+              100,
+              Math.abs(queryFp.borderPattern.widthRatio - storedFp.borderPattern.widthRatio) * 200,
+            )) *
+            0.25,
+      )
+    : borderEmb;
+  const border = storedFp ? Math.round(borderFp * 0.8 + borderEmb * 0.2) : borderEmb;
+
+  const embroideryFp = storedFp
+    ? Math.round(
+        (100 -
+          Math.min(100, Math.abs(queryFp.embroideryDensity - storedFp.embroideryDensity) * 1.2)) *
+          0.55 +
+          (queryFp.embroideryStyle === storedFp.embroideryStyle ? 95 : 35) * 0.25 +
+          vectorPercent(queryFp.threadPattern, storedFp.threadPattern) * 0.2,
+      )
+    : embroideryEmb;
+  const embroidery = storedFp
+    ? Math.round(embroideryFp * 0.85 + embroideryEmb * 0.15)
+    : embroideryEmb;
+
+  const motifsDist = storedFp
     ? vectorPercent(queryFp.motifDistribution, storedFp.motifDistribution)
-    : embPercent(qe.embroidery, re.embroidery);
+    : motifEmb;
+  const motifs = storedFp
+    ? Math.round(motifsDist * 0.85 + motifEmb * 0.15)
+    : Math.round(motifsDist * 0.55 + motifEmb * 0.45);
+
   const texture = storedFp
     ? vectorPercent(queryFp.fabricTextureDescriptor, storedFp.fabricTextureDescriptor)
-    : Math.round((embPercent(qe.border, re.border) + embPercent(qe.skirt, re.skirt)) / 2);
+    : Math.round((border + skirt) / 2);
 
   const colour = storedFp
     ? histogramSimilarity(queryFp.colourHistogram, storedFp.colourHistogram)
     : histogramSimilarity(query.colorHistogram, ref.colorHistogram);
 
-  const silhouette = storedFp
-    ? Math.round(
-        skirt * 0.5 +
-          (queryFp.silhouette === storedFp.silhouette ? 90 : 40) * 0.25 +
-          vectorPercent(queryFp.textureFeatures, storedFp.textureFeatures) * 0.25,
-      )
-    : skirt;
+  const dupattaEmb = embPercent(qe.dupatta, re.dupatta);
+  const silhouetteEmb = embPercent(qe.silhouette ?? qe.global, re.silhouette ?? re.global);
+
+  const silhouette = Math.round(
+    computePanelStructureScore(skirt, queryFp, storedFp) * 0.75 + silhouetteEmb * 0.25,
+  );
   const neckline = storedFp
     ? queryFp.necklineShape === storedFp.necklineShape
       ? 92
@@ -92,13 +149,18 @@ function scorePair(
       ? 90
       : vectorPercent(queryFp.localDescriptors.slice(8, 16), storedFp.localDescriptors.slice(8, 16))
     : blouse;
-  const dupatta = storedFp
-    ? queryFp.dupattaPattern && storedFp.dupattaPattern
-      ? queryFp.dupattaPattern === storedFp.dupattaPattern
-        ? 88
-        : 42
-      : 55
-    : 50;
+  // Never penalize dupatta placement differences across views
+  const dupatta = Math.round(
+    Math.max(
+      70,
+      dupattaEmb || 70,
+      storedFp && queryFp.dupattaPattern && storedFp.dupattaPattern
+        ? queryFp.dupattaPattern === storedFp.dupattaPattern
+          ? 88
+          : 72
+        : 72,
+    ),
+  );
 
   const weights =
     partial !== "full" && partial in PARTIAL_REGION_WEIGHTS_V6
@@ -145,7 +207,7 @@ function scorePair(
   };
 }
 
-/** Production 7-component weighted final score. */
+/** Bridal visual weighted score: 40/20/15/10/10/5 border/motif/embroidery/panel/embedding/colour. */
 export function computeWeightedFingerprintScore(scores: {
   global: number;
   embroidery: number;
@@ -155,15 +217,13 @@ export function computeWeightedFingerprintScore(scores: {
   texture: number;
   silhouette: number;
 }): number {
-  const w = FINGERPRINT_MATCH_WEIGHTS;
   return Math.round(
-    scores.global * w.global +
-      scores.embroidery * w.embroidery +
-      scores.border * w.border +
-      scores.motifs * w.motifs +
-      scores.colour * w.colour +
-      scores.texture * w.texture +
-      scores.silhouette * w.silhouette,
+    scores.border * 0.4 +
+      scores.motifs * 0.2 +
+      scores.embroidery * 0.15 +
+      scores.silhouette * 0.1 +
+      scores.global * 0.1 +
+      scores.colour * 0.05,
   );
 }
 
@@ -210,7 +270,7 @@ export function matchRegionEmbeddings(
   return best;
 }
 
-/** Stage 1 — global embedding cosine search (identity, not colour). */
+/** Stage 1 — MAX across full/border/motif/blouse/panel (cross-view recall score). */
 export function globalEmbeddingScore(
   queryViews: QueryReferenceFingerprint[],
   references: StoredReferenceFingerprint[],
@@ -218,10 +278,7 @@ export function globalEmbeddingScore(
   let best = 0;
   for (const qv of queryViews) {
     for (const ref of references) {
-      const g = embPercent(qv.embeddings.global, ref.embeddings.global);
-      const skirt = embPercent(qv.embeddings.skirt, ref.embeddings.skirt);
-      const emb = embPercent(qv.embeddings.embroidery, ref.embeddings.embroidery);
-      const combined = Math.round(g * 0.5 + skirt * 0.3 + emb * 0.2);
+      const combined = maxCrossViewEmbeddingScore(qv.embeddings, ref.embeddings, embPercent);
       if (combined > best) best = combined;
     }
   }

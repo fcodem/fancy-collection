@@ -1,7 +1,7 @@
 import { NextRequest } from "next/server";
 import prisma from "@/lib/prisma";
 import { dressDisplayName } from "@/lib/dress";
-import { parseDate } from "@/lib/constants";
+import { formatDate, parseDate } from "@/lib/constants";
 import {
   customerNameWhere,
   dressNameWhere,
@@ -28,6 +28,8 @@ type SuggestBooking = {
   dressName: string | null;
   deliveryDate: Date;
   returnDate: Date;
+  deliveryTime: string;
+  returnTime: string;
   contact1: string;
   whatsappNo: string | null;
   bookingItems: Array<{
@@ -133,11 +135,17 @@ function formatSuggestRow(b: SuggestBooking) {
   const dresses = b.bookingItems.length
     ? b.bookingItems.map((bi) => dressDisplayName(bi.dressName, bi.category, bi.size || bi.item?.size)).join(", ")
     : b.dressName || "";
+  const deliveryDate = formatDate(b.deliveryDate, "display");
+  const returnDate = formatDate(b.returnDate, "display");
   return {
     id: b.id,
     serial: b.monthlySerial,
     label: `#${String(b.monthlySerial).padStart(2, "0")} — ${b.customerName}`,
     meta: dresses,
     customer_name: b.customerName,
+    delivery_date: deliveryDate,
+    return_date: returnDate,
+    delivery_time: b.deliveryTime,
+    return_time: b.returnTime,
   };
 }

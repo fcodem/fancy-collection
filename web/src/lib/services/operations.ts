@@ -1023,13 +1023,22 @@ export async function saveDeliveryIdPhotos(
   let idPhoto1 = booking.idPhoto1;
   let idPhoto2 = booking.idPhoto2;
 
-  if (data.id_photo_1 instanceof File && data.id_photo_1.size > 0) {
+  const file1 = data.id_photo_1;
+  const file2 = data.id_photo_2;
+  const isUpload = (f: unknown): f is File =>
+    Boolean(f) && typeof f === "object" && "size" in (f as object) && (f as File).size > 0;
+
+  if (isUpload(file1)) {
     if (idPhoto1) await deleteUploads([idPhoto1]);
-    idPhoto1 = await saveUpload(data.id_photo_1);
+    idPhoto1 = await saveUpload(file1);
   }
-  if (data.id_photo_2 instanceof File && data.id_photo_2.size > 0) {
+  if (isUpload(file2)) {
     if (idPhoto2) await deleteUploads([idPhoto2]);
-    idPhoto2 = await saveUpload(data.id_photo_2);
+    idPhoto2 = await saveUpload(file2);
+  }
+
+  if (idPhoto1 === booking.idPhoto1 && idPhoto2 === booking.idPhoto2) {
+    throw new Error("No ID photo files were received. Try capturing again and Save ID Photos.");
   }
 
   const result = await prisma.booking.update({
@@ -1172,7 +1181,7 @@ export async function saveReturn(
     if (!resolved) throw new Error("Booking is not an incomplete return or could not be resolved.");
     return resolved;
   } else if (action === "incomplete_return") {
-    await clearBookingIdPhotos(booking);
+    // Keep customer ID photos until the booking is fully returned — staff need them on return.
 
     if (!booking.bookingItems.length) {
       await prisma.booking.update({
@@ -1183,8 +1192,6 @@ export async function saveReturn(
           incompletePhoto: data.incomplete_photo || null,
           securityHeld: data.security_held || 0,
           returnedAt: new Date(),
-          idPhoto1: null,
-          idPhoto2: null,
         },
       });
       if (booking.itemId) {
@@ -1261,8 +1268,6 @@ export async function saveReturn(
             incompletePhoto: firstPhoto,
             securityHeld: data.security_held ?? totalSecurityHeld,
             returnedAt: new Date(),
-            idPhoto1: null,
-            idPhoto2: null,
           },
         });
       });

@@ -77,6 +77,8 @@ export type IdentificationSearchResponse = {
   reliable_identification: boolean;
   identification_meta?: DressCheckerSearchMeta;
   image_warnings?: string[];
+  identity_engine_active?: boolean;
+  stale_index_count?: number;
   pipeline_stages?: {
     stage_a_category: string;
     stage_b_candidates: number;
@@ -240,6 +242,8 @@ export async function identificationPhotoSearch(
     reliable_identification: result.reliable_identification,
     identification_meta: result.identification_meta,
     image_warnings: result.image_warnings,
+    identity_engine_active: Boolean(result.dress_checker_debug?.vlm?.used),
+    stale_index_count: 0,
     dress_checker_debug: result.dress_checker_debug as IdentificationSearchResponse["dress_checker_debug"],
   };
 }

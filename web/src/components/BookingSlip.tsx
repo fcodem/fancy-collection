@@ -1,6 +1,11 @@
 import type { ReactNode } from "react";
 import { photoUrl } from "@/lib/photoUrl";
 import ZoomableImage from "@/components/ZoomableImage";
+import SlipBrandTitle from "@/components/SlipBrandTitle";
+import SlipLogo from "@/components/SlipLogo";
+import SlipMottoBanner from "@/components/SlipMottoBanner";
+import Emoji from "@/components/Emoji";
+import { WHATSAPP_CONTACT_LINE, WHATSAPP_TEAM_LINE, SLIP_TERMS } from "@/lib/slipConstants";
 
 export type BookingSlipProps = {
   booking: {
@@ -14,6 +19,8 @@ export type BookingSlipProps = {
     deliveryTime: string;
     returnDate: string;
     returnTime: string;
+    bookingDate: string;
+    bookingTime: string;
     venue?: string | null;
     staffNames?: string | null;
     securityDeposit: number;
@@ -146,24 +153,11 @@ function rs(n: number) {
   return `₹${Math.round(n).toLocaleString("en-IN")}`;
 }
 
-const TERMS = [
-  "Goods once booked CANNOT be cancelled under any circumstances.",
-  "Booking advance amount is NOT adjustable in any other bookings.",
-  "All items must be returned by the return date and time mentioned above.",
-  "Late returns will attract additional rental charges per day.",
-  "Any damage, stains, tears or loss to the rented items is chargeable.",
-  "Security deposit will be refunded ONLY upon return of all items in original condition.",
-  "Items will be handed over to the registered customer with valid photo ID only.",
-  "Team Fancy Collection is not responsible for any alterations done outside our premises.",
-  "In case of any dispute, the decision of Team Fancy Collection management shall be final.",
-  "Customer is responsible for proper storage and care of items during rental period.",
-];
+const TERMS = SLIP_TERMS;
 
 export default function BookingSlip(props: BookingSlipProps) {
-  const { booking: b, items, orders, qrDataUrl, businessName, businessPhone, businessAddress, businessTagline } = props;
+  const { booking: b, items, orders, qrDataUrl, businessName, businessPhone, businessAddress } = props;
   const slipNo = String(b.monthlySerial).padStart(2, "0");
-  const initials = businessName.charAt(0).toUpperCase();
-  const tagline = businessTagline || "Premium Cloth Rental — Elegance for Every Occasion";
   const displayAddress = businessAddress?.trim() || DEFAULT_ADDRESS;
   const displayPhone = businessPhone?.trim() || DEFAULT_PHONE;
   const half = Math.ceil(TERMS.length / 2);
@@ -182,12 +176,30 @@ export default function BookingSlip(props: BookingSlipProps) {
       {/* ── Print Styles ─────────────────────────────────────── */}
       <style dangerouslySetInnerHTML={{ __html: `
         @media print {
-          .slip-page-wrap { padding: 0 !important; margin: 0 !important; background: #fff !important; }
-          #booking-slip-root { width: 210mm; min-height: 297mm; margin: 0 !important; padding: 0 !important; box-shadow: none !important; border-radius: 0 !important; }
-          .slip-outfit-page { width: 210mm; min-height: 297mm; margin: 0 !important; padding: 0 !important; box-shadow: none !important; border-radius: 0 !important; page-break-before: always; break-before: page; }
+          .slip-page-wrap { padding: 0 !important; margin: 0 !important; background: #fff !important; min-height: 0 !important; }
+          #booking-slip-root {
+            width: 210mm;
+            min-height: 0 !important;
+            height: auto !important;
+            margin: 0 !important;
+            padding: 0 !important;
+            box-shadow: none !important;
+            border-radius: 0 !important;
+          }
+          .slip-outfit-page {
+            width: 210mm;
+            min-height: 0 !important;
+            height: auto !important;
+            margin: 0 !important;
+            padding: 0 !important;
+            box-shadow: none !important;
+            border-radius: 0 !important;
+            page-break-before: always;
+            break-before: page;
+          }
           .slip-screen-only { display: none !important; }
           * { -webkit-print-color-adjust: exact !important; print-color-adjust: exact !important; }
-          .no-break { page-break-inside: avoid; }
+          .no-break { page-break-inside: avoid; break-inside: avoid; }
           .page-break-before { page-break-before: always; }
         }
         @media screen {
@@ -205,30 +217,29 @@ export default function BookingSlip(props: BookingSlipProps) {
           <div style={{ display: "flex", alignItems: "flex-start", justifyContent: "space-between", paddingBottom: 14 }}>
             {/* Left: Logo + Business Name + Address + Phone */}
             <div style={{ display: "flex", alignItems: "flex-start", gap: 14, flex: 1, minWidth: 0 }}>
-              <div style={{
-                width: 56, height: 56, borderRadius: "50%",
-                border: `2.5px solid ${GOLD}`,
-                display: "flex", alignItems: "center", justifyContent: "center",
-                background: "rgba(255,255,255,0.1)",
-                flexShrink: 0,
-                marginTop: 2,
-              }}>
-                <span style={{ fontSize: 26, fontWeight: 900, color: GOLD, fontFamily: "Georgia, serif" }}>{initials}</span>
-              </div>
+              <SlipLogo />
               <div style={{ minWidth: 0 }}>
-                <div style={{ fontSize: 22, fontWeight: 800, color: "#fff", fontFamily: "Georgia, serif", letterSpacing: "0.01em", lineHeight: 1.2 }}>
-                  {businessName}
-                </div>
+                <SlipBrandTitle
+                  name={businessName}
+                  nameStyle={{
+                    fontSize: 22,
+                    fontWeight: 800,
+                    color: "#fff",
+                    fontFamily: "Georgia, serif",
+                    letterSpacing: "0.01em",
+                    lineHeight: 1.2,
+                  }}
+                  badgeStyle={{ fontSize: 11 }}
+                />
                 <div style={{ fontSize: 10, color: "rgba(255,255,255,0.95)", fontWeight: 700, marginTop: 3, letterSpacing: "0.04em" }}>
                   GSTIN: {GSTIN}
                 </div>
                 <div style={{ fontSize: 10, color: "rgba(255,255,255,0.92)", marginTop: 4, lineHeight: 1.45, maxWidth: 380 }}>
-                  📍 {displayAddress}
+                  <Emoji char="📍" /> {displayAddress}
                 </div>
                 <div style={{ fontSize: 12, color: GOLD, fontWeight: 700, marginTop: 4 }}>
-                  📞 {displayPhone}
+                  <Emoji char="📞" /> {displayPhone}
                 </div>
-                <div style={{ fontSize: 11, color: GOLD, fontStyle: "italic", marginTop: 4 }}>{tagline}</div>
               </div>
             </div>
 
@@ -245,6 +256,7 @@ export default function BookingSlip(props: BookingSlipProps) {
 
           {/* Gold divider */}
           <div style={{ height: 2, background: GOLD, margin: "0 -24px" }} />
+          <SlipMottoBanner fullWidth style={{ margin: "0 -24px" }} />
         </div>
 
         {/* ══════════════════════════════════════════
@@ -271,7 +283,7 @@ export default function BookingSlip(props: BookingSlipProps) {
                   ["👨‍💼", "Staff", b.staffNames || "—", false],
                 ].map(([icon, label, value, bold], i) => (
                   <tr key={i}>
-                    <td style={{ width: 20, paddingBottom: 5, fontSize: 12, verticalAlign: "top", paddingTop: 1 }}>{icon}</td>
+                    <td style={{ width: 20, paddingBottom: 5, fontSize: 12, verticalAlign: "top", paddingTop: 1 }}><Emoji char={icon} /></td>
                     <td style={{ width: 60, paddingBottom: 5, fontSize: 11, color: GREY, fontWeight: 600, verticalAlign: "top", paddingTop: 1 }}>{label}</td>
                     <td style={{ paddingBottom: 5, fontSize: 12, verticalAlign: "top", paddingTop: 1 }}>
                       {bold ? <span style={{ fontWeight: 700, fontSize: 14, color: "#1a1a1a" }}>{value}</span> : value}
@@ -282,8 +294,23 @@ export default function BookingSlip(props: BookingSlipProps) {
             </table>
           </div>
 
-          {/* Right: Pickup + Return Cards */}
+          {/* Right: Booking + Pickup + Return Cards */}
           <div style={{ display: "flex", flexDirection: "column", gap: 8 }}>
+            {/* Booking date */}
+            <div style={{
+              background: "#fff",
+              borderRadius: 10,
+              border: `2px solid ${G}`,
+              padding: "10px 16px",
+              flex: 1,
+            }}>
+              <div style={{ fontSize: 10, color: G, textTransform: "uppercase", letterSpacing: "0.1em", marginBottom: 4, fontWeight: 700 }}>
+                <Emoji char="📅" /> Date of Booking
+              </div>
+              <div style={{ fontSize: 18, fontWeight: 900, color: G, fontFamily: "Georgia, serif", lineHeight: 1.1 }}>{b.bookingDate}</div>
+              <div style={{ fontSize: 12, fontWeight: 700, color: GREY, marginTop: 4 }}>{b.bookingTime}</div>
+            </div>
+
             {/* Pickup */}
             <div style={{
               background: G,
@@ -293,7 +320,7 @@ export default function BookingSlip(props: BookingSlipProps) {
               boxShadow: "0 3px 10px rgba(26,92,42,0.25)",
             }}>
               <div style={{ fontSize: 10, color: "rgba(255,255,255,0.75)", textTransform: "uppercase", letterSpacing: "0.1em", marginBottom: 4 }}>
-                📦 Pickup Date &amp; Time
+                <Emoji char="📦" /> Delivery Date &amp; Time
               </div>
               <div style={{ fontSize: 22, fontWeight: 900, color: "#fff", fontFamily: "Georgia, serif", lineHeight: 1.1 }}>{b.deliveryDate}</div>
               <div style={{ fontSize: 14, fontWeight: 700, color: GOLD, marginTop: 4 }}>{b.deliveryTime}</div>
@@ -308,7 +335,7 @@ export default function BookingSlip(props: BookingSlipProps) {
               boxShadow: "0 3px 10px rgba(201,168,76,0.35)",
             }}>
               <div style={{ fontSize: 10, color: "#5a3800", textTransform: "uppercase", letterSpacing: "0.1em", marginBottom: 4 }}>
-                🔄 Return Date &amp; Time
+                <Emoji char="🔄" /> Return Date &amp; Time
               </div>
               <div style={{ fontSize: 22, fontWeight: 900, color: G, fontFamily: "Georgia, serif", lineHeight: 1.1 }}>{b.returnDate}</div>
               <div style={{ fontSize: 14, fontWeight: 700, color: G, marginTop: 4 }}>{b.returnTime}</div>
@@ -432,7 +459,7 @@ export default function BookingSlip(props: BookingSlipProps) {
               gap: 6,
             }}>
               <div style={{ display: "flex", alignItems: "center", gap: 4, fontSize: 10, color: G, fontWeight: 600 }}>
-                <span>🔒</span> Secure Booking
+                <Emoji char="🔒" /> Secure Booking
               </div>
               {qrDataUrl ? (
                 /* eslint-disable-next-line @next/next/no-img-element */
@@ -446,7 +473,7 @@ export default function BookingSlip(props: BookingSlipProps) {
                 Scan for instant<br />verification at pickup
               </div>
               <div style={{ background: "#e8f5e9", color: G, fontSize: 10, fontWeight: 700, padding: "3px 10px", borderRadius: 20 }}>
-                CONFIRMED ✓
+                CONFIRMED <Emoji char="✅" />
               </div>
               <div style={{ fontSize: 9, color: "#999", fontFamily: "monospace" }}>{b.publicBookingId}</div>
             </div>
@@ -471,7 +498,7 @@ export default function BookingSlip(props: BookingSlipProps) {
               <div style={{ display: "flex", justifyContent: "space-between", alignItems: "center", padding: "10px 16px", borderBottom: `1px solid ${BORDER}` }}>
                 <div style={{ fontSize: 13, color: GREY }}>Advance Paid</div>
                 <div style={{ display: "flex", alignItems: "center", gap: 8 }}>
-                  <span style={{ fontSize: 11, background: "#e8f5e9", color: SUCCESS, padding: "2px 8px", borderRadius: 12, fontWeight: 700 }}>PAID ✓</span>
+                  <span style={{ fontSize: 11, background: "#e8f5e9", color: SUCCESS, padding: "2px 8px", borderRadius: 12, fontWeight: 700 }}>PAID <Emoji char="✅" /></span>
                   <span style={{ fontSize: 14, fontWeight: 700, color: SUCCESS }}>{rs(b.totalAdvance)}</span>
                 </div>
               </div>
@@ -528,16 +555,16 @@ export default function BookingSlip(props: BookingSlipProps) {
 
         {/* Payment note */}
         <div style={{ padding: "0 16px 12px", fontSize: 11, color: GREY, fontStyle: "italic", textAlign: "right" }}>
-          💡 Please bring exact change for balance and security amounts shown above.
+          <Emoji char="💡" /> Please bring exact change for balance and security amounts shown above.
         </div>
 
         {/* ══════════════════════════════════════════
             SECTION 7: NO CANCELLATION + TERMS
         ══════════════════════════════════════════ */}
-        <div className="no-break" style={{ padding: "0 16px 12px" }}>
+        <div className="no-break" style={{ padding: "0 16px 8px" }}>
           {/* NO CANCELLATION banner */}
           <div style={{
-            marginBottom: 12,
+            marginBottom: 8,
             background: `linear-gradient(135deg, ${RED}, #e74c3c)`,
             border: "2px solid #922b21",
             borderRadius: 8,
@@ -546,7 +573,7 @@ export default function BookingSlip(props: BookingSlipProps) {
             boxShadow: "0 2px 10px rgba(192,57,43,0.35)",
           }}>
             <div style={{ fontSize: 15, fontWeight: 900, color: "#fff", letterSpacing: "0.06em", textTransform: "uppercase" }}>
-              ⚠️ NO CANCELLATION · NO REFUND
+              <Emoji char="⚠️" /> NO CANCELLATION · NO REFUND
             </div>
             <div style={{ fontSize: 11, fontWeight: 700, color: "rgba(255,255,255,0.95)", marginTop: 4 }}>
               All bookings are final once confirmed. Advance amount is non-refundable and non-adjustable.
@@ -601,8 +628,9 @@ export default function BookingSlip(props: BookingSlipProps) {
 
           {/* Footer band */}
           <div style={{ background: G, padding: "12px 20px", display: "flex", alignItems: "center", justifyContent: "space-between" }}>
-            <div style={{ fontSize: 12, color: "#fff", fontStyle: "italic" }}>
-              Thank you for choosing {businessName}! 🙏
+            <div style={{ fontSize: 11, color: "#fff", lineHeight: 1.5 }}>
+              <div style={{ fontWeight: 800, letterSpacing: "0.04em" }}>{WHATSAPP_TEAM_LINE}</div>
+              <div style={{ marginTop: 2, color: GOLD, fontWeight: 700 }}>{WHATSAPP_CONTACT_LINE}</div>
             </div>
             <div style={{ textAlign: "right", fontSize: 10, color: "rgba(255,255,255,0.8)", lineHeight: 1.5 }}>
               <div>{displayPhone}</div>
@@ -631,7 +659,6 @@ export default function BookingSlip(props: BookingSlipProps) {
             color: "#1a1a1a",
             display: "flex",
             flexDirection: "column",
-            minHeight: props.printMode ? "297mm" : undefined,
           }}
         >
           <div style={{ background: `linear-gradient(135deg, ${G} 0%, #2d8a45 100%)`, padding: "14px 20px", textAlign: "center" }}>
@@ -644,7 +671,7 @@ export default function BookingSlip(props: BookingSlipProps) {
             </div>
           </div>
 
-          <div style={{ flex: 1, display: "flex", alignItems: "center", justifyContent: "center", padding: "12px 16px", background: "#fafafa" }}>
+          <div style={{ display: "flex", alignItems: "center", justifyContent: "center", padding: "10px 16px 8px", background: "#fafafa" }}>
             {/* eslint-disable-next-line @next/next/no-img-element */}
             <img
               src={it.photoUrl!}
@@ -652,7 +679,7 @@ export default function BookingSlip(props: BookingSlipProps) {
               style={{
                 width: "100%",
                 maxWidth: "178mm",
-                maxHeight: props.printMode ? "230mm" : "70vh",
+                maxHeight: props.printMode ? "220mm" : "70vh",
                 objectFit: "contain",
                 display: "block",
                 borderRadius: 8,
@@ -661,8 +688,12 @@ export default function BookingSlip(props: BookingSlipProps) {
             />
           </div>
 
-          <div style={{ background: G, padding: "10px 20px", display: "flex", alignItems: "center", justifyContent: "space-between" }}>
-            <div style={{ fontSize: 11, color: "#fff", fontWeight: 600 }}>{businessName}</div>
+          <div style={{ background: G, padding: "10px 20px", display: "flex", alignItems: "center", justifyContent: "space-between", gap: 10 }}>
+            <SlipBrandTitle
+              name={businessName}
+              nameStyle={{ fontSize: 11, color: "#fff", fontWeight: 600 }}
+              badgeStyle={{ fontSize: 8, padding: "2px 6px" }}
+            />
             <div style={{ fontSize: 10, color: GOLD, fontFamily: "monospace" }}>{b.publicBookingId}</div>
           </div>
         </div>

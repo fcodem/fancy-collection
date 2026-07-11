@@ -1,7 +1,10 @@
 "use client";
 
 import { useEffect, useMemo, useState } from "react";
+import { useRouter } from "next/navigation";
 import { FinanceChart } from "@/components/finance/FinanceChart";
+import { SaveConfirmedBanner } from "@/components/SaveConfirmedBanner";
+import { buildSaveRedirectUrl } from "@/components/SaveConfirmedBanner";
 import { formatInr } from "@/lib/format";
 
 type Supplier = {
@@ -31,7 +34,14 @@ type Summary = {
   count: number;
 };
 
-export default function SuppliersClient({ categories = [] }: { categories?: string[] }) {
+export default function SuppliersClient({
+  categories = [],
+  saveConfirmed,
+}: {
+  categories?: string[];
+  saveConfirmed?: { title: string; detail?: string };
+}) {
+  const router = useRouter();
   const [suppliers, setSuppliers] = useState<Supplier[]>([]);
   const [form, setForm] = useState({ name: "", phone: "", address: "", gst_no: "", account_details: "" });
   const [expanded, setExpanded] = useState<number | null>(null);
@@ -86,8 +96,16 @@ export default function SuppliersClient({ categories = [] }: { categories?: stri
     });
     setSaving(false);
     if (!res.ok) { const err = await res.json(); alert(err.error || "Failed to save vendor"); return; }
+    const vendorName = form.name.trim();
     setForm({ name: "", phone: "", address: "", gst_no: "", account_details: "" });
     load();
+    router.replace(
+      buildSaveRedirectUrl("/finance/suppliers", {
+        title: "Supplier saved",
+        detail: vendorName,
+      }),
+    );
+    window.scrollTo(0, 0);
   }
 
   async function addStock(supplierId: number) {
@@ -157,6 +175,13 @@ export default function SuppliersClient({ categories = [] }: { categories?: stri
 
   return (
     <div>
+      {saveConfirmed && (
+        <SaveConfirmedBanner
+          title={saveConfirmed.title}
+          detail={saveConfirmed.detail}
+          hint="Add another supplier below."
+        />
+      )}
       <div className="card" style={{ marginBottom: 24 }}>
         <div className="card-header">
           <h3 className="card-title">

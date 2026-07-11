@@ -4,9 +4,9 @@ import { useCallback, useEffect, useRef, useState } from "react";
 import Link from "next/link";
 import { useRouter } from "next/navigation";
 import { useMounted } from "@/lib/useMounted";
+import { BRAND_FULL_NAME } from "@/lib/branding";
 import {
   bookingQrNavigatePath,
-  isAbortError,
   parseQrScanPayload,
 } from "@/lib/bookingQrClient";
 import {
@@ -24,7 +24,7 @@ type PermissionUi = "idle" | "requesting" | "granted" | "denied";
 export default function SearchQrClient({
   navigateTarget,
   title = "Search QR Code",
-  subtitle = "Signed bill QRs only — opens booking in Fancy Collection",
+  subtitle = `Signed bill QRs only — opens booking in ${BRAND_FULL_NAME}`,
   backHref = "/",
   backLabel = "Dashboard",
 }: {
@@ -60,7 +60,7 @@ export default function SearchQrClient({
         return;
       }
       if (!parsed.sig) {
-        setError("This QR is not a valid Fancy Collection bill code. Only signed bill QRs work here.");
+        setError(`This QR is not a valid ${BRAND_FULL_NAME} bill code. Only signed bill QRs work here.`);
         return;
       }
 

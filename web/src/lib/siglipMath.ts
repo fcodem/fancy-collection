@@ -30,19 +30,16 @@ export type ConfidenceLevel = {
   matchLabel: string;
 };
 
-/** Confidence tiers for UI (never claim exact match below 90%). */
+/** Enterprise dress checker confidence tiers for UI. */
 export function mapConfidence(similarityPct: number): ConfidenceLevel {
   if (similarityPct >= 95) {
-    return { stars: "★★★★★", label: "Excellent", reliable: true, matchLabel: "Very strong match" };
+    return { stars: "★★★★★", label: "Exact", reliable: true, matchLabel: "Exact match" };
   }
-  if (similarityPct >= 90) {
-    return { stars: "★★★★☆", label: "Strong", reliable: true, matchLabel: "Strong match" };
+  if (similarityPct >= 85) {
+    return { stars: "★★★★", label: "Highly likely", reliable: true, matchLabel: "Highly likely same dress" };
   }
-  if (similarityPct >= 80) {
-    return { stars: "★★★★", label: "Good", reliable: true, matchLabel: "Good match" };
+  if (similarityPct >= 75) {
+    return { stars: "★★★", label: "Possible", reliable: false, matchLabel: "Possible match — please confirm" };
   }
-  if (similarityPct >= 70) {
-    return { stars: "★★★", label: "Possible", reliable: false, matchLabel: "Possible match" };
-  }
-  return { stars: "", label: "Unreliable", reliable: false, matchLabel: "No reliable match" };
+  return { stars: "", label: "Below threshold", reliable: false, matchLabel: "Below threshold" };
 }

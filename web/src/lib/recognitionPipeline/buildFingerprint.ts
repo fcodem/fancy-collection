@@ -56,6 +56,7 @@ export async function buildFeatureFingerprint(
     accentColours: colours.accents,
     colourHistogram: colours.histogram,
     colourFamily: resolveInventoryColourFamily(name, colours.family, colours.histogram),
+    colourDiagnostics: colours.diagnostics,
     fabricTextureDescriptor: texture,
     embroideryDensity: embroidery.density,
     embroideryStyle: embroidery.style,

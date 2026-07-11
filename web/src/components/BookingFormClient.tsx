@@ -35,12 +35,15 @@ import { formatInr } from "@/lib/format";
 import { photoUrl } from "@/lib/photoUrl";
 import { isAbortError } from "@/lib/bookingQrClient";
 import { useToast } from "@/components/ui/Toast";
+import { downloadBookingSlipPdf } from "@/lib/bookingSlipClient";
+import { useRealtimeRefresh } from "@/hooks/useRealtimeRefresh";
+import { BOOKING_EVENTS, INVENTORY_EVENTS } from "@/lib/realtime/types";
 
 
 
 const TIMES = [
 
-  "9:00 AM", "10:00 AM", "11:00 AM", "12:00 Noon", "1:00 PM", "2:00 PM",
+  "8:00 AM", "9:00 AM", "10:00 AM", "11:00 AM", "12:00 Noon", "1:00 PM", "2:00 PM",
 
   "3:00 PM", "4:00 PM", "5:00 PM", "6:00 PM", "7:00 PM", "8:00 PM", "9:00 PM", "10:00 PM",
 
@@ -519,7 +522,11 @@ export default function BookingFormClient(props: Props) {
 
     try {
 
-      const res = await fetch(url, { credentials: "same-origin", signal: controller.signal });
+      const res = await fetch(url, {
+        credentials: "same-origin",
+        signal: controller.signal,
+        cache: "no-store",
+      });
 
       const data = await res.json();
 
@@ -547,7 +554,9 @@ export default function BookingFormClient(props: Props) {
 
   }, [deliveryDate, returnDate, props.editId]);
 
-
+  useRealtimeRefresh([...BOOKING_EVENTS, ...INVENTORY_EVENTS], () => {
+    void fetchAvailability();
+  });
 
   useEffect(() => () => availabilityAbortRef.current?.abort(), []);
 
@@ -852,7 +861,7 @@ export default function BookingFormClient(props: Props) {
 
 
   /** Validates form, POST/PUT booking (or prospect lead), then redirects. */
-  async function save(opts?: { openPrintSlip?: boolean }) {
+  async function save(opts?: { openPrintSlip?: boolean; downloadSlipPdf?: boolean }) {
     if (readOnly) return;
 
     setError("");
@@ -902,7 +911,9 @@ export default function BookingFormClient(props: Props) {
     setSaving(true);
 
     const printWindow =
-      opts?.openPrintSlip && !isProspect ? window.open("about:blank", "_blank") : null;
+      opts?.openPrintSlip && !isProspect && !opts?.downloadSlipPdf
+        ? window.open("about:blank", "_blank")
+        : null;
 
     const payload = {
 
@@ -995,15 +1006,42 @@ export default function BookingFormClient(props: Props) {
       printWindow.location.href = `/booking/${bookingId}/slip?print=1`;
     }
 
-    if (!isProspect) {
+    if (opts?.downloadSlipPdf && !isProspect) {
+      try {
+        await downloadBookingSlipPdf(bookingId);
+        toast("✅ Booking saved — PDF downloaded", "success");
+      } catch (e) {
+        toast(
+          e instanceof Error ? e.message : "Booking saved but PDF download failed",
+          "error",
+        );
+        router.push(`/booking/${bookingId}/slip?offerPdf=1`);
+        return;
+      }
+    } else if (!isProspect) {
       toast(
-        opts?.openPrintSlip ? "✅ Booking Saved — opening A4 slip for print" : "✅ Booking Saved!",
+        opts?.openPrintSlip
+          ? printWindow
+            ? "✅ Booking Saved — opening A4 slip for print"
+            : "✅ Booking Saved — opening slip (use Download PDF if print is unavailable)"
+          : "✅ Booking Saved!",
         "success",
       );
     }
 
-    if (isProspect) router.replace("/prospect-leads");
-    else if (!props.editId) {
+    if (opts?.openPrintSlip && !isProspect && !printWindow && !props.editId) {
+      router.push(`/booking/${bookingId}/slip?print=1&offerPdf=1`);
+      return;
+    }
+
+    if (isProspect) {
+      const serial = data.serial ?? data.monthly_serial;
+      toast("Prospect lead saved", "success");
+      resetFormForNewBooking();
+      router.replace(`/prospect-leads/new?saved=1&serial=${serial ?? ""}`);
+      router.refresh();
+      window.scrollTo(0, 0);
+    } else if (!props.editId) {
       const serial = data.serial ?? data.monthly_serial;
       resetFormForNewBooking();
       router.replace(`/booking/new?confirmed=1&serial=${serial ?? ""}`);
@@ -1057,10 +1095,12 @@ export default function BookingFormClient(props: Props) {
       {props.saveConfirmedSerial != null && props.saveConfirmedSerial > 0 && (
         <div className="alert alert-success" style={{ marginBottom: 16, fontSize: 15 }}>
           <i className="fa-solid fa-circle-check" style={{ marginRight: 8 }} />
-          <strong>Booking confirmed</strong>
+          <strong>{isProspect ? "Prospect lead saved" : "Booking confirmed"}</strong>
           {" — Serial "}
           <strong>#{String(props.saveConfirmedSerial).padStart(2, "0")}</strong>
-          {" saved successfully. Enter the next booking below."}
+          {isProspect
+            ? " saved successfully. Enter the next prospect lead below."
+            : " saved successfully. Enter the next booking below."}
         </div>
       )}
 
@@ -1092,13 +1132,22 @@ export default function BookingFormClient(props: Props) {
 
       <div className="card" style={{ marginBottom: 20, background: "linear-gradient(135deg, var(--primary-dark), var(--primary))", color: "white" }}>
 
-        <div className="card-body booking-header-bar" style={{ display: "flex", justifyContent: "space-between", alignItems: "center" }}>
+        <div className="card-body booking-header-bar" style={{ display: "flex", justifyContent: "space-between", alignItems: "flex-start" }}>
 
           <div>
 
-            <div suppressHydrationWarning style={{ fontSize: 18, fontWeight: 700 }}>{nowDisplay || "—"}</div>
+            {!props.editId && !isProspect && (
+              <div suppressHydrationWarning style={{ fontSize: 13, fontWeight: 700, marginBottom: 10, opacity: 0.95, lineHeight: 1.35 }}>
+                <i className="fa-solid fa-calendar-day" style={{ marginRight: 6 }} />
+                Booking Date: {nowDisplay || "—"}
+              </div>
+            )}
 
-            <div style={{ fontSize: 12, opacity: 0.8 }}>Booking Date & Time</div>
+            <div style={{ fontSize: 18, fontWeight: 700 }}>
+              {isProspect ? "New Prospect Lead" : props.editId ? "Edit Booking" : "New Booking"}
+            </div>
+
+            <div style={{ fontSize: 12, opacity: 0.8 }}>Monthly serial is based on delivery month</div>
 
           </div>
 
@@ -1106,7 +1155,7 @@ export default function BookingFormClient(props: Props) {
 
             <div style={{ fontSize: 28, fontWeight: 800, fontFamily: "Playfair Display, serif" }}>{serialDisplay}</div>
 
-            <div style={{ fontSize: 11, opacity: 0.8 }}>Monthly Serial (based on delivery month)</div>
+            <div style={{ fontSize: 11, opacity: 0.8 }}>Serial #</div>
 
           </div>
 
@@ -1131,6 +1180,24 @@ export default function BookingFormClient(props: Props) {
               <input className="form-control" value={customerName} onChange={(e) => setCustomerName(e.target.value)} required />
 
             </div>
+
+            {(!props.editId && !isProspect) ? null : (
+            <div className="form-group full-width" suppressHydrationWarning>
+
+              <label className="form-label">Booking Date &amp; Time</label>
+
+              <input
+                className="form-control"
+                value={nowDisplay || "—"}
+                readOnly
+                style={{ background: "var(--cream-dark)", cursor: "default" }}
+                title="When this booking is saved (today's date and time)"
+              />
+
+              <span className="form-hint">Date the booking is entered — not delivery or return</span>
+
+            </div>
+            )}
 
             <div className="form-group full-width">
 
@@ -1164,6 +1231,7 @@ export default function BookingFormClient(props: Props) {
 
             </div>
 
+            {(props.editId || isProspect) && (
             <div className="form-group full-width">
 
               <label className="form-label">Security Deposit (₹)</label>
@@ -1171,6 +1239,7 @@ export default function BookingFormClient(props: Props) {
               <input type="number" className="form-control" value={securityDeposit} onChange={(e) => setSecurityDeposit(Number(e.target.value))} min={0} />
 
             </div>
+            )}
 
             <div className="form-group full-width">
 
@@ -1726,7 +1795,22 @@ export default function BookingFormClient(props: Props) {
 
       </div>
 
-
+      {!props.editId && !isProspect && (
+        <div className="card" style={{ marginBottom: 16 }}>
+          <div className="card-body">
+            <div className="form-group" style={{ marginBottom: 0 }}>
+              <label className="form-label">Security Deposit (₹)</label>
+              <input
+                type="number"
+                className="form-control"
+                value={securityDeposit}
+                onChange={(e) => setSecurityDeposit(Number(e.target.value))}
+                min={0}
+              />
+            </div>
+          </div>
+        </div>
+      )}
 
       </fieldset>
 
@@ -1746,17 +1830,30 @@ export default function BookingFormClient(props: Props) {
             {hasHardBlock ? "Cannot Save — Dress Already Booked" : saving ? "Saving…" : dateCheckLoading ? "Checking dates…" : isProspect ? "Save Prospect Lead" : props.editId ? "Update Booking" : "Save Booking"}
           </button>
           {!props.editId && !isProspect && (
+            <>
             <button
               type="button"
               className="btn btn-outline btn-lg"
               disabled={saving || dateCheckLoading || !selectedDresses.length || hasHardBlock}
               onClick={() => void save({ openPrintSlip: true })}
               style={{ color: "#1a5c2a", borderColor: "#1a5c2a", display: "inline-flex", alignItems: "center", gap: 8 }}
-              title="Save booking, send WhatsApp slip to customer, and open A4 print preview"
+              title="Save booking and open A4 slip for printing"
             >
               <i className="fa-solid fa-print" />
-              {saving ? "Saving…" : "Print A4 Slip"}
+              {saving ? "Saving…" : "Save & Print Slip"}
             </button>
+            <button
+              type="button"
+              className="btn btn-outline btn-lg"
+              disabled={saving || dateCheckLoading || !selectedDresses.length || hasHardBlock}
+              onClick={() => void save({ downloadSlipPdf: true })}
+              style={{ color: "#b45309", borderColor: "#b45309", display: "inline-flex", alignItems: "center", gap: 8 }}
+              title="Save booking and download A4 slip PDF (for mobile or when no printer is connected)"
+            >
+              <i className="fa-solid fa-file-pdf" />
+              {saving ? "Saving…" : "Save & Download PDF"}
+            </button>
+            </>
           )}
           <a href={isProspect ? "/prospect-leads" : props.editId ? `/booking/${props.editId}` : "/booking"} className="btn btn-outline">Cancel</a>
           </div>

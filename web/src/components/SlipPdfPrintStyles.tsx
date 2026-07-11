@@ -8,11 +8,15 @@ export function SlipPdfPrintStyles() {
             margin: 0 !important;
             padding: 0 !important;
             background: #fff !important;
+            height: auto !important;
+            min-height: 0 !important;
           }
-          .slip-page-wrap {
+          .slip-page-wrap,
+          body > div {
             padding: 0 !important;
             margin: 0 !important;
             min-height: 0 !important;
+            height: auto !important;
             background: #fff !important;
           }
           #booking-slip-root,
@@ -22,7 +26,8 @@ export function SlipPdfPrintStyles() {
           .slip-container,
           .slip-outfit-page {
             width: 210mm !important;
-            min-height: 297mm !important;
+            min-height: 0 !important;
+            height: auto !important;
             margin: 0 auto !important;
             box-shadow: none !important;
             border-radius: 0 !important;

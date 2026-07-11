@@ -5,14 +5,18 @@ export function buildDuplicateFingerprint(
   recognitionFp: RecognitionFingerprint | null,
   embeddings: ProfileEmbeddings,
 ): DuplicateFingerprint | null {
-  if (!recognitionFp) return null;
+  if (!recognitionFp?.regionHashes) return null;
+
+  const centre = recognitionFp.regionHashes.centre;
+  const bottom = recognitionFp.regionHashes.bottom;
+  const top = recognitionFp.regionHashes.top;
+  const shapeSig = [
+    centre?.aHash ?? "",
+    bottom?.aHash ?? "",
+    top?.aHash ?? "",
+  ].join(":");
 
   const globalVec = embeddings.global?.vector ?? embeddings.fineDetail?.vector ?? [];
-  const shapeSig = [
-    recognitionFp.regionHashes.centre.aHash,
-    recognitionFp.regionHashes.bottom.aHash,
-    recognitionFp.regionHashes.top.aHash,
-  ].join(":");
 
   return {
     version: 1,

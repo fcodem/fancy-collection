@@ -10,6 +10,7 @@ import type { PdfWarningPanel } from "@/lib/pdfWarningDraw";
 export const STANDARD_BOOKING_HEADERS = [
   "S.No",
   "Customer",
+  "Booked On",
   "Address",
   "Contact",
   "WhatsApp",
@@ -92,6 +93,7 @@ export function standardBookingPdfRow(
     cells: [
       String(serial).padStart(2, "0"),
       d.customer_name || "—",
+      d.booking_date ? `${d.booking_date}${d.booking_time ? ` ${d.booking_time}` : ""}` : "—",
       d.customer_address || "—",
       contact,
       whatsapp,

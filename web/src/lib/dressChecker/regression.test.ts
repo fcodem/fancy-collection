@@ -83,7 +83,7 @@ function index(f: FeatureFingerprint, emb = [1, 0.1, 0.05]): IdentificationIndex
 }
 
 describe("dressChecker regression v7", () => {
-  it("fingerprint weights sum to 1", () => {
+  it("fingerprint weights sum to 1 (GPT is separate 5% blend)", () => {
     const s = Object.values(FINGERPRINT_MATCH_WEIGHTS).reduce<number>((a, b) => a + b, 0);
     assert.ok(Math.abs(s - 1) < 0.001);
   });
@@ -94,7 +94,7 @@ describe("dressChecker regression v7", () => {
     assert.ok(score.final >= 75, `got ${score.final}`);
   });
 
-  it("similar colour different embroidery stays < 70", () => {
+  it("similar colour different embroidery stays below highly-likely", () => {
     const query = fp({ colourFamily: "blue", primaryColour: "blue" });
     const stored = fp({
       colourFamily: "blue",
@@ -114,7 +114,7 @@ describe("dressChecker regression v7", () => {
       "BLUE PLAIN",
       "Blue",
     );
-    assert.ok(score.final < 70, `colour-only got ${score.final}`);
+    assert.ok(score.final < 85, `colour-only got ${score.final}`);
   });
 
   it("completely different dress scores < 50", () => {

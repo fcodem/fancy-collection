@@ -2,6 +2,7 @@ import type { Metadata } from "next";
 import { redirect, notFound } from "next/navigation";
 import prisma from "@/lib/prisma";
 import { getCurrentUser } from "@/lib/auth";
+import { BRAND_FULL_NAME } from "@/lib/branding";
 import BillingPrintActions from "./PrintActions";
 
 export async function generateMetadata({
@@ -31,7 +32,7 @@ export default async function BillingPrintPage({ params }: { params: Promise<{ i
   return (
     <>
       <BillingPrintActions />
-      <h1>👑 Fancy Collection</h1>
+      <h1>👑 {BRAND_FULL_NAME}</h1>
       <h2>Invoice {invoice.invoiceNumber}</h2>
       <p>{invoice.rental.customer.name}</p>
       <p>Total: ₹{invoice.total.toLocaleString()}</p>

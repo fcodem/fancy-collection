@@ -7,6 +7,8 @@ import { fetchJson, parseResponseJson } from "@/lib/fetchJson";
 import { useToast } from "@/components/ui/Toast";
 import { useMounted } from "@/lib/useMounted";
 import RealtimeProvider, { useRealtime } from "@/components/RealtimeProvider";
+import { SidebarBrandMark, BrandBreadcrumbLabel, BrandLogo, BrandMottoPill } from "@/components/BrandMark";
+import { BRAND_APP_TITLE } from "@/lib/branding";
 
 const NAV_WHATSAPP = [
   { href: "/whatsapp", label: "Inbox", icon: "fa-comment-dots" },
@@ -27,9 +29,14 @@ const NAV_MAIN = [
   { href: "/return", label: "Return", icon: "fa-rotate-left" },
   { href: "/packing-list", label: "Packing List", icon: "fa-boxes-packing" },
   { href: "/booking-list", label: "Booked Items", icon: "fa-list-check" },
-  { href: "/returning-today", label: "Alternate Booking", icon: "fa-arrows-rotate" },
+  { href: "/returning-today", label: "Returning Today (Alternate)", icon: "fa-arrows-rotate" },
   { href: "/inventory/search", label: "Dress Search", icon: "fa-shirt" },
+  // Hidden while enhancement is paused — pages kept at /ai-tools/* for future use
+  // { href: "/ai-tools/image-enhancer", label: "AI Enhancer (Pipeline 2)", icon: "fa-wand-magic-sparkles" },
+  // { href: "/ai-tools/catalog-generator", label: "AI Catalog Generator (Pipeline 3)", icon: "fa-sparkles" },
   { href: "/inventory", label: "Manage Inventory", icon: "fa-layer-group" },
+  { href: "/search-qr", label: "Search QR Code", icon: "fa-qrcode" },
+  { href: "/late-return", label: "Late Returns", icon: "fa-hourglass-end" },
   { href: "/all-record-search", label: "All Record Search", icon: "fa-database" },
   { href: "/postponed-booking", label: "Postponed Bookings", icon: "fa-clock" },
   { href: "/remaining-to-deliver", label: "Remaining to Deliver", icon: "fa-clock", badgeKey: "overdue_delivery" as const },
@@ -65,7 +72,12 @@ const NAV_OWNER = [
   { href: "/reports", label: "Reports & Backup", icon: "fa-file-export" },
   { href: "/admin/restore", label: "Restore Database", icon: "fa-upload" },
   { href: "/admin/image-sync", label: "Bulk Image Sync", icon: "fa-images" },
+  { href: "/admin/ai-indexing", label: "AI Indexing Health", icon: "fa-heart-pulse" },
   { href: "/admin/recognition", label: "AI Recognition", icon: "fa-fingerprint" },
+  { href: "/admin/recognition/diagnostics", label: "AI Diagnostics", icon: "fa-microscope" },
+  { href: "/admin/ai-debug", label: "AI Dress Checker Debug", icon: "fa-bug" },
+  { href: "/admin/dress-checker-debug", label: "Dress Checker Scores", icon: "fa-chart-bar" },
+  { href: "/admin/ai-settings", label: "AI Settings", icon: "fa-sliders" },
   { href: "/admin/reset-data", label: "Reset All Data", icon: "fa-triangle-exclamation", danger: true },
 ];
 
@@ -80,6 +92,13 @@ function pageTitle(pathname: string) {
   const exact = ALL_NAV.find((n) => n.href === pathname);
   if (exact) return exact.label;
   if (pathname.startsWith("/search-qr")) return "Search QR Code";
+  if (pathname.startsWith("/late-return")) return "Late Returns";
+  if (pathname.startsWith("/ai-tools/image-enhancer")) return "AI Enhancer";
+  if (pathname.startsWith("/ai-tools/catalog-generator")) return "AI Catalog Generator";
+  if (pathname.startsWith("/admin/ai-indexing")) return "AI Indexing Health";
+  if (pathname.startsWith("/admin/dress-checker-debug")) return "Dress Checker Debug";
+  if (pathname.startsWith("/admin/ai-debug")) return "AI Dress Checker Debug";
+  if (pathname.startsWith("/admin/ai-settings")) return "AI Settings";
   if (pathname.startsWith("/search-booking")) return "Search Booking";
   if (pathname.startsWith("/booking/new")) return "New Booking";
   if (pathname.startsWith("/booking/") && pathname.endsWith("/edit")) return "Edit Booking";
@@ -101,7 +120,7 @@ function pageTitle(pathname: string) {
   if (pathname.startsWith("/shop-enquiries")) return "Shop Enquiry";
   if (pathname.startsWith("/whatsapp")) return "WhatsApp";
   if (pathname.startsWith("/ai-dashboard")) return "AI Mode";
-  return "Fancy Collection";
+  return BRAND_APP_TITLE;
 }
 
 export default function AppShell({
@@ -122,6 +141,7 @@ export default function AppShell({
   const [mobileOpen, setMobileOpen] = useState(false);
   const [overdueDelivery, setOverdueDelivery] = useState(initialOverdueDelivery ?? 0);
   const [whatsappUnread, setWhatsappUnread] = useState(0);
+  const [aiHealthBanner, setAiHealthBanner] = useState<string | null>(null);
   const [navigating, setNavigating] = useState(false);
   const skipNavProgress = useRef(true);
 
@@ -221,6 +241,38 @@ export default function AppShell({
   }, [isOwner]);
 
   useEffect(() => {
+    if (!isOwner) return;
+    let cancelled = false;
+    function loadAiHealth() {
+      fetch("/api/health")
+        .then((r) => parseResponseJson<{ banner?: string | null; worker?: { status?: string; displayLabel?: string } }>(r))
+        .then((d) => {
+          if (cancelled) return;
+          if (d.worker?.status === "OFFLINE") {
+            setAiHealthBanner(d.worker.displayLabel || "Queue worker offline.");
+          } else if (d.banner) {
+            setAiHealthBanner(d.banner);
+          } else {
+            setAiHealthBanner(null);
+          }
+        })
+        .catch(() => {
+          if (!cancelled) setAiHealthBanner(null);
+        });
+    }
+    function loadIfVisible() {
+      if (document.hidden) return;
+      loadAiHealth();
+    }
+    loadIfVisible();
+    const interval = setInterval(loadIfVisible, 60_000);
+    return () => {
+      cancelled = true;
+      clearInterval(interval);
+    };
+  }, [isOwner]);
+
+  useEffect(() => {
     function onRealtimeToast(e: Event) {
       const detail = (e as CustomEvent<{ message: string; type: "info" | "success" | "error" }>).detail;
       if (detail?.message) toast(detail.message, detail.type || "info");
@@ -256,6 +308,7 @@ export default function AppShell({
         username={username}
         overdueDelivery={overdueDelivery}
         whatsappUnread={whatsappUnread}
+        aiHealthBanner={aiHealthBanner}
         onToggleCollapsed={toggleCollapsed}
         onToggleMobile={toggleMobileMenu}
         onCloseMobile={() => setMobileOpen(false)}
@@ -304,6 +357,7 @@ function AppLayoutInner({
   username,
   overdueDelivery,
   whatsappUnread,
+  aiHealthBanner,
   onToggleCollapsed,
   onToggleMobile,
   onCloseMobile,
@@ -320,6 +374,7 @@ function AppLayoutInner({
   username: string;
   overdueDelivery: number;
   whatsappUnread: number;
+  aiHealthBanner: string | null;
   onToggleCollapsed: () => void;
   onToggleMobile: () => void;
   onCloseMobile: () => void;
@@ -350,11 +405,7 @@ function AppLayoutInner({
             <i className="fa-solid fa-bars" />
           </button>
         </div>
-        <div className="sidebar-brand">
-          <div className="brand-icon">👑</div>
-          <h1 className="sidebar-brand-text">Fancy Collection</h1>
-          <span className="sidebar-brand-text">Rental Management System</span>
-        </div>
+        <SidebarBrandMark />
         <nav className="sidebar-nav">
           {isOwner && (
             <Link
@@ -476,9 +527,17 @@ function AppLayoutInner({
             <button type="button" className="sidebar-toggle sidebar-mobile-toggle" onClick={onToggleMobile} aria-label={mobileOpen ? "Close menu" : "Open menu"} aria-expanded={mobileOpen}>
               <i className={`fa-solid ${mobileOpen ? "fa-xmark" : "fa-bars"}`} />
             </button>
+            <BrandLogo size={36} style={{ flexShrink: 0 }} />
             <div style={{ minWidth: 0 }}>
               <h1 className="page-title">{title}</h1>
-              <div className="breadcrumb-trail">Fancy Collection · {title}</div>
+              <div className="breadcrumb-trail">
+                <BrandBreadcrumbLabel />
+                <span className="brand-breadcrumb-dot"> · </span>
+                {title}
+              </div>
+              <div style={{ marginTop: 4 }}>
+                <BrandMottoPill dark={false} />
+              </div>
             </div>
           </div>
           <div className="header-actions">
@@ -488,6 +547,31 @@ function AppLayoutInner({
             </Link>
           </div>
         </header>
+        {isOwner && aiHealthBanner && (
+          <div
+            role="alert"
+            className="no-print"
+            style={{
+              margin: "0 16px 8px",
+              padding: "10px 14px",
+              borderRadius: 8,
+              background: "rgba(180, 83, 9, 0.12)",
+              border: "1px solid rgba(180, 83, 9, 0.35)",
+              color: "#92400e",
+              fontWeight: 600,
+              fontSize: 13,
+              display: "flex",
+              alignItems: "center",
+              justifyContent: "space-between",
+              gap: 12,
+            }}
+          >
+            <span>⚠ {aiHealthBanner}</span>
+            <Link href="/admin/ai-indexing" style={{ color: "#7B1F45", fontWeight: 700, whiteSpace: "nowrap" }}>
+              Open AI Indexing →
+            </Link>
+          </div>
+        )}
         <div className="page-content page-body">{children}</div>
       </main>
     </div>

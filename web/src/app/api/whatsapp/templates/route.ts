@@ -19,6 +19,7 @@ type MetaTemplateComponent = {
   type: "HEADER" | "BODY" | "FOOTER" | "BUTTONS";
   text?: string;
   format?: "TEXT" | "IMAGE" | "VIDEO" | "DOCUMENT";
+  example?: { body_text?: string[][]; header_text?: string[] };
   buttons?: Array<
     | { type: "QUICK_REPLY"; text: string }
     | { type: "URL"; text: string; url: string }
@@ -141,7 +142,9 @@ export async function POST(req: NextRequest) {
         };
       }
       if (c.type === "BODY") {
-        return { type: "BODY", text: c.text?.trim() };
+        const body: Record<string, unknown> = { type: "BODY", text: c.text?.trim() };
+        if (c.example) body.example = c.example;
+        return body;
       }
       if (c.type === "FOOTER") {
         return { type: "FOOTER", text: c.text?.trim() };

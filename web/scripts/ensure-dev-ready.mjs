@@ -52,3 +52,19 @@ if (needsPrismaGenerate()) {
   console.log("\nPrisma schema/client out of sync — running prisma generate...\n");
   execSync("npx prisma generate", { cwd: root, stdio: "inherit" });
 }
+
+try {
+  execSync("npx tsx scripts/ensure-enhancement-schema.ts", { cwd: root, stdio: "inherit" });
+} catch {
+  console.warn(
+    "\nDatabase schema check failed. If inventory pages error on missing columns, run:\n  npx prisma migrate deploy\n",
+  );
+}
+
+try {
+  execSync("npx tsx scripts/apply-dress-checker-schema.ts", { cwd: root, stdio: "inherit" });
+} catch {
+  console.warn(
+    "\nDress Checker schema apply failed. Hash/embedding columns may be missing.\n  npx tsx scripts/apply-dress-checker-schema.ts\n",
+  );
+}

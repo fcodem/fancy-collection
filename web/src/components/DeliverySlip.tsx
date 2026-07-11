@@ -1,5 +1,10 @@
 import type { ReactNode } from "react";
 import { CustomOrdersSection, type SlipOrderDisplay } from "@/components/BookingSlip";
+import SlipBrandTitle from "@/components/SlipBrandTitle";
+import SlipLogo from "@/components/SlipLogo";
+import SlipMottoBanner from "@/components/SlipMottoBanner";
+import Emoji from "@/components/Emoji";
+import { WHATSAPP_CONTACT_LINE, WHATSAPP_TEAM_LINE, SLIP_TERMS } from "@/lib/slipConstants";
 
 export type DeliverySlipProps = {
   booking: {
@@ -71,24 +76,11 @@ function payMode(mode?: string | null) {
   return ` (${mode.toUpperCase()})`;
 }
 
-const TERMS = [
-  "Goods once booked CANNOT be cancelled under any circumstances.",
-  "Booking advance amount is NOT adjustable in any other bookings.",
-  "All items must be returned by the return date and time mentioned above.",
-  "Late returns will attract additional rental charges per day.",
-  "Any damage, stains, tears or loss to the rented items is chargeable.",
-  "Security deposit will be refunded ONLY upon return of all items in original condition.",
-  "Items will be handed over to the registered customer with valid photo ID only.",
-  "Team Fancy Collection is not responsible for any alterations done outside our premises.",
-  "In case of any dispute, the decision of Team Fancy Collection management shall be final.",
-  "Customer is responsible for proper storage and care of items during rental period.",
-];
+const TERMS = SLIP_TERMS;
 
 export default function DeliverySlip(props: DeliverySlipProps) {
-  const { booking: b, items, orders, qrDataUrl, businessName, businessPhone, businessAddress, businessTagline, slipSubtitle } = props;
+  const { booking: b, items, orders, qrDataUrl, businessName, businessPhone, businessAddress, slipSubtitle } = props;
   const slipNo = String(b.monthlySerial).padStart(2, "0");
-  const initials = businessName.charAt(0).toUpperCase();
-  const tagline = businessTagline || "Premium Cloth Rental — Elegance for Every Occasion";
   const displayAddress = businessAddress?.trim() || DEFAULT_ADDRESS;
   const displayPhone = businessPhone?.trim() || DEFAULT_PHONE;
 
@@ -117,11 +109,19 @@ export default function DeliverySlip(props: DeliverySlipProps) {
     <>
       <style dangerouslySetInnerHTML={{ __html: `
         @media print {
-          body > *:not(#delivery-slip-root) { display: none !important; }
-          #delivery-slip-root { width: 210mm; min-height: 297mm; margin: 0 !important; padding: 0 !important; box-shadow: none !important; border-radius: 0 !important; }
+          .slip-page-wrap { padding: 0 !important; margin: 0 !important; background: #fff !important; min-height: 0 !important; }
+          #delivery-slip-root {
+            width: 210mm;
+            min-height: 0 !important;
+            height: auto !important;
+            margin: 0 !important;
+            padding: 0 !important;
+            box-shadow: none !important;
+            border-radius: 0 !important;
+          }
           .slip-screen-only { display: none !important; }
           * { -webkit-print-color-adjust: exact !important; print-color-adjust: exact !important; }
-          .no-break { page-break-inside: avoid; }
+          .no-break { page-break-inside: avoid; break-inside: avoid; }
         }
         @media screen {
           #delivery-slip-root { max-width: 800px; margin: 0 auto; box-shadow: 0 4px 24px rgba(0,0,0,0.13); border-radius: 12px; overflow: hidden; }
@@ -139,7 +139,7 @@ export default function DeliverySlip(props: DeliverySlipProps) {
           boxShadow: "0 2px 12px rgba(201,168,76,0.4)",
         }}>
           <div style={{ fontSize: 26, fontWeight: 900, color: G, letterSpacing: "0.18em", textTransform: "uppercase" }}>
-            ✓ DELIVERED
+            <Emoji char="✅" /> DELIVERED
           </div>
           <div style={{ fontSize: 12, fontWeight: 700, color: "#3d2e00", marginTop: 4 }}>
             Delivered on {deliveredDateStr} at {deliveredTimeStr}
@@ -155,20 +155,22 @@ export default function DeliverySlip(props: DeliverySlipProps) {
         <div className="no-break" style={{ background: `linear-gradient(135deg, ${G} 0%, #2d8a45 100%)`, padding: "18px 24px 0 24px" }}>
           <div style={{ display: "flex", alignItems: "flex-start", justifyContent: "space-between", paddingBottom: 14 }}>
             <div style={{ display: "flex", alignItems: "flex-start", gap: 14, flex: 1, minWidth: 0 }}>
-              <div style={{
-                width: 56, height: 56, borderRadius: "50%",
-                border: `2.5px solid ${GOLD}`,
-                display: "flex", alignItems: "center", justifyContent: "center",
-                background: "rgba(255,255,255,0.1)", flexShrink: 0, marginTop: 2,
-              }}>
-                <span style={{ fontSize: 26, fontWeight: 900, color: GOLD, fontFamily: "Georgia, serif" }}>{initials}</span>
-              </div>
+              <SlipLogo />
               <div style={{ minWidth: 0 }}>
-                <div style={{ fontSize: 22, fontWeight: 800, color: "#fff", fontFamily: "Georgia, serif", lineHeight: 1.2 }}>{businessName}</div>
+                <SlipBrandTitle
+                  name={businessName}
+                  nameStyle={{
+                    fontSize: 22,
+                    fontWeight: 800,
+                    color: "#fff",
+                    fontFamily: "Georgia, serif",
+                    lineHeight: 1.2,
+                  }}
+                  badgeStyle={{ fontSize: 11 }}
+                />
                 <div style={{ fontSize: 10, color: "rgba(255,255,255,0.95)", fontWeight: 700, marginTop: 3 }}>GSTIN: {GSTIN}</div>
-                <div style={{ fontSize: 10, color: "rgba(255,255,255,0.92)", marginTop: 4, lineHeight: 1.45 }}>📍 {displayAddress}</div>
-                <div style={{ fontSize: 12, color: GOLD, fontWeight: 700, marginTop: 4 }}>📞 {displayPhone}</div>
-                <div style={{ fontSize: 11, color: GOLD, fontStyle: "italic", marginTop: 4 }}>{tagline}</div>
+                <div style={{ fontSize: 10, color: "rgba(255,255,255,0.92)", marginTop: 4, lineHeight: 1.45 }}><Emoji char="📍" /> {displayAddress}</div>
+                <div style={{ fontSize: 12, color: GOLD, fontWeight: 700, marginTop: 4 }}><Emoji char="📞" /> {displayPhone}</div>
               </div>
             </div>
             <div style={{ textAlign: "right" }}>
@@ -181,6 +183,7 @@ export default function DeliverySlip(props: DeliverySlipProps) {
             </div>
           </div>
           <div style={{ height: 2, background: GOLD, margin: "0 -24px" }} />
+          <SlipMottoBanner fullWidth style={{ margin: "0 -24px" }} />
         </div>
 
         {/* PROMINENT RETURN DATE — carry this slip at return */}
@@ -192,14 +195,14 @@ export default function DeliverySlip(props: DeliverySlipProps) {
           textAlign: "center",
         }}>
           <div style={{ fontSize: 11, color: GOLD, fontWeight: 800, letterSpacing: "0.22em", textTransform: "uppercase", marginBottom: 6 }}>
-            🗓️ Please Return All Items By
+            <Emoji char="🗓️" /> Please Return All Items By
           </div>
           <div style={{ fontSize: 32, fontWeight: 900, color: "#fff", fontFamily: "Georgia, serif", lineHeight: 1.1 }}>
             {b.returnDate}
           </div>
           <div style={{ fontSize: 20, fontWeight: 800, color: GOLD, marginTop: 6 }}>{b.returnTime}</div>
           <div style={{ fontSize: 11, color: "rgba(255,255,255,0.9)", marginTop: 8, fontStyle: "italic" }}>
-            ⚠️ Late returns attract additional rental charges per day
+            <Emoji char="⚠️" /> Late returns attract additional rental charges per day
           </div>
         </div>
 
@@ -218,7 +221,7 @@ export default function DeliverySlip(props: DeliverySlipProps) {
                   ["👨‍💼", "Staff", b.staffNames || "—"],
                 ].map(([icon, label, value], i) => (
                   <tr key={i}>
-                    <td style={{ width: 20, paddingBottom: 5, fontSize: 12, verticalAlign: "top" }}>{icon as string}</td>
+                    <td style={{ width: 20, paddingBottom: 5, fontSize: 12, verticalAlign: "top" }}><Emoji char={icon as string} /></td>
                     <td style={{ width: 60, paddingBottom: 5, fontSize: 11, color: GREY, fontWeight: 600, verticalAlign: "top" }}>{label as string}</td>
                     <td style={{ paddingBottom: 5, fontSize: 12, verticalAlign: "top" }}>{value as ReactNode}</td>
                   </tr>
@@ -229,13 +232,13 @@ export default function DeliverySlip(props: DeliverySlipProps) {
           <div style={{ display: "flex", flexDirection: "column", gap: 8 }}>
             <div style={{ background: BLUE, borderRadius: 10, padding: "12px 16px", boxShadow: "0 3px 10px rgba(21,101,192,0.25)" }}>
               <div style={{ fontSize: 10, color: "rgba(255,255,255,0.8)", textTransform: "uppercase", letterSpacing: "0.1em", marginBottom: 4 }}>
-                🚚 Delivered On
+                <Emoji char="🚚" /> Delivered On
               </div>
               <div style={{ fontSize: 22, fontWeight: 900, color: "#fff", fontFamily: "Georgia, serif" }}>{deliveredDateStr}</div>
               <div style={{ fontSize: 14, fontWeight: 700, color: GOLD, marginTop: 4 }}>{deliveredTimeStr}</div>
             </div>
             <div style={{ background: GOLD, borderRadius: 10, padding: "14px 16px", boxShadow: "0 4px 14px rgba(201,168,76,0.45)", border: `2px solid ${G}` }}>
-              <div style={{ fontSize: 10, color: "#5a3800", textTransform: "uppercase", letterSpacing: "0.12em", marginBottom: 4, fontWeight: 800 }}>🔄 Return Date &amp; Time</div>
+              <div style={{ fontSize: 10, color: "#5a3800", textTransform: "uppercase", letterSpacing: "0.12em", marginBottom: 4, fontWeight: 800 }}><Emoji char="🔄" /> Return Date &amp; Time</div>
               <div style={{ fontSize: 26, fontWeight: 900, color: G, fontFamily: "Georgia, serif" }}>{b.returnDate}</div>
               <div style={{ fontSize: 16, fontWeight: 800, color: G, marginTop: 4 }}>{b.returnTime}</div>
               <div style={{ fontSize: 10, color: "#704f00", marginTop: 6, fontWeight: 600 }}>Mandatory return deadline</div>
@@ -305,7 +308,7 @@ export default function DeliverySlip(props: DeliverySlipProps) {
               background: "#fff", border: `2px solid ${G}`, borderRadius: 10, padding: 10,
               boxShadow: "0 2px 8px rgba(0,0,0,0.08)", display: "flex", flexDirection: "column", alignItems: "center", gap: 6,
             }}>
-              <div style={{ fontSize: 10, color: G, fontWeight: 600 }}>🔒 Secure Delivery</div>
+              <div style={{ fontSize: 10, color: G, fontWeight: 600 }}><Emoji char="🔒" /> Secure Delivery</div>
               {qrDataUrl ? (
                 /* eslint-disable-next-line @next/next/no-img-element */
                 <img src={qrDataUrl} alt="Delivery QR" width={175} height={175} style={{ display: "block" }} />
@@ -313,7 +316,7 @@ export default function DeliverySlip(props: DeliverySlipProps) {
                 <div style={{ width: 175, height: 175, background: "#f5f5f5", display: "flex", alignItems: "center", justifyContent: "center", fontSize: 10, color: "#999" }}>QR Not Available</div>
               )}
               <div style={{ fontSize: 9, color: GREY, textAlign: "center" }}>Scan for verification at return</div>
-              <div style={{ background: "#e3f2fd", color: BLUE, fontSize: 10, fontWeight: 700, padding: "3px 10px", borderRadius: 20 }}>DELIVERED ✓</div>
+              <div style={{ background: "#e3f2fd", color: BLUE, fontSize: 10, fontWeight: 700, padding: "3px 10px", borderRadius: 20 }}>DELIVERED <Emoji char="✅" /></div>
               <div style={{ fontSize: 9, color: "#999", fontFamily: "monospace" }}>{b.publicBookingId}</div>
             </div>
           </div>
@@ -352,7 +355,11 @@ export default function DeliverySlip(props: DeliverySlipProps) {
                 padding: "14px 16px",
               }}>
                 <div style={{ fontSize: 10, color: "rgba(255,255,255,0.9)", textTransform: "uppercase", letterSpacing: "0.1em", fontWeight: 700, marginBottom: 4 }}>
-                  {balanceFullyPaid ? "Balance — Fully Paid ✓" : "Balance Still Pending"}
+                  {balanceFullyPaid ? (
+                    <>Balance — Fully Paid <Emoji char="✅" /></>
+                  ) : (
+                    "Balance Still Pending"
+                  )}
                 </div>
                 <div style={{ fontSize: 26, fontWeight: 900, color: "#fff", fontFamily: "Georgia, serif" }}>
                   {balanceFullyPaid ? "₹0" : rs(balanceLeft)}
@@ -389,7 +396,7 @@ export default function DeliverySlip(props: DeliverySlipProps) {
         {/* DELIVERY NOTE */}
         <div className="no-break" style={{ margin: "0 16px 14px", background: "#fff8e1", border: `2px solid ${GOLD}`, borderRadius: 10, padding: "14px 16px" }}>
           <div style={{ display: "flex", alignItems: "center", gap: 8, marginBottom: 8 }}>
-            <span style={{ fontSize: 18 }}>📋</span>
+            <span style={{ fontSize: 18 }}><Emoji char="📋" style={{ fontSize: 18 }} /></span>
             <span style={{ fontSize: 12, fontWeight: 900, color: "#92400e", textTransform: "uppercase", letterSpacing: "0.06em" }}>Delivery Note</span>
           </div>
           <div style={{ fontSize: 13, fontWeight: 600, color: "#333", lineHeight: 1.55, fontStyle: b.deliveryNotes ? "normal" : "italic" }}>
@@ -403,7 +410,7 @@ export default function DeliverySlip(props: DeliverySlipProps) {
             marginBottom: 12, background: `linear-gradient(135deg, ${RED}, #e74c3c)`,
             border: "2px solid #922b21", borderRadius: 8, padding: "12px 16px", textAlign: "center",
           }}>
-            <div style={{ fontSize: 15, fontWeight: 900, color: "#fff", letterSpacing: "0.06em", textTransform: "uppercase" }}>⚠️ NO CANCELLATION · NO REFUND</div>
+            <div style={{ fontSize: 15, fontWeight: 900, color: "#fff", letterSpacing: "0.06em", textTransform: "uppercase" }}><Emoji char="⚠️" /> NO CANCELLATION · NO REFUND</div>
           </div>
           <div style={{ display: "flex", alignItems: "center", gap: 10, marginBottom: 10 }}>
             <div style={{ flex: 1, height: 1, background: BORDER }} />
@@ -432,7 +439,10 @@ export default function DeliverySlip(props: DeliverySlipProps) {
         <div>
           <div style={{ height: 2, background: GOLD }} />
           <div style={{ background: G, padding: "12px 20px", display: "flex", alignItems: "center", justifyContent: "space-between" }}>
-            <div style={{ fontSize: 12, color: "#fff", fontStyle: "italic" }}>Thank you for choosing {businessName}! 🙏</div>
+            <div style={{ fontSize: 11, color: "#fff", lineHeight: 1.5 }}>
+              <div style={{ fontWeight: 800, letterSpacing: "0.04em" }}>{WHATSAPP_TEAM_LINE}</div>
+              <div style={{ marginTop: 2, color: GOLD, fontWeight: 700 }}>{WHATSAPP_CONTACT_LINE}</div>
+            </div>
             <div style={{ textAlign: "right", fontSize: 10, color: "rgba(255,255,255,0.8)", lineHeight: 1.5 }}>
               <div>{displayPhone}</div>
               <div>{displayAddress}</div>

@@ -1,5 +1,7 @@
 import { aisensyCampaign, isAisensyConfigured, sendAisensyCampaign } from "@/lib/aisensy";
+import { BRAND_FULL_NAME } from "@/lib/branding";
 import { digitsOnly } from "@/lib/phone";
+import { WHATSAPP_TEAM_LINE, whatsAppSignature } from "@/lib/slipConstants";
 
 export function buildWhatsAppUrl(phone: string, message: string): string {
   let clean = digitsOnly(phone);
@@ -81,7 +83,7 @@ export function buildBookingConfirmationMessage(opts: {
   const dresses = opts.dressNames.map((d, i) => `${i + 1}. ${d}`).join("\n");
 
   let msg =
-    `🙏 *Thank you for choosing Fancy Collection!*\n\n` +
+    `🙏 *Thank you for choosing ${WHATSAPP_TEAM_LINE}!*\n\n` +
     `Dear *${opts.customerName}*, your booking is confirmed.\n\n`;
 
   if (opts.qrUrl) {
@@ -105,7 +107,7 @@ export function buildBookingConfirmationMessage(opts: {
     msg += `\n🧾 View Bill: ${opts.billUrl}\n`;
   }
 
-  msg += `\n✨ *FANCY COLLECTION BY RENU AGARWAL*\nRENT | WEAR | RETURN\n📞 8630834711, 8077843874`;
+  msg += `\n${whatsAppSignature()}\nRENT | WEAR | RETURN`;
   return msg;
 }
 
@@ -153,7 +155,7 @@ export function buildProspectReminderMessage(opts: {
   const dresses = opts.dressNames.join(", ");
   let msg =
     `Namaste ${opts.customerName}!\n\n` +
-    `Aapne *Fancy Collection* par in dresses ke liye interest dikhaya tha:\n` +
+    `Aapne *${BRAND_FULL_NAME}* par in dresses ke liye interest dikhaya tha:\n` +
     `👗 *${dresses}*\n\n` +
     `📅 Delivery: *${opts.deliveryDate}*` +
     (opts.deliveryTime ? ` (${opts.deliveryTime})` : "") +
@@ -173,7 +175,7 @@ export function buildProspectReminderMessage(opts: {
       `Baaki dresses abhi bhi available ho sakti hain. Kripya humse contact karein — hum aapke liye best option dhundhenge.\n\n`;
   }
 
-  msg += `✨ *Fancy Collection* – Premium Rental Service`;
+  msg += whatsAppSignature();
   return msg;
 }
 
@@ -204,9 +206,10 @@ export function buildReturnReminderMessage(opts: {
 }): string {
   const serial = String(opts.serialNo).padStart(2, "0");
   return (
-    `Hi ${opts.customerName}! Fancy Collection reminder: your rental (Booking #${serial}) is due for return today, ` +
+    `Hi ${opts.customerName}! Reminder from ${WHATSAPP_TEAM_LINE}: your rental (Booking #${serial}) is due for return today, ` +
     `${opts.returnDate}${opts.returnTime ? ` by ${opts.returnTime}` : ""}. ` +
-    `Please return on time. Thank you! - Fancy Collection`
+    `Please return on time. Thank you!\n\n` +
+    whatsAppSignature()
   );
 }
 

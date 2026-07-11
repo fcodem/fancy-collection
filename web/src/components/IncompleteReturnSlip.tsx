@@ -1,7 +1,6 @@
 import {
   SLIP_AMBER,
   SLIP_BORDER,
-  SLIP_BRAND_NAME,
   SLIP_DARK,
   SLIP_DEFAULT_ADDRESS,
   SLIP_DEFAULT_PHONE,
@@ -11,6 +10,10 @@ import {
   slipPadSerial,
   slipRs,
 } from "@/lib/slipConstants";
+import SlipBrandTitle from "@/components/SlipBrandTitle";
+import SlipLogo from "@/components/SlipLogo";
+import SlipMottoBanner from "@/components/SlipMottoBanner";
+import Emoji from "@/components/Emoji";
 import { photoUrl } from "@/lib/photoUrl";
 
 export type IncompleteReturnSlipProps = {
@@ -58,7 +61,7 @@ export type IncompleteReturnSlipProps = {
 };
 
 export default function IncompleteReturnSlip(props: IncompleteReturnSlipProps) {
-  const { booking: b, incompleteItems, returnedItems, qrDataUrl, businessPhone, businessAddress } = props;
+  const { booking: b, incompleteItems, returnedItems, qrDataUrl, businessName, businessPhone, businessAddress } = props;
   const slipNo = slipPadSerial(b.monthlySerial);
   const displayPhone = businessPhone?.trim() || SLIP_DEFAULT_PHONE;
   const displayAddress = businessAddress?.trim() || SLIP_DEFAULT_ADDRESS;
@@ -70,10 +73,11 @@ export default function IncompleteReturnSlip(props: IncompleteReturnSlipProps) {
         dangerouslySetInnerHTML={{
           __html: `
           @media print {
-            body > *:not(#incomplete-slip-root) { display: none !important; }
+            .slip-page-wrap { padding: 0 !important; margin: 0 !important; background: #fff !important; min-height: 0 !important; }
             #incomplete-slip-root {
               width: 210mm;
-              min-height: 297mm;
+              min-height: 0 !important;
+              height: auto !important;
               margin: 0 !important;
               padding: 0 !important;
               border-radius: 0 !important;
@@ -81,6 +85,7 @@ export default function IncompleteReturnSlip(props: IncompleteReturnSlipProps) {
             }
             .slip-screen-only { display: none !important; }
             * { -webkit-print-color-adjust: exact !important; print-color-adjust: exact !important; }
+            .no-break { page-break-inside: avoid; break-inside: avoid; }
           }
           @media screen {
             #incomplete-slip-root.slip-container {
@@ -170,37 +175,19 @@ export default function IncompleteReturnSlip(props: IncompleteReturnSlipProps) {
             }}
           >
             <div style={{ display: "flex", alignItems: "center", gap: 12, minWidth: 0 }}>
-              <div
-                style={{
-                  width: 52,
-                  height: 52,
-                  borderRadius: "50%",
-                  border: `2px solid ${SLIP_GOLD}`,
-                  color: SLIP_GOLD,
-                  fontFamily: "Georgia, serif",
-                  fontSize: "clamp(20px, 2.8vw, 26px)",
-                  fontWeight: 900,
-                  display: "flex",
-                  alignItems: "center",
-                  justifyContent: "center",
-                  background: "rgba(255,255,255,0.08)",
-                  flexShrink: 0,
-                }}
-              >
-                {SLIP_BRAND_NAME.charAt(0)}
-              </div>
+              <SlipLogo size={52} style={{ marginTop: 0, borderWidth: 2 }} />
               <div style={{ minWidth: 0 }}>
-                <div
-                  style={{
+                <SlipBrandTitle
+                  name={businessName}
+                  nameStyle={{
                     color: "#fff",
                     fontFamily: "Georgia, serif",
                     fontWeight: 800,
                     fontSize: "clamp(20px, 3vw, 28px)",
                     lineHeight: 1.15,
                   }}
-                >
-                  {SLIP_BRAND_NAME}
-                </div>
+                  badgeStyle={{ fontSize: "clamp(9px, 1.6vw, 11px)" }}
+                />
                 <div style={{ color: "rgba(255,255,255,0.92)", fontSize: "clamp(10px, 1.8vw, 12px)", marginTop: 3 }}>
                   {displayAddress}
                 </div>
@@ -220,6 +207,8 @@ export default function IncompleteReturnSlip(props: IncompleteReturnSlipProps) {
               </div>
             </div>
           </div>
+          <div style={{ height: 2, background: SLIP_GOLD, marginTop: 12 }} />
+          <SlipMottoBanner fullWidth />
         </header>
 
         <section
@@ -232,7 +221,7 @@ export default function IncompleteReturnSlip(props: IncompleteReturnSlipProps) {
           }}
         >
           <div style={{ color: "#bf360c", fontSize: "clamp(16px, 3vw, 22px)", fontWeight: 800, fontFamily: "Georgia, serif" }}>
-            ⚠ Items Not Returned In Full
+            <Emoji char="⚠" /> Items Not Returned In Full
           </div>
           <div style={{ color: SLIP_GREY, marginTop: 4, fontSize: "clamp(11px, 1.9vw, 13px)" }}>
             This record documents missing, damaged, or incomplete return of rented items.

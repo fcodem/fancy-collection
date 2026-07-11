@@ -1,7 +1,29 @@
 import { formatDate } from "@/lib/constants";
+import {
+  BRAND_FULL_NAME,
+  BRAND_HOUSE_TAGLINE,
+  BRAND_LOGO_PATH,
+  BRAND_MOTTO,
+  BRAND_OWNER,
+  BRAND_PHONES_DISPLAY,
+  BRAND_SINCE,
+  BRAND_WHATSAPP_CONTACT_LINE,
+} from "@/lib/branding";
 
-export const SLIP_BRAND_NAME = "Team Fancy Collection";
-export const SLIP_TAGLINE = "Premium Cloth Rental";
+export const SLIP_BRAND_NAME = BRAND_FULL_NAME;
+export const SLIP_TAGLINE = BRAND_HOUSE_TAGLINE;
+export const SLIP_MOTTO_PARTS = BRAND_MOTTO.split("|").map((p) => p.trim()) as ["RENT", "WEAR", "RETURN"];
+export const SLIP_MOTTO = BRAND_MOTTO;
+export const SLIP_SINCE_LABEL = BRAND_SINCE;
+export const SLIP_LOGO_PATH = BRAND_LOGO_PATH;
+
+/** Footer / signature block for WhatsApp automated messages. */
+export const WHATSAPP_TEAM_LINE = `TEAM FANCY COLLECTION -${BRAND_OWNER}`;
+export const WHATSAPP_CONTACT_LINE = BRAND_WHATSAPP_CONTACT_LINE;
+
+export function whatsAppSignature(): string {
+  return `${WHATSAPP_TEAM_LINE}\n${WHATSAPP_CONTACT_LINE}`;
+}
 
 export const SLIP_GREEN = "#1a5c2a";
 export const SLIP_GOLD = "#c9a84c";
@@ -15,8 +37,9 @@ export const SLIP_AMBER = "#f39c12";
 export const SLIP_BLUE = "#1565c0";
 
 export const SLIP_DEFAULT_ADDRESS =
+  process.env.BUSINESS_ADDRESS ||
   "Banwata Ganj Near Balaji Mandir Court Road Moradabad 244001";
-export const SLIP_DEFAULT_PHONE = "8077843874, 8630834711";
+export const SLIP_DEFAULT_PHONE = BRAND_PHONES_DISPLAY;
 
 export const SLIP_TERMS = [
   "Goods once booked CANNOT be cancelled under any circumstances.",
@@ -26,8 +49,8 @@ export const SLIP_TERMS = [
   "Any damage, stains, tears or loss to the rented items is chargeable.",
   "Security deposit will be refunded ONLY upon return of all items in original condition.",
   "Items will be handed over to the registered customer with valid photo ID only.",
-  "Team Fancy Collection is not responsible for any alterations done outside our premises.",
-  "In case of any dispute, the decision of Team Fancy Collection management shall be final.",
+  `${BRAND_FULL_NAME} is not responsible for any alterations done outside our premises.`,
+  `In case of any dispute, the decision of ${BRAND_FULL_NAME} management shall be final.`,
   "Customer is responsible for proper storage and care of items during rental period.",
 ];
 

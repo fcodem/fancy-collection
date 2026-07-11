@@ -2,7 +2,18 @@ import { NextResponse } from "next/server";
 import type { NextRequest } from "next/server";
 import { isValidPdfRenderSecret } from "@/lib/slipPdfAccess";
 
-const PUBLIC_PATHS = ["/login", "/login/pending", "/api/login", "/api/login-request/status", "/api/login-request/complete", "/api/session/check"];
+const PUBLIC_PATHS = [
+  "/login",
+  "/login/pending",
+  "/privacy",
+  "/privacy.html",
+  "/data-deletion",
+  "/data-deletion.html",
+  "/api/login",
+  "/api/login-request/status",
+  "/api/login-request/complete",
+  "/api/session/check",
+];
 
 const SLIP_PDF_PATH = /^\/booking\/\d+\/(slip|delivery-slip|return-slip|incomplete-slip)(\/|$)/;
 

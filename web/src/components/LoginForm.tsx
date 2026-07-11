@@ -1,6 +1,7 @@
 "use client";
 
 import { FormEvent, useState } from "react";
+import { LoginBrandMark } from "@/components/BrandMark";
 
 type LoginResponse = {
   ok?: boolean;
@@ -65,11 +66,7 @@ export default function LoginForm({ initialError }: { initialError?: string }) {
   return (
     <div className="login-page">
       <div className="login-card card">
-        <div className="login-brand">
-          <div className="brand-icon">👑</div>
-          <h1>Fancy Collection</h1>
-          <p>Premium rental management</p>
-        </div>
+        <LoginBrandMark />
         <form onSubmit={handleSubmit} suppressHydrationWarning>
           {error && (
             <div className="alert alert-error" role="alert">

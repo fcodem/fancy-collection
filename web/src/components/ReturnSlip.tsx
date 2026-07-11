@@ -1,8 +1,10 @@
 import { CustomOrdersSection, type SlipOrderDisplay } from "@/components/BookingSlip";
+import SlipBrandTitle from "@/components/SlipBrandTitle";
+import SlipLogo from "@/components/SlipLogo";
+import SlipMottoBanner from "@/components/SlipMottoBanner";
 import {
   SLIP_AMBER,
   SLIP_BORDER,
-  SLIP_BRAND_NAME,
   SLIP_DARK,
   SLIP_DEFAULT_ADDRESS,
   SLIP_DEFAULT_PHONE,
@@ -12,6 +14,9 @@ import {
   SLIP_LIGHT_GREEN,
   SLIP_RED,
   SLIP_SUCCESS,
+  SLIP_SINCE_LABEL,
+  WHATSAPP_CONTACT_LINE,
+  WHATSAPP_TEAM_LINE,
   itemReturnCondition,
   slipPadSerial,
   slipRs,
@@ -76,7 +81,7 @@ function normalizeCondition(raw?: string | null): "good" | "damaged" | "stained"
 }
 
 export default function ReturnSlip(props: ReturnSlipProps) {
-  const { booking: b, items, orders, qrDataUrl, businessPhone, businessAddress, slipSubtitle } = props;
+  const { booking: b, items, orders, qrDataUrl, businessName, businessPhone, businessAddress, slipSubtitle } = props;
   const slipNo = slipPadSerial(b.monthlySerial);
   const displayPhone = businessPhone?.trim() || SLIP_DEFAULT_PHONE;
   const displayAddress = businessAddress?.trim() || SLIP_DEFAULT_ADDRESS;
@@ -94,10 +99,11 @@ export default function ReturnSlip(props: ReturnSlipProps) {
         dangerouslySetInnerHTML={{
           __html: `
           @media print {
-            body > *:not(#return-slip-root) { display: none !important; }
+            .slip-page-wrap { padding: 0 !important; margin: 0 !important; background: #fff !important; min-height: 0 !important; }
             #return-slip-root {
               width: 210mm;
-              min-height: 297mm;
+              min-height: 0 !important;
+              height: auto !important;
               margin: 0 !important;
               padding: 0 !important;
               border-radius: 0 !important;
@@ -105,6 +111,7 @@ export default function ReturnSlip(props: ReturnSlipProps) {
             }
             .slip-screen-only { display: none !important; }
             * { -webkit-print-color-adjust: exact !important; print-color-adjust: exact !important; }
+            .no-break { page-break-inside: avoid; break-inside: avoid; }
           }
           @media screen {
             #return-slip-root.slip-container {
@@ -198,37 +205,19 @@ export default function ReturnSlip(props: ReturnSlipProps) {
             }}
           >
             <div style={{ display: "flex", alignItems: "center", gap: 12, minWidth: 0 }}>
-              <div
-                style={{
-                  width: 52,
-                  height: 52,
-                  borderRadius: "50%",
-                  border: `2px solid ${SLIP_GOLD}`,
-                  color: SLIP_GOLD,
-                  fontFamily: "Georgia, serif",
-                  fontSize: "clamp(20px, 2.8vw, 26px)",
-                  fontWeight: 900,
-                  display: "flex",
-                  alignItems: "center",
-                  justifyContent: "center",
-                  background: "rgba(255,255,255,0.08)",
-                  flexShrink: 0,
-                }}
-              >
-                {SLIP_BRAND_NAME.charAt(0)}
-              </div>
+              <SlipLogo size={52} style={{ marginTop: 0, borderWidth: 2 }} />
               <div style={{ minWidth: 0 }}>
-                <div
-                  style={{
+                <SlipBrandTitle
+                  name={businessName}
+                  nameStyle={{
                     color: "#fff",
                     fontFamily: "Georgia, serif",
                     fontWeight: 800,
                     fontSize: "clamp(20px, 3vw, 28px)",
                     lineHeight: 1.15,
                   }}
-                >
-                  {SLIP_BRAND_NAME}
-                </div>
+                  badgeStyle={{ fontSize: "clamp(9px, 1.6vw, 11px)" }}
+                />
                 <div style={{ color: "rgba(255,255,255,0.92)", fontSize: "clamp(10px, 1.8vw, 12px)", marginTop: 3 }}>
                   {displayAddress}
                 </div>
@@ -248,6 +237,8 @@ export default function ReturnSlip(props: ReturnSlipProps) {
               </div>
             </div>
           </div>
+          <div style={{ height: 2, background: SLIP_GOLD, marginTop: 12 }} />
+          <SlipMottoBanner fullWidth />
         </header>
 
         <section
@@ -264,7 +255,7 @@ export default function ReturnSlip(props: ReturnSlipProps) {
             ✦ Thank You For Returning With Care ✦
           </div>
           <div style={{ color: SLIP_GREY, marginTop: 4, fontSize: "clamp(11px, 1.9vw, 13px)" }}>
-            {SLIP_BRAND_NAME} appreciates your trust and timely return.
+            {businessName} · {SLIP_SINCE_LABEL} appreciates your trust and timely return.
           </div>
           {slipSubtitle && (
             <div style={{ color: "#8a5a00", marginTop: 8, fontSize: "clamp(11px, 1.9vw, 12px)", fontWeight: 700 }}>
@@ -577,8 +568,9 @@ export default function ReturnSlip(props: ReturnSlipProps) {
               padding: "10px clamp(12px, 2.5vw, 24px)",
             }}
           >
-            <div style={{ fontFamily: "Georgia, serif", fontSize: "clamp(13px, 2.1vw, 15px)" }}>
-              Thank you from {SLIP_BRAND_NAME}
+            <div style={{ fontSize: 11, lineHeight: 1.5 }}>
+              <div style={{ fontWeight: 800, letterSpacing: "0.04em" }}>{WHATSAPP_TEAM_LINE}</div>
+              <div style={{ marginTop: 2, color: SLIP_GOLD, fontWeight: 700 }}>{WHATSAPP_CONTACT_LINE}</div>
             </div>
             <div style={{ textAlign: "right", fontSize: "clamp(10px, 1.8vw, 12px)", color: "rgba(255,255,255,0.9)" }}>
               <div>{displayPhone}</div>

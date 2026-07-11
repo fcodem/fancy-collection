@@ -23,6 +23,11 @@ type ProfileRow = {
   currentVersion: number;
   pipelineVersion: string;
   duplicateFingerprint: unknown;
+  enhancedImage?: string | null;
+  enhancementStatus?: string;
+  enhancementVersion?: number;
+  enhancementModel?: string | null;
+  enhancementLatencyMs?: number | null;
   tags: Array<{ tag: string; source: string }>;
   override: {
     description?: string | null;
@@ -92,6 +97,11 @@ export function toCustomerSafeProfile(row: ProfileRow): CustomerSafeProfile {
     healthIssues: issues,
     indexedAt: row.indexedAt?.toISOString() ?? null,
     hasManualOverrides: Boolean(override),
+    enhancedImage: row.enhancedImage ?? null,
+    enhancementStatus: row.enhancementStatus || "none",
+    enhancementVersion: row.enhancementVersion || 0,
+    enhancementModel: row.enhancementModel ?? null,
+    enhancementLatencyMs: row.enhancementLatencyMs ?? null,
   };
 }
 

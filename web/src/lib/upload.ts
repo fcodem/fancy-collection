@@ -62,9 +62,13 @@ async function saveOriginalFromBuffer(raw: Buffer, filename: string): Promise<st
   return storeBuffer(bytes, path);
 }
 
-export async function saveCompressedFromBuffer(raw: Buffer): Promise<string> {
+export async function saveCompressedFromBuffer(
+  raw: Buffer,
+  subfolder = "",
+): Promise<string> {
   const bytes = await compressImageBuffer(raw);
-  const path = `${randomUUID().replace(/-/g, "")}.jpg`;
+  const filename = `${randomUUID().replace(/-/g, "")}.jpg`;
+  const path = subfolder ? `${subfolder.replace(/\/$/, "")}/${filename}` : filename;
   return storeBuffer(bytes, path);
 }
 

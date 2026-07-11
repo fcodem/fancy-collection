@@ -192,22 +192,17 @@ function mockIndex(fp: FeatureFingerprint): IdentificationIndex {
 
 describe("dressChecker identityMatcher v7", () => {
 
-  it("fingerprint weights prioritize embroidery and border over colour", () => {
-
-    assert.ok(IDENTITY_WEIGHTS_V5.embroidery > IDENTITY_WEIGHTS_V5.colour);
-
+  it("fingerprint weights prioritize border and motif (bridal cross-view)", () => {
     assert.ok(IDENTITY_WEIGHTS_V5.border > IDENTITY_WEIGHTS_V5.colour);
-
+    assert.ok(IDENTITY_WEIGHTS_V5.border > IDENTITY_WEIGHTS_V5.motifs);
     const sum = Object.values(FINGERPRINT_MATCH_WEIGHTS).reduce<number>((a, b) => a + b, 0);
-
     assert.ok(Math.abs(sum - 1) < 0.001);
-
-    assert.equal(FINGERPRINT_MATCH_WEIGHTS.global, 0.2);
-
-    assert.equal(FINGERPRINT_MATCH_WEIGHTS.embroidery, 0.25);
-
-    assert.equal(FINGERPRINT_MATCH_WEIGHTS.border, 0.2);
-
+    assert.equal(FINGERPRINT_MATCH_WEIGHTS.border, 0.4);
+    assert.equal(FINGERPRINT_MATCH_WEIGHTS.motifs, 0.2);
+    assert.equal(FINGERPRINT_MATCH_WEIGHTS.embroidery, 0.15);
+    assert.equal(FINGERPRINT_MATCH_WEIGHTS.panel, 0.1);
+    assert.equal(FINGERPRINT_MATCH_WEIGHTS.global, 0.1);
+    assert.equal(FINGERPRINT_MATCH_WEIGHTS.colour, 0.05);
   });
 
 

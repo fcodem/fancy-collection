@@ -47,8 +47,10 @@ export async function POST(req: NextRequest) {
       count: items.length,
       ids: items.map((i) => i.id),
       id: primary?.id,
-    original_photo_url: primary ? photoUrl(primary.photo) : "",
-    display_photo_url: pipeline?.display_photo_url || "",
+      sku: primary?.sku ?? "",
+      name: primary?.name ?? "",
+      original_photo_url: primary ? photoUrl(primary.photo) : "",
+      display_photo_url: pipeline?.display_photo_url || "",
       pipeline,
     });
   } catch (e) {

@@ -42,6 +42,7 @@ export function rerankCandidates(query: QueryAnalysis, candidates: CatalogCandid
       inventoryIndex: c.identificationIndex,
       inventoryFingerprint: c.fingerprint,
       partialView: partial,
+      queryType: query.queryType,
     });
 
     const identity = result.identity;

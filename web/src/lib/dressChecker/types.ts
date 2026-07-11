@@ -8,7 +8,7 @@ import type {
 } from "../dressIdentificationTypes";
 import type { FINGERPRINT_MATCH_WEIGHTS } from "./constants";
 
-export const DRESS_CHECKER_FINGERPRINT_VERSION = 7;
+export const DRESS_CHECKER_FINGERPRINT_VERSION = 9;
 
 export type CategoryGroup = "womens" | "mens" | "jewellery" | "other";
 
@@ -26,6 +26,8 @@ export type FeatureFingerprint = {
   accentColours: string[];
   colourHistogram: number[];
   colourFamily: FabricColorFamily;
+  /** LAB dress-mask colour diagnostics */
+  colourDiagnostics?: import("./dressColourLab").DressColourDiagnostics;
   fabricTextureDescriptor: number[];
   embroideryDensity: number;
   embroideryStyle: string;
@@ -165,6 +167,8 @@ export type QueryAnalysis = {
   viewCount: number;
   /** Detected partial region (skirt/blouse/dupatta/full). */
   partialView?: import("./partialViewDetection").PartialViewType;
+  /** Enterprise cross-view query presentation type */
+  queryType?: import("./queryTypeDetection").DressQueryType;
 };
 
 export type RejectedCandidate = {

@@ -1,10 +1,13 @@
 "use client";
 
 import { useRouter } from "next/navigation";
-import { useEffect, useState } from "react";
+import { useCallback, useEffect, useState } from "react";
 import { type CatalogPhotoItem } from "@/lib/catalogPhotoUrl";
 import { BASE_MENS, BASE_WOMENS, BASE_JEWELLERY, BASE_ACCESSORY, SIZES, MENS_CATEGORIES, JEWELLERY_CATEGORIES } from "@/lib/constants";
 import { formatJewelleryPartsLabel, partsPresentOnItem } from "@/lib/jewelleryParts";
+import { useToast } from "@/components/ui/Toast";
+import { SaveConfirmedBanner } from "@/components/SaveConfirmedBanner";
+import { buildSaveRedirectUrl } from "@/components/SaveConfirmedBanner";
 
 type InventoryFormItem = CatalogPhotoItem & {
   id?: number;
@@ -23,14 +26,23 @@ type InventoryFormItem = CatalogPhotoItem & {
   hasPasa?: boolean;
 };
 
+type SaveConfirmed = {
+  sku: string;
+  name: string;
+  count: number;
+};
+
 export default function InventoryFormClient({
   item,
   initialPhotoUrl = "",
+  saveConfirmed,
 }: {
   item?: InventoryFormItem;
   initialPhotoUrl?: string;
+  saveConfirmed?: SaveConfirmed;
 }) {
   const router = useRouter();
+  const toast = useToast();
   const [category, setCategory] = useState(item?.category || "");
   const [name, setName] = useState(item?.name || "");
   const [selectedSizes, setSelectedSizes] = useState<string[]>([]);
@@ -79,6 +91,20 @@ export default function InventoryFormClient({
     reader.readAsDataURL(file);
   }
 
+  const resetFormForNewItem = useCallback(() => {
+    setCategory("");
+    setName("");
+    setSelectedSizes([]);
+    setHasNecklace(false);
+    setHasEarrings(false);
+    setHasTeeka(false);
+    setHasPasa(false);
+    setLocalPreview("");
+    setPhotoUrl("");
+    setDuplicateWarning(null);
+    setPendingForm(null);
+  }, []);
+
   async function saveForm(form: FormData, url: string, method: string) {
     setSaving(true);
     const res = await fetch(url, { method, body: form, credentials: "same-origin" });
@@ -89,24 +115,32 @@ export default function InventoryFormClient({
       return;
     }
 
+    if (!isEdit) {
+      const count = Number(data.count) || 1;
+      const sku = String(data.sku || "");
+      const savedName = String(data.name || form.get("name") || "");
+      toast(count > 1 ? `Inventory saved — ${count} items added` : "Inventory saved", "success");
+      resetFormForNewItem();
+      const params = new URLSearchParams({ saved: "1", count: String(count) });
+      if (sku) params.set("sku", sku);
+      if (savedName) params.set("name", savedName);
+      router.replace(`/inventory/add?${params.toString()}`);
+      router.refresh();
+      window.scrollTo(0, 0);
+      return;
+    }
+
     const hadPhoto = form.get("photo") instanceof File && (form.get("photo") as File).size > 0;
-    const savedId = data.id ?? data.ids?.[0] ?? item?.id;
     const savedPhotoUrl = data.original_photo_url || data.display_photo_url || "";
 
     if (hadPhoto && savedPhotoUrl) {
       setLocalPreview("");
       setPhotoUrl(savedPhotoUrl);
-      if (!isEdit && savedId) {
-        router.replace(`/inventory/${savedId}/edit`);
-        return;
-      }
+      toast("Inventory updated", "success");
       return;
     }
 
-    if (!isEdit && savedId && data.count === 1) {
-      router.replace(`/inventory/${savedId}/edit`);
-      return;
-    }
+    toast("Inventory updated", "success");
     router.push("/inventory");
   }
 
@@ -166,6 +200,17 @@ export default function InventoryFormClient({
 
   return (
     <form onSubmit={submit} encType="multipart/form-data" className="card">
+      {saveConfirmed && !isEdit && (
+        <SaveConfirmedBanner
+          title="Inventory saved"
+          detail={
+            saveConfirmed.count > 1
+              ? `${saveConfirmed.count} items added successfully`
+              : saveConfirmed.sku || saveConfirmed.name
+          }
+          hint="Enter the next item below."
+        />
+      )}
       <div className="card-header"><h3 className="card-title">{isEdit ? "Edit Item" : "Add Item"}</h3></div>
       <div className="card-body" style={{ display: "grid", gap: 16, maxWidth: 600 }}>
         <div><label className="form-label">Name *</label>

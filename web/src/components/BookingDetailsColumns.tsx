@@ -24,7 +24,7 @@ function NoteCell({ text }: { text?: string }) {
   );
 }
 
-/** Table header row cells for the 9 standard booking detail columns. */
+/** Table header row cells for the standard booking detail columns. */
 export function StandardBookingTableHead() {
   return (
     <>
@@ -41,16 +41,29 @@ export function StandardBookingTableHead() {
   );
 }
 
-/** Table body cells for the 9 standard booking detail columns. */
+function customerCell(d: StandardBookingDetails) {
+  return (
+    <td className="booking-col-customer">
+      <div style={{ fontWeight: 600, fontSize: 13, display: "inline-flex", alignItems: "center" }}>
+        {d.customer_name}
+        {d.is_star && <StarBookingBadge />}
+      </div>
+      {d.booking_date ? (
+        <div style={{ fontSize: 11, color: "var(--text-muted)", marginTop: 4 }}>
+          <i className="fa-solid fa-calendar-plus" style={{ marginRight: 4, color: "var(--primary)" }} />
+          Booked {d.booking_date}
+          {d.booking_time ? ` ${d.booking_time}` : ""}
+        </div>
+      ) : null}
+    </td>
+  );
+}
+
+/** Table body cells for the standard booking detail columns. */
 export function StandardBookingTableCells({ d }: { d: StandardBookingDetails }) {
   return (
     <>
-      <td className="booking-col-customer">
-        <div style={{ fontWeight: 600, fontSize: 13, display: "inline-flex", alignItems: "center" }}>
-          {d.customer_name}
-          {d.is_star && <StarBookingBadge />}
-        </div>
-      </td>
+      {customerCell(d)}
       <td className="booking-col-address">
         <NoteCell text={d.customer_address} />
       </td>
@@ -92,6 +105,10 @@ function customerWithStar(d: StandardBookingDetails) {
 export function StandardBookingDetailsGrid({ d }: { d: StandardBookingDetails }) {
   const fields: Array<{ label: string; value: ReactNode }> = [
     { label: "Customer", value: customerWithStar(d) },
+    {
+      label: "Booked On",
+      value: d.booking_date ? `${d.booking_date} ${d.booking_time}` : "—",
+    },
     { label: "Address", value: d.customer_address || "—" },
     { label: "Total Rent", value: `₹${formatInr(d.total_rent)}` },
     { label: "Security", value: `₹${formatInr(d.security_deposit)}` },
@@ -148,6 +165,10 @@ export function PackingBookingDetailsGrid({
 }) {
   const fields: Array<{ label: string; value: ReactNode }> = [
     { label: "Customer", value: customerWithStar(d) },
+    {
+      label: "Booked On",
+      value: d.booking_date ? `${d.booking_date} ${d.booking_time}` : "—",
+    },
     { label: "Address", value: d.customer_address || "—" },
     { label: "Contact", value: extras?.contact_1 || "—" },
     {
@@ -210,6 +231,8 @@ export function BookingWarningPanel({
           dress_names: w.dress_names || "",
           item_notes: w.item_notes || "",
           common_notes: w.common_notes || "",
+          booking_date: w.booking_date || "",
+          booking_time: w.booking_time || "",
           delivery_date: w.delivery_date || "",
           delivery_time: w.delivery_time || "",
           return_date: w.return_date || "",
@@ -229,4 +252,27 @@ export function BookingWarningPanel({
 
 export function PackingReturningWarningPanel({ w }: { w: PackingReturningWarning }) {
   return <BookingWarningPanel w={w} variant="returning" />;
+}
+
+/** Delivery/return/booking dates shown in card headers (booked items, packing list, etc.). */
+export function BookingCardHeaderDates({
+  d,
+}: {
+  d: Pick<
+    StandardBookingDetails,
+    "booking_date" | "booking_time" | "delivery_date" | "delivery_time" | "return_date" | "return_time"
+  >;
+}) {
+  return (
+    <div className="booking-card-header-dates">
+      <div>
+        <i className="fa-solid fa-truck" style={{ marginRight: 4, color: "var(--primary)" }} />
+        {d.delivery_date} {d.delivery_time}
+      </div>
+      <div style={{ fontSize: 11, color: "var(--text-muted)" }}>
+        <i className="fa-solid fa-rotate-left" style={{ marginRight: 4 }} />
+        {d.return_date} {d.return_time}
+      </div>
+    </div>
+  );
 }

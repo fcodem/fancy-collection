@@ -7,6 +7,8 @@ import { todayIso } from "@/lib/constants";
 import { fetchJson } from "@/lib/fetchJson";
 import { formatInr } from "@/lib/format";
 import { useToast } from "@/components/ui/Toast";
+import { SaveConfirmedBanner } from "@/components/SaveConfirmedBanner";
+import { buildSaveRedirectUrl } from "@/components/SaveConfirmedBanner";
 
 type Staff = { id: number; name: string; phone?: string | null };
 type StaffUser = { id: number; username: string; role: string; staffId: number | null };
@@ -28,11 +30,13 @@ export default function StaffAttendanceClient({
   allUsers,
   isOwner,
   initialToday,
+  saveConfirmed,
 }: {
   staffList: Staff[];
   allUsers: StaffUser[];
   isOwner: boolean;
   initialToday?: string;
+  saveConfirmed?: { title: string; detail?: string };
 }) {
   const router = useRouter();
   const toast = useToast();
@@ -148,6 +152,13 @@ export default function StaffAttendanceClient({
       toast("Attendance saved", "success");
       loadCalendar();
       loadSummary();
+      router.replace(
+        buildSaveRedirectUrl("/staff-attendance", {
+          title: "Attendance saved",
+          detail: attDate,
+        }),
+      );
+      window.scrollTo(0, 0);
     } catch (e) {
       toast(e instanceof Error ? e.message : "Failed to save", "error");
     } finally {
@@ -235,12 +246,20 @@ export default function StaffAttendanceClient({
         }),
       });
       toast("Staff added", "success");
+      const staffName = addName.trim();
       setAddName("");
       setAddPhone("");
       setAddUsername("");
       setAddPassword("");
       setAddRole("staff");
+      router.replace(
+        buildSaveRedirectUrl("/staff-attendance", {
+          title: "Staff saved",
+          detail: staffName,
+        }),
+      );
       router.refresh();
+      window.scrollTo(0, 0);
     } catch (e) {
       toast(e instanceof Error ? e.message : "Failed to add staff", "error");
     }
@@ -355,6 +374,14 @@ export default function StaffAttendanceClient({
   const salStaffName = staffList.find((s) => String(s.id) === salStaffId)?.name || "";
 
   return (
+    <>
+      {saveConfirmed && (
+        <SaveConfirmedBanner
+          title={saveConfirmed.title}
+          detail={saveConfirmed.detail}
+          hint="Continue with the next entry below."
+        />
+      )}
     <div className="two-col" style={{ gap: 20, gridTemplateColumns: "1fr 2fr" }}>
       {/* Left column */}
       <div>
@@ -833,5 +860,6 @@ export default function StaffAttendanceClient({
         )}
       </div>
     </div>
+    </>
   );
 }

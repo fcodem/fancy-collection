@@ -698,8 +698,8 @@ export default function DashboardView({ data: initialData, isOwner, pendingStaff
       {data.overdue_list.length > 0 && (
         <div className="card mb-24">
           <div className="card-header">
-            <h3 className="card-title" style={{ color: "var(--danger)" }}>Overdue Rentals</h3>
-            <Link href="/rentals" className="btn btn-danger btn-sm">View All</Link>
+            <h3 className="card-title" style={{ color: "var(--danger)" }}>Late Returns</h3>
+            <Link href="/late-return" className="btn btn-danger btn-sm">View All</Link>
           </div>
           <div className="card-body p-0">
             <div className="table-wrapper">
@@ -712,7 +712,7 @@ export default function DashboardView({ data: initialData, isOwner, pendingStaff
                       <td>{r.customer.name}</td>
                       <td style={{ color: "var(--danger)", fontWeight: 600 }}>{bookingDateLabel(r.endDate ?? "")}</td>
                       <td>₹{formatInr(r.totalAmount)}</td>
-                      <td><Link href={`/rentals/${r.id}`} className="btn btn-outline btn-sm">View</Link></td>
+                      <td><Link href={`/late-return`} className="btn btn-outline btn-sm">Open</Link></td>
                     </tr>
                   ))}
                 </tbody>

@@ -33,10 +33,10 @@ export default async function BookingSlipPage({
   searchParams,
 }: {
   params: Promise<{ id: string }>;
-  searchParams: Promise<{ print?: string; pdfSecret?: string }>;
+  searchParams: Promise<{ print?: string; pdfSecret?: string; offerPdf?: string }>;
 }) {
   const { id } = await params;
-  const { print, pdfSecret } = await searchParams;
+  const { print, pdfSecret, offerPdf } = await searchParams;
   const bookingId = parseInt(id, 10);
   if (!bookingId) notFound();
 
@@ -68,7 +68,13 @@ export default async function BookingSlipPage({
   return (
     <>
       {pdfRender && <SlipPdfPrintStyles />}
-      {!pdfRender && <SlipActionsClient bookingId={bookingId} autoPrint={print === "1"} />}
+      {!pdfRender && (
+        <SlipActionsClient
+          bookingId={bookingId}
+          autoPrint={print === "1"}
+          offerPdfDownload={offerPdf === "1" || print === "1"}
+        />
+      )}
       <div className="slip-page-wrap">
         <BookingSlip
           booking={slipBooking}

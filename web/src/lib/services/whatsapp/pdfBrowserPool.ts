@@ -183,7 +183,7 @@ export async function renderHtmlUrlToPdf(opts: HtmlToPdfOptions): Promise<Buffer
         const viewport = opts.viewport ?? { width: 794, height: 1123 };
         await page.setViewport({ ...viewport, deviceScaleFactor: 1 });
 
-        const response = await page.goto(opts.url, { waitUntil: "load", timeout: 90_000 });
+        const response = await page.goto(opts.url, { waitUntil: "networkidle0", timeout: 90_000 });
         if (!response || !response.ok()) {
           const status = response?.status() ?? "unknown";
           throw new Error(`PDF page failed to load (HTTP ${status})`);

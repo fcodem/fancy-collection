@@ -21,6 +21,7 @@ export type ProfileEmbeddings = {
   fineDetail?: EmbeddingSlot;
   blouse?: EmbeddingSlot;
   skirt?: EmbeddingSlot;
+  openaiText?: EmbeddingSlot;
 };
 
 export type ColourAnalysis = {
@@ -129,6 +130,11 @@ export type CustomerSafeProfile = {
   healthIssues: HealthIssue[];
   indexedAt: string | null;
   hasManualOverrides: boolean;
+  enhancedImage?: string | null;
+  enhancementStatus?: string;
+  enhancementVersion?: number;
+  enhancementModel?: string | null;
+  enhancementLatencyMs?: number | null;
 };
 
 export type InternalProfile = CustomerSafeProfile & {
@@ -153,4 +159,12 @@ export type InternalProfile = CustomerSafeProfile & {
     garmentAttributes: GarmentAttributes | null;
     jewelleryAttributes: JewelleryAttributes | null;
   };
+  /** Dress Checker index columns (optional — absent on legacy profiles). */
+  dressChecker?: import("./dressCheckerFields").InventoryAiProfileDressCheckerFields;
 };
+
+export type {
+  DressCheckerVerificationMetadata,
+  DressCheckerEmbeddingSource,
+  InventoryAiProfileDressCheckerFields,
+} from "./dressCheckerFields";

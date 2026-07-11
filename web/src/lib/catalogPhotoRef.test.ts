@@ -14,8 +14,30 @@ describe("inventoryPhotoRef", () => {
     assert.equal(inventoryPhotoRef({}), "");
   });
 
-  it("returns the uploaded photo", () => {
+  it("falls back to photo when no enhanced or original", () => {
     assert.equal(inventoryPhotoRef({ photo: "a.jpg" }), "a.jpg");
+  });
+
+  it("uses latest photo while auto-enhancement is paused (ignores enhancedPhoto)", () => {
+    // AUTO_IMAGE_ENHANCEMENT_ENABLED is currently false — display the upload only.
+    assert.equal(
+      inventoryPhotoRef({ photo: "a.jpg", originalPhoto: "orig.jpg", enhancedPhoto: "enh.jpg" }),
+      "a.jpg",
+    );
+  });
+
+  it("prefers photo over a stale originalPhoto", () => {
+    assert.equal(
+      inventoryPhotoRef({ photo: "new.jpg", originalPhoto: "old.jpg" }),
+      "new.jpg",
+    );
+  });
+
+  it("falls back to photo when originalPhoto and enhancedPhoto are null", () => {
+    assert.equal(
+      inventoryPhotoRef({ photo: "a.jpg", originalPhoto: null, enhancedPhoto: null }),
+      "a.jpg",
+    );
   });
 });
 
@@ -44,10 +66,10 @@ describe("recognitionPhotoRef", () => {
     assert.equal(recognitionPhotoRef(null), "");
   });
 
-  it("prefers recognition image over photo", () => {
+  it("uses uploaded photo while enhancement is paused (ignores recognitionImage)", () => {
     assert.equal(
       recognitionPhotoRef({ photo: "a.jpg", recognitionImage: "rec.jpg" }),
-      "rec.jpg",
+      "a.jpg",
     );
   });
 

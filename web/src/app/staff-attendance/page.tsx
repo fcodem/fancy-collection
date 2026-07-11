@@ -4,7 +4,13 @@ import { getCurrentUser, isOwner } from "@/lib/auth";
 import StaffAttendanceClient from "@/components/StaffAttendanceClient";
 import { todayIso } from "@/lib/constants";
 
-export default async function StaffAttendancePage() {
+export const dynamic = "force-dynamic";
+
+export default async function StaffAttendancePage({
+  searchParams,
+}: {
+  searchParams: Promise<{ saved?: string; title?: string; detail?: string }>;
+}) {
   const user = await getCurrentUser();
   if (!user) redirect("/login");
   if (!isOwner(user)) redirect("/");
@@ -17,12 +23,22 @@ export default async function StaffAttendancePage() {
     }),
   ]);
 
+  const sp = await searchParams;
+  const saveConfirmed =
+    sp.saved === "1"
+      ? {
+          title: sp.title ? decodeURIComponent(sp.title) : "Saved",
+          detail: sp.detail ? decodeURIComponent(sp.detail) : undefined,
+        }
+      : undefined;
+
   return (
     <StaffAttendanceClient
-        staffList={staffList}
-        allUsers={allUsers}
-        isOwner
-        initialToday={todayIso()}
-      />
+      staffList={staffList}
+      allUsers={allUsers}
+      isOwner
+      initialToday={todayIso()}
+      saveConfirmed={saveConfirmed}
+    />
   );
 }

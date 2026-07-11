@@ -1,12 +1,9 @@
 import { NextRequest } from "next/server";
 import prisma from "@/lib/prisma";
 import { jsonOk, requireOwner, isResponse } from "@/lib/api";
-import {
-  rebuildAllAiProfiles,
-  rebuildSelectedAiProfiles,
-} from "@/lib/dressChecker/processInventory";
-import { DRESS_CHECKER_FINGERPRINT_VERSION } from "@/lib/dressChecker/types";
-import { DRESS_CHECKER_ENGINE_VERSION } from "@/lib/dressChecker/constants";
+import { generateInventoryAiProfile } from "@/lib/inventoryAiProfile/generateProfile";
+import { scheduleInventoryAiProfile } from "@/lib/inventoryAiProfile/queue";
+import { getAiQueueSnapshot } from "@/lib/inventoryAiProfile/queue";
 
 export async function GET() {
   const user = await requireOwner();
@@ -17,17 +14,21 @@ export async function GET() {
   });
   const indexed = await prisma.inventoryAiProfile.count({
     where: {
-      recognitionVersion: { gte: DRESS_CHECKER_FINGERPRINT_VERSION },
-      status: "ready",
+      status: "completed",
     },
   });
+  const vectorRows = await prisma.$queryRawUnsafe<Array<{ count: number }>>(
+    `SELECT COUNT(*)::int AS count FROM inventory_ai_profiles WHERE embedding_vector IS NOT NULL`,
+  );
 
   return jsonOk({
     total,
     indexed,
     pending: total - indexed,
-    pipelineVersion: DRESS_CHECKER_ENGINE_VERSION,
-    engine: "dress_checker_v5",
+    pipelineVersion: 1,
+    engine: "openai_pgvector_hybrid_v1",
+    vectorIndexed: vectorRows[0]?.count || 0,
+    queue: getAiQueueSnapshot(),
   });
 }
 
@@ -41,16 +42,37 @@ export async function POST(req: NextRequest) {
   };
 
   if (body.itemIds?.length) {
-    const result = await rebuildSelectedAiProfiles(body.itemIds);
+    let processed = 0;
+    let failed = 0;
+    for (const itemId of body.itemIds) {
+      try {
+        await generateInventoryAiProfile(itemId, "full", "admin_selected_rebuild");
+        processed += 1;
+      } catch {
+        failed += 1;
+      }
+    }
     return jsonOk({
-      ...result,
-      message: `Rebuilt ${result.processed} items. ${result.failed} failed.`,
+      processed,
+      failed,
+      message: `Rebuilt ${processed} items. ${failed} failed.`,
     });
   }
 
-  const result = await rebuildAllAiProfiles(body.force === true);
+  const items = await prisma.clothingItem.findMany({
+    where: body.force === true
+      ? { photo: { not: null }, NOT: { photo: "" } }
+      : {
+          photo: { not: null },
+          NOT: { photo: "" },
+          OR: [{ aiProfile: { is: null } }, { aiProfile: { is: { status: { in: ["none", "failed"] } } } }],
+        },
+    select: { id: true },
+    orderBy: { id: "asc" },
+  });
+  items.forEach((item) => scheduleInventoryAiProfile(item.id, "full", "admin_bulk_rebuild"));
   return jsonOk({
-    ...result,
-    message: `Rebuilt ${result.processed} AI fingerprints. ${result.failed} failed.`,
+    queued: items.length,
+    message: `Queued ${items.length} AI profile rebuild jobs.`,
   });
 }

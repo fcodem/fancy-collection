@@ -1,0 +1,73 @@
+[
+  {
+    "id": "onion2-self",
+    "querySku": "ITM-1050",
+    "queryItemId": 1050,
+    "queryImage": "C:\\Projects\\ssdn-soft\\web\\public\\uploads\\originals\\9ab2e7c693bc4c378f5e49edfd625eba.jpg",
+    "expectedSku": "ITM-1050",
+    "relationship": "sameDress",
+    "queryType": "FULL_DRESS",
+    "notes": "Onion Bridal 2 catalog self-search must rank above sibling"
+  },
+  {
+    "id": "onion-lookalike",
+    "querySku": "ITM-1050",
+    "queryItemId": 1050,
+    "queryImage": "C:\\Projects\\ssdn-soft\\web\\public\\uploads\\originals\\9ab2e7c693bc4c378f5e49edfd625eba.jpg",
+    "expectedSku": "ITM-1050",
+    "relationship": "sameCollection",
+    "notes": "Must distinguish ONION BRIDAL vs ONION BRIDAL 2"
+  },
+  {
+    "id": "rajwada-self",
+    "querySku": "ITM-1047",
+    "queryItemId": 1047,
+    "queryImage": "C:\\Projects\\ssdn-soft\\web\\public\\uploads\\originals\\a87a53901c8146f79a317540544be637.jpg",
+    "expectedSku": "ITM-1047",
+    "relationship": "sameDress",
+    "queryType": "MANNEQUIN",
+    "notes": "Multi Rajwada self / mannequin case"
+  },
+  {
+    "id": "slot-hanger-vs-mannequin",
+    "expectedSku": "PENDING",
+    "relationship": "sameDress",
+    "notes": "Fixture slot reserved — add labeled image under test-fixtures/dress-eval/hanger-vs-mannequin"
+  },
+  {
+    "id": "slot-folded-vs-open",
+    "expectedSku": "PENDING",
+    "relationship": "sameDress",
+    "notes": "Fixture slot reserved — add labeled image under test-fixtures/dress-eval/folded-vs-open"
+  },
+  {
+    "id": "slot-customer-vs-catalog",
+    "expectedSku": "PENDING",
+    "relationship": "sameDress",
+    "notes": "Fixture slot reserved — add labeled image under test-fixtures/dress-eval/customer-vs-catalog"
+  },
+  {
+    "id": "slot-partial-vs-full",
+    "expectedSku": "PENDING",
+    "relationship": "sameDress",
+    "notes": "Fixture slot reserved — add labeled image under test-fixtures/dress-eval/partial-vs-full"
+  },
+  {
+    "id": "slot-lowlight-vs-studio",
+    "expectedSku": "PENDING",
+    "relationship": "sameDress",
+    "notes": "Fixture slot reserved — add labeled image under test-fixtures/dress-eval/lowlight-vs-studio"
+  },
+  {
+    "id": "slot-blurred",
+    "expectedSku": "PENDING",
+    "relationship": "sameDress",
+    "notes": "Fixture slot reserved — add labeled image under test-fixtures/dress-eval/blurred"
+  },
+  {
+    "id": "slot-screenshot",
+    "expectedSku": "PENDING",
+    "relationship": "sameDress",
+    "notes": "Fixture slot reserved — add labeled image under test-fixtures/dress-eval/screenshot"
+  }
+]

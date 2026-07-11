@@ -10,8 +10,9 @@ export async function embedQueryImage(buffer: Buffer): Promise<RegionEmbeddings>
 }
 
 export async function embedInventoryImage(buffer: Buffer): Promise<number[]> {
-  const { generateImageEmbedding } = await import("../siglipModel");
-  return generateImageEmbedding(buffer);
+  const { generateInventoryImageEmbedding } = await import("@/lib/ai/imageEmbedding/imageEmbeddingService");
+  const result = await generateInventoryImageEmbedding(buffer);
+  return result.vector;
 }
 
 export function embeddingSimilarityPercent(

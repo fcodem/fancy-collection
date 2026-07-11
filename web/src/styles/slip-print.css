@@ -21,7 +21,8 @@
 
   .slip-container {
     width: 210mm;
-    min-height: 297mm;
+    min-height: 0;
+    height: auto;
     margin: 0 auto;
     padding: 0;
     box-shadow: none !important;
@@ -156,4 +157,19 @@
     margin-bottom: 2px;
     text-transform: uppercase;
   }
+}
+
+.slip-emoji {
+  display: inline-flex;
+  align-items: center;
+  vertical-align: middle;
+  line-height: 1;
+}
+
+.slip-emoji img {
+  height: 1em;
+  width: 1em;
+  margin: 0;
+  vertical-align: -0.1em;
+  display: inline-block;
 }

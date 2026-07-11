@@ -213,6 +213,13 @@ export default function DeliveryDetailClient({
       return;
     }
 
+    if (!(await flushPendingIdPhotos())) {
+      printWindow?.close();
+      setSaving(false);
+      setError("Could not save ID photos. Try Save ID Photos, then deliver again.");
+      return;
+    }
+
     const payload = {
       payment_mode: paymentMode,
       security_payment_mode: securityPaymentMode,
@@ -271,6 +278,14 @@ export default function DeliveryDetailClient({
       setSaving(false);
       return;
     }
+
+    if (!(await flushPendingIdPhotos())) {
+      printWindow?.close();
+      setSaving(false);
+      setError("Could not save ID photos. Try Save ID Photos, then deliver again.");
+      return;
+    }
+
     const payload = {
       slip_finalize: true,
       payment_mode: paymentMode,
@@ -313,6 +328,66 @@ export default function DeliveryDetailClient({
     if (data.status === "delivered") router.refresh();
   }
 
+  async function saveIdPhotos(files?: { slot1?: File | null; slot2?: File | null }): Promise<boolean> {
+    // Ignore accidental click Event if someone wires onClick={saveIdPhotos}.
+    const isEventLike =
+      !!files &&
+      typeof files === "object" &&
+      (typeof Event !== "undefined" && files instanceof Event || "nativeEvent" in files);
+    const payload = isEventLike ? undefined : files;
+    const f1 = payload && "slot1" in payload ? payload.slot1 ?? null : idPhoto1File;
+    const f2 = payload && "slot2" in payload ? payload.slot2 ?? null : idPhoto2File;
+    if (!f1 && !f2) {
+      setIdPhotoMessage("Choose at least one photo to upload.");
+      return false;
+    }
+    setSavingIdPhotos(true);
+    setIdPhotoMessage("");
+    try {
+      const form = new FormData();
+      if (f1) form.append("id_photo_1", f1);
+      if (f2) form.append("id_photo_2", f2);
+      const res = await fetch(`/api/booking-delivery/${booking.id}/id-photos`, {
+        method: "POST",
+        body: form,
+        credentials: "same-origin",
+      });
+      const data = await res.json();
+      if (!res.ok) {
+        setIdPhotoMessage(data.error || "Failed to save ID photos");
+        return false;
+      }
+      if (data.id_photo_1) setSavedIdPhoto1(data.id_photo_1);
+      if (data.id_photo_2) setSavedIdPhoto2(data.id_photo_2);
+      setIdPhoto1File(null);
+      setIdPhoto2File(null);
+      if (idPhoto1Preview) URL.revokeObjectURL(idPhoto1Preview);
+      if (idPhoto2Preview) URL.revokeObjectURL(idPhoto2Preview);
+      setIdPhoto1Preview(null);
+      setIdPhoto2Preview(null);
+      setIdPhotoMessage("ID photos saved — they will show on the return page.");
+      router.refresh();
+      return true;
+    } catch (e) {
+      const msg =
+        e instanceof Error
+          ? e.message
+          : typeof e === "object" && e && "message" in e
+            ? String((e as { message: unknown }).message)
+            : "Failed to save ID photos";
+      setIdPhotoMessage(msg);
+      return false;
+    } finally {
+      setSavingIdPhotos(false);
+    }
+  }
+
+  /** Persist any unsaved ID captures before marking delivered. */
+  async function flushPendingIdPhotos(): Promise<boolean> {
+    if (!idPhoto1File && !idPhoto2File) return true;
+    return saveIdPhotos();
+  }
+
   function onIdPhotoChange(slot: 1 | 2, file: File | null) {
     if (slot === 1) {
       setIdPhoto1File(file);
@@ -324,41 +399,13 @@ export default function DeliveryDetailClient({
       setIdPhoto2Preview(file ? URL.createObjectURL(file) : null);
     }
     setIdPhotoMessage("");
-  }
-
-  async function saveIdPhotos() {
-    if (!idPhoto1File && !idPhoto2File) {
-      setIdPhotoMessage("Choose at least one photo to upload.");
-      return;
-    }
-    setSavingIdPhotos(true);
-    setIdPhotoMessage("");
-    try {
-      const form = new FormData();
-      if (idPhoto1File) form.append("id_photo_1", idPhoto1File);
-      if (idPhoto2File) form.append("id_photo_2", idPhoto2File);
-      const res = await fetch(`/api/booking-delivery/${booking.id}/id-photos`, {
-        method: "POST",
-        body: form,
-        credentials: "same-origin",
-      });
-      const data = await res.json();
-      if (!res.ok) {
-        setIdPhotoMessage(data.error || "Failed to save ID photos");
-        return;
-      }
-      if (data.id_photo_1) setSavedIdPhoto1(data.id_photo_1);
-      if (data.id_photo_2) setSavedIdPhoto2(data.id_photo_2);
-      setIdPhoto1File(null);
-      setIdPhoto2File(null);
-      if (idPhoto1Preview) URL.revokeObjectURL(idPhoto1Preview);
-      if (idPhoto2Preview) URL.revokeObjectURL(idPhoto2Preview);
-      setIdPhoto1Preview(null);
-      setIdPhoto2Preview(null);
-      setIdPhotoMessage("ID photos saved.");
-      router.refresh();
-    } finally {
-      setSavingIdPhotos(false);
+    if (file) {
+      // Auto-upload so deliver / return see the photo without a separate Save click.
+      void saveIdPhotos(
+        slot === 1
+          ? { slot1: file, slot2: idPhoto2File }
+          : { slot1: idPhoto1File, slot2: file },
+      );
     }
   }
 
@@ -435,6 +482,15 @@ export default function DeliveryDetailClient({
             <i className="fa-solid fa-print" style={{ marginRight: 6 }} />
             Print A4 Slip
           </Link>
+          <Link
+            href={`/booking/${booking.id}/customer-slips`}
+            className="btn btn-outline"
+            style={{ color: "#5b21b6", borderColor: "#7c3aed" }}
+            title="View booking, delivery and return slips sent to the customer"
+          >
+            <i className="fa-solid fa-file-pdf" style={{ marginRight: 6 }} />
+            All Customer Slips
+          </Link>
         </div>
       )}
       {allDelivered && (
@@ -489,7 +545,8 @@ export default function DeliveryDetailClient({
         </div>
         <div className="card-body">
           <p style={{ margin: "0 0 16px", fontSize: 13, color: "var(--text-muted)" }}>
-            Tap Open Camera to capture up to two ID photos at delivery. They appear on the return record and are removed automatically when the dress is returned.
+            Capture up to two ID photos at delivery. Photos upload automatically and also save when you
+            deliver. They appear on the return page and are removed only when the booking is fully returned.
           </p>
           <div style={{ display: "grid", gridTemplateColumns: "repeat(auto-fit, minmax(220px, 1fr))", gap: 16 }}>
             {([1, 2] as const).map((slot) => {
@@ -514,7 +571,7 @@ export default function DeliveryDetailClient({
               type="button"
               className="btn btn-outline btn-sm"
               disabled={savingIdPhotos || (!idPhoto1File && !idPhoto2File)}
-              onClick={saveIdPhotos}
+              onClick={() => void saveIdPhotos()}
             >
               {savingIdPhotos ? "Saving…" : "Save ID Photos"}
             </button>

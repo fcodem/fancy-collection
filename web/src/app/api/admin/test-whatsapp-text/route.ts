@@ -1,5 +1,6 @@
 import { NextRequest } from "next/server";
 import { jsonError, jsonOk, requireOwner, isResponse } from "@/lib/api";
+import { BRAND_FULL_NAME } from "@/lib/branding";
 import { sendWhatsAppText } from "@/lib/services/whatsapp/metaApi";
 import { isWhatsAppReceiptsDisabled } from "@/lib/services/whatsapp/metaApi";
 
@@ -15,7 +16,7 @@ export async function POST(req: NextRequest) {
   const phone = String(body.phone || "8077843874").replace(/\D/g, "").slice(-10);
   const text =
     String(body.text || "").trim() ||
-    "Test from Fancy Collection — if you see this, WhatsApp delivery to your number is working. Slips are sent as PDF attachments in separate messages.";
+    `Test from ${BRAND_FULL_NAME} — if you see this, WhatsApp delivery to your number is working. Slips are sent as PDF attachments in separate messages.`;
 
   const result = await sendWhatsAppText(phone, text);
   if (!result.ok) return jsonError(result.error || "Send failed", 500);

@@ -17,21 +17,47 @@ import {
   incompleteSlipPdfFilename,
 } from "./slipPdf";
 import {
+  isOutsideCustomerCareWindowError,
   isWhatsAppConfigured,
-  sendWhatsAppDocumentBuffer,
+  sendWhatsAppDocumentByMediaId,
   sendWhatsAppText,
+  uploadWhatsAppMedia,
 } from "./metaApi";
 import { saveWhatsAppOutboundMessage } from "./messages";
+import {
+  WHATSAPP_TEAM_LINE,
+  whatsAppSignature,
+} from "@/lib/slipConstants";
 import {
   bookingSlipPdfFilename,
   resolvePublicBookingId,
   returnReceiptPdfFilename,
 } from "./publicBookingId";
-
-const BUSINESS_NAME =
-  process.env.BUSINESS_NAME || "FANCY COLLECTION BY RENU AGARWAL";
-
-const TEAM_NAME = "Team Fancy Collection";
+import {
+  getBookingBillTemplateStatus,
+  isWhatsAppSessionOpen,
+  sendBookingBillViaTemplate,
+} from "./bookingBillTemplate";
+import {
+  isSlipTemplateApproved,
+  sendDocumentSlipTemplate,
+  sendTextSlipTemplate,
+  sendUrlSlipTemplate,
+} from "./slipTemplates";
+import {
+  bookingSlipDetailsFromBooking,
+  buildBookingSlipCaption,
+  buildDeliverySlipCaption,
+  buildIncompleteSlipCaption,
+  buildReturnSlipCaption,
+  deliverySlipBodyParams,
+  deliverySlipDetailsFromBooking,
+  incompleteSlipBodyParams,
+  incompleteSlipDetailsFromBooking,
+  returnSlipBodyParams,
+  returnSlipDetailsFromBooking,
+  SLIP_WA_CONTACT_LINE,
+} from "./slipMessageCopy";
 
 export type WhatsAppSendOutcome = {
   ok: boolean;
@@ -41,50 +67,6 @@ export type WhatsAppSendOutcome = {
   messageId?: string;
 };
 
-function bookingSlipWhatsAppCaption(customerName: string, serialNo: string): string {
-  return (
-    `Thank you for choosing ${TEAM_NAME}.\n\n` +
-    `Dear ${customerName},\n\n` +
-    `Your booking (#${serialNo}) has been confirmed. ` +
-    `Please find your booking slip attached for your reference. ` +
-    `It includes outfit details, QR code, and terms & conditions.\n\n` +
-    `We look forward to serving you.\n\n` +
-    `— ${TEAM_NAME}`
-  );
-}
-
-function deliverySlipWhatsAppCaption(customerName: string, publicBookingId: string): string {
-  return (
-    `Thank you for choosing ${TEAM_NAME}.\n\n` +
-    `Dear ${customerName},\n\n` +
-    `Your outfit(s) have been delivered successfully. ` +
-    `Please find your delivery slip attached for your records.\n\n` +
-    `Kindly return all items on or before the scheduled return date.\n\n` +
-    `— ${TEAM_NAME}`
-  );
-}
-
-function returnSlipWhatsAppCaption(customerName: string, publicBookingId: string): string {
-  return (
-    `Thank you for choosing ${TEAM_NAME}.\n\n` +
-    `Dear ${customerName},\n\n` +
-    `Your return has been processed successfully. ` +
-    `Please find your return receipt attached for your records.\n\n` +
-    `We look forward to serving you again.\n\n` +
-    `— ${TEAM_NAME}`
-  );
-}
-
-function incompleteSlipWhatsAppCaption(customerName: string, publicBookingId: string): string {
-  return (
-    `Thank you for choosing ${TEAM_NAME}.\n\n` +
-    `Dear ${customerName},\n\n` +
-    `Some item(s) were not fully returned. ` +
-    `Please find the incomplete return notice attached for details.\n\n` +
-    `— ${TEAM_NAME}`
-  );
-}
-
 export function buildPostponementHeldMessage(opts: {
   customerName: string;
   publicBookingId: string;
@@ -93,11 +75,12 @@ export function buildPostponementHeldMessage(opts: {
 }): string {
   return (
     `Hi ${opts.customerName},\n\n` +
-    `Your booking ${opts.publicBookingId} has been postponed.\n\n` +
-    `Scheduled delivery: ${opts.deliveryDate}\n` +
-    `Scheduled return: ${opts.returnDate}\n\n` +
+    `⏸️ Your booking ${opts.publicBookingId} has been postponed.\n\n` +
+    `📅 Scheduled Delivery: ${opts.deliveryDate}\n` +
+    `📅 Scheduled Return: ${opts.returnDate}\n\n` +
     `Your advance is held with us. Please contact us when you are ready to reschedule.\n\n` +
-    `— ${TEAM_NAME}`
+    `${SLIP_WA_CONTACT_LINE}\n\n` +
+    whatsAppSignature()
   );
 }
 
@@ -111,12 +94,12 @@ export function buildPostponementNoticeMessage(opts: {
 }): string {
   let msg =
     `Hi ${opts.customerName},\n\n` +
-    `Your booking ${opts.publicBookingId} dates have been updated.\n\n` +
-    `Previous delivery: ${opts.oldDeliveryDate}\n` +
-    `New delivery: ${opts.newDeliveryDate}\n` +
-    `New return: ${opts.newReturnDate}\n`;
-  if (opts.reason?.trim()) msg += `\nReason: ${opts.reason.trim()}\n`;
-  msg += `\n— ${BUSINESS_NAME}`;
+    `📝 Your booking ${opts.publicBookingId} dates have been updated.\n\n` +
+    `📅 Previous Delivery: ${opts.oldDeliveryDate}\n` +
+    `📅 New Delivery Date: ${opts.newDeliveryDate}\n` +
+    `📅 New Return Date: ${opts.newReturnDate}\n`;
+  if (opts.reason?.trim()) msg += `\n📌 Reason: ${opts.reason.trim()}\n`;
+  msg += `\n${SLIP_WA_CONTACT_LINE}\n\n${whatsAppSignature()}`;
   return msg;
 }
 
@@ -127,10 +110,14 @@ export function buildBookingReminderMessage(opts: {
   returnTime: string;
 }): string {
   return (
-    `Hi ${opts.customerName}! Reminder from ${BUSINESS_NAME}: ` +
-    `your rental (${opts.publicBookingId}) is due for return tomorrow, ` +
-    `${opts.returnDate}${opts.returnTime ? ` by ${opts.returnTime}` : ""}. ` +
-    `Please plan your return on time. Thank you!`
+    `Hi ${opts.customerName}!\n\n` +
+    `⏰ Reminder from ${WHATSAPP_TEAM_LINE}:\n\n` +
+    `🔖 Booking: ${opts.publicBookingId}\n` +
+    `📅 Return Date: ${opts.returnDate}\n` +
+    `🕒 Return Time: ${opts.returnTime?.trim() || "-"}\n\n` +
+    `Please plan your return on time. Thank you!\n\n` +
+    `${SLIP_WA_CONTACT_LINE}\n\n` +
+    whatsAppSignature()
   );
 }
 
@@ -144,11 +131,13 @@ export function buildLateReturnReminderMessage(opts: {
   const overdueLabel =
     opts.daysOverdue <= 1 ? "is overdue" : `is ${opts.daysOverdue} days overdue`;
   return (
-    `Hi ${opts.customerName}, this is ${TEAM_NAME}.\n\n` +
-    `Your rental (${opts.publicBookingId}) was due for return on ${opts.returnDate}` +
-    `${opts.returnTime ? ` by ${opts.returnTime}` : ""} and ${overdueLabel}.\n\n` +
+    `Hi ${opts.customerName}, this is ${WHATSAPP_TEAM_LINE}.\n\n` +
+    `⚠️ Your rental (${opts.publicBookingId}) ${overdueLabel}.\n\n` +
+    `📅 Return Date: ${opts.returnDate}\n` +
+    `🕒 Return Time: ${opts.returnTime?.trim() || "-"}\n\n` +
     `Please return the outfit(s) as soon as possible or contact us if you need assistance.\n\n` +
-    `— ${TEAM_NAME}`
+    `${SLIP_WA_CONTACT_LINE}\n\n` +
+    whatsAppSignature()
   );
 }
 
@@ -270,20 +259,102 @@ export async function sendBookingBillWhatsApp(
   }
 
   const filename = bookingSlipPdfFilename(publicBookingId);
-  const serialNo = String(booking.monthlySerial).padStart(2, "0");
-  const caption = bookingSlipWhatsAppCaption(booking.customerName, serialNo);
+  const details = bookingSlipDetailsFromBooking(booking);
+  const caption = buildBookingSlipCaption(details);
 
-  const docResult = await sendWhatsAppDocumentBuffer(
-    phoneRaw,
-    pdfBuffer,
-    filename,
-    caption,
-  );
+  const uploaded = await uploadWhatsAppMedia(pdfBuffer, filename);
+  if (!uploaded.ok) {
+    await saveWhatsAppOutboundMessage({
+      bookingId,
+      phone: phoneRaw,
+      messageType: "document",
+      body: caption,
+      mediaUrl: pdfUrl || null,
+      filename,
+      metaMessageId: null,
+      status: "failed",
+      error: uploaded.error ?? "Media upload failed",
+      isAutomated: true,
+    });
+    await prisma.booking.update({
+      where: { id: bookingId },
+      data: { whatsappStatus: "failed", whatsappError: uploaded.error },
+    }).catch(() => {});
+    return { ok: false, error: uploaded.error, phone: phoneRaw };
+  }
+
+  const templateStatus = await getBookingBillTemplateStatus();
+  const sessionOpen = await isWhatsAppSessionOpen(phoneRaw);
+  const templateReady = templateStatus.ready && templateStatus.kind === "document";
+
+  // Prefer attaching the PDF file. Never use the legacy ngrok URL-button template.
+  let usedTemplate = false;
+  let docResult;
+
+  if (templateReady) {
+    usedTemplate = true;
+    docResult = await sendBookingBillViaTemplate({
+      phone: phoneRaw,
+      mediaId: uploaded.mediaId,
+      filename,
+      details,
+      publicBookingId,
+      kind: "document",
+      language: templateStatus.language,
+      templateName: templateStatus.name,
+    });
+
+    // Template rejected but customer already messaged → free-form PDF.
+    if (!docResult.ok && sessionOpen) {
+      usedTemplate = false;
+      docResult = await sendWhatsAppDocumentByMediaId(
+        phoneRaw,
+        uploaded.mediaId,
+        filename,
+        caption,
+      );
+    }
+  } else if (sessionOpen) {
+    docResult = await sendWhatsAppDocumentByMediaId(
+      phoneRaw,
+      uploaded.mediaId,
+      filename,
+      caption,
+    );
+  } else {
+    const err =
+      templateStatus.error ||
+      `WhatsApp DOCUMENT template "${templateStatus.name}" is not APPROVED yet ` +
+        `(status: ${templateStatus.status ?? "missing"}). ` +
+        `Cold sends need an approved PDF (DOCUMENT) template — not the URL/link template. ` +
+        `Ask the customer to send Hi, then resend the bill, or wait for Meta approval of "booking_slip_pdf".`;
+    docResult = { ok: false as const, error: err };
+  }
+
+  // Session free-form blocked by Meta → retry DOCUMENT template if ready.
+  if (
+    !usedTemplate &&
+    !docResult.ok &&
+    isOutsideCustomerCareWindowError(docResult) &&
+    templateReady
+  ) {
+    usedTemplate = true;
+    docResult = await sendBookingBillViaTemplate({
+      phone: phoneRaw,
+      mediaId: uploaded.mediaId,
+      filename,
+      details,
+      publicBookingId,
+      kind: "document",
+      language: templateStatus.language,
+      templateName: templateStatus.name,
+    });
+  }
 
   await saveWhatsAppOutboundMessage({
     bookingId,
     phone: phoneRaw,
-    messageType: "document",
+    messageType: usedTemplate ? "template" : "document",
     body: caption,
     mediaUrl: pdfUrl || null,
     filename,
@@ -332,19 +403,30 @@ export async function sendPostponementNoticeWhatsApp(
   const phoneRaw = booking.whatsappNo || booking.contact1;
   if (!phoneRaw?.trim()) return { ok: false, error: "No WhatsApp number on booking" };
 
-  const publicBookingId =
-    resolvePublicBookingId(booking);
+  const publicBookingId = resolvePublicBookingId(booking);
   const message = buildPostponementNoticeMessage({
     customerName: booking.customerName,
     publicBookingId,
     ...payload,
   });
 
-  const result = await sendWhatsAppText(phoneRaw, message);
+  const useTemplate = await isSlipTemplateApproved("booking_postponed");
+  const result = useTemplate
+    ? await sendTextSlipTemplate({
+        key: "booking_postponed",
+        phone: phoneRaw,
+        bodyParams: [
+          `${publicBookingId} / ${String(booking.monthlySerial).padStart(2, "0")}`,
+          payload.newDeliveryDate,
+          payload.newReturnDate,
+        ],
+      })
+    : await sendWhatsAppText(phoneRaw, message);
+
   await saveWhatsAppOutboundMessage({
     bookingId,
     phone: phoneRaw,
-    messageType: "text",
+    messageType: useTemplate ? "template" : "text",
     body: message,
     metaMessageId: result.ok ? result.messageId : null,
     status: result.ok ? "sent" : "failed",
@@ -378,11 +460,23 @@ export async function sendPostponementHeldWhatsApp(
     returnDate: formatDate(booking.returnDate, "display"),
   });
 
-  const result = await sendWhatsAppText(phoneRaw, message);
+  const useTemplate = await isSlipTemplateApproved("postponement_held");
+  const result = useTemplate
+    ? await sendTextSlipTemplate({
+        key: "postponement_held",
+        phone: phoneRaw,
+        bodyParams: [
+          `${publicBookingId} / ${String(booking.monthlySerial).padStart(2, "0")}`,
+          formatDate(booking.deliveryDate, "display"),
+          formatDate(booking.returnDate, "display"),
+        ],
+      })
+    : await sendWhatsAppText(phoneRaw, message);
+
   await saveWhatsAppOutboundMessage({
     bookingId,
     phone: phoneRaw,
-    messageType: "text",
+    messageType: useTemplate ? "template" : "text",
     body: message,
     metaMessageId: result.ok ? result.messageId : null,
     status: result.ok ? "sent" : "failed",
@@ -408,8 +502,7 @@ export async function sendBookingReminderWhatsApp(
   const phoneRaw = booking.whatsappNo || booking.contact1;
   if (!phoneRaw?.trim()) return { ok: false, error: "No WhatsApp number on booking" };
 
-  const publicBookingId =
-    resolvePublicBookingId(booking);
+  const publicBookingId = resolvePublicBookingId(booking);
   const message = buildBookingReminderMessage({
     customerName: booking.customerName,
     publicBookingId,
@@ -417,11 +510,23 @@ export async function sendBookingReminderWhatsApp(
     returnTime: booking.returnTime,
   });
 
-  const result = await sendWhatsAppText(phoneRaw, message);
+  const useTemplate = await isSlipTemplateApproved("return_reminder");
+  const result = useTemplate
+    ? await sendTextSlipTemplate({
+        key: "return_reminder",
+        phone: phoneRaw,
+        bodyParams: [
+          `${publicBookingId} / ${String(booking.monthlySerial).padStart(2, "0")}`,
+          formatDate(booking.returnDate, "display"),
+          (booking.returnTime || "").trim() || "-",
+        ],
+      })
+    : await sendWhatsAppText(phoneRaw, message);
+
   await saveWhatsAppOutboundMessage({
     bookingId,
     phone: phoneRaw,
-    messageType: "text",
+    messageType: useTemplate ? "template" : "text",
     body: message,
     metaMessageId: result.ok ? result.messageId : null,
     status: result.ok ? "sent" : "failed",
@@ -479,26 +584,20 @@ export async function sendReturnReceiptWhatsApp(
   }
 
   const filename = returnReceiptPdfFilename(publicBookingId);
-  const caption = returnSlipWhatsAppCaption(booking.customerName, publicBookingId);
+  const details = returnSlipDetailsFromBooking(booking);
+  const caption = buildReturnSlipCaption(details);
 
-  const docResult = await sendWhatsAppDocumentBuffer(
-    phoneRaw,
-    pdfBuffer,
-    filename,
-    caption,
-  );
-
-  await saveWhatsAppOutboundMessage({
+  const docResult = await sendSlipDocument({
     bookingId,
-    phone: phoneRaw,
-    messageType: "document",
-    body: caption,
-    mediaUrl: pdfUrl || null,
+    phoneRaw,
+    caption,
     filename,
-    metaMessageId: docResult.ok ? docResult.messageId : null,
-    status: docResult.ok ? "sent" : "failed",
-    error: docResult.ok ? null : (docResult.error ?? null),
-    isAutomated: true,
+    pdfBuffer,
+    pdfUrl,
+    templateKey: "return_slip",
+    customerName: booking.customerName,
+    publicBookingId,
+    bodyParams: returnSlipBodyParams(details),
   });
 
   if (!docResult.ok) {
@@ -603,17 +702,75 @@ async function sendSlipDocument(opts: {
   filename: string;
   pdfBuffer: Buffer;
   pdfUrl?: string;
+  /** slipTemplates key: delivery_slip | return_slip | incomplete_return_slip */
+  templateKey: string;
+  customerName: string;
+  publicBookingId: string;
+  bodyParams: string[];
 }): Promise<WhatsAppSendOutcome> {
-  const docResult = await sendWhatsAppDocumentBuffer(
-    opts.phoneRaw,
-    opts.pdfBuffer,
-    opts.filename,
-    opts.caption,
-  );
+  const templateReady = await isSlipTemplateApproved(opts.templateKey);
+  const sessionOpen = await isWhatsAppSessionOpen(opts.phoneRaw);
+
+  let docResult;
+  let usedTemplate = false;
+
+  const uploaded = await uploadWhatsAppMedia(opts.pdfBuffer, opts.filename);
+  if (!uploaded.ok) {
+    await saveWhatsAppOutboundMessage({
+      bookingId: opts.bookingId,
+      phone: opts.phoneRaw,
+      messageType: "document",
+      body: opts.caption,
+      mediaUrl: opts.pdfUrl ?? null,
+      filename: opts.filename,
+      metaMessageId: null,
+      status: "failed",
+      error: uploaded.error ?? "Media upload failed",
+      isAutomated: true,
+    });
+    return { ok: false, error: uploaded.error, phone: opts.phoneRaw };
+  }
+
+  // Prefer free-form caption (current copy) while the 24h session is open.
+  // Fall back to Meta DOCUMENT templates for cold sends.
+  if (sessionOpen) {
+    docResult = await sendWhatsAppDocumentByMediaId(
+      opts.phoneRaw,
+      uploaded.mediaId,
+      opts.filename,
+      opts.caption,
+    );
+    if (!docResult.ok && templateReady) {
+      usedTemplate = true;
+      docResult = await sendDocumentSlipTemplate({
+        key: opts.templateKey,
+        phone: opts.phoneRaw,
+        mediaId: uploaded.mediaId,
+        filename: opts.filename,
+        bodyParams: opts.bodyParams,
+      });
+    }
+  } else if (templateReady) {
+    usedTemplate = true;
+    docResult = await sendDocumentSlipTemplate({
+      key: opts.templateKey,
+      phone: opts.phoneRaw,
+      mediaId: uploaded.mediaId,
+      filename: opts.filename,
+      bodyParams: opts.bodyParams,
+    });
+  } else {
+    docResult = {
+      ok: false as const,
+      error:
+        "WhatsApp session closed and slip template is not APPROVED yet. Ask the customer to send Hi, then resend.",
+    };
+  }
+
   await saveWhatsAppOutboundMessage({
     bookingId: opts.bookingId,
     phone: opts.phoneRaw,
-    messageType: "document",
+    messageType: usedTemplate ? "template" : "document",
     body: opts.caption,
     mediaUrl: opts.pdfUrl ?? null,
     filename: opts.filename,
@@ -678,9 +835,21 @@ export async function sendDeliverySlipWhatsApp(
   }
 
   const filename = deliverySlipPdfFilename(publicBookingId, suffix);
-  const caption = deliverySlipWhatsAppCaption(booking.customerName, publicBookingId);
+  const details = deliverySlipDetailsFromBooking(booking);
+  const caption = buildDeliverySlipCaption(details);
 
-  const result = await sendSlipDocument({ bookingId, phoneRaw, caption, filename, pdfBuffer, pdfUrl });
+  const result = await sendSlipDocument({
+    bookingId,
+    phoneRaw,
+    caption,
+    filename,
+    pdfBuffer,
+    pdfUrl,
+    templateKey: "delivery_slip",
+    customerName: booking.customerName,
+    publicBookingId,
+    bodyParams: deliverySlipBodyParams(details),
+  });
   if (result.ok) {
     const markIds =
       itemIds.length > 0
@@ -745,9 +914,21 @@ export async function sendPartialReturnSlipWhatsApp(
   }
 
   const filename = returnSlipPdfFilename(publicBookingId, suffix);
-  const caption = returnSlipWhatsAppCaption(booking.customerName, publicBookingId);
+  const details = returnSlipDetailsFromBooking(booking);
+  const caption = buildReturnSlipCaption(details);
 
-  const result = await sendSlipDocument({ bookingId, phoneRaw, caption, filename, pdfBuffer, pdfUrl });
+  const result = await sendSlipDocument({
+    bookingId,
+    phoneRaw,
+    caption,
+    filename,
+    pdfBuffer,
+    pdfUrl,
+    templateKey: "return_slip",
+    customerName: booking.customerName,
+    publicBookingId,
+    bodyParams: returnSlipBodyParams(details),
+  });
   if (result.ok) {
     const markIds =
       itemIds.length > 0
@@ -824,9 +1005,21 @@ export async function sendIncompleteSlipWhatsApp(
   }
 
   const filename = incompleteSlipPdfFilename(publicBookingId, suffix);
-  const caption = incompleteSlipWhatsAppCaption(booking.customerName, publicBookingId);
+  const details = incompleteSlipDetailsFromBooking(booking, ids.length || 1);
+  const caption = buildIncompleteSlipCaption(details);
 
-  const result = await sendSlipDocument({ bookingId, phoneRaw, caption, filename, pdfBuffer, pdfUrl });
+  const result = await sendSlipDocument({
+    bookingId,
+    phoneRaw,
+    caption,
+    filename,
+    pdfBuffer,
+    pdfUrl,
+    templateKey: "incomplete_return_slip",
+    customerName: booking.customerName,
+    publicBookingId,
+    bodyParams: incompleteSlipBodyParams(details),
+  });
   if (result.ok) {
     await markReturnSlipNotified(ids);
   }

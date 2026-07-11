@@ -1,4 +1,10 @@
-import { formatDate } from "@/lib/constants";
+import { formatDate, formatBookingDateTime } from "@/lib/constants";
+import {
+  BRAND_ADDRESS_DEFAULT,
+  BRAND_FULL_NAME,
+  BRAND_MOTTO,
+  BRAND_PHONES_DISPLAY,
+} from "@/lib/branding";
 import { resolvePublicBookingId } from "@/lib/services/whatsapp/publicBookingId";
 import { inventoryPhotoRef } from "@/lib/catalogPhotoRef";
 import { photoUrl } from "@/lib/photoUrl";
@@ -68,6 +74,8 @@ type BookingWithItems = {
     item: {
       color: string | null;
       photo?: string | null;
+      originalPhoto?: string | null;
+      enhancedPhoto?: string | null;
     } | null;
   }>;
   orders?: Array<{
@@ -508,13 +516,10 @@ export function buildReturnSlipData(
 }
 
 export const SLIP_BIZ = {
-  name: process.env.BUSINESS_NAME || "Fancy Collection by Renu Agarwal",
-  phone: process.env.BUSINESS_PHONE || "8077843874, 8630834711",
-  address:
-    process.env.BUSINESS_ADDRESS ||
-    "Banwata Ganj Near Balaji Mandir Court Road Moradabad 244001",
-  tagline:
-    process.env.BUSINESS_TAGLINE || "Premium Cloth Rental — Elegance for Every Occasion",
+  name: process.env.BUSINESS_NAME || BRAND_FULL_NAME,
+  phone: process.env.BUSINESS_PHONE || BRAND_PHONES_DISPLAY,
+  address: process.env.BUSINESS_ADDRESS || BRAND_ADDRESS_DEFAULT,
+  tagline: process.env.BUSINESS_TAGLINE || BRAND_MOTTO,
 };
 
 export function buildBookingSlipData(booking: BookingWithItems): {
@@ -523,6 +528,7 @@ export function buildBookingSlipData(booking: BookingWithItems): {
   orders: SlipOrder[];
 } {
   const publicId = resolvePublicBookingId(booking);
+  const bookingWhen = formatBookingDateTime(booking.createdAt);
 
   const items =
     booking.bookingItems.length > 0
@@ -564,6 +570,8 @@ export function buildBookingSlipData(booking: BookingWithItems): {
       deliveryTime: booking.deliveryTime,
       returnDate: formatDate(booking.returnDate, "display"),
       returnTime: booking.returnTime,
+      bookingDate: bookingWhen.date,
+      bookingTime: bookingWhen.time,
       venue: booking.venue,
       staffNames: booking.staffNames,
       securityDeposit: booking.securityDeposit,

@@ -21,6 +21,7 @@ import {
   fetchWarningEdgeBookings,
   pdfWarningsForBooking,
 } from "@/lib/bookingWarnings";
+import { bookingMonthKey, formatBookingMonthLabel } from "@/lib/bookingMonth";
 export const dynamic = "force-dynamic";
 
 const bookingPanelInclude = {
@@ -39,14 +40,6 @@ const bookingPanelInclude = {
 
 function fmtDate(d: Date) {
   return d.toISOString().slice(0, 10);
-}
-
-function deliveryMonthKey(d: Date) {
-  return `${d.getUTCFullYear()}-${String(d.getUTCMonth() + 1).padStart(2, "0")}`;
-}
-
-function formatDeliveryMonth(d: Date) {
-  return d.toLocaleDateString("en-IN", { month: "long", year: "numeric", timeZone: "UTC" });
 }
 
 export default async function BookingPanelPage({
@@ -187,13 +180,13 @@ export default async function BookingPanelPage({
                   let lastMonth = "";
                   const rows: ReactNode[] = [];
                   for (const b of bookings) {
-                    const monthKey = deliveryMonthKey(b.deliveryDate);
+                    const monthKey = bookingMonthKey(b.deliveryDate);
                     if (monthKey !== lastMonth) {
                       lastMonth = monthKey;
                       rows.push(
                         <tr key={`month-${monthKey}`}>
                           <td
-                            colSpan={14}
+                            colSpan={15}
                             style={{
                               background: "linear-gradient(135deg, var(--primary-dark), var(--primary))",
                               color: "white",
@@ -204,7 +197,7 @@ export default async function BookingPanelPage({
                             }}
                           >
                             <i className="fa-solid fa-calendar" style={{ marginRight: 8 }} />
-                            {formatDeliveryMonth(b.deliveryDate)}
+                            {formatBookingMonthLabel(b.deliveryDate)}
                           </td>
                         </tr>,
                       );

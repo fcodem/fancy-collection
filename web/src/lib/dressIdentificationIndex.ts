@@ -22,7 +22,16 @@ import {
   type RegionKind,
 } from "./dressIdentificationRegions";
 
-const REGION_KINDS: RegionKind[] = ["global", "border", "blouse", "skirt", "embroidery"];
+const REGION_KINDS: RegionKind[] = [
+  "global",
+  "border",
+  "blouse",
+  "skirt",
+  "embroidery",
+  "motif",
+  "dupatta",
+  "silhouette",
+];
 
 export function computeContentHash(buffer: Buffer): string {
   return createHash("sha256").update(buffer).digest("hex");

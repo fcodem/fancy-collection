@@ -5,6 +5,18 @@ import { parseProfileIdentificationIndex } from "./services/inventoryAiProfileSe
 import type { CatalogCandidate } from "./types";
 import { DRESS_CHECKER_FINGERPRINT_VERSION } from "./types";
 import type { IdentificationIndex } from "../dressIdentificationTypes";
+import { IDENTIFICATION_INDEX_VERSION } from "../dressIdentificationTypes";
+
+const EMPTY_IDENTIFICATION_INDEX: IdentificationIndex = {
+  version: IDENTIFICATION_INDEX_VERSION,
+  modelId: "",
+  preprocessingVersion: 0,
+  embeddingDimension: 768,
+  contentHash: "",
+  indexedAt: "",
+  category: "",
+  references: [],
+};
 
 export type CatalogFilters = {
   category?: string;
@@ -16,6 +28,88 @@ export type CatalogFilters = {
   minPrice?: number;
   maxPrice?: number;
 };
+
+/** Lifecycle fields read via SQL — avoids stale Prisma client missing aiStatus/etc. */
+type ProfileLifecycle = {
+  itemId: number;
+  aiStatus: string;
+  needsReindex: boolean;
+  matchingVersion: number;
+};
+
+async function loadProfileLifecycle(itemIds: number[]): Promise<Map<number, ProfileLifecycle>> {
+  const map = new Map<number, ProfileLifecycle>();
+  if (!itemIds.length) return map;
+
+  // Use ANY($1::int[]) — Prisma.join(number[]) can bind as jsonb and cause 42883.
+  const ids = itemIds.map((id) => Number(id)).filter((id) => Number.isFinite(id));
+  if (!ids.length) return map;
+
+  try {
+    const rows = await prisma.$queryRawUnsafe<
+      Array<{
+        item_id: number;
+        ai_status: string | null;
+        status: string | null;
+        needs_reindex: boolean | null;
+        matching_version: number | null;
+      }>
+    >(
+      `SELECT
+         p.item_id,
+         p.ai_status,
+         p.status,
+         COALESCE(p.needs_reindex, false) AS needs_reindex,
+         COALESCE(p.matching_version, 0) AS matching_version
+       FROM inventory_ai_profiles p
+       WHERE p.item_id = ANY($1::int[])`,
+      ids,
+    );
+
+    for (const row of rows) {
+      const legacy = (row.status || "").toLowerCase();
+      const aiStatus = (
+        row.ai_status ||
+        (legacy === "ready" ? "READY" : row.status) ||
+        "PENDING"
+      ).toUpperCase();
+      map.set(Number(row.item_id), {
+        itemId: Number(row.item_id),
+        aiStatus,
+        needsReindex: !!row.needs_reindex,
+        matchingVersion: Number(row.matching_version || 0),
+      });
+    }
+    return map;
+  } catch (err) {
+    // Older DBs / partial migrations: fall back to legacy status column only.
+    console.warn("[dress-checker] profile lifecycle SQL fallback:", err);
+    const rows = await prisma.$queryRawUnsafe<Array<{ item_id: number; status: string | null }>>(
+      `SELECT p.item_id, p.status
+       FROM inventory_ai_profiles p
+       WHERE p.item_id = ANY($1::int[])`,
+      ids,
+    );
+    for (const row of rows) {
+      const legacy = (row.status || "").toLowerCase();
+      map.set(Number(row.item_id), {
+        itemId: Number(row.item_id),
+        aiStatus: legacy === "ready" ? "READY" : (row.status || "PENDING").toUpperCase(),
+        needsReindex: false,
+        matchingVersion: DRESS_CHECKER_FINGERPRINT_VERSION,
+      });
+    }
+    return map;
+  }
+}
+
+function isSearchableLifecycle(life: ProfileLifecycle | undefined): boolean {
+  if (!life) return false;
+  if (life.aiStatus !== "READY") return false;
+  if (life.needsReindex) return false;
+  if (life.matchingVersion < DRESS_CHECKER_FINGERPRINT_VERSION) return false;
+  return true;
+}
 
 function buildWhere(filters: CatalogFilters) {
   const where: Record<string, unknown> = { photo: { not: null }, NOT: { photo: "" } };
@@ -46,41 +140,51 @@ function resolveIndex(
   return parseProfileIdentificationIndex(profileAttrs) || parseIdentificationIndex(itemIndex);
 }
 
+/** Shared Prisma select — only fields present on older generated clients. */
+const catalogItemSelect = {
+  id: true,
+  name: true,
+  sku: true,
+  category: true,
+  status: true,
+  size: true,
+  color: true,
+  photo: true,
+  recognitionImage: true,
+  recognitionFingerprint: true,
+  dailyRate: true,
+  subCategory: true,
+  identificationIndex: true,
+  aiProfile: {
+    select: {
+      recognitionFingerprint: true,
+      recognitionVersion: true,
+      recognitionImage: true,
+      garmentAttributes: true,
+    },
+  },
+} as const;
+
 export async function loadCatalogCandidates(filters: CatalogFilters = {}): Promise<{
   candidates: CatalogCandidate[];
   staleCount: number;
 }> {
   const rows = await prisma.clothingItem.findMany({
     where: buildWhere(filters),
-    select: {
-      id: true,
-      name: true,
-      sku: true,
-      category: true,
-      status: true,
-      size: true,
-      color: true,
-      photo: true,
-      recognitionImage: true,
-      recognitionFingerprint: true,
-      dailyRate: true,
-      subCategory: true,
-      identificationIndex: true,
-      aiProfile: {
-        select: {
-          recognitionFingerprint: true,
-          recognitionVersion: true,
-          recognitionImage: true,
-          garmentAttributes: true,
-        },
-      },
-    },
+    select: catalogItemSelect,
   });
 
+  const lifecycle = await loadProfileLifecycle(rows.map((r) => r.id));
   let staleCount = 0;
   const candidates: CatalogCandidate[] = [];
 
   for (const item of rows) {
+    const life = lifecycle.get(item.id);
+    if (!isSearchableLifecycle(life)) {
+      if (life && life.aiStatus !== "READY") staleCount++;
+      continue;
+    }
+
     const index = resolveIndex(item.aiProfile?.garmentAttributes, item.identificationIndex);
     if (!index?.references?.length) continue;
 
@@ -105,8 +209,8 @@ export async function loadCatalogCandidates(filters: CatalogFilters = {}): Promi
       recognitionImage: item.aiProfile?.recognitionImage || item.recognitionImage,
       dailyRate: item.dailyRate,
       fingerprint: fp,
-      identificationIndex: index,
-      references: index.references,
+      identificationIndex: index ?? EMPTY_IDENTIFICATION_INDEX,
+      references: index?.references ?? [],
       embeddings: primaryRef?.embeddings ?? null,
       embeddingScore: 0,
       viewCount: index.references.length,
@@ -114,4 +218,49 @@ export async function loadCatalogCandidates(filters: CatalogFilters = {}): Promi
   }
 
   return { candidates, staleCount };
+}
+
+/** Load identity-indexed candidates for a pgvector shortlist only. */
+export async function loadCatalogCandidatesByIds(
+  itemIds: number[],
+): Promise<Map<number, CatalogCandidate>> {
+  if (!itemIds.length) return new Map();
+
+  const lifecycle = await loadProfileLifecycle(itemIds);
+  const readyIds = itemIds.filter((id) => isSearchableLifecycle(lifecycle.get(id)));
+  if (!readyIds.length) return new Map();
+
+  const rows = await prisma.clothingItem.findMany({
+    where: { id: { in: readyIds } },
+    select: catalogItemSelect,
+  });
+
+  const map = new Map<number, CatalogCandidate>();
+  for (const item of rows) {
+    const index = resolveIndex(item.aiProfile?.garmentAttributes, item.identificationIndex);
+    const fp =
+      parseStoredFingerprint(item.aiProfile?.recognitionFingerprint, item.name, item.color) ||
+      parseStoredFingerprint(item.recognitionFingerprint, item.name, item.color);
+    const primaryRef = index?.references?.[0];
+    map.set(item.id, {
+      itemId: item.id,
+      sku: item.sku,
+      name: item.name,
+      category: item.category,
+      subCategory: item.subCategory,
+      color: item.color,
+      status: item.status,
+      size: item.size || "",
+      photo: item.photo,
+      recognitionImage: item.aiProfile?.recognitionImage || item.recognitionImage,
+      dailyRate: item.dailyRate,
+      fingerprint: fp,
+      identificationIndex: index ?? EMPTY_IDENTIFICATION_INDEX,
+      references: index?.references ?? [],
+      embeddings: primaryRef?.embeddings ?? null,
+      embeddingScore: 0,
+      viewCount: index?.references.length ?? 0,
+    });
+  }
+  return map;
 }

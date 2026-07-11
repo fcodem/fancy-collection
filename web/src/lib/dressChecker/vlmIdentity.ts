@@ -1,19 +1,29 @@
 /**
- * VLM identity verification — the precision stage of the Dress Checker.
+ * OpenAI Vision — bridal forensic verification ONLY (never primary search).
  *
- * Local embeddings (SigLIP/DINOv2) cannot reliably distinguish visually similar
- * bridal lehengas photographed in different poses (folded/hanging/worn/mannequin).
- * They are used only for RECALL (shortlisting candidates). This module uses Claude
- * Vision to make the final SAME-PHYSICAL-DRESS decision by reasoning about specific
- * motifs, border geometry, panel layout, and colour placement — robust to angle,
- * background, distance, lighting, folding and cropping.
+ * Pipeline: embeddings → fingerprints → region rerank → GPT only for ambiguous 70–92 band.
  */
-import Anthropic from "@anthropic-ai/sdk";
-import sharp from "sharp";
+import { resolveOpenAiKey } from "@/lib/ai/aiRuntimeSettings";
+import {
+  forensicVerifyPair,
+  OPENAI_USAGE_POLICY,
+  shouldCallOpenAiForScore,
+} from "./openaiBridalForensics";
 
-const VLM_MODEL = process.env.DRESS_CHECKER_VLM_MODEL || "claude-sonnet-4-6";
-const MAX_CANDIDATES = 8;
-const MAX_IMAGES_PER_CANDIDATE = 3;
+export const OPENAI_VERIFY_TOP_N = OPENAI_USAGE_POLICY.verifyTopN;
+const VLM_MODEL = process.env.DRESS_CHECKER_VLM_MODEL || "gpt-4o";
+
+/** GPT confidence bands for Indian bridal rental matching. */
+export const OPENAI_VERIFY_CONFIDENCE = {
+  sameDress: 95,
+  veryLikely: 85,
+  possibleMatch: 70,
+  differentDress: 70,
+  minBridalIdentifiers: 3,
+  autoAcceptMin: OPENAI_USAGE_POLICY.autoAcceptMin,
+  gptMin: OPENAI_USAGE_POLICY.gptMin,
+  gptMax: OPENAI_USAGE_POLICY.gptMax,
+} as const;
 
 export type VlmCandidateImage = Buffer;
 
@@ -22,14 +32,37 @@ export type VlmCandidate = {
   sku: string;
   name: string;
   images: VlmCandidateImage[];
+  /** Pre-GPT enterprise score — used for usage policy gating */
+  preGptScore?: number;
+};
+
+export type OpenAiGarmentVerification = {
+  sameDress: boolean;
+  sameCollection: boolean;
+  confidence: number;
+  reasoning: string;
+  differences: string[];
+  similarities: string[];
+  matchedIdentifiers: string[];
+  exactMatch: boolean;
+  reasons: string[];
 };
 
 export type VlmPerCandidate = {
   itemId: number;
   sku: string;
   sameDress: boolean;
+  sameCollection: boolean;
   confidence: number;
   notes: string;
+  exactMatch: boolean;
+  reasoning: string;
+  differences: string[];
+  similarities: string[];
+  reasons: string[];
+  matchedIdentifiers: string[];
+  skipped?: boolean;
+  skipReason?: string;
 };
 
 export type VlmVerdict = {
@@ -39,205 +72,242 @@ export type VlmVerdict = {
   reasoning: string;
   perCandidate: VlmPerCandidate[];
   error?: string;
+  autoAcceptedIds?: number[];
+  rejectedWithoutGptIds?: number[];
 };
 
-/** VLM precision is available when an Anthropic key is configured and not disabled. */
 export function isVlmAvailable(): boolean {
-  if (process.env.DRESS_CHECKER_VLM === "0") return false;
-  return !!process.env.ANTHROPIC_API_KEY;
+  return process.env.DRESS_CHECKER_VLM !== "0";
 }
 
-async function toBase64(buffer: Buffer, size = 720): Promise<string> {
-  const out = await sharp(buffer, { failOn: "none" })
-    .rotate()
-    .resize(size, size, { fit: "inside", withoutEnlargement: true })
-    .removeAlpha()
-    .jpeg({ quality: 85 })
-    .toBuffer();
-  return out.toString("base64");
-}
+export { shouldCallOpenAiForScore, OPENAI_USAGE_POLICY };
 
-type ContentBlock =
-  | { type: "text"; text: string }
-  | { type: "image"; source: { type: "base64"; media_type: "image/jpeg"; data: string } };
-
-const SYSTEM_PROMPT = `You are an expert Indian bridal-wear cataloguer for a garment RENTAL business.
-Your single job: decide whether an uploaded dress photo is the SAME PHYSICAL GARMENT as any
-catalogue item, so staff can find the exact rented outfit when it is returned.
-
-You must be robust to: different camera angle, distance, lighting, background/shop clutter,
-the dress being worn / on a mannequin / on a hanger / folded flat / held by a person, and to
-partial views (only skirt, only blouse, only dupatta).
-
-Judge IDENTITY, not visual similarity. Two DIFFERENT dresses can look alike (same colour family,
-same "heavy bridal embroidery"). Focus on features that are unique to one physical garment:
-- exact motif shapes and their placement (peacocks, elephants, specific florals, figures)
-- the bottom border pattern and its scallop/geometry
-- vertical panel layout and how colours are distributed across panels
-- unusual colour blocking (e.g. olive + wine + peach panels in a specific order)
-- blouse/neckline embroidery layout, dupatta pattern
-
-Colour ALONE is never enough. Two green lehengas or two peach lehengas are NOT the same dress
-unless the motifs and panel layout match. If the visible region is partial, match on whatever
-distinctive detail is visible.
-
-Return ONLY valid JSON (no markdown, no code fences) in exactly this shape:
-{
-  "best_match_index": <integer index of the same-dress candidate, or -1 if none match>,
-  "overall_confidence": <0-100 confidence that best_match is the SAME physical dress>,
-  "reasoning": "<one concise sentence citing the specific shared or differing motifs>",
-  "candidates": [
-    { "index": <int>, "same_dress": <true|false>, "confidence": <0-100>, "notes": "<short specific note>" }
-  ]
-}
-Confidence guide: 95-100 = certainly the same physical dress; 90-94 = very likely, minor doubt;
-70-89 = plausible but not sure; below 70 = probably different.`;
-
-function safeParse(raw: string): unknown {
-  const cleaned = raw
-    .replace(/^```json\s*/i, "")
-    .replace(/^```\s*/i, "")
-    .replace(/\s*```$/i, "")
-    .trim();
-  try {
-    return JSON.parse(cleaned);
-  } catch {
-    const start = cleaned.indexOf("{");
-    const end = cleaned.lastIndexOf("}");
-    if (start >= 0 && end > start) {
-      try {
-        return JSON.parse(cleaned.slice(start, end + 1));
-      } catch {
-        return null;
-      }
-    }
-    return null;
-  }
+/**
+ * Pairwise forensic verification — bridal forensic examiner prompt.
+ */
+export async function verifyGarmentPair(
+  imageA: Buffer,
+  imageB: Buffer,
+  context?: { sku?: string; name?: string },
+): Promise<OpenAiGarmentVerification> {
+  await resolveOpenAiKey();
+  const verdict = await forensicVerifyPair(imageA, imageB, context);
+  return {
+    sameDress: verdict.sameDress,
+    sameCollection: verdict.sameCollection,
+    confidence: verdict.confidence,
+    reasoning: verdict.reasoning,
+    differences: verdict.differences,
+    similarities: verdict.similarities,
+    matchedIdentifiers: verdict.matchedIdentifiers,
+    exactMatch: verdict.sameDress,
+    reasons: verdict.differences.length ? verdict.differences : [verdict.reasoning],
+  };
 }
 
 /**
- * Ask Claude which shortlisted candidate (if any) is the same physical dress as the query.
- * Candidates should already be ordered best-first by local recall; index in prompt = array index.
+ * Verify ambiguous candidates only (score 70–92). Auto-accept >92, reject <70 without GPT.
  */
 export async function verifyDressIdentity(
   queryImage: Buffer,
   candidates: VlmCandidate[],
 ): Promise<VlmVerdict> {
-  const shortlist = candidates.slice(0, MAX_CANDIDATES);
+  const shortlist = candidates.slice(0, OPENAI_VERIFY_TOP_N);
   if (!isVlmAvailable() || shortlist.length === 0) {
     return {
       usedVlm: false,
       matchItemId: null,
       confidence: 0,
-      reasoning: "VLM unavailable",
+      reasoning: "OpenAI verification disabled or no candidates",
       perCandidate: [],
     };
   }
 
+  console.log(`OPENAI FORENSIC START candidates=${shortlist.length} model=${VLM_MODEL}`);
+  const verifyStarted = Date.now();
+  const perCandidate: VlmPerCandidate[] = [];
+  const autoAcceptedIds: number[] = [];
+  const rejectedWithoutGptIds: number[] = [];
+
   try {
-    const client = new Anthropic({ apiKey: process.env.ANTHROPIC_API_KEY });
-
-    const content: ContentBlock[] = [];
-    content.push({
-      type: "text",
-      text: "UPLOADED DRESS TO IDENTIFY (find the same physical garment among the catalogue candidates below):",
-    });
-    content.push({
-      type: "image",
-      source: { type: "base64", media_type: "image/jpeg", data: await toBase64(queryImage) },
-    });
-
     for (let i = 0; i < shortlist.length; i++) {
-      const c = shortlist[i];
-      content.push({
-        type: "text",
-        text: `CANDIDATE index ${i} — SKU ${c.sku} — "${c.name}" (${c.images.length} reference photo(s)):`,
-      });
-      for (const img of c.images.slice(0, MAX_IMAGES_PER_CANDIDATE)) {
-        content.push({
-          type: "image",
-          source: { type: "base64", media_type: "image/jpeg", data: await toBase64(img) },
+      const c = shortlist[i]!;
+      const imageB = c.images[0];
+      if (!imageB) continue;
+
+      const pre = c.preGptScore ?? 80;
+      const policy = shouldCallOpenAiForScore(pre);
+
+      if (policy === "auto_accept") {
+        autoAcceptedIds.push(c.itemId);
+        perCandidate.push({
+          itemId: c.itemId,
+          sku: c.sku,
+          sameDress: true,
+          sameCollection: false,
+          confidence: Math.max(pre, OPENAI_USAGE_POLICY.autoAcceptMin),
+          notes: `Auto-accepted (score ${pre} > ${OPENAI_USAGE_POLICY.autoAcceptMin}) — GPT skipped`,
+          exactMatch: true,
+          reasoning: `Auto-accepted (score ${pre} > ${OPENAI_USAGE_POLICY.autoAcceptMin}) — GPT skipped`,
+          differences: [],
+          similarities: ["high enterprise score"],
+          reasons: [],
+          matchedIdentifiers: [],
+          skipped: true,
+          skipReason: "auto_accept",
+        });
+        continue;
+      }
+
+      if (policy === "reject") {
+        rejectedWithoutGptIds.push(c.itemId);
+        perCandidate.push({
+          itemId: c.itemId,
+          sku: c.sku,
+          sameDress: false,
+          sameCollection: false,
+          confidence: Math.min(pre, OPENAI_USAGE_POLICY.rejectBelow - 1),
+          notes: `Rejected without GPT (score ${pre} < ${OPENAI_USAGE_POLICY.rejectBelow})`,
+          exactMatch: false,
+          reasoning: `Rejected without GPT (score ${pre} < ${OPENAI_USAGE_POLICY.rejectBelow})`,
+          differences: ["below_threshold"],
+          similarities: [],
+          reasons: ["below_threshold"],
+          matchedIdentifiers: [],
+          skipped: true,
+          skipReason: "reject_below_threshold",
+        });
+        continue;
+      }
+
+      const pairStarted = Date.now();
+      console.log(
+        `OPENAI FORENSIC pair ${i + 1}/${shortlist.length} item=${c.itemId} sku=${c.sku} pre=${pre}`,
+      );
+
+      try {
+        const verdict = await verifyGarmentPair(queryImage, imageB, {
+          sku: c.sku,
+          name: c.name,
+        });
+        perCandidate.push({
+          itemId: c.itemId,
+          sku: c.sku,
+          sameDress: verdict.sameDress,
+          sameCollection: verdict.sameCollection,
+          confidence: verdict.confidence,
+          notes: verdict.reasoning,
+          exactMatch: verdict.sameDress,
+          reasoning:
+            verdict.sameCollection && !verdict.sameDress
+              ? `sameCollection (lookalike): ${verdict.reasoning}`
+              : verdict.reasoning,
+          differences: verdict.differences,
+          similarities: verdict.similarities,
+          reasons: verdict.reasons,
+          matchedIdentifiers: verdict.matchedIdentifiers,
+        });
+        console.log(
+          `OPENAI FORENSIC COMPLETE item=${c.itemId} sameDress=${verdict.sameDress} sameCollection=${verdict.sameCollection} conf=${verdict.confidence} ms=${Date.now() - pairStarted}`,
+        );
+      } catch (err) {
+        const msg = err instanceof Error ? err.message : "verification failed";
+        console.error(`OPENAI FORENSIC FAILED item=${c.itemId}:`, msg);
+        perCandidate.push({
+          itemId: c.itemId,
+          sku: c.sku,
+          sameDress: false,
+          sameCollection: false,
+          confidence: 0,
+          notes: msg,
+          exactMatch: false,
+          reasoning: msg,
+          differences: [msg],
+          similarities: [],
+          reasons: [msg],
+          matchedIdentifiers: [],
         });
       }
     }
 
-    content.push({
-      type: "text",
-      text: `There are ${shortlist.length} candidates (index 0 to ${shortlist.length - 1}). Return the JSON verdict now.`,
-    });
+    const matches = perCandidate.filter((p) => p.sameDress && !p.sameCollection);
+    matches.sort((a, b) => b.confidence - a.confidence);
+    const best = matches[0] ?? null;
 
-    const response = await client.messages.create({
-      model: VLM_MODEL,
-      max_tokens: 900,
-      system: SYSTEM_PROMPT,
-      messages: [{ role: "user", content }],
-    });
-
-    const raw = response.content
-      .filter((b): b is Anthropic.TextBlock => b.type === "text")
-      .map((b) => b.text)
-      .join("")
-      .trim();
-
-    const parsed = safeParse(raw) as
-      | {
-          best_match_index?: number;
-          overall_confidence?: number;
-          reasoning?: string;
-          candidates?: Array<{ index?: number; same_dress?: boolean; confidence?: number; notes?: string }>;
-        }
-      | null;
-
-    if (!parsed) {
-      return {
-        usedVlm: true,
-        matchItemId: null,
-        confidence: 0,
-        reasoning: "Could not parse VLM response",
-        perCandidate: [],
-        error: "parse_failed",
-      };
-    }
-
-    const perCandidate: VlmPerCandidate[] = (parsed.candidates || [])
-      .map((row) => {
-        const idx = typeof row.index === "number" ? row.index : -1;
-        const c = shortlist[idx];
-        if (!c) return null;
-        return {
-          itemId: c.itemId,
-          sku: c.sku,
-          sameDress: !!row.same_dress,
-          confidence: clamp(row.confidence),
-          notes: String(row.notes || ""),
-        };
-      })
-      .filter((v): v is VlmPerCandidate => v !== null);
-
-    const bestIdx = typeof parsed.best_match_index === "number" ? parsed.best_match_index : -1;
-    const bestCandidate = bestIdx >= 0 ? shortlist[bestIdx] : null;
+    console.log(
+      `OPENAI FORENSIC DONE matches=${matches.length} best=${best?.itemId ?? "none"} auto=${autoAcceptedIds.length} rejectSkip=${rejectedWithoutGptIds.length} ms=${Date.now() - verifyStarted}`,
+    );
 
     return {
-      usedVlm: true,
-      matchItemId: bestCandidate?.itemId ?? null,
-      confidence: clamp(parsed.overall_confidence),
-      reasoning: String(parsed.reasoning || ""),
+      usedVlm: perCandidate.some((p) => !p.skipped),
+      matchItemId: best?.itemId ?? autoAcceptedIds[0] ?? null,
+      confidence: best?.confidence ?? (autoAcceptedIds.length ? 93 : 0),
+      reasoning:
+        best?.reasoning ||
+        (autoAcceptedIds.length
+          ? "Auto-accepted high-confidence enterprise match"
+          : "No exact physical garment match confirmed"),
       perCandidate,
+      autoAcceptedIds,
+      rejectedWithoutGptIds,
     };
   } catch (err) {
     return {
       usedVlm: false,
       matchItemId: null,
       confidence: 0,
-      reasoning: "VLM error",
-      perCandidate: [],
-      error: err instanceof Error ? err.message : "vlm_failed",
+      reasoning: "OpenAI verification error",
+      perCandidate,
+      error: err instanceof Error ? err.message : "openai_verify_failed",
     };
   }
 }
 
-function clamp(n: unknown): number {
-  const v = typeof n === "number" ? n : Number(n);
-  if (!Number.isFinite(v)) return 0;
-  return Math.max(0, Math.min(100, Math.round(v)));
+/** Exported for unit tests. */
+export function parseVerificationPayload(raw: string): OpenAiGarmentVerification | null {
+  try {
+    const cleaned = raw
+      .replace(/^```json\s*/i, "")
+      .replace(/^```\s*/i, "")
+      .replace(/\s*```$/i, "")
+      .trim();
+    const parsed = JSON.parse(cleaned) as Record<string, unknown>;
+    let sameDress = parsed.sameDress === true;
+    const sameCollection = parsed.sameCollection === true;
+    const differences = Array.isArray(parsed.differences)
+      ? parsed.differences.map((x) => String(x))
+      : [];
+    const matchedIdentifiers = Array.isArray(parsed.matchedIdentifiers)
+      ? parsed.matchedIdentifiers.map((x) => String(x))
+      : [];
+    // Lookalike series (e.g. ONION BRIDAL / ONION BRIDAL 2) must never merge
+    if (sameCollection) {
+      sameDress = false;
+    } else if (matchedIdentifiers.length >= 3) {
+      sameDress = true;
+    }
+    let confidence = Math.round(Number(parsed.confidence) || 0);
+    if (sameCollection) confidence = Math.min(confidence, 69);
+    if (sameDress) {
+      confidence = Math.max(confidence, OPENAI_VERIFY_CONFIDENCE.possibleMatch);
+    } else {
+      // Non-matches / colour-only must stay below possible-match band
+      confidence = Math.min(confidence, OPENAI_VERIFY_CONFIDENCE.possibleMatch - 1);
+    }
+    return {
+      sameDress,
+      sameCollection,
+      confidence,
+      reasoning: String(parsed.reasoning || parsed.reason || ""),
+      differences,
+      similarities: Array.isArray(parsed.similarities)
+        ? parsed.similarities.map((x) => String(x))
+        : [],
+      matchedIdentifiers,
+      exactMatch: sameDress && !sameCollection,
+      reasons: differences,
+    };
+  } catch {
+    return null;
+  }
 }

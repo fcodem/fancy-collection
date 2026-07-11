@@ -6,6 +6,7 @@ import { detectAndIsolateGarment } from "./imageProcessing";
 import { extractFeatureFingerprint } from "./featureExtraction";
 import { QUERY_ROTATION_DEGREES } from "./constants";
 import { detectPartialView } from "./partialViewDetection";
+import { detectQueryType, type DressQueryType } from "./queryTypeDetection";
 import type { QueryAnalysis, StageLog } from "./types";
 import type { QueryReferenceFingerprint } from "../dressIdentificationTypes";
 
@@ -34,8 +35,8 @@ async function buildMultiViewQueryFingerprints(garmentBuffer: Buffer): Promise<Q
 }
 
 /**
- * Full v4 query pipeline:
- * validate → normalize → isolate → multi-view fingerprints → structured features
+ * Enterprise dress checker query pipeline:
+ * STEP 1 background removal → STEP 2 dress crop → STEP 3 orientation normalize → STEP 4 fingerprints
  */
 export async function analyzeQueryImage(
   buffer: Buffer,
@@ -44,20 +45,20 @@ export async function analyzeQueryImage(
 ): Promise<QueryAnalysis> {
   const stageLog: StageLog[] = [];
 
-  const validation = await timed("image_validation", async () => {
+  const validation = await timed("step_0_validation", async () => {
     const result = await validateDressCheckerImage(buffer, mime);
     if (!result.ok) throw new Error(result.message);
     return { ok: true, warnings: result.warnings };
   }, stageLog);
 
-  const garment = await timed("garment_detection", () => detectAndIsolateGarment(buffer), stageLog);
+  const garment = await timed("step_1_2_3_isolate_and_normalize", () => detectAndIsolateGarment(buffer), stageLog);
 
   const category = hints.category || "Lehenga";
   const group = resolveCategoryGroup(category);
   const subCategory = inferSubCategory(category, hints.name || "", group);
 
   const fingerprint = await timed(
-    "feature_extraction",
+    "step_4_feature_fingerprints",
     () => extractFeatureFingerprint(garment, category, hints.name || "", subCategory),
     stageLog,
   );
@@ -66,7 +67,7 @@ export async function analyzeQueryImage(
   fingerprint.subCategory = subCategory;
 
   const queryFingerprints = await timed(
-    "multi_view_embedding",
+    "step_4_multi_view_embeddings",
     () => buildMultiViewQueryFingerprints(garment.buffer),
     stageLog,
   );
@@ -75,6 +76,13 @@ export async function analyzeQueryImage(
   if (!primary) throw new Error("Failed to build query fingerprints");
 
   const partialView = detectPartialView(garment, fingerprint, queryFingerprints);
+  const queryType: DressQueryType = detectQueryType(
+    garment,
+    fingerprint,
+    queryFingerprints,
+    partialView,
+  );
+  stageLog.push({ stage: "query_type", durationMs: 0, detail: queryType });
 
   return {
     validation,
@@ -88,5 +96,6 @@ export async function analyzeQueryImage(
     stageLog,
     viewCount: queryFingerprints.length,
     partialView,
+    queryType,
   };
 }

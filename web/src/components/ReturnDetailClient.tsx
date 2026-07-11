@@ -390,6 +390,15 @@ export default function ReturnDetailClient({
     <div>
       <div style={{ display: "flex",gap: 12, marginBottom: 16, flexWrap: "wrap" }} className="no-print">
         <Link href={`/booking/${booking.id}`} className="btn btn-outline">View Booking</Link>
+        <Link
+          href={`/booking/${booking.id}/customer-slips`}
+          className="btn btn-outline"
+          style={{ color: "#5b21b6", borderColor: "#7c3aed" }}
+          title="View booking, delivery and return slips sent to the customer"
+        >
+          <i className="fa-solid fa-file-pdf" style={{ marginRight: 6 }} />
+          All Customer Slips
+        </Link>
         {isDeliverySlipEligible(slipStatusSource) && isCommonDeliverySlipEligible(slipStatusSource) && (
           <>
             <Link href={deliverySlipHref(booking.id, slipStatusSource)} className="btn btn-outline" style={{ color: "#1565c0", borderColor: "#1565c0" }}>
@@ -468,6 +477,56 @@ export default function ReturnDetailClient({
           onDismiss={() => setShowCancel(false)}
         />
       )}
+
+      <div className="card" style={{ marginBottom: 24 }}>
+        <div className="card-header">
+          <h3 className="card-title">
+            <i className="fa-solid fa-id-card" style={{ marginRight: 8 }} />
+            Customer ID Photos
+          </h3>
+        </div>
+        <div className="card-body">
+          {booking.idPhoto1 || booking.idPhoto2 ? (
+            <div style={{ display: "flex", gap: 12, flexWrap: "wrap" }}>
+              {booking.idPhoto1 && (
+                <a href={photoUrl(booking.idPhoto1)} target="_blank" rel="noreferrer">
+                  <img
+                    src={photoUrl(booking.idPhoto1)}
+                    alt="Customer ID 1"
+                    style={{
+                      width: 160,
+                      height: 120,
+                      objectFit: "cover",
+                      borderRadius: 8,
+                      border: "1px solid var(--border)",
+                    }}
+                  />
+                </a>
+              )}
+              {booking.idPhoto2 && (
+                <a href={photoUrl(booking.idPhoto2)} target="_blank" rel="noreferrer">
+                  <img
+                    src={photoUrl(booking.idPhoto2)}
+                    alt="Customer ID 2"
+                    style={{
+                      width: 160,
+                      height: 120,
+                      objectFit: "cover",
+                      borderRadius: 8,
+                      border: "1px solid var(--border)",
+                    }}
+                  />
+                </a>
+              )}
+            </div>
+          ) : (
+            <p style={{ margin: 0, fontSize: 13, color: "var(--text-muted)" }}>
+              No ID photos on file for this booking. Capture them on the delivery page (they upload
+              automatically when you take the photo).
+            </p>
+          )}
+        </div>
+      </div>
 
       <div className="card" style={{ marginBottom: 24 }}>
         <div className="card-header" style={{ display: "flex", justifyContent: "space-between", alignItems: "center", flexWrap: "wrap", gap: 12 }}>

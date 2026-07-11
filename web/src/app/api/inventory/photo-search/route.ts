@@ -1,15 +1,25 @@
 import { NextRequest } from "next/server";
-import { photoSearchInventory } from "@/lib/services/inventoryOps";
-import { validatePhotoUpload, type SiglipSearchFilters } from "@/lib/services/siglipSearch";
+import { photoSearchInventory, type InventoryPhotoSearchFilters } from "@/lib/services/inventoryOps";
 import { isDressCheckerDebugEnabled } from "@/lib/dressCheckerDebug";
 import { jsonError, jsonOk, requireUser, isResponse } from "@/lib/api";
+import { enforceRateLimit } from "@/lib/rateLimit";
 
-function parseFilters(form: FormData): SiglipSearchFilters {
+export const maxDuration = 300;
+export const dynamic = "force-dynamic";
+
+function parseFilters(form: FormData): InventoryPhotoSearchFilters {
   const minRaw = form.get("min_price");
   const maxRaw = form.get("max_price");
   const gender = (form.get("gender") as string) || "";
+  const modeRaw = String(form.get("mode") || "MANUAL").toUpperCase();
+  const mode =
+    modeRaw === "AUTO" || modeRaw === "ALL" || modeRaw === "MANUAL"
+      ? (modeRaw as InventoryPhotoSearchFilters["mode"])
+      : "MANUAL";
   return {
     category: (form.get("category") as string) || "",
+    subCategory: (form.get("sub_category") as string) || (form.get("subCategory") as string) || "",
+    mode,
     size: (form.get("size") as string) || "",
     color: (form.get("color") as string) || "",
     gender: gender === "mens" || gender === "womens" ? gender : "",
@@ -23,6 +33,11 @@ function parseFilters(form: FormData): SiglipSearchFilters {
 export async function POST(req: NextRequest) {
   const user = await requireUser();
   if (isResponse(user)) return user;
+  const rateKey = `${user.username}:${req.headers.get("x-forwarded-for") || "local"}:inventory-photo-search`;
+  const rate = enforceRateLimit(rateKey, 20, 60_000);
+  if (!rate.allowed) {
+    return jsonError("Too many AI search requests. Please retry shortly.", 429);
+  }
   const form = await req.formData();
   const photo = form.get("photo");
   if (!photo || !(photo instanceof File)) return jsonError("No photo uploaded", 400);
@@ -33,8 +48,9 @@ export async function POST(req: NextRequest) {
 
   try {
     const buffer = Buffer.from(await photo.arrayBuffer());
-    const validationError = validatePhotoUpload(photo, buffer);
-    if (validationError) return jsonError(validationError, 400);
+    if (buffer.length === 0) return jsonError("Uploaded photo is empty", 400);
+    if (buffer.length > 10 * 1024 * 1024) return jsonError("Photo too large (max 10MB)", 400);
+    if (!photo.type.startsWith("image/")) return jsonError("Invalid image type", 400);
 
     const filters = parseFilters(form);
     const result = await photoSearchInventory(buffer, filters, {
