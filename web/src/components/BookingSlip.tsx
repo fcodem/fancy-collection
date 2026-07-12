@@ -283,7 +283,7 @@ export default function BookingSlip(props: BookingSlipProps) {
                   ["👨‍💼", "Staff", b.staffNames || "—", false],
                 ].map(([icon, label, value, bold], i) => (
                   <tr key={i}>
-                    <td style={{ width: 20, paddingBottom: 5, fontSize: 12, verticalAlign: "top", paddingTop: 1 }}><Emoji char={icon} /></td>
+                    <td style={{ width: 20, paddingBottom: 5, fontSize: 12, verticalAlign: "top", paddingTop: 1 }}><Emoji char={String(icon)} /></td>
                     <td style={{ width: 60, paddingBottom: 5, fontSize: 11, color: GREY, fontWeight: 600, verticalAlign: "top", paddingTop: 1 }}>{label}</td>
                     <td style={{ paddingBottom: 5, fontSize: 12, verticalAlign: "top", paddingTop: 1 }}>
                       {bold ? <span style={{ fontWeight: 700, fontSize: 14, color: "#1a1a1a" }}>{value}</span> : value}
