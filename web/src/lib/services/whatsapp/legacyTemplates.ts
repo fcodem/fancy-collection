@@ -4,7 +4,9 @@
  */
 export const ACTIVE_WHATSAPP_TEMPLATE_NAMES = new Set([
   "booking_slip_v4",
+  "delivery_slip_v5",
   "delivery_slip_v4",
+  "delivery_slip_v3",
   "return_slip_v4",
   "incomplete_return_v4",
   "booking_dates_v3",
@@ -26,7 +28,6 @@ export const LEGACY_WHATSAPP_TEMPLATE_NAMES = [
   "booking_confirmation",
   "delivery_slip_details",
   "delivery_slip_v2",
-  "delivery_slip_v3",
   "delivery_slip",
   "return_slip_details",
   "return_slip_v2",

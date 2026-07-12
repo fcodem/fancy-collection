@@ -17,6 +17,7 @@ import {
   effectiveRemainingCollected,
   incompleteReturnSecuritySummary,
   securityCurrentlyHeld,
+  sumItemRemainingCollected,
   type BookingForStandardDetails,
 } from "@/lib/bookingDetails";
 import { isDeliverySlipEligible, isCommonDeliverySlipEligible, isIncompleteSlipEligible, isReturnSlipEligible, isCommonReturnSlipEligible, hasPartialReturn, deliverySlipHref, returnSlipHref } from "@/lib/bookingStatus";
@@ -44,6 +45,9 @@ type ItemDeliveryRow = {
   isDelivered: boolean;
   isReturned?: boolean;
   isIncompleteReturn?: boolean;
+  isCancelled?: boolean;
+  cancelRefundAmount?: number;
+  advance?: number;
   isPackedReady?: boolean;
   preparedBy?: string;
   checkedBy?: string;
@@ -88,17 +92,8 @@ function defaultIncompleteForm(row: ItemDeliveryRow, autoSelect: boolean): Incom
 }
 
 function isItemReturnable(row: ItemDeliveryRow, bookingDelivered: boolean) {
-  if (row.isReturned) return false;
+  if (row.isCancelled || row.isReturned) return false;
   return row.isDelivered || bookingDelivered;
-}
-
-function hasItemDeliveryInfo(d: ItemDeliveryRow) {
-  return (
-    d.isDelivered ||
-    Boolean(d.itemDeliveryNotes?.trim()) ||
-    d.itemRemainingCollected > 0 ||
-    d.itemSecurityCollected > 0
-  );
 }
 
 export default function ReturnDetailClient({
@@ -139,13 +134,17 @@ export default function ReturnDetailClient({
   const router = useRouter();
   const allItemsDelivered = itemDelivery.length > 0 ? itemDelivery.every((d) => d.isDelivered) : false;
   const isDelivered = booking.status === "delivered" || (booking.status === "booked" && allItemsDelivered);
+  const hasAnyDeliveredDress =
+    booking.status === "delivered" ||
+    itemDelivery.some((d) => d.isDelivered) ||
+    (itemDelivery.length === 0 && isDelivered);
   const securityHeldAmount = securityCurrentlyHeld({
     status: booking.status,
     securityHeld: booking.securityHeld,
     securityCollected: booking.securityCollected,
     securityDeposit: booking.securityDeposit,
     items: itemDelivery,
-    dressIsOut: isDelivered,
+    dressIsOut: hasAnyDeliveredDress,
   });
   const securityPaymentLabel = paymentModeLabel(booking.securityPaymentMode);
 
@@ -156,7 +155,7 @@ export default function ReturnDetailClient({
   );
 
   const deliveredItems = useMemo(
-    () => itemDelivery.filter((d) => d.isDelivered || bookingIsDelivered),
+    () => itemDelivery.filter((d) => (d.isDelivered || bookingIsDelivered) && !d.isCancelled),
     [itemDelivery, bookingIsDelivered],
   );
   const returnedItems = useMemo(
@@ -165,6 +164,73 @@ export default function ReturnDetailClient({
   );
   const pendingReturnCount = returnableItems.length;
   const multiDress = deliveredItems.length > 1;
+  /** Partial delivery keeps status "booked" — still allow returning dresses that are out. */
+  const canMarkReturn =
+    hasAnyDeliveredDress &&
+    pendingReturnCount > 0 &&
+    booking.status !== "returned" &&
+    booking.status !== "cancelled" &&
+    booking.status !== "incomplete_return";
+  const undeliveredItems = useMemo(
+    () =>
+      booking.status === "delivered"
+        ? []
+        : itemDelivery.filter((d) => !d.isDelivered && !d.isCancelled),
+    [itemDelivery, booking.status],
+  );
+  const cancelledItems = useMemo(
+    () => itemDelivery.filter((d) => d.isCancelled),
+    [itemDelivery],
+  );
+  const isPartialDeliveryOut = undeliveredItems.length > 0 && deliveredItems.length > 0;
+  const deliveredIdSet = useMemo(
+    () => new Set(deliveredItems.map((d) => d.id).filter((id) => id > 0)),
+    [deliveredItems],
+  );
+  /** Billing / dress table: delivered dresses only while some are still pending delivery. */
+  const billingItems = useMemo(() => {
+    if (!isPartialDeliveryOut) return items;
+    const byId = items.filter((row) => row.id != null && deliveredIdSet.has(row.id));
+    if (byId.length) return byId;
+    const names = new Set(deliveredItems.map((d) => d.dressName.trim().toLowerCase()));
+    return items.filter((row) => names.has(row.display_name.trim().toLowerCase()) || names.has(row.display_name.split(" · ")[0]?.trim().toLowerCase() || ""));
+  }, [items, isPartialDeliveryOut, deliveredIdSet, deliveredItems]);
+  const scopedTotalPrice = useMemo(
+    () => (isPartialDeliveryOut ? billingItems.reduce((s, r) => s + (r.price || 0), 0) : (booking.totalPrice ?? booking.price ?? 0)),
+    [isPartialDeliveryOut, billingItems, booking.totalPrice, booking.price],
+  );
+  const scopedTotalAdvance = useMemo(
+    () => (isPartialDeliveryOut ? billingItems.reduce((s, r) => s + (r.advance || 0), 0) : (booking.totalAdvance ?? booking.advance ?? 0)),
+    [isPartialDeliveryOut, billingItems, booking.totalAdvance, booking.advance],
+  );
+  const scopedTotalRemaining = useMemo(
+    () => (isPartialDeliveryOut ? billingItems.reduce((s, r) => s + (r.remaining || 0), 0) : (booking.totalRemaining ?? booking.remaining ?? 0)),
+    [isPartialDeliveryOut, billingItems, booking.totalRemaining, booking.remaining],
+  );
+  const returnRecordBooking = useMemo(() => {
+    if (!isPartialDeliveryOut) return booking;
+    return {
+      ...booking,
+      totalPrice: scopedTotalPrice,
+      price: scopedTotalPrice,
+      totalAdvance: scopedTotalAdvance,
+      advance: scopedTotalAdvance,
+      totalRemaining: scopedTotalRemaining,
+      remaining: scopedTotalRemaining,
+      dressName: deliveredItems.map((d) => d.dressName).join(", "),
+      bookingItems: (
+        (booking as BookingForStandardDetails & { bookingItems?: Array<{ id?: number }> }).bookingItems || []
+      ).filter((bi) => bi.id != null && deliveredIdSet.has(bi.id)),
+    };
+  }, [
+    booking,
+    isPartialDeliveryOut,
+    scopedTotalPrice,
+    scopedTotalAdvance,
+    scopedTotalRemaining,
+    deliveredItems,
+    deliveredIdSet,
+  ]);
   const returnSlipSource = {
     status: booking.status,
     bookingItems: itemDelivery.map((d) => ({
@@ -172,6 +238,7 @@ export default function ReturnDetailClient({
       isDelivered: d.isDelivered,
       isReturned: d.isReturned,
       isIncompleteReturn: d.isIncompleteReturn,
+      isCancelled: d.isCancelled,
     })),
   };
   const slipStatusSource = {
@@ -191,6 +258,7 @@ export default function ReturnDetailClient({
 
   const [incompleteForms, setIncompleteForms] = useState<Record<number, IncompleteDressForm>>({});
   const [returnError, setReturnError] = useState("");
+  const [selectedToReturn, setSelectedToReturn] = useState<Record<number, boolean>>({});
 
   useEffect(() => {
     setIncompleteForms((prev) => {
@@ -201,10 +269,20 @@ export default function ReturnDetailClient({
       }
       return next;
     });
+    setSelectedToReturn((prev) => {
+      const next: Record<number, boolean> = {};
+      const autoSelect = returnableItems.length === 1;
+      for (const row of returnableItems) {
+        next[row.id] = prev[row.id] ?? autoSelect;
+      }
+      return next;
+    });
   }, [returnableItems]);
   const [saving, setSaving] = useState(false);
   const [showCancel, setShowCancel] = useState(false);
   const [incompleteError, setIncompleteError] = useState("");
+  const [cancellingId, setCancellingId] = useState<number | null>(null);
+  const [cancelBusy, setCancelBusy] = useState(false);
 
   const [localOrders, setLocalOrders] = useState<OrderCollectRow[]>(orderRecords);
   useEffect(() => {
@@ -250,15 +328,40 @@ export default function ReturnDetailClient({
   }
 
   const anyIncompleteSelected = returnableItems.some((r) => incompleteForms[r.id]?.selected);
+  const selectedReturnIds = returnableItems
+    .filter((r) => selectedToReturn[r.id])
+    .map((r) => r.id);
+  const selectedReturnCount = selectedReturnIds.length;
 
-  const totalPrice = booking.totalPrice ?? booking.price ?? 0;
-  const totalAdvance = booking.totalAdvance ?? booking.advance ?? 0;
-  const totalRemaining = booking.totalRemaining ?? booking.remaining ?? 0;
-  const collectedAtDelivery = effectiveRemainingCollected(booking.remainingCollected, itemDelivery);
+  const totalPrice = scopedTotalPrice;
+  const totalAdvance = scopedTotalAdvance;
+  const totalRemaining = scopedTotalRemaining;
+  const collectedAtDelivery = isPartialDeliveryOut
+    ? sumItemRemainingCollected(deliveredItems)
+    : effectiveRemainingCollected(booking.remainingCollected, itemDelivery);
   const balanceLeft = balanceLeftToCollect(totalRemaining, collectedAtDelivery);
   const rentCollectedPart = Math.min(collectedAtDelivery, totalRemaining);
   const orderCollectedPart = Math.max(0, collectedAtDelivery - rentCollectedPart);
-  const showOrderBreakdown = orders.length > 0 && orderCollectedPart > 0;
+  const showOrderBreakdown = orders.length > 0 && orderCollectedPart > 0 && !isPartialDeliveryOut;
+
+  const pendingReturnStatusCards = useMemo(
+    () =>
+      itemDelivery.filter(
+        (d) => (d.isDelivered || bookingIsDelivered) && !d.isReturned && !d.isIncompleteReturn,
+      ),
+    [itemDelivery, bookingIsDelivered],
+  );
+  const returnedStatusCards = useMemo(
+    () => itemDelivery.filter((d) => d.isDelivered && d.isReturned),
+    [itemDelivery],
+  );
+  const showReturnedInStatus =
+    returnedStatusCards.length > 0 &&
+    (balanceLeft > 0 || securityHeldAmount > 0 || partialReturn || booking.status === "incomplete_return");
+  const deliveryStatusCards = [
+    ...pendingReturnStatusCards,
+    ...(showReturnedInStatus ? returnedStatusCards : []),
+  ];
 
   const incompleteSecurity = incompleteReturnSecuritySummary({
     securityHeld: booking.securityHeld,
@@ -266,6 +369,19 @@ export default function ReturnDetailClient({
     securityDeposit: booking.securityDeposit,
     items: itemDelivery,
   });
+
+  function toggleReturnSelect(id: number, selected: boolean) {
+    setSelectedToReturn((prev) => ({ ...prev, [id]: selected }));
+    setReturnError("");
+  }
+
+  function selectAllReturnable(selected: boolean) {
+    setSelectedToReturn((prev) => {
+      const next = { ...prev };
+      for (const row of returnableItems) next[row.id] = selected;
+      return next;
+    });
+  }
 
   function toggleIncompleteDress(id: number, selected: boolean) {
     setIncompleteForms((prev) => {
@@ -304,6 +420,27 @@ export default function ReturnDetailClient({
     });
   }
 
+  async function cancelDress(itemId: number, refundAdvance: boolean) {
+    setCancelBusy(true);
+    setReturnError("");
+    try {
+      const res = await fetch(`/api/booking/${booking.id}/items/${itemId}/cancel`, {
+        method: "POST",
+        headers: { "Content-Type": "application/json" },
+        body: JSON.stringify({ refund_advance: refundAdvance }),
+      });
+      const data = await res.json().catch(() => ({}));
+      if (!res.ok) {
+        setReturnError(typeof data.error === "string" ? data.error : "Cancel failed");
+        return;
+      }
+      setCancellingId(null);
+      router.refresh();
+    } finally {
+      setCancelBusy(false);
+    }
+  }
+
   async function act(action: string, bookingItemId?: number, opts?: { openPrintSlip?: boolean }) {
     setReturnError("");
     setSaving(true);
@@ -334,6 +471,56 @@ export default function ReturnDetailClient({
               })),
             });
         navigatePrintTab(printWindow, href);
+      }
+      router.refresh();
+    } finally {
+      setSaving(false);
+    }
+  }
+
+  /** Save selected dresses as returned and send slip for only those (1 = single, 2+ = combined). */
+  async function saveSelectedReturns(opts?: { openPrintSlip?: boolean }) {
+    const ids = selectedReturnIds;
+    if (!ids.length) {
+      setReturnError("Select at least one dress to return, then press Save.");
+      return;
+    }
+    setReturnError("");
+    setSaving(true);
+    const printWindow = opts?.openPrintSlip ? openBlankPrintTab() : null;
+    try {
+      const res = await fetch(`/api/return/${booking.id}/save`, {
+        method: "POST",
+        headers: { "Content-Type": "application/json" },
+        body: JSON.stringify({
+          action: "mark_items_returned",
+          booking_item_ids: ids,
+        }),
+      });
+      const data = await res.json().catch(() => ({}));
+      if (!res.ok) {
+        printWindow?.close();
+        setReturnError(typeof data.error === "string" ? data.error : "Save failed");
+        return;
+      }
+      if (opts?.openPrintSlip) {
+        const mergedSource = {
+          status: data.status ?? booking.status,
+          bookingItems: returnSlipSource.bookingItems?.map((row) =>
+            row.id != null && ids.includes(row.id)
+              ? { ...row, isReturned: true, isIncompleteReturn: false }
+              : row,
+          ),
+        };
+        navigatePrintTab(
+          printWindow,
+          returnSlipHref(
+            booking.id,
+            mergedSource,
+            ids.length === 1 ? ids[0] : undefined,
+            ids,
+          ),
+        );
       }
       router.refresh();
     } finally {
@@ -415,10 +602,16 @@ export default function ReturnDetailClient({
             </Link>
           </>
         )}
-        {isReturnSlipEligible(returnSlipSource) && isCommonReturnSlipEligible(returnSlipSource) && (
+        {isReturnSlipEligible(returnSlipSource) && (
           <>
             <Link href={returnSlipHref(booking.id, returnSlipSource)} className="btn btn-outline" style={{ color: "#b8860b", borderColor: "#c9a84c" }}>
-              <i className="fa-solid fa-circle-check" style={{ marginRight: 6 }} />Return Receipt
+              <i className="fa-solid fa-circle-check" style={{ marginRight: 6 }} />
+              Return Receipt
+              {returnedItems.length === 1 && undeliveredItems.length > 0
+                ? ` — ${returnedItems[0].dressName}`
+                : returnedItems.length > 1 && !isCommonReturnSlipEligible(returnSlipSource)
+                  ? ` (${returnedItems.length} dresses)`
+                  : ""}
             </Link>
             <Link
               href={withSlipPrintQuery(returnSlipHref(booking.id, returnSlipSource))}
@@ -430,11 +623,6 @@ export default function ReturnDetailClient({
               <i className="fa-solid fa-print" style={{ marginRight: 6 }} />Print A4 Slip
             </Link>
           </>
-        )}
-        {isReturnSlipEligible(returnSlipSource) && partialReturn && returnedItems.length >= 2 && (
-          <Link href={returnSlipHref(booking.id, returnSlipSource)} className="btn btn-outline" style={{ color: "#b8860b", borderColor: "#c9a84c" }}>
-            <i className="fa-solid fa-circle-check" style={{ marginRight: 6 }} />Return Receipt ({returnedItems.length} dresses)
-          </Link>
         )}
         {isIncompleteSlipEligible(incompleteSlipSource) && (
           <Link href={`/booking/${booking.id}/incomplete-slip`} className="btn btn-outline" style={{ color: "#c2410c", borderColor: "#f39c12" }}>
@@ -533,29 +721,281 @@ export default function ReturnDetailClient({
           <h3 className="card-title">
             Return — #{String(booking.monthlySerial).padStart(2, "0")} {booking.customerName}
           </h3>
-          <span className={`badge badge-${booking.status === "delivered" ? "warning" : booking.status === "incomplete_return" ? "incomplete_return" : "success"}`}>
-            {booking.status.toUpperCase()}
+          <span className={`badge badge-${
+            booking.status === "delivered"
+              ? "warning"
+              : booking.status === "incomplete_return"
+                ? "incomplete_return"
+                : isPartialDeliveryOut
+                  ? "warning"
+                  : "success"
+          }`}>
+            {isPartialDeliveryOut
+              ? `PARTIAL DELIVERY · ${deliveredItems.length}/${itemDelivery.length}`
+              : booking.status.toUpperCase()}
           </span>
         </div>
         <div className="card-body">
           <BookingRecordDetails
-            booking={booking}
-            items={items}
+            booking={returnRecordBooking}
+            items={billingItems}
             remainingCollected={collectedAtDelivery}
             warningItems={warningItems.length > 1 ? warningItems : undefined}
             orders={orders}
             extra={
             <>
+              {undeliveredItems.length > 0 && (
+                <div
+                  style={{
+                    marginTop: 16,
+                    padding: "14px 16px",
+                    borderRadius: 10,
+                    background: "rgba(192,57,43,0.06)",
+                    border: "1.5px solid rgba(192,57,43,0.35)",
+                  }}
+                >
+                  <div style={{ display: "flex", alignItems: "center", gap: 8, marginBottom: 10, flexWrap: "wrap" }}>
+                    <i className="fa-solid fa-triangle-exclamation" style={{ color: "var(--danger)" }} />
+                    <strong style={{ color: "var(--danger)" }}>
+                      Not delivered yet ({undeliveredItems.length})
+                    </strong>
+                    <span style={{ fontSize: 12, color: "var(--text-muted)" }}>
+                      Excluded from return billing below — cancel if the customer will not take them
+                    </span>
+                    <Link
+                      href={`/booking-delivery/${booking.id}`}
+                      className="btn btn-outline btn-sm"
+                      style={{ marginLeft: "auto" }}
+                    >
+                      <i className="fa-solid fa-truck-fast" style={{ marginRight: 6 }} />
+                      Go to Delivery
+                    </Link>
+                  </div>
+                  <div style={{ display: "grid", gap: 10 }}>
+                    {undeliveredItems.map((d) => (
+                      <div
+                        key={d.id}
+                        style={{
+                          padding: "10px 12px",
+                          borderRadius: 8,
+                          background: "#fff",
+                          border: "1px dashed rgba(192,57,43,0.4)",
+                        }}
+                      >
+                        <div style={{ display: "flex", alignItems: "center", gap: 12, flexWrap: "wrap" }}>
+                          {d.photo && (
+                            <img
+                              src={photoUrl(d.photo)}
+                              alt=""
+                              style={{ width: 44, height: 44, borderRadius: 8, objectFit: "cover" }}
+                            />
+                          )}
+                          <div style={{ flex: 1, minWidth: 120 }}>
+                            <strong>{d.dressName}</strong>
+                            {(d.category || d.size) && (
+                              <div style={{ fontSize: 12, color: "var(--text-muted)" }}>
+                                {[d.category, d.size].filter(Boolean).join(" · ")}
+                                {typeof d.advance === "number" && d.advance > 0
+                                  ? ` · Advance ₹${formatInr(d.advance)}`
+                                  : ""}
+                              </div>
+                            )}
+                          </div>
+                          <span className="badge badge-warning">Not delivered</span>
+                          <button
+                            type="button"
+                            className="btn btn-outline btn-sm"
+                            disabled={cancelBusy || saving}
+                            onClick={() => setCancellingId(cancellingId === d.id ? null : d.id)}
+                            style={{ color: "var(--danger)", borderColor: "var(--danger)" }}
+                          >
+                            <i className="fa-solid fa-ban" style={{ marginRight: 6 }} />
+                            Cancel
+                          </button>
+                        </div>
+                        {cancellingId === d.id && (
+                          <div style={{ marginTop: 12, paddingTop: 12, borderTop: "1px solid var(--border)" }}>
+                            <div style={{ fontWeight: 700, marginBottom: 8, color: "var(--danger)", fontSize: 13 }}>
+                              Cancel {d.dressName}? Advance ₹{formatInr(d.advance || 0)}
+                            </div>
+                            <div style={{ display: "flex", gap: 8, flexWrap: "wrap" }}>
+                              <button
+                                type="button"
+                                className="btn btn-primary btn-sm"
+                                disabled={cancelBusy}
+                                onClick={() => void cancelDress(d.id, true)}
+                              >
+                                Advance Amount Refunded
+                              </button>
+                              <button
+                                type="button"
+                                className="btn btn-outline btn-sm"
+                                disabled={cancelBusy}
+                                onClick={() => void cancelDress(d.id, false)}
+                                style={{ borderColor: "var(--danger)", color: "var(--danger)" }}
+                              >
+                                Advance Not Refunded
+                              </button>
+                              <button
+                                type="button"
+                                className="btn btn-outline btn-sm"
+                                disabled={cancelBusy}
+                                onClick={() => setCancellingId(null)}
+                              >
+                                Back
+                              </button>
+                            </div>
+                          </div>
+                        )}
+                      </div>
+                    ))}
+                  </div>
+                </div>
+              )}
+              {cancelledItems.length > 0 && (
+                <div
+                  style={{
+                    marginTop: 16,
+                    padding: "14px 16px",
+                    borderRadius: 10,
+                    background: "rgba(192,57,43,0.04)",
+                    border: "1px solid rgba(192,57,43,0.25)",
+                  }}
+                >
+                  <div style={{ fontWeight: 700, color: "var(--danger)", marginBottom: 10 }}>
+                    <i className="fa-solid fa-ban" style={{ marginRight: 8 }} />
+                    Cancelled dresses ({cancelledItems.length})
+                  </div>
+                  <div style={{ display: "grid", gap: 8 }}>
+                    {cancelledItems.map((d) => (
+                      <div key={d.id} style={{ display: "flex", alignItems: "center", gap: 10, fontSize: 13 }}>
+                        {d.photo && (
+                          <img src={photoUrl(d.photo)} alt="" style={{ width: 36, height: 36, borderRadius: 6, objectFit: "cover", opacity: 0.6 }} />
+                        )}
+                        <strong style={{ flex: 1 }}>{d.dressName}</strong>
+                        <span className="badge" style={{ background: "rgba(192,57,43,0.12)", color: "var(--danger)" }}>
+                          Cancelled{(d.cancelRefundAmount || 0) > 0 ? " · Adv refunded" : " · Adv kept"}
+                        </span>
+                      </div>
+                    ))}
+                  </div>
+                </div>
+              )}
               <div
                 style={{
                   marginTop: 16,
                   marginBottom: 4,
                   padding: "14px 16px",
                   borderRadius: 10,
-                  background: balanceLeft > 0 ? "rgba(192,57,43,0.07)" : "rgba(46,125,50,0.07)",
-                  border: `1.5px solid ${balanceLeft > 0 ? "var(--danger)" : "var(--success)"}`,
+                  background: "var(--cream-dark, #fafafa)",
+                  border: "1px solid var(--border)",
                 }}
               >
+                {isPartialDeliveryOut && (
+                  <div style={{ fontSize: 12, color: "var(--text-muted)", marginBottom: 12 }}>
+                    Finance for <strong>delivered dresses only</strong>
+                    {undeliveredItems.length > 0
+                      ? ` (${deliveredItems.length} of ${itemDelivery.length})`
+                      : ""}
+                    . Undelivered remaining is not included.
+                  </div>
+                )}
+
+                <div
+                  style={{
+                    display: "grid",
+                    gridTemplateColumns: "repeat(auto-fit, minmax(220px, 1fr))",
+                    gap: 14,
+                    marginBottom: 14,
+                  }}
+                >
+                  <div
+                    style={{
+                      padding: "18px 20px",
+                      borderRadius: 12,
+                      background: balanceLeft > 0 ? "rgba(192,57,43,0.1)" : "rgba(46,125,50,0.1)",
+                      border: `2.5px solid ${balanceLeft > 0 ? "var(--danger)" : "var(--success)"}`,
+                      boxShadow: balanceLeft > 0
+                        ? "0 2px 10px rgba(192,57,43,0.12)"
+                        : "0 2px 10px rgba(46,125,50,0.1)",
+                    }}
+                  >
+                    <div
+                      style={{
+                        fontSize: 13,
+                        fontWeight: 800,
+                        letterSpacing: "0.04em",
+                        color: balanceLeft > 0 ? "var(--danger)" : "var(--success)",
+                        marginBottom: 8,
+                        display: "flex",
+                        alignItems: "center",
+                        gap: 8,
+                      }}
+                    >
+                      <i className={`fa-solid ${balanceLeft > 0 ? "fa-circle-exclamation" : "fa-circle-check"}`} />
+                      BALANCE LEFT TO COLLECT
+                    </div>
+                    <div
+                      style={{
+                        fontSize: 36,
+                        fontWeight: 800,
+                        lineHeight: 1.1,
+                        color: balanceLeft > 0 ? "var(--danger)" : "var(--success)",
+                      }}
+                    >
+                      {balanceLeft > 0 ? `₹${formatInr(balanceLeft)}` : "Paid ✓"}
+                    </div>
+                  </div>
+
+                  {booking.status !== "returned" && booking.status !== "cancelled" && (
+                    <div
+                      style={{
+                        padding: "18px 20px",
+                        borderRadius: 12,
+                        background: securityHeldAmount > 0 ? "rgba(21,101,192,0.1)" : "rgba(0,0,0,0.03)",
+                        border: `2.5px solid ${securityHeldAmount > 0 ? "#1565c0" : "var(--border)"}`,
+                        boxShadow: securityHeldAmount > 0 ? "0 2px 10px rgba(21,101,192,0.14)" : "none",
+                      }}
+                    >
+                      <div
+                        style={{
+                          fontSize: 13,
+                          fontWeight: 800,
+                          letterSpacing: "0.04em",
+                          color: securityHeldAmount > 0 ? "#1565c0" : "var(--text-muted)",
+                          marginBottom: 8,
+                          display: "flex",
+                          alignItems: "center",
+                          gap: 8,
+                        }}
+                      >
+                        <i className="fa-solid fa-shield-halved" />
+                        SECURITY HELD
+                      </div>
+                      <div
+                        style={{
+                          fontSize: 36,
+                          fontWeight: 800,
+                          lineHeight: 1.1,
+                          color: securityHeldAmount > 0 ? "#1565c0" : "var(--text-muted)",
+                        }}
+                      >
+                        ₹{formatInr(securityHeldAmount)}
+                      </div>
+                      {securityHeldAmount > 0 && securityPaymentLabel && (
+                        <div style={{ fontSize: 13, color: "var(--text-muted)", marginTop: 8 }}>
+                          Until return · via {securityPaymentLabel}
+                        </div>
+                      )}
+                      {securityHeldAmount > 0 && !securityPaymentLabel && (
+                        <div style={{ fontSize: 13, color: "var(--text-muted)", marginTop: 8 }}>
+                          Held until return
+                        </div>
+                      )}
+                    </div>
+                  )}
+                </div>
+
                 <div
                   style={{
                     display: "grid",
@@ -566,7 +1006,7 @@ export default function ReturnDetailClient({
                 >
                   <div>
                     <div style={{ fontSize: 11, color: "var(--text-muted)", fontWeight: 700, marginBottom: 4 }}>
-                      TOTAL REMAINING (BOOKING)
+                      {isPartialDeliveryOut ? "REMAINING (DELIVERED)" : "TOTAL REMAINING (BOOKING)"}
                     </div>
                     <strong>₹{formatInr(totalRemaining)}</strong>
                   </div>
@@ -581,25 +1021,9 @@ export default function ReturnDetailClient({
                       </div>
                     )}
                   </div>
-                  <div>
-                    <div style={{ fontSize: 11, color: "var(--text-muted)", fontWeight: 700, marginBottom: 4 }}>
-                      BALANCE LEFT TO COLLECT
-                    </div>
-                    <strong style={{ fontSize: 20, color: balanceLeft > 0 ? "var(--danger)" : "var(--success)" }}>
-                      {balanceLeft > 0 ? `₹${formatInr(balanceLeft)}` : "Paid ✓"}
-                    </strong>
-                  </div>
-                  {securityHeldAmount > 0 && booking.status !== "returned" && booking.status !== "cancelled" && (
-                    <div>
-                      <div style={{ fontSize: 11, color: "var(--text-muted)", fontWeight: 700, marginBottom: 4 }}>
-                        SECURITY HELD
-                      </div>
-                      <strong style={{ fontSize: 18, color: "#1565c0" }}>₹{formatInr(securityHeldAmount)}</strong>
-                    </div>
-                  )}
                 </div>
               </div>
-              {securityHeldAmount > 0 && booking.status !== "returned" && booking.status !== "cancelled" && (
+              {securityHeldAmount > 0 && booking.status !== "returned" && booking.status !== "cancelled" && booking.securityCollected > 0 && (booking.securityDeposit ?? 0) > booking.securityCollected && (
                   <div
                     style={{
                       marginTop: 12,
@@ -610,19 +1034,12 @@ export default function ReturnDetailClient({
                       border: "1px solid rgba(21,101,192,0.25)",
                     }}
                   >
-                    <span style={{ fontSize: 11, color: "var(--text-muted)", fontWeight: 700 }}>SECURITY HELD (UNTIL RETURN) </span>
-                    <strong style={{ color: "#1565c0" }}>₹{formatInr(securityHeldAmount)}</strong>
-                    {booking.securityCollected > 0 && (booking.securityDeposit ?? 0) > booking.securityCollected && (
-                      <span style={{ fontSize: 12, color: "var(--text-muted)", marginLeft: 8 }}>
-                        (₹{formatInr(booking.securityCollected)} collected at delivery
-                        {securityPaymentLabel ? ` · ${securityPaymentLabel}` : ""})
-                      </span>
-                    )}
-                    {booking.securityCollected > 0 && securityPaymentLabel && !((booking.securityDeposit ?? 0) > booking.securityCollected) && (
-                      <span style={{ fontSize: 12, color: "var(--text-muted)", marginLeft: 8 }}>
-                        · Collected via {securityPaymentLabel}
-                      </span>
-                    )}
+                    <span style={{ fontSize: 11, color: "var(--text-muted)", fontWeight: 700 }}>SECURITY DETAIL </span>
+                    <span style={{ fontSize: 12, color: "var(--text-muted)" }}>
+                      ₹{formatInr(booking.securityCollected)} collected at delivery
+                      {securityPaymentLabel ? ` · ${securityPaymentLabel}` : ""}
+                      {" · "}deposit ₹{formatInr(booking.securityDeposit ?? 0)}
+                    </span>
                   </div>
                 )}
                 {booking.deliveryNotes && (
@@ -659,8 +1076,28 @@ export default function ReturnDetailClient({
                     </div>
                   </div>
                 )}
-                {itemDelivery.filter(hasItemDeliveryInfo).map((d, i) => (
-                  <div key={i} style={{ marginTop: 12, fontSize: 13, padding: "12px 14px", border: "1px solid var(--border)", borderRadius: 8, background: "rgba(46,125,50,0.03)" }}>
+                {deliveryStatusCards.map((d) => (
+                  <div
+                    key={d.id}
+                    style={{
+                      marginTop: 12,
+                      fontSize: 13,
+                      padding: "12px 14px",
+                      border: `1px solid ${
+                        d.isReturned
+                          ? "var(--border)"
+                          : d.isIncompleteReturn
+                            ? "rgba(243,156,18,0.5)"
+                            : "rgba(192,57,43,0.35)"
+                      }`,
+                      borderRadius: 8,
+                      background: d.isReturned
+                        ? "rgba(46,125,50,0.03)"
+                        : d.isIncompleteReturn
+                          ? "rgba(243,156,18,0.06)"
+                          : "rgba(192,57,43,0.04)",
+                    }}
+                  >
                     <div style={{ display: "flex", alignItems: "center", gap: 10, marginBottom: 8 }}>
                       {d.photo && (
                         <img src={photoUrl(d.photo)} alt="" style={{ width: 44, height: 44, borderRadius: 8, objectFit: "cover" }} />
@@ -679,9 +1116,7 @@ export default function ReturnDetailClient({
                             ? "badge-success"
                             : d.isIncompleteReturn
                               ? "badge-incomplete_return"
-                              : d.isDelivered
-                                ? "badge-success"
-                                : "badge-info"
+                              : "badge-warning"
                         }`}
                         style={{ marginLeft: "auto" }}
                       >
@@ -689,9 +1124,7 @@ export default function ReturnDetailClient({
                           ? "Returned"
                           : d.isIncompleteReturn
                             ? "Incomplete"
-                            : d.isDelivered
-                              ? "Delivered"
-                              : "Delivery Saved"}
+                            : "Out — awaiting return"}
                       </span>
                     </div>
                     {(d.preparedBy || d.checkedBy || d.packingNote || d.isPackedReady) && (
@@ -720,7 +1153,7 @@ export default function ReturnDetailClient({
                         <strong>Delivery note:</strong> {d.itemDeliveryNotes}
                       </div>
                     )}
-                    {d.isReturned && partialReturn && returnedItems.length === 1 && (
+                    {d.isReturned && (partialReturn || undeliveredItems.length > 0) && (
                       <div style={{ marginTop: 10 }}>
                         <Link
                           href={returnSlipHref(booking.id, returnSlipSource, d.id)}
@@ -734,6 +1167,11 @@ export default function ReturnDetailClient({
                     )}
                   </div>
                 ))}
+                {pendingReturnStatusCards.length > 0 && showReturnedInStatus && returnedStatusCards.length > 0 && (
+                  <div style={{ marginTop: 8, fontSize: 12, color: "var(--text-muted)" }}>
+                    Pending return shown first. Already-returned dresses listed below while balance or security is still open.
+                  </div>
+                )}
               </>
             }
           />
@@ -816,7 +1254,7 @@ export default function ReturnDetailClient({
         </div>
       )}
 
-      {isDelivered && booking.status !== "returned" && booking.status !== "cancelled" && booking.status !== "incomplete_return" && (
+      {canMarkReturn && (
         <div className="card" style={{ overflow: "visible" }}>
           <div className="card-header"><h3 className="card-title">Mark Return</h3></div>
           <div className="card-body" style={{ overflow: "visible" }}>
@@ -824,28 +1262,38 @@ export default function ReturnDetailClient({
               <div className="alert alert-error" style={{ marginBottom: 16 }}>{returnError}</div>
             )}
 
+            {isPartialDeliveryOut && (
+              <div className="alert alert-warning" style={{ marginBottom: 16 }}>
+                Partial delivery: {deliveredItems.length} of {itemDelivery.length} dresses are out.
+                You can return the delivered dress(es) now. Undelivered dresses stay on the booking.
+              </div>
+            )}
+
             {multiDress && (
               <p style={{ fontSize: 13, color: "var(--text-muted)", marginBottom: 16 }}>
                 {returnedItems.length > 0
-                  ? `${returnedItems.length} of ${deliveredItems.length} dress${deliveredItems.length === 1 ? "" : "es"} returned — mark each remaining dress as it comes back.`
-                  : `${deliveredItems.length} dresses on this booking — mark each one returned individually as they are received.`}
+                  ? `${returnedItems.length} of ${deliveredItems.length} dress${deliveredItems.length === 1 ? "" : "es"} returned — tick the dresses coming back now, then press Save.`
+                  : `${deliveredItems.length} delivered dress${deliveredItems.length === 1 ? "" : "es"} on this booking — tick which ones are returned, then Save. One dress → single slip; two or more → combined slip for only those dresses.`}
               </p>
             )}
 
-            {multiDress && pendingReturnCount > 0 && (
+            {pendingReturnCount > 0 && (
               <div style={{ marginBottom: 20 }}>
-                <h4 style={{ marginBottom: 12, fontSize: 14 }}>Return dress by dress</h4>
+                {multiDress && (
+                  <h4 style={{ marginBottom: 12, fontSize: 14 }}>Select dresses to return</h4>
+                )}
                 {returnableItems.map((row) => {
                   const itemWarnings = findItemWarnings(warningItems, { itemId: row.itemId, dressName: row.dressName });
+                  const selected = Boolean(selectedToReturn[row.id]);
                   return (
                   <div
                     key={row.id}
                     style={{
                       marginBottom: 10,
                       padding: "12px 14px",
-                      border: "1px solid var(--border)",
+                      border: `1px solid ${selected ? "#2e7d32" : "var(--border)"}`,
                       borderRadius: 10,
-                      background: "var(--cream-dark, #fafafa)",
+                      background: selected ? "rgba(46,125,50,0.06)" : "var(--cream-dark, #fafafa)",
                     }}
                   >
                     <div
@@ -856,6 +1304,15 @@ export default function ReturnDetailClient({
                         flexWrap: "wrap",
                       }}
                     >
+                    <label style={{ display: "flex", alignItems: "center", gap: 8, cursor: "pointer", flexShrink: 0 }}>
+                      <input
+                        type="checkbox"
+                        checked={selected}
+                        onChange={(e) => toggleReturnSelect(row.id, e.target.checked)}
+                        style={{ width: 18, height: 18 }}
+                      />
+                      <span style={{ fontSize: 12, fontWeight: 700, color: "var(--text-muted)" }}>Return</span>
+                    </label>
                     {row.photo && (
                       <img
                         src={photoUrl(row.photo)}
@@ -871,27 +1328,6 @@ export default function ReturnDetailClient({
                         </div>
                       )}
                     </div>
-                    <div style={{ display: "flex", gap: 8, flexWrap: "wrap" }}>
-                    <button
-                      type="button"
-                      className="btn btn-sm btn-primary"
-                      disabled={saving}
-                      onClick={() => void act("mark_item_returned", row.id)}
-                    >
-                      <i className="fa-solid fa-circle-check" style={{ marginRight: 6 }} />
-                      Mark Returned
-                    </button>
-                    <button
-                      type="button"
-                      className="btn btn-sm btn-outline"
-                      disabled={saving}
-                      onClick={() => void act("mark_item_returned", row.id, { openPrintSlip: true })}
-                      style={{ color: "#b8860b", borderColor: "#c9a84c" }}
-                    >
-                      <i className="fa-solid fa-print" style={{ marginRight: 6 }} />
-                      Print A4 Slip
-                    </button>
-                    </div>
                     </div>
                     {itemWarnings && <BookingItemWarningsBlock item={itemWarnings} />}
                   </div>
@@ -900,11 +1336,11 @@ export default function ReturnDetailClient({
               </div>
             )}
 
-            {returnedItems.length > 0 && pendingReturnCount > 0 && (
+            {returnedItems.length > 0 && (pendingReturnCount > 0 || undeliveredItems.length > 0) && (
               <div style={{ marginBottom: 16, fontSize: 13, color: "var(--success)" }}>
                 <i className="fa-solid fa-circle-check" style={{ marginRight: 6 }} />
                 Already returned: {returnedItems.map((d) => d.dressName).join(", ")}
-                {partialReturn && returnedItems.length === 1 && (
+                {(partialReturn || undeliveredItems.length > 0) && returnedItems.length === 1 && (
                   <div style={{ marginTop: 10 }}>
                     <Link
                       href={returnSlipHref(booking.id, returnSlipSource, returnedItems[0].id)}
@@ -921,22 +1357,56 @@ export default function ReturnDetailClient({
 
             <div style={{ display: "flex", gap: 12, flexWrap: "wrap", alignItems: "center" }}>
             <button
+              type="button"
               className="btn btn-primary"
-              disabled={saving || pendingReturnCount === 0}
-              onClick={() => void act("mark_returned")}
+              disabled={saving || selectedReturnCount === 0}
+              onClick={() => void saveSelectedReturns()}
             >
-              <i className="fa-solid fa-circle-check" style={{ marginRight: 6 }} />
-              {multiDress ? "Mark All Remaining Returned" : "Mark Returned (Complete)"}
+              <i className="fa-solid fa-floppy-disk" style={{ marginRight: 6 }} />
+              {saving
+                ? "Saving…"
+                : selectedReturnCount === 0
+                  ? "Save (select dresses)"
+                  : selectedReturnCount === 1
+                    ? "Save — 1 dress + slip"
+                    : `Save — ${selectedReturnCount} dresses + combined slip`}
             </button>
             <button
               type="button"
               className="btn btn-outline"
-              disabled={saving || pendingReturnCount === 0}
-              onClick={() => void act("mark_returned", undefined, { openPrintSlip: true })}
+              disabled={saving || selectedReturnCount === 0}
+              onClick={() => void saveSelectedReturns({ openPrintSlip: true })}
               style={{ color: "#b8860b", borderColor: "#c9a84c" }}
             >
               <i className="fa-solid fa-print" style={{ marginRight: 6 }} />
-              Print A4 Slip
+              Save &amp; Print A4
+            </button>
+            {multiDress && pendingReturnCount > 1 && (
+              <button
+                type="button"
+                className="btn btn-outline btn-sm"
+                disabled={saving}
+                onClick={() => selectAllReturnable(selectedReturnCount < pendingReturnCount)}
+              >
+                {selectedReturnCount < pendingReturnCount ? "Select all pending" : "Clear selection"}
+              </button>
+            )}
+            <button
+              className="btn btn-outline"
+              disabled={saving || pendingReturnCount === 0}
+              onClick={() => void act("mark_returned")}
+              title={
+                isPartialDeliveryOut
+                  ? "Returns all delivered dresses only — undelivered dresses stay on the booking"
+                  : undefined
+              }
+            >
+              <i className="fa-solid fa-circle-check" style={{ marginRight: 6 }} />
+              {isPartialDeliveryOut
+                ? "Return All Delivered Dresses"
+                : multiDress
+                  ? "Mark All Remaining Returned"
+                  : "Mark Returned (Complete)"}
             </button>
             </div>
 

@@ -51,7 +51,7 @@ const FOOTER = SLIP_WA_FOOTER;
 export const SLIP_TEMPLATE_DEFS: SlipTemplateDef[] = [
   {
     key: "delivery_slip",
-    name: "delivery_slip_v4",
+    name: "delivery_slip_v5",
     envVar: "WA_TEMPLATE_DELIVERY_SLIP",
     category: "UTILITY",
     kind: "document",
@@ -60,11 +60,11 @@ export const SLIP_TEMPLATE_DEFS: SlipTemplateDef[] = [
     body: DELIVERY_SLIP_TEMPLATE_BODY,
     bodyExample: DELIVERY_SLIP_TEMPLATE_EXAMPLE,
     footer: FOOTER,
-    description: "Delivery slip PDF + delivery details",
+    description: "Delivery slip PDF + delivered / uncollected dress counts",
   },
   {
     key: "return_slip",
-    name: "return_slip_v4",
+    name: "return_slip_v3",
     envVar: "WA_TEMPLATE_RETURN_SLIP",
     category: "UTILITY",
     kind: "document",
@@ -77,7 +77,7 @@ export const SLIP_TEMPLATE_DEFS: SlipTemplateDef[] = [
   },
   {
     key: "incomplete_return_slip",
-    name: "incomplete_return_v4",
+    name: "incomplete_return_v3",
     envVar: "WA_TEMPLATE_INCOMPLETE_SLIP",
     category: "UTILITY",
     kind: "document",
@@ -185,6 +185,20 @@ export function resolveTemplateName(def: SlipTemplateDef): string {
     if (fromEnv) return fromEnv.toLowerCase();
   }
   return def.name;
+}
+
+/** Prefer configured/env name, then v4 (if submitted later), then approved v3. */
+function documentTemplateNameCandidates(def: SlipTemplateDef): string[] {
+  const primary = resolveTemplateName(def);
+  const extras: string[] = [];
+  if (def.key === "delivery_slip") {
+    extras.push("delivery_slip_v5", "delivery_slip_v4", "delivery_slip_v3");
+  } else if (def.key === "return_slip") {
+    extras.push("return_slip_v4", "return_slip_v3");
+  } else if (def.key === "incomplete_return_slip") {
+    extras.push("incomplete_return_v4", "incomplete_return_v3");
+  }
+  return [...new Set([primary, def.name, ...extras].map((n) => n.toLowerCase()))];
 }
 
 export function slipTemplateLanguage(): string {
@@ -471,26 +485,39 @@ export async function ensureAllSlipTemplates(opts?: {
 }
 
 export async function isSlipTemplateApproved(key: string): Promise<boolean> {
+  const resolved = await resolveApprovedSlipDocumentTemplate(key);
+  return Boolean(resolved);
+}
+
+/** First APPROVED DOCUMENT template for this slip key (env → v4 → v3 fallbacks). */
+export async function resolveApprovedSlipDocumentTemplate(
+  key: string,
+): Promise<{ name: string; language: string } | null> {
   const def = SLIP_TEMPLATE_DEFS.find((d) => d.key === key);
-  if (!def) return false;
+  if (!def) return null;
   const phoneReady = await isConfiguredPhoneReadyForTemplates();
-  if (!phoneReady.ready) return false;
-  const name = resolveTemplateName(def);
+  if (!phoneReady.ready) return null;
   const language = slipTemplateLanguage();
   const listed = await listTemplates();
-  if (!listed.ok) return false;
-  const existing = listed.templates.find(
-    (t) => t.name === name && (t.language === language || t.language?.startsWith(language)),
-  );
-  if (!existing || existing.status !== "APPROVED") return false;
-  // DOCUMENT slip keys must have a DOCUMENT header — ignore legacy URL-button templates.
-  if (def.kind === "document") {
-    const header = (existing.components || []).find(
-      (c) => String(c.type).toUpperCase() === "HEADER",
+  if (!listed.ok) return null;
+
+  for (const name of documentTemplateNameCandidates(def)) {
+    const existing = listed.templates.find(
+      (t) =>
+        t.name === name &&
+        (t.language === language || t.language?.startsWith(language)) &&
+        t.status === "APPROVED",
     );
-    return String(header?.format || "").toUpperCase() === "DOCUMENT";
+    if (!existing) continue;
+    if (def.kind === "document") {
+      const header = (existing.components || []).find(
+        (c) => String(c.type).toUpperCase() === "HEADER",
+      );
+      if (String(header?.format || "").toUpperCase() !== "DOCUMENT") continue;
+    }
+    return { name, language: existing.language || language };
   }
-  return true;
+  return null;
 }
 
 /** Send a DOCUMENT-header slip template (PDF first + body params). */
@@ -500,13 +527,18 @@ export async function sendDocumentSlipTemplate(opts: {
   mediaId: string;
   filename: string;
   bodyParams: string[];
+  /** When set, skip re-resolving (caller already matched param count to this name). */
+  templateName?: string;
 }): Promise<WhatsAppSendResult> {
   const def = SLIP_TEMPLATE_DEFS.find((d) => d.key === opts.key);
   if (!def) return { ok: false, error: `Unknown template key: ${opts.key}` };
-  const name = resolveTemplateName(def);
+  const resolved =
+    opts.templateName?.trim() ||
+    (await resolveApprovedSlipDocumentTemplate(opts.key))?.name ||
+    resolveTemplateName(def);
   return sendWhatsAppDocumentTemplate({
     phone: opts.phone,
-    templateName: name,
+    templateName: resolved,
     languageCode: slipTemplateLanguage(),
     mediaId: opts.mediaId,
     filename: opts.filename,

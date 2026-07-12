@@ -8,7 +8,7 @@ export async function syncBookingStatusFromItems(bookingId: number) {
   });
   if (!booking || booking.status !== "booked") return booking;
 
-  const items = booking.bookingItems;
+  const items = booking.bookingItems.filter((bi) => !bi.isCancelled);
   if (!items.length || !items.every((bi) => bi.isDelivered)) return booking;
 
   const itemDeliveredAt = items.map((bi) => bi.deliveredAt).find((d): d is Date => d != null);

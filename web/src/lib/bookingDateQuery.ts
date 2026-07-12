@@ -161,7 +161,7 @@ export async function whereBookingOverlapsPeriod(
 export const pendingDeliveryItemsFilter: Prisma.BookingWhereInput = {
   OR: [
     { bookingItems: { none: {} } },
-    { bookingItems: { some: { isDelivered: false } } },
+    { bookingItems: { some: { isDelivered: false, isCancelled: false } } },
   ],
 };
 

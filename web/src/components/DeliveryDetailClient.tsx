@@ -27,8 +27,11 @@ type ItemRow = {
   size?: string | null;
   price: number;
   remaining: number;
+  advance?: number;
   photo?: string;
   isDelivered: boolean;
+  isCancelled?: boolean;
+  cancelRefundAmount?: number;
   itemRemainingCollected: number;
   itemSecurityCollected: number;
   itemDeliveryNotes?: string | null;
@@ -150,10 +153,26 @@ export default function DeliveryDetailClient({
     return init;
   });
   const [orderBusy, setOrderBusy] = useState<number | null>(null);
+  const [selectedToDeliver, setSelectedToDeliver] = useState<Record<number, boolean>>(() => {
+    const pending = initialItems.filter((it) => !it.isDelivered && !it.isCancelled);
+    const init: Record<number, boolean> = {};
+    for (const it of pending) init[it.id] = pending.length === 1;
+    return init;
+  });
+  const [cancellingId, setCancellingId] = useState<number | null>(null);
+  const [cancelBusy, setCancelBusy] = useState(false);
 
   useEffect(() => {
     setLocalItems(initialItems);
     setBookingStatus(booking.status);
+    setSelectedToDeliver((prev) => {
+      const pending = initialItems.filter((it) => !it.isDelivered && !it.isCancelled);
+      const next: Record<number, boolean> = {};
+      for (const it of pending) {
+        next[it.id] = prev[it.id] ?? pending.length === 1;
+      }
+      return next;
+    });
   }, [initialItems, booking.status]);
 
   useEffect(() => {
@@ -165,12 +184,87 @@ export default function DeliveryDetailClient({
     setSavedIdPhoto2(idPhoto2);
   }, [idPhoto1, idPhoto2]);
 
-  const allDelivered = localItems.length > 0 ? localItems.every((it) => it.isDelivered) : bookingStatus === "delivered";
+  const allDelivered =
+    localItems.filter((it) => !it.isCancelled).length > 0
+      ? localItems.filter((it) => !it.isCancelled).every((it) => it.isDelivered)
+      : bookingStatus === "delivered";
   const partialDelivery = hasPartialDelivery({
     status: bookingStatus,
-    bookingItems: localItems.map((it) => ({ id: it.id, isDelivered: it.isDelivered })),
+    bookingItems: localItems.map((it) => ({
+      id: it.id,
+      isDelivered: it.isDelivered,
+      isCancelled: it.isCancelled,
+    })),
   });
-  const hasMultiple = localItems.length > 1;
+  const hasMultiple = localItems.filter((it) => !it.isCancelled).length > 1;
+  const pendingItems = localItems.filter((it) => !it.isDelivered && !it.isCancelled);
+  const selectedPendingIds = pendingItems.filter((it) => selectedToDeliver[it.id]).map((it) => it.id);
+  const selectedPendingCount = selectedPendingIds.length;
+  const cancelledItems = localItems.filter((it) => it.isCancelled);
+
+  function toggleDeliverSelect(id: number, selected: boolean) {
+    setSelectedToDeliver((prev) => ({ ...prev, [id]: selected }));
+  }
+
+  function selectAllPending(selected: boolean) {
+    setSelectedToDeliver((prev) => {
+      const next = { ...prev };
+      for (const it of pendingItems) next[it.id] = selected;
+      return next;
+    });
+  }
+
+  async function cancelDress(itemId: number, refundAdvance: boolean) {
+    setCancelBusy(true);
+    setError("");
+    try {
+      const res = await fetch(`/api/booking/${booking.id}/items/${itemId}/cancel`, {
+        method: "POST",
+        headers: { "Content-Type": "application/json" },
+        body: JSON.stringify({ refund_advance: refundAdvance }),
+        credentials: "same-origin",
+      });
+      const data = await res.json().catch(() => ({}));
+      if (!res.ok) {
+        setError(typeof data.error === "string" ? data.error : "Cancel failed");
+        return;
+      }
+      setCancellingId(null);
+      if (data.status) setBookingStatus(data.status);
+      if (Array.isArray(data.items)) {
+        setLocalItems((prev) =>
+          prev.map((it) => {
+            const row = data.items.find((s: { id: number }) => s.id === it.id);
+            if (!row) return it;
+            return {
+              ...it,
+              isCancelled: row.isCancelled,
+              cancelRefundAmount: row.cancelRefundAmount,
+              isDelivered: row.isDelivered,
+              advance: row.advance,
+              remaining: row.remaining,
+              price: row.price,
+            };
+          }),
+        );
+      } else {
+        setLocalItems((prev) =>
+          prev.map((it) =>
+            it.id === itemId
+              ? {
+                  ...it,
+                  isCancelled: true,
+                  cancelRefundAmount: refundAdvance ? it.advance || 0 : 0,
+                }
+              : it,
+          ),
+        );
+      }
+      router.refresh();
+    } finally {
+      setCancelBusy(false);
+    }
+  }
 
   function applySaveResponse(data: { status?: string; items?: SaveItemResponse[] }) {
     if (data.status) setBookingStatus(data.status);
@@ -322,10 +416,85 @@ export default function DeliveryDetailClient({
       });
       navigatePrintTab(
         printWindow,
-        deliverySlipHref(booking.id, { status: data.status ?? booking.status, bookingItems: merged }),
+        deliverySlipHref(
+          booking.id,
+          { status: data.status ?? booking.status, bookingItems: merged },
+          undefined,
+          pending.map((p) => p.id),
+        ),
       );
     }
     if (data.status === "delivered") router.refresh();
+  }
+
+  /** Save selected dresses as delivered and send slip for only those dresses (1 = single, 2+ = combined). */
+  async function saveSelected(opts?: { openPrintSlip?: boolean }) {
+    const ids = selectedPendingIds;
+    if (!ids.length) {
+      setError("Select at least one dress to deliver, then press Save.");
+      return;
+    }
+    setSaving(true);
+    setError("");
+    const printWindow = opts?.openPrintSlip ? openBlankPrintTab() : null;
+
+    if (!(await flushPendingIdPhotos())) {
+      printWindow?.close();
+      setSaving(false);
+      setError("Could not save ID photos. Try Save ID Photos, then deliver again.");
+      return;
+    }
+
+    const payload = {
+      slip_finalize: true,
+      payment_mode: paymentMode,
+      security_payment_mode: securityPaymentMode,
+      items: ids.map((id) => ({
+        booking_item_id: id,
+        remaining_collected: Number(itemForms[id]?.remaining) || 0,
+        security_collected: Number(itemForms[id]?.security) || 0,
+        delivery_notes: itemForms[id]?.notes || "",
+        mark_delivered: true,
+      })),
+    };
+
+    const res = await fetch(`/api/booking-delivery/${booking.id}/save`, {
+      method: "POST",
+      headers: { "Content-Type": "application/json" },
+      body: JSON.stringify(payload),
+      credentials: "same-origin",
+    });
+    const data = await res.json();
+    setSaving(false);
+    if (!res.ok) {
+      printWindow?.close();
+      setError(data.error || "Save failed");
+      return;
+    }
+    applySaveResponse(data);
+    setSelectedToDeliver((prev) => {
+      const next = { ...prev };
+      for (const id of ids) delete next[id];
+      return next;
+    });
+    if (opts?.openPrintSlip) {
+      const merged = localItems.map((row) => {
+        const saved = data.items?.find((s: SaveItemResponse) => s.id === row.id);
+        if (saved) return { ...row, isDelivered: saved.isDelivered };
+        if (ids.includes(row.id)) return { ...row, isDelivered: true };
+        return row;
+      });
+      navigatePrintTab(
+        printWindow,
+        deliverySlipHref(
+          booking.id,
+          { status: data.status ?? booking.status, bookingItems: merged },
+          ids.length === 1 ? ids[0] : undefined,
+          ids,
+        ),
+      );
+    }
+    router.refresh();
   }
 
   async function saveIdPhotos(files?: { slot1?: File | null; slot2?: File | null }): Promise<boolean> {
@@ -608,34 +777,91 @@ export default function DeliveryDetailClient({
               />
             </div>
           )}
+          {hasMultiple && !allDelivered && (
+            <p style={{ fontSize: 13, color: "var(--text-muted)", marginBottom: 14 }}>
+              Tick the dresses you are handing over now, then press <strong>Save</strong>.
+              One dress → single delivery slip; two or more → combined slip for only the selected dresses.
+              WhatsApp sends the same scoped slip.
+            </p>
+          )}
           {localItems.map((it) => (
             <div
               key={it.id}
               style={{
-                border: `1.5px solid ${it.isDelivered ? "var(--success)" : "var(--border)"}`,
+                border: `1.5px solid ${
+                  it.isCancelled
+                    ? "rgba(192,57,43,0.45)"
+                    : it.isDelivered
+                      ? "var(--success)"
+                      : selectedToDeliver[it.id]
+                        ? "#1565c0"
+                        : "var(--border)"
+                }`,
                 borderRadius: 12,
                 padding: 16,
                 marginBottom: 16,
-                background: it.isDelivered ? "rgba(46,125,50,0.04)" : undefined,
+                background: it.isCancelled
+                  ? "rgba(192,57,43,0.05)"
+                  : it.isDelivered
+                    ? "rgba(46,125,50,0.04)"
+                    : selectedToDeliver[it.id]
+                      ? "rgba(21,101,192,0.04)"
+                      : undefined,
               }}
             >
               <div style={{ display: "flex", alignItems: "center", gap: 12, marginBottom: 14 }}>
+                {!it.isDelivered && !it.isCancelled && (
+                  <label
+                    style={{
+                      display: "flex",
+                      alignItems: "center",
+                      gap: 8,
+                      cursor: "pointer",
+                      flexShrink: 0,
+                    }}
+                  >
+                    <input
+                      type="checkbox"
+                      checked={Boolean(selectedToDeliver[it.id])}
+                      onChange={(e) => toggleDeliverSelect(it.id, e.target.checked)}
+                      style={{ width: 18, height: 18 }}
+                    />
+                    <span style={{ fontSize: 12, fontWeight: 700, color: "var(--text-muted)" }}>
+                      Deliver
+                    </span>
+                  </label>
+                )}
                 {it.photo && (
-                  <img src={photoUrl(it.photo)} alt="" style={{ width: 48, height: 48, borderRadius: 8, objectFit: "cover" }} />
+                  <img src={photoUrl(it.photo)} alt="" style={{ width: 48, height: 48, borderRadius: 8, objectFit: "cover", opacity: it.isCancelled ? 0.55 : 1 }} />
                 )}
                 <div style={{ flex: 1 }}>
                   <div style={{ fontWeight: 700 }}>{it.dressName}</div>
                   <div style={{ fontSize: 12, color: "var(--text-muted)" }}>
-                    {it.category}{it.size ? ` · ${it.size}` : ""} · Rent ₹{formatInr(it.price)} · Remaining ₹{formatInr(it.remaining)}
+                    {it.category}{it.size ? ` · ${it.size}` : ""} · Rent ₹{formatInr(it.price)}
+                    {!it.isCancelled && <> · Remaining ₹{formatInr(it.remaining)}</>}
+                    {typeof it.advance === "number" && it.advance > 0 && <> · Advance ₹{formatInr(it.advance)}</>}
                   </div>
                 </div>
-                {it.isDelivered ? (
+                {it.isCancelled ? (
+                  <span className="badge" style={{ background: "rgba(192,57,43,0.12)", color: "var(--danger)" }}>
+                    Cancelled{(it.cancelRefundAmount || 0) > 0 ? " · Adv refunded" : " · Adv kept"}
+                  </span>
+                ) : it.isDelivered ? (
                   <span className="badge badge-success"><i className="fa-solid fa-check" /> Delivered</span>
                 ) : (
                   <span className="badge badge-warning">Pending</span>
                 )}
               </div>
 
+              {it.isCancelled ? (
+                <p style={{ margin: 0, fontSize: 13, color: "var(--text-muted)" }}>
+                  This dress was cancelled
+                  {(it.cancelRefundAmount || 0) > 0
+                    ? ` and advance ₹${formatInr(it.cancelRefundAmount || it.advance || 0)} was refunded.`
+                    : " — advance was not refunded and stays in finance."}
+                </p>
+              ) : (
+                <>
               {(it.preparedBy || it.checkedBy || it.packingNote) && (
                 <div style={{ marginBottom: 12, padding: "8px 12px", background: "var(--info-bg, #e8f4fd)", borderRadius: 8, fontSize: 12 }}>
                   <strong style={{ fontSize: 11, color: "var(--text-muted)" }}>PACKING INFO</strong>
@@ -684,10 +910,10 @@ export default function DeliveryDetailClient({
                 />
               </div>
               {!it.isDelivered && (
-                <div style={{ display: "flex", gap: 8, flexWrap: "wrap" }}>
+                <div style={{ display: "flex", gap: 8, flexWrap: "wrap", alignItems: "center" }}>
                   <button
                     className="btn btn-primary btn-sm"
-                    disabled={saving}
+                    disabled={saving || cancelBusy}
                     onClick={() => void saveItem(it.id)}
                   >
                     <i className="fa-solid fa-truck" style={{ marginRight: 6 }} />
@@ -696,13 +922,65 @@ export default function DeliveryDetailClient({
                   <button
                     type="button"
                     className="btn btn-outline btn-sm"
-                    disabled={saving}
+                    disabled={saving || cancelBusy}
                     onClick={() => void saveItem(it.id, { openPrintSlip: true })}
                     style={{ color: "#1565c0", borderColor: "#1565c0" }}
                   >
                     <i className="fa-solid fa-print" style={{ marginRight: 6 }} />
                     Print A4 Slip
                   </button>
+                  <button
+                    type="button"
+                    className="btn btn-outline btn-sm"
+                    disabled={saving || cancelBusy}
+                    onClick={() => setCancellingId(cancellingId === it.id ? null : it.id)}
+                    style={{ color: "var(--danger)", borderColor: "var(--danger)", marginLeft: "auto" }}
+                  >
+                    <i className="fa-solid fa-ban" style={{ marginRight: 6 }} />
+                    Cancel Dress
+                  </button>
+                </div>
+              )}
+              {cancellingId === it.id && !it.isDelivered && (
+                <div
+                  style={{
+                    marginTop: 12,
+                    padding: 14,
+                    borderRadius: 10,
+                    border: "1.5px solid rgba(192,57,43,0.35)",
+                    background: "rgba(192,57,43,0.05)",
+                  }}
+                >
+                  <div style={{ fontWeight: 700, marginBottom: 8, color: "var(--danger)" }}>
+                    Cancel {it.dressName}? Advance ₹{formatInr(it.advance || 0)}
+                  </div>
+                  <div style={{ display: "flex", gap: 8, flexWrap: "wrap" }}>
+                    <button
+                      type="button"
+                      className="btn btn-primary btn-sm"
+                      disabled={cancelBusy}
+                      onClick={() => void cancelDress(it.id, true)}
+                    >
+                      Advance Amount Refunded
+                    </button>
+                    <button
+                      type="button"
+                      className="btn btn-outline btn-sm"
+                      disabled={cancelBusy}
+                      onClick={() => void cancelDress(it.id, false)}
+                      style={{ borderColor: "var(--danger)", color: "var(--danger)" }}
+                    >
+                      Advance Not Refunded
+                    </button>
+                    <button
+                      type="button"
+                      className="btn btn-outline btn-sm"
+                      disabled={cancelBusy}
+                      onClick={() => setCancellingId(null)}
+                    >
+                      Back
+                    </button>
+                  </div>
                 </div>
               )}
               {it.isDelivered && !editingDelivered[it.id] && (
@@ -721,6 +999,7 @@ export default function DeliveryDetailClient({
                         bookingItems: localItems.map((row) => ({
                           id: row.id,
                           isDelivered: row.isDelivered,
+                          isCancelled: row.isCancelled,
                         })),
                       }, it.id)}
                       className="btn btn-outline btn-sm"
@@ -750,27 +1029,64 @@ export default function DeliveryDetailClient({
                   </button>
                 </div>
               )}
+                </>
+              )}
             </div>
           ))}
 
+          {cancelledItems.length > 0 && (
+            <p style={{ fontSize: 12, color: "var(--text-muted)", marginTop: 4 }}>
+              {cancelledItems.length} cancelled dress{cancelledItems.length === 1 ? "" : "es"} listed above — they will not be delivered.
+            </p>
+          )}
+
           {!allDelivered && (
-            <div style={{ display: "flex", gap: 12, marginTop: 8, flexWrap: "wrap" }}>
-              {localItems.length > 0 && (
-                <button className="btn btn-primary" disabled={saving} onClick={() => void saveAll(true)}>
-                  <i className="fa-solid fa-truck" style={{ marginRight: 6 }} />
-                  Deliver All Dresses
-                </button>
+            <div style={{ display: "flex", gap: 12, marginTop: 8, flexWrap: "wrap", alignItems: "center" }}>
+              {pendingItems.length > 0 && (
+                <>
+                  <button
+                    type="button"
+                    className="btn btn-primary"
+                    disabled={saving || selectedPendingCount === 0}
+                    onClick={() => void saveSelected()}
+                  >
+                    <i className="fa-solid fa-floppy-disk" style={{ marginRight: 6 }} />
+                    {saving
+                      ? "Saving…"
+                      : selectedPendingCount === 0
+                        ? "Save (select dresses)"
+                        : selectedPendingCount === 1
+                          ? "Save — 1 dress + slip"
+                          : `Save — ${selectedPendingCount} dresses + combined slip`}
+                  </button>
+                  <button
+                    type="button"
+                    className="btn btn-outline"
+                    disabled={saving || selectedPendingCount === 0}
+                    onClick={() => void saveSelected({ openPrintSlip: true })}
+                    style={{ color: "#1565c0", borderColor: "#1565c0" }}
+                  >
+                    <i className="fa-solid fa-print" style={{ marginRight: 6 }} />
+                    Save &amp; Print A4
+                  </button>
+                  {hasMultiple && pendingItems.length > 1 && (
+                    <button
+                      type="button"
+                      className="btn btn-outline btn-sm"
+                      disabled={saving}
+                      onClick={() =>
+                        selectAllPending(selectedPendingCount < pendingItems.length)
+                      }
+                    >
+                      {selectedPendingCount < pendingItems.length ? "Select all pending" : "Clear selection"}
+                    </button>
+                  )}
+                </>
               )}
               {localItems.length > 0 && (
-                <button
-                  type="button"
-                  className="btn btn-outline"
-                  disabled={saving}
-                  onClick={() => void saveAll(true, { openPrintSlip: true })}
-                  style={{ color: "#1565c0", borderColor: "#1565c0" }}
-                >
-                  <i className="fa-solid fa-print" style={{ marginRight: 6 }} />
-                  Print A4 Slip
+                <button className="btn btn-outline" disabled={saving} onClick={() => void saveAll(true)}>
+                  <i className="fa-solid fa-truck" style={{ marginRight: 6 }} />
+                  Deliver All Dresses
                 </button>
               )}
               <button className="btn btn-outline" disabled={saving} onClick={() => void saveAll(false)}>

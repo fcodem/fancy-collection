@@ -5,6 +5,7 @@ export type BookingItemDeltaRow = {
   isDelivered?: boolean;
   isReturned?: boolean;
   isIncompleteReturn?: boolean;
+  isCancelled?: boolean;
   deliverySlipNotifiedAt?: Date | null;
   returnSlipNotifiedAt?: Date | null;
 };
@@ -23,9 +24,13 @@ export function deliveryDeltaItems(
   const items = booking.bookingItems ?? [];
   if (explicitIds?.length) {
     const idSet = new Set(explicitIds);
-    return items.filter((bi) => idSet.has(bi.id) && bi.isDelivered);
+    return items.filter(
+      (bi) => idSet.has(bi.id) && bi.isDelivered && !bi.isCancelled,
+    );
   }
-  return items.filter((bi) => bi.isDelivered && !bi.deliverySlipNotifiedAt);
+  return items.filter(
+    (bi) => bi.isDelivered && !bi.isCancelled && !bi.deliverySlipNotifiedAt,
+  );
 }
 
 export function resolveDeliveryScope(
@@ -33,12 +38,14 @@ export function resolveDeliveryScope(
   explicitIds?: number[],
 ): SlipScopeResult | null {
   const allItems = booking.bookingItems ?? [];
+  const activeItems = allItems.filter((bi) => !bi.isCancelled);
   const delta = deliveryDeltaItems(booking, explicitIds);
   if (delta.length === 0) return null;
 
   const ids = delta.map((bi) => bi.id);
 
-  if (delta.length === allItems.length && allItems.length > 0) {
+  // Full slip when this send covers every active dress (all delivered in one go).
+  if (delta.length === activeItems.length && activeItems.length > 0) {
     return { scope: "full", bookingItemIds: ids };
   }
   if (delta.length === 1) {
@@ -56,11 +63,19 @@ export function returnDeltaItems(
   if (explicitIds?.length) {
     const idSet = new Set(explicitIds);
     return items.filter(
-      (bi) => idSet.has(bi.id) && bi.isReturned && !bi.isIncompleteReturn,
+      (bi) =>
+        idSet.has(bi.id) &&
+        bi.isReturned &&
+        !bi.isIncompleteReturn &&
+        !bi.isCancelled,
     );
   }
   return items.filter(
-    (bi) => bi.isReturned && !bi.isIncompleteReturn && !bi.returnSlipNotifiedAt,
+    (bi) =>
+      bi.isReturned &&
+      !bi.isIncompleteReturn &&
+      !bi.isCancelled &&
+      !bi.returnSlipNotifiedAt,
   );
 }
 
@@ -69,13 +84,19 @@ export function resolvePartialReturnScope(
   explicitIds?: number[],
 ): SlipScopeResult | null {
   const allItems = booking.bookingItems ?? [];
-  const delivered = allItems.filter((bi) => bi.isDelivered);
+  const delivered = allItems.filter((bi) => bi.isDelivered && !bi.isCancelled);
+  const undelivered = allItems.filter((bi) => !bi.isDelivered && !bi.isCancelled);
   const delta = returnDeltaItems(booking, explicitIds);
   if (delta.length === 0) return null;
 
   const ids = delta.map((bi) => bi.id);
 
-  if (delta.length === delivered.length && delivered.length > 0) {
+  // Full return slip only when every active dress is returned (nothing pending pickup).
+  if (
+    delta.length === delivered.length &&
+    delivered.length > 0 &&
+    undelivered.length === 0
+  ) {
     return { scope: "full", bookingItemIds: ids };
   }
   if (delta.length === 1) {
@@ -156,6 +177,7 @@ export function newlyReturnedItemIdsFromAction(
   action: string,
   data: {
     booking_item_id?: number;
+    booking_item_ids?: number[];
     items?: Array<{ booking_item_id: number; is_incomplete?: boolean }>;
   },
   beforeItems: BookingItemDeltaRow[],
@@ -170,6 +192,16 @@ export function newlyReturnedItemIdsFromAction(
     const bi = beforeItems.find((b) => b.id === id);
     if (bi?.isDelivered && !bi.isReturned) return [id];
     return [];
+  }
+  if (action === "mark_items_returned" && data.booking_item_ids?.length) {
+    const ids: number[] = [];
+    for (const raw of data.booking_item_ids) {
+      const id = Number(raw);
+      if (id <= 0) continue;
+      const bi = beforeItems.find((b) => b.id === id);
+      if (bi?.isDelivered && !bi.isReturned) ids.push(id);
+    }
+    return ids;
   }
   if (action === "incomplete_return" && data.items?.length) {
     return data.items

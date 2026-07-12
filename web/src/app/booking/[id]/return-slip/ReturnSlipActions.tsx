@@ -2,6 +2,7 @@
 
 import Link from "next/link";
 import { useEffect, useState } from "react";
+import { useSearchParams } from "next/navigation";
 
 export default function ReturnSlipActions({
   bookingId,
@@ -12,6 +13,7 @@ export default function ReturnSlipActions({
 }) {
   const [sending, setSending] = useState(false);
   const [sent, setSent] = useState(false);
+  const searchParams = useSearchParams();
 
   useEffect(() => {
     if (!autoPrint) return;
@@ -22,16 +24,23 @@ export default function ReturnSlipActions({
   async function sendWhatsApp() {
     setSending(true);
     try {
-      const res = await fetch(`/api/booking/${bookingId}/return-receipt/whatsapp`, {
+      const item = searchParams.get("item");
+      const items = searchParams.get("items");
+      const res = await fetch(`/api/booking/${bookingId}/return-slip/whatsapp`, {
         method: "POST",
         credentials: "same-origin",
+        headers: { "Content-Type": "application/json" },
+        body: JSON.stringify({
+          ...(item ? { item } : {}),
+          ...(items ? { items } : {}),
+        }),
       });
-      const data = (await res.json()) as { ok?: boolean; error?: string };
+      const data = (await res.json()) as { ok?: boolean; error?: string; message?: string };
       if (data.ok) {
         setSent(true);
         setTimeout(() => setSent(false), 4000);
       } else {
-        alert(data.error || "Failed to queue return receipt");
+        alert(data.error || data.message || "Failed to queue return slip WhatsApp");
       }
     } catch {
       alert("Request failed");

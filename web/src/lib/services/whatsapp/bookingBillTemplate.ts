@@ -12,12 +12,13 @@ import {
   BOOKING_SLIP_TEMPLATE_BODY,
   BOOKING_SLIP_TEMPLATE_EXAMPLE,
   SLIP_WA_FOOTER,
-  bookingSlipBodyParams,
+  bookingSlipBodyParamsForTemplate,
   type BookingSlipDetailFields,
 } from "./slipMessageCopy";
 
-/** Default Meta template name — DOCUMENT header (PDF). Override with WA_TEMPLATE_BOOKING_BILL. */
-export const BOOKING_BILL_TEMPLATE_NAME_DEFAULT = "booking_slip_v4";
+/** Default Meta template name — DOCUMENT header (PDF). Override with WA_TEMPLATE_BOOKING_BILL.
+ * Use v3 until v4 is submitted & APPROVED in Meta (v4 is not live yet). */
+export const BOOKING_BILL_TEMPLATE_NAME_DEFAULT = "booking_slip_v3";
 
 /** Legacy URL-button template (ngrok link) — never preferred for sends. */
 export const BOOKING_BILL_URL_TEMPLATE_LEGACY = "booking_slip_details";
@@ -26,6 +27,7 @@ export const BOOKING_BILL_URL_TEMPLATE_LEGACY = "booking_slip_details";
 export const BOOKING_BILL_DOCUMENT_LEGACY = "booking_slip_pdf";
 export const BOOKING_BILL_DOCUMENT_LEGACY_V2 = "booking_slip_v2";
 export const BOOKING_BILL_DOCUMENT_LEGACY_V3 = "booking_slip_v3";
+export const BOOKING_BILL_DOCUMENT_V4 = "booking_slip_v4";
 
 export type BookingBillTemplateKind = "document" | "url" | "unknown";
 
@@ -279,7 +281,9 @@ export async function getBookingBillTemplateStatus(): Promise<{
   const candidates = [
     ...new Set([
       name,
+      BOOKING_BILL_DOCUMENT_V4,
       BOOKING_BILL_TEMPLATE_NAME_DEFAULT,
+      BOOKING_BILL_DOCUMENT_LEGACY_V3,
       BOOKING_BILL_DOCUMENT_LEGACY_V2,
       BOOKING_BILL_DOCUMENT_LEGACY,
       BOOKING_BILL_URL_TEMPLATE_LEGACY,
@@ -343,7 +347,7 @@ export async function sendBookingBillViaTemplate(opts: {
         `Refusing URL-button template "${name}" — booking bills must attach a PDF (DOCUMENT header).`,
     };
   }
-  const bodyParams = bookingSlipBodyParams(opts.details);
+  const bodyParams = bookingSlipBodyParamsForTemplate(name, opts.details);
 
   const sendOnce = (lang: string) =>
     sendWhatsAppDocumentTemplate({

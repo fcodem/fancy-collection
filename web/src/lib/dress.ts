@@ -117,6 +117,7 @@ export function bookingDressLabels(
 }
 
 export type BookingItemPricingRow = {
+  id?: number;
   display_name: string;
   category: string;
   price: number;
@@ -139,6 +140,7 @@ export function serializeBookingItemRows(
     totalRemaining?: number;
     legacyItem?: { category?: string | null; size?: string | null } | null;
     bookingItems?: Array<{
+      id?: number;
       dressName: string;
       category?: string | null;
       size?: string | null;
@@ -153,6 +155,7 @@ export function serializeBookingItemRows(
   if (booking.bookingItems?.length) {
     const items = booking.bookingItems;
     return items.map((bi) => ({
+      id: bi.id,
       display_name: dressDisplayName(bi.dressName, bi.category, bookingItemSize(bi)),
       category: bi.category || "",
       price: bi.price,

@@ -62,8 +62,12 @@ async function finalizeFullReturnIfComplete(
     return;
   }
 
-  const delivered = booking.bookingItems.filter((bi) => bi.isDelivered);
+  const delivered = booking.bookingItems.filter((bi) => bi.isDelivered && !bi.isCancelled);
   if (!delivered.length) return;
+
+  // Partial delivery: keep booking open so remaining dresses can still be handed over.
+  const undelivered = booking.bookingItems.filter((bi) => !bi.isDelivered && !bi.isCancelled);
+  if (undelivered.length > 0) return;
 
   const allReturned = delivered.every((bi) => bi.isReturned);
   const anyIncomplete = delivered.some((bi) => bi.isIncompleteReturn);
@@ -870,7 +874,7 @@ export async function saveDelivery(
           itemDeliveryNotes: item.delivery_notes?.trim() || null,
         };
 
-        if (item.mark_delivered && !bi.isDelivered) {
+        if (item.mark_delivered && !bi.isDelivered && !bi.isCancelled) {
           itemUpdate.isDelivered = true;
           itemUpdate.deliveredAt = new Date();
         }
@@ -894,7 +898,8 @@ export async function saveDelivery(
         .join(" | ");
 
       const dressIsOut =
-        refreshed.bookingItems.some((bi) => bi.isDelivered) || refreshed.status === "delivered";
+        refreshed.bookingItems.some((bi) => bi.isDelivered && !bi.isCancelled) ||
+        refreshed.status === "delivered";
       const nextSecurityHeld =
         booking.status === "incomplete_return"
           ? booking.securityHeld
@@ -919,8 +924,8 @@ export async function saveDelivery(
 
       if (
         updated.status === "booked" &&
-        updated.bookingItems.length > 0 &&
-        updated.bookingItems.every((bi) => bi.isDelivered)
+        updated.bookingItems.filter((bi) => !bi.isCancelled).length > 0 &&
+        updated.bookingItems.filter((bi) => !bi.isCancelled).every((bi) => bi.isDelivered)
       ) {
         const itemDeliveredAt = updated.bookingItems.map((bi) => bi.deliveredAt).find((d): d is Date => d != null);
         updated = await tx.booking.update({
@@ -1064,6 +1069,7 @@ export async function saveReturn(
   action: string,
   data: {
     booking_item_id?: number;
+    booking_item_ids?: number[];
     incomplete_notes?: string;
     security_held?: number;
     incomplete_photo?: string;
@@ -1087,25 +1093,30 @@ export async function saveReturn(
     if (booking.status === "incomplete_return") {
       return resolveIncompleteReturn(bookingId, by);
     }
-    await clearIncompletePhotos(booking);
-    await clearBookingIdPhotos(booking);
+    const undelivered = booking.bookingItems.filter((bi) => !bi.isDelivered);
+    const closeBooking = undelivered.length === 0;
+    if (closeBooking) {
+      await clearIncompletePhotos(booking);
+      await clearBookingIdPhotos(booking);
+    }
     await prisma.$transaction(async (tx) => {
-      await tx.booking.update({
-        where: { id: bookingId },
-        data: {
-          status: "returned",
-          returnedAt: new Date(),
-          securityHeld: 0,
-          incompletePhoto: null,
-          incompleteNotes: null,
-          idPhoto1: null,
-          idPhoto2: null,
-        },
-      });
+      if (closeBooking) {
+        await tx.booking.update({
+          where: { id: bookingId },
+          data: {
+            status: "returned",
+            returnedAt: new Date(),
+            securityHeld: 0,
+            incompletePhoto: null,
+            incompleteNotes: null,
+            idPhoto1: null,
+            idPhoto2: null,
+          },
+        });
+      }
       for (const bi of booking.bookingItems) {
-        if (bi.isDelivered) {
-          await tx.bookingItem.update({ where: { id: bi.id }, data: { isReturned: true } });
-        }
+        if (!bi.isDelivered || bi.isReturned) continue;
+        await tx.bookingItem.update({ where: { id: bi.id }, data: { isReturned: true } });
         if (bi.itemId != null) {
           await tx.clothingItem.update({ where: { id: bi.itemId }, data: { status: "available" } });
         }
@@ -1176,6 +1187,55 @@ export async function saveReturn(
         await finalizeFullReturnIfComplete(bookingId, tx);
       });
     }
+  } else if (action === "mark_items_returned") {
+    const ids = [...new Set((data.booking_item_ids ?? []).map(Number).filter((id) => id > 0))];
+    if (!ids.length) throw new Error("Select at least one dress to return.");
+
+    const photosToDelete: string[] = [];
+    for (const itemId of ids) {
+      const bi = booking.bookingItems.find((row) => row.id === itemId);
+      if (!bi) throw new Error("Dress not found on this booking.");
+      if (!bi.isDelivered) throw new Error(`"${bi.dressName}" must be delivered before it can be returned.`);
+      if (bi.isReturned && !bi.isIncompleteReturn) {
+        throw new Error(`"${bi.dressName}" is already marked returned.`);
+      }
+      if (bi.isIncompleteReturn && bi.itemIncompletePhoto) {
+        photosToDelete.push(bi.itemIncompletePhoto);
+      }
+    }
+
+    if (photosToDelete.length) await deleteUploads(photosToDelete);
+
+    await prisma.$transaction(async (tx) => {
+      for (const itemId of ids) {
+        const bi = booking.bookingItems.find((row) => row.id === itemId)!;
+        if (bi.isIncompleteReturn) {
+          await tx.bookingItem.update({
+            where: { id: bi.id },
+            data: {
+              isReturned: true,
+              isIncompleteReturn: false,
+              itemIncompleteNotes: null,
+              itemIncompletePhoto: null,
+              itemSecurityHeld: 0,
+            },
+          });
+        } else {
+          await tx.bookingItem.update({
+            where: { id: bi.id },
+            data: { isReturned: true, isIncompleteReturn: false },
+          });
+        }
+        if (bi.itemId != null) {
+          await tx.clothingItem.update({
+            where: { id: bi.itemId },
+            data: { status: "available" },
+          });
+        }
+      }
+      await syncIncompleteReturnStatus(bookingId, tx);
+      await finalizeFullReturnIfComplete(bookingId, tx);
+    });
   } else if (action === "resolve_incomplete_return") {
     const resolved = await resolveIncompleteReturn(bookingId, by);
     if (!resolved) throw new Error("Booking is not an incomplete return or could not be resolved.");
@@ -1546,6 +1606,132 @@ export async function cancelBooking(bookingId: number, refundAmount = 0, by?: st
     before: snapshotBooking(booking as unknown as Record<string, unknown>),
     after: { status: "cancelled", refundAmount },
   });
+}
+
+/** Cancel one dress on a multi-item booking. refundAdvance=true refunds that dress's advance. */
+export async function cancelBookingItem(
+  bookingId: number,
+  bookingItemId: number,
+  opts: { refundAdvance: boolean },
+  by?: string,
+) {
+  const booking = await prisma.booking.findUnique({
+    where: { id: bookingId },
+    include: { bookingItems: true },
+  });
+  if (!booking) throw new Error("Booking not found");
+  if (booking.status === "cancelled") throw new Error("Booking is already cancelled.");
+  if (booking.status === "returned") throw new Error("Cannot cancel a dress on a returned booking.");
+
+  const bi = booking.bookingItems.find((row) => row.id === bookingItemId);
+  if (!bi) throw new Error("Dress not found on this booking.");
+  if (bi.isCancelled) throw new Error("This dress is already cancelled.");
+  if (bi.isDelivered) throw new Error("Cannot cancel a dress that is already delivered. Return it instead.");
+  if (bi.isReturned) throw new Error("This dress is already returned.");
+
+  const refundAmt = opts.refundAdvance ? Math.max(0, bi.advance || 0) : 0;
+  const now = new Date();
+
+  await prisma.$transaction(async (tx) => {
+    await tx.bookingItem.update({
+      where: { id: bi.id },
+      data: {
+        isCancelled: true,
+        cancelledAt: now,
+        cancelRefundAmount: refundAmt,
+      },
+    });
+
+    const fresh = await tx.bookingItem.findMany({ where: { bookingId } });
+    const active = fresh.filter((row) => !row.isCancelled);
+    const retainedAdvance = fresh
+      .filter((row) => row.isCancelled && !(row.cancelRefundAmount > 0))
+      .reduce((s, row) => s + (row.advance || 0), 0);
+    const activePrice = active.reduce((s, row) => s + (row.price || 0), 0);
+    const activeAdvance = active.reduce((s, row) => s + (row.advance || 0), 0);
+    const totalAdvance = activeAdvance + retainedAdvance;
+    const totalRemaining = Math.max(0, activePrice - activeAdvance);
+
+    const prevRefund = booking.refundAmount || 0;
+    const nextRefund = prevRefund + refundAmt;
+
+    await tx.booking.update({
+      where: { id: bookingId },
+      data: {
+        totalPrice: activePrice,
+        price: activePrice,
+        totalAdvance,
+        advance: totalAdvance,
+        totalRemaining,
+        remaining: totalRemaining,
+        ...(refundAmt > 0
+          ? {
+              refundAmount: nextRefund,
+              refundedAt: booking.refundedAt || now,
+            }
+          : {}),
+        // If every dress is cancelled, close the booking.
+        ...(active.length === 0
+          ? {
+              status: "cancelled",
+              refundAmount: nextRefund,
+              refundedAt: nextRefund > 0 ? booking.refundedAt || now : null,
+            }
+          : {}),
+      },
+    });
+
+    if (bi.itemId != null) {
+      const stillUsed = await findItemIdsStillInActiveBookings([bi.itemId], bookingId, tx);
+      if (!stillUsed.has(bi.itemId)) {
+        await tx.clothingItem.update({
+          where: { id: bi.itemId },
+          data: { status: "available" },
+        });
+      }
+    }
+  });
+
+  if (activeItemsRemain(booking.bookingItems, bookingItemId)) {
+    await syncBookingStatusFromItems(bookingId);
+  }
+
+  const updated = await prisma.booking.findUnique({
+    where: { id: bookingId },
+    include: { bookingItems: true },
+  });
+
+  broadcastShopEvent({
+    type: "booking.updated",
+    bookingId,
+    status: updated?.status || booking.status,
+    by,
+  });
+  logActivity({
+    username: by || "system",
+    action: "cancelled",
+    entity: "booking_item",
+    entityId: bookingItemId,
+    label: `Cancelled dress "${bi.dressName}" on booking #${String(booking.monthlySerial).padStart(2, "0")} — ${
+      opts.refundAdvance ? `Advance refunded ₹${refundAmt}` : "Advance not refunded"
+    }`,
+    before: { bookingItemId, dressName: bi.dressName, advance: bi.advance },
+    after: {
+      isCancelled: true,
+      cancelRefundAmount: refundAmt,
+      bookingStatus: updated?.status,
+      totalAdvance: updated?.totalAdvance,
+    },
+  });
+
+  return updated;
+}
+
+function activeItemsRemain(
+  items: Array<{ id: number; isCancelled?: boolean }>,
+  justCancelledId: number,
+) {
+  return items.some((row) => row.id !== justCancelledId && !row.isCancelled);
 }
 
 export async function getRecycleBin() {

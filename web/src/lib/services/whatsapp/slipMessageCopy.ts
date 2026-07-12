@@ -55,7 +55,10 @@ export type DeliverySlipDetailFields = {
   serialNo: string;
   returnDate: string;
   returnTime: string;
-  totalDresses: string;
+  /** Cumulative delivered dresses on the booking (active only). */
+  totalDressesDelivered: string;
+  /** Undelivered dresses still pending pickup (active only). Empty when none. */
+  totalUncollectedDresses: string;
 };
 
 export type ReturnSlipDetailFields = {
@@ -97,17 +100,19 @@ export const DELIVERY_SLIP_TEMPLATE_BODY =
   `Dear {{1}},\n\n` +
   `✅ Delivered Successfully\n\n` +
   `🔖 Serial No: {{2}}\n` +
-  `📅 Return Date: {{3}}\n` +
-  `🕒 Return Time: {{4}}\n` +
-  `👗 Total Dresses: {{5}}\n\n` +
+  `👗 TOTAL DRESSES DELIVERED = {{3}}\n` +
+  `{{4}}\n` +
+  `📅 Return Date: {{5}}\n` +
+  `🕒 Return Time: {{6}}\n\n` +
   SLIP_WA_CLOSING;
 
 export const DELIVERY_SLIP_TEMPLATE_EXAMPLE = [
   "Priya",
   "20",
+  "1",
+  "📦 TOTAL UNCOLLECTED DRESSES = 1",
   "14 Jul 2026",
   "06:00 PM",
-  "3",
 ];
 
 /** Return slip — Dear at top; no brand thank-you line; review CTA instead of detail fields. */
@@ -210,15 +215,22 @@ export function deliverySlipDetailsFromBooking(booking: {
   deliveryTime: string;
   returnDate: Date;
   returnTime: string;
-  bookingItems?: unknown[];
+  bookingItems?: Array<{
+    isDelivered?: boolean;
+    isCancelled?: boolean;
+  }>;
 }): DeliverySlipDetailFields {
-  const d = bookingSlipDetailsFromBooking(booking);
+  const items = booking.bookingItems ?? [];
+  const active = items.filter((bi) => !bi.isCancelled);
+  const delivered = active.filter((bi) => bi.isDelivered).length;
+  const uncollected = active.filter((bi) => !bi.isDelivered).length;
   return {
-    customerName: d.customerName,
-    serialNo: d.serialNo,
-    returnDate: d.returnDate,
-    returnTime: d.returnTime,
-    totalDresses: d.totalDresses,
+    customerName: booking.customerName || "Customer",
+    serialNo: String(booking.monthlySerial).padStart(2, "0"),
+    returnDate: formatSlipDate(booking.returnDate),
+    returnTime: timeOrDash(booking.returnTime || ""),
+    totalDressesDelivered: String(delivered),
+    totalUncollectedDresses: uncollected > 0 ? String(uncollected) : "",
   };
 }
 
@@ -262,14 +274,19 @@ export function buildBookingSlipCaption(d: BookingSlipDetailFields): string {
 }
 
 export function buildDeliverySlipCaption(d: DeliverySlipDetailFields): string {
+  const uncollectedLine =
+    d.totalUncollectedDresses.trim() !== ""
+      ? `📦 TOTAL UNCOLLECTED DRESSES = ${d.totalUncollectedDresses}\n`
+      : "";
   return withFooter(
     `${THANK_YOU}\n\n` +
       `${dearCustomerLine(d.customerName)}\n\n` +
       `✅ Delivered Successfully\n\n` +
       `🔖 Serial No: ${d.serialNo}\n` +
+      `👗 TOTAL DRESSES DELIVERED = ${d.totalDressesDelivered}\n` +
+      uncollectedLine +
       `📅 Return Date: ${d.returnDate}\n` +
-      `🕒 Return Time: ${d.returnTime}\n` +
-      `👗 Total Dresses: ${d.totalDresses}\n\n` +
+      `🕒 Return Time: ${d.returnTime}\n\n` +
       `Your slip PDF is attached above.`,
   );
 }
@@ -307,14 +324,113 @@ export function bookingSlipBodyParams(d: BookingSlipDetailFields): string[] {
   ];
 }
 
+/**
+ * Meta DOCUMENT templates differ by version. Match body {{n}} count to the
+ * approved template name (v4 = Dear + 7 vars; v3/v2 = 6 without Dear; pdf = 5).
+ */
+export function bookingSlipBodyParamsForTemplate(
+  templateName: string,
+  d: BookingSlipDetailFields,
+): string[] {
+  const name = templateName.toLowerCase();
+  if (name.includes("v4")) return bookingSlipBodyParams(d);
+  if (name.includes("pdf") && !name.includes("v")) {
+    return [
+      d.serialNo,
+      d.pickupDate,
+      d.pickupTime,
+      `${d.returnDate} ${d.returnTime}`.trim(),
+      d.totalDresses,
+    ];
+  }
+  // booking_slip_v3 / v2 / unknown APPROVED DOCUMENT fallbacks
+  return [
+    d.serialNo,
+    d.pickupDate,
+    d.pickupTime,
+    d.returnDate,
+    d.returnTime,
+    d.totalDresses,
+  ];
+}
+
 export function deliverySlipBodyParams(d: DeliverySlipDetailFields): string[] {
-  return [d.customerName, d.serialNo, d.returnDate, d.returnTime, d.totalDresses];
+  const uncollectedLine =
+    d.totalUncollectedDresses.trim() !== ""
+      ? `📦 TOTAL UNCOLLECTED DRESSES = ${d.totalUncollectedDresses}`
+      : "All dresses delivered";
+  return [
+    d.customerName,
+    d.serialNo,
+    d.totalDressesDelivered,
+    uncollectedLine,
+    d.returnDate,
+    d.returnTime,
+  ];
+}
+
+/**
+ * Meta DOCUMENT templates differ by version.
+ * v5 = Dear + serial + delivered + uncollected + return date/time (6).
+ * v4 = Dear + serial + return date/time + total dresses (5) — legacy.
+ * v3 = serial + pickup date/time + return date/time + total (6) — legacy.
+ */
+export function deliverySlipBodyParamsForTemplate(
+  templateName: string,
+  d: DeliverySlipDetailFields & { pickupDate?: string; pickupTime?: string },
+): string[] {
+  const name = templateName.toLowerCase();
+  if (name.includes("v5")) return deliverySlipBodyParams(d);
+  if (name.includes("v4")) {
+    // Legacy v4: customer, serial, return date, return time, total dresses
+    return [
+      d.customerName,
+      d.serialNo,
+      d.returnDate,
+      d.returnTime,
+      d.totalDressesDelivered,
+    ];
+  }
+  // Legacy v3 / unknown: serial, pickup date, pickup time, return date, return time, total
+  return [
+    d.serialNo,
+    d.pickupDate || "-",
+    d.pickupTime || "-",
+    d.returnDate,
+    d.returnTime,
+    d.totalDressesDelivered,
+  ];
 }
 
 export function returnSlipBodyParams(d: ReturnSlipDetailFields): string[] {
   return [d.customerName];
 }
 
+/** v4 = Dear name only; v3 = serial + return date/time + total dresses. */
+export function returnSlipBodyParamsForTemplate(
+  templateName: string,
+  d: ReturnSlipDetailFields & {
+    serialNo: string;
+    returnDate: string;
+    returnTime: string;
+    totalDresses: string;
+  },
+): string[] {
+  const name = templateName.toLowerCase();
+  if (name.includes("v4")) return returnSlipBodyParams(d);
+  return [d.serialNo, d.returnDate, d.returnTime, d.totalDresses];
+}
+
 export function incompleteSlipBodyParams(d: IncompleteSlipDetailFields): string[] {
   return [d.customerName, d.serialNo, d.returnDate, d.itemsPending];
+}
+
+/** v4 includes Dear name; v3 is serial + return date + pending count. */
+export function incompleteSlipBodyParamsForTemplate(
+  templateName: string,
+  d: IncompleteSlipDetailFields,
+): string[] {
+  const name = templateName.toLowerCase();
+  if (name.includes("v4")) return incompleteSlipBodyParams(d);
+  return [d.serialNo, d.returnDate, d.itemsPending];
 }

@@ -40,6 +40,7 @@ import {
 } from "./bookingBillTemplate";
 import {
   isSlipTemplateApproved,
+  resolveApprovedSlipDocumentTemplate,
   sendDocumentSlipTemplate,
   sendTextSlipTemplate,
   sendUrlSlipTemplate,
@@ -50,11 +51,11 @@ import {
   buildDeliverySlipCaption,
   buildIncompleteSlipCaption,
   buildReturnSlipCaption,
-  deliverySlipBodyParams,
+  deliverySlipBodyParamsForTemplate,
   deliverySlipDetailsFromBooking,
-  incompleteSlipBodyParams,
+  incompleteSlipBodyParamsForTemplate,
   incompleteSlipDetailsFromBooking,
-  returnSlipBodyParams,
+  returnSlipBodyParamsForTemplate,
   returnSlipDetailsFromBooking,
   SLIP_WA_CONTACT_LINE,
 } from "./slipMessageCopy";
@@ -287,11 +288,32 @@ export async function sendBookingBillWhatsApp(
   const sessionOpen = await isWhatsAppSessionOpen(phoneRaw);
   const templateReady = templateStatus.ready && templateStatus.kind === "document";
 
-  // Prefer attaching the PDF file. Never use the legacy ngrok URL-button template.
+  // Prefer free-form PDF while the 24h session is open (current caption).
+  // Cold sends use the APPROVED DOCUMENT template (v3/v2/pdf fallbacks).
   let usedTemplate = false;
   let docResult;
 
-  if (templateReady) {
+  if (sessionOpen) {
+    docResult = await sendWhatsAppDocumentByMediaId(
+      phoneRaw,
+      uploaded.mediaId,
+      filename,
+      caption,
+    );
+    if (!docResult.ok && templateReady) {
+      usedTemplate = true;
+      docResult = await sendBookingBillViaTemplate({
+        phone: phoneRaw,
+        mediaId: uploaded.mediaId,
+        filename,
+        details,
+        publicBookingId,
+        kind: "document",
+        language: templateStatus.language,
+        templateName: templateStatus.name,
+      });
+    }
+  } else if (templateReady) {
     usedTemplate = true;
     docResult = await sendBookingBillViaTemplate({
       phone: phoneRaw,
@@ -303,31 +325,13 @@ export async function sendBookingBillWhatsApp(
       language: templateStatus.language,
       templateName: templateStatus.name,
     });
-
-    // Template rejected but customer already messaged → free-form PDF.
-    if (!docResult.ok && sessionOpen) {
-      usedTemplate = false;
-      docResult = await sendWhatsAppDocumentByMediaId(
-        phoneRaw,
-        uploaded.mediaId,
-        filename,
-        caption,
-      );
-    }
-  } else if (sessionOpen) {
-    docResult = await sendWhatsAppDocumentByMediaId(
-      phoneRaw,
-      uploaded.mediaId,
-      filename,
-      caption,
-    );
   } else {
     const err =
       templateStatus.error ||
       `WhatsApp DOCUMENT template "${templateStatus.name}" is not APPROVED yet ` +
         `(status: ${templateStatus.status ?? "missing"}). ` +
         `Cold sends need an approved PDF (DOCUMENT) template — not the URL/link template. ` +
-        `Ask the customer to send Hi, then resend the bill, or wait for Meta approval of "booking_slip_pdf".`;
+        `Ask the customer to send Hi, then resend the bill, or wait for Meta approval of "booking_slip_v3".`;
     docResult = { ok: false as const, error: err };
   }
 
@@ -706,10 +710,15 @@ async function sendSlipDocument(opts: {
   templateKey: string;
   customerName: string;
   publicBookingId: string;
-  bodyParams: string[];
+  /** Build Meta body params for the resolved APPROVED template name. */
+  bodyParamsForTemplate: (templateName: string) => string[];
 }): Promise<WhatsAppSendOutcome> {
-  const templateReady = await isSlipTemplateApproved(opts.templateKey);
+  const approved = await resolveApprovedSlipDocumentTemplate(opts.templateKey);
+  const templateReady = Boolean(approved);
   const sessionOpen = await isWhatsAppSessionOpen(opts.phoneRaw);
+  const bodyParams = opts.bodyParamsForTemplate(
+    approved?.name || opts.templateKey,
+  );
 
   let docResult;
   let usedTemplate = false;
@@ -740,24 +749,26 @@ async function sendSlipDocument(opts: {
       opts.filename,
       opts.caption,
     );
-    if (!docResult.ok && templateReady) {
+    if (!docResult.ok && templateReady && approved) {
       usedTemplate = true;
       docResult = await sendDocumentSlipTemplate({
         key: opts.templateKey,
         phone: opts.phoneRaw,
         mediaId: uploaded.mediaId,
         filename: opts.filename,
-        bodyParams: opts.bodyParams,
+        bodyParams,
+        templateName: approved.name,
       });
     }
-  } else if (templateReady) {
+  } else if (templateReady && approved) {
     usedTemplate = true;
     docResult = await sendDocumentSlipTemplate({
       key: opts.templateKey,
       phone: opts.phoneRaw,
       mediaId: uploaded.mediaId,
       filename: opts.filename,
-      bodyParams: opts.bodyParams,
+      bodyParams,
+      templateName: approved.name,
     });
   } else {
     docResult = {
@@ -835,6 +846,7 @@ export async function sendDeliverySlipWhatsApp(
   }
 
   const filename = deliverySlipPdfFilename(publicBookingId, suffix);
+  const bookingDetails = bookingSlipDetailsFromBooking(booking);
   const details = deliverySlipDetailsFromBooking(booking);
   const caption = buildDeliverySlipCaption(details);
 
@@ -848,7 +860,12 @@ export async function sendDeliverySlipWhatsApp(
     templateKey: "delivery_slip",
     customerName: booking.customerName,
     publicBookingId,
-    bodyParams: deliverySlipBodyParams(details),
+    bodyParamsForTemplate: (templateName) =>
+      deliverySlipBodyParamsForTemplate(templateName, {
+        ...details,
+        pickupDate: bookingDetails.pickupDate,
+        pickupTime: bookingDetails.pickupTime,
+      }),
   });
   if (result.ok) {
     const markIds =
@@ -914,6 +931,7 @@ export async function sendPartialReturnSlipWhatsApp(
   }
 
   const filename = returnSlipPdfFilename(publicBookingId, suffix);
+  const bookingDetails = bookingSlipDetailsFromBooking(booking);
   const details = returnSlipDetailsFromBooking(booking);
   const caption = buildReturnSlipCaption(details);
 
@@ -927,7 +945,14 @@ export async function sendPartialReturnSlipWhatsApp(
     templateKey: "return_slip",
     customerName: booking.customerName,
     publicBookingId,
-    bodyParams: returnSlipBodyParams(details),
+    bodyParamsForTemplate: (templateName) =>
+      returnSlipBodyParamsForTemplate(templateName, {
+        ...details,
+        serialNo: bookingDetails.serialNo,
+        returnDate: bookingDetails.returnDate,
+        returnTime: bookingDetails.returnTime,
+        totalDresses: bookingDetails.totalDresses,
+      }),
   });
   if (result.ok) {
     const markIds =
@@ -1018,7 +1043,8 @@ export async function sendIncompleteSlipWhatsApp(
     templateKey: "incomplete_return_slip",
     customerName: booking.customerName,
     publicBookingId,
-    bodyParams: incompleteSlipBodyParams(details),
+    bodyParamsForTemplate: (templateName) =>
+      incompleteSlipBodyParamsForTemplate(templateName, details),
   });
   if (result.ok) {
     await markReturnSlipNotified(ids);

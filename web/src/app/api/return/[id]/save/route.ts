@@ -29,6 +29,7 @@ async function loadBookingItemsBefore(bookingId: number) {
           isDelivered: true,
           isReturned: true,
           isIncompleteReturn: true,
+          isCancelled: true,
         },
       },
     },
@@ -40,6 +41,7 @@ function slipOptsForReturnAction(
   action: string,
   data: {
     booking_item_id?: number;
+    booking_item_ids?: number[];
     items?: IncompleteItemPayload[];
   },
   beforeItems: Awaited<ReturnType<typeof loadBookingItemsBefore>>,
@@ -80,11 +82,17 @@ async function triggerReturnSlipIfNeeded(
   try {
     if (
       action === "mark_item_returned" ||
+      action === "mark_items_returned" ||
       IMMEDIATE_RETURN_SLIP_ACTIONS.has(action)
     ) {
       // Always finalize for full return actions — even if delta IDs are empty
       // (e.g. race), scheduleReturnSlipsForBooking can still pick unsent items.
-      if (!slip.hasWork && action === "mark_item_returned") return;
+      if (
+        !slip.hasWork &&
+        (action === "mark_item_returned" || action === "mark_items_returned")
+      ) {
+        return;
+      }
       await finalizeSlipTrigger(bookingId, "return", baseOpts);
     }
   } catch (e) {
@@ -166,6 +174,9 @@ export async function POST(req: NextRequest, { params }: { params: Promise<{ id:
       String(body.action || ""),
       {
         booking_item_id: body.booking_item_id ? Number(body.booking_item_id) : undefined,
+        booking_item_ids: Array.isArray(body.booking_item_ids)
+          ? body.booking_item_ids.map(Number).filter((n: number) => n > 0)
+          : undefined,
         incomplete_notes: body.incomplete_notes,
         security_held: Number(body.security_held || 0),
         items: Array.isArray(body.items) ? body.items : undefined,
@@ -176,6 +187,9 @@ export async function POST(req: NextRequest, { params }: { params: Promise<{ id:
       action,
       {
         booking_item_id: body.booking_item_id ? Number(body.booking_item_id) : undefined,
+        booking_item_ids: Array.isArray(body.booking_item_ids)
+          ? body.booking_item_ids.map(Number).filter((n: number) => n > 0)
+          : undefined,
         items: Array.isArray(body.items) ? body.items : undefined,
       },
       beforeItems,

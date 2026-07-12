@@ -34,7 +34,9 @@
     "dress:forensic-crossview": "tsx scripts/forensic-cross-view-bridal.ts",
     "dress:eval": "tsx scripts/dress-eval.ts",
     "dress:seed-onion-pairs": "tsx scripts/seed-onion-negative-pair.ts",
-    "deployment:audit": "tsx scripts/deployment-audit.ts"
+    "deployment:audit": "tsx scripts/deployment-audit.ts",
+    "cron:use-hobby": "node scripts/switch-vercel-crons.mjs hobby",
+    "cron:use-pro": "node scripts/switch-vercel-crons.mjs pro"
   },
   "dependencies": {
     "@fortawesome/fontawesome-free": "^7.3.0",
