@@ -19,20 +19,21 @@ const hobbyPath = join(root, "vercel.hobby.json");
 const proPath = join(root, "vercel.pro.json");
 const activePath = join(root, "vercel.json");
 
+// Vercel cron schedules are UTC only — do not include a timezone field.
 const HOBBY_CRONS = [
-  { path: "/api/cron/whatsapp-jobs", schedule: "0 9 * * *", timezone: "Asia/Kolkata" },
-  { path: "/api/cron/late-return-reminders", schedule: "0 10 * * *", timezone: "Asia/Kolkata" },
-  { path: "/api/cron/ai-job-worker", schedule: "0 11 * * *", timezone: "Asia/Kolkata" },
-  { path: "/api/cron/ai-queue-watchdog", schedule: "0 12 * * *", timezone: "Asia/Kolkata" },
-  { path: "/api/cron/dress-checker-repair", schedule: "0 13 * * *", timezone: "Asia/Kolkata" },
+  { path: "/api/cron/whatsapp-jobs", schedule: "0 3 * * *" },
+  { path: "/api/cron/late-return-reminders", schedule: "30 4 * * *" },
+  { path: "/api/cron/ai-job-worker", schedule: "0 5 * * *" },
+  { path: "/api/cron/ai-queue-watchdog", schedule: "0 6 * * *" },
+  { path: "/api/cron/dress-checker-repair", schedule: "0 7 * * *" },
 ];
 
 const PRO_CRONS = [
-  { path: "/api/cron/whatsapp-jobs", schedule: "*/15 * * * *", timezone: "Asia/Kolkata" },
-  { path: "/api/cron/late-return-reminders", schedule: "0 10 * * *", timezone: "Asia/Kolkata" },
-  { path: "/api/cron/ai-job-worker", schedule: "* * * * *", timezone: "Asia/Kolkata" },
-  { path: "/api/cron/ai-queue-watchdog", schedule: "*/5 * * * *", timezone: "Asia/Kolkata" },
-  { path: "/api/cron/dress-checker-repair", schedule: "0 */6 * * *", timezone: "Asia/Kolkata" },
+  { path: "/api/cron/whatsapp-jobs", schedule: "*/15 * * * *" },
+  { path: "/api/cron/late-return-reminders", schedule: "30 4 * * *" },
+  { path: "/api/cron/ai-job-worker", schedule: "* * * * *" },
+  { path: "/api/cron/ai-queue-watchdog", schedule: "*/5 * * * *" },
+  { path: "/api/cron/dress-checker-repair", schedule: "0 */6 * * *" },
 ];
 
 function baseConfig() {
