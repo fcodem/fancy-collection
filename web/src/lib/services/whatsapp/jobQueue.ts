@@ -41,7 +41,7 @@ function outcomeFromSend(
 
 const JOB_TIMEOUT_MS = 120_000;
 /** Recover hung PDF/send jobs quickly — previously 5 min left slips "not sent". */
-const STUCK_PROCESSING_MS = 90_000;
+const STUCK_PROCESSING_MS = 60_000;
 
 function withJobTimeout<T>(promise: Promise<T>, jobId: number, jobType: string): Promise<T> {
   return Promise.race([
@@ -340,7 +340,8 @@ export async function processWhatsAppJobQueue(
 ) {
   await recoverStuckWhatsAppJobs();
 
-  const now = new Date();  const jobs = await prisma.whatsAppJob.findMany({
+  const now = new Date();
+  const primary = await prisma.whatsAppJob.findMany({
     where: {
       status: "pending",
       scheduledAt: { lte: now },
@@ -349,6 +350,22 @@ export async function processWhatsAppJobQueue(
     orderBy: [{ scheduledAt: "asc" }, { id: "asc" }],
     take: limit,
   });
+
+  // When scoped to one booking, also drain other pending jobs (retries / recovered
+  // stuck sends). Without frequent Hobby crons those would sit forever otherwise.
+  let jobs = primary;
+  if (options?.bookingId != null && primary.length < limit) {
+    const extra = await prisma.whatsAppJob.findMany({
+      where: {
+        status: "pending",
+        scheduledAt: { lte: now },
+        NOT: { bookingId: options.bookingId },
+      },
+      orderBy: [{ scheduledAt: "asc" }, { id: "asc" }],
+      take: limit - primary.length,
+    });
+    jobs = [...primary, ...extra];
+  }
 
   const results: Array<{
     jobId: number;

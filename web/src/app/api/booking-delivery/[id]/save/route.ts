@@ -7,6 +7,8 @@ import {
 } from "@/lib/services/whatsapp/slipDebounce";
 import { newlyDeliveredItemIdsFromPayload } from "@/lib/slipDelta";
 
+export const maxDuration = 60;
+
 export async function POST(req: NextRequest, { params }: { params: Promise<{ id: string }> }) {
   const _ct = requireJsonContentType(req);
   if (_ct) return _ct;

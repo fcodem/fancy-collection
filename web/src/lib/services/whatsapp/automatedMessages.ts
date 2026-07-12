@@ -588,6 +588,7 @@ export async function sendReturnReceiptWhatsApp(
   }
 
   const filename = returnReceiptPdfFilename(publicBookingId);
+  const bookingDetails = bookingSlipDetailsFromBooking(booking);
   const details = returnSlipDetailsFromBooking(booking);
   const caption = buildReturnSlipCaption(details);
 
@@ -601,7 +602,14 @@ export async function sendReturnReceiptWhatsApp(
     templateKey: "return_slip",
     customerName: booking.customerName,
     publicBookingId,
-    bodyParams: returnSlipBodyParams(details),
+    bodyParamsForTemplate: (templateName) =>
+      returnSlipBodyParamsForTemplate(templateName, {
+        ...details,
+        serialNo: bookingDetails.serialNo,
+        returnDate: bookingDetails.returnDate,
+        returnTime: bookingDetails.returnTime,
+        totalDresses: bookingDetails.totalDresses,
+      }),
   });
 
   if (!docResult.ok) {
@@ -776,6 +784,25 @@ async function sendSlipDocument(opts: {
       error:
         "WhatsApp session closed and slip template is not APPROVED yet. Ask the customer to send Hi, then resend.",
     };
+  }
+
+  // Session looked open but Meta rejected free-form → retry DOCUMENT template.
+  if (
+    !usedTemplate &&
+    !docResult.ok &&
+    isOutsideCustomerCareWindowError(docResult) &&
+    templateReady &&
+    approved
+  ) {
+    usedTemplate = true;
+    docResult = await sendDocumentSlipTemplate({
+      key: opts.templateKey,
+      phone: opts.phoneRaw,
+      mediaId: uploaded.mediaId,
+      filename: opts.filename,
+      bodyParams,
+      templateName: approved.name,
+    });
   }
 
   await saveWhatsAppOutboundMessage({

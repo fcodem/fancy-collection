@@ -11,6 +11,8 @@ import {
   newlyIncompleteItemIdsFromAction,
 } from "@/lib/slipDelta";
 
+export const maxDuration = 60;
+
 type IncompleteItemPayload = {
   booking_item_id: number;
   is_incomplete: boolean;
