@@ -5,28 +5,23 @@
   "crons": [
     {
       "path": "/api/cron/whatsapp-jobs",
-      "schedule": "*/15 * * * *",
-      "timezone": "Asia/Kolkata"
+      "schedule": "*/15 * * * *"
     },
     {
       "path": "/api/cron/late-return-reminders",
-      "schedule": "0 10 * * *",
-      "timezone": "Asia/Kolkata"
+      "schedule": "30 4 * * *"
     },
     {
       "path": "/api/cron/ai-job-worker",
-      "schedule": "* * * * *",
-      "timezone": "Asia/Kolkata"
+      "schedule": "* * * * *"
     },
     {
       "path": "/api/cron/ai-queue-watchdog",
-      "schedule": "*/5 * * * *",
-      "timezone": "Asia/Kolkata"
+      "schedule": "*/5 * * * *"
     },
     {
       "path": "/api/cron/dress-checker-repair",
-      "schedule": "0 */6 * * *",
-      "timezone": "Asia/Kolkata"
+      "schedule": "0 */6 * * *"
     }
   ]
 }
