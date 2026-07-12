@@ -63,6 +63,8 @@ export type ReturnSlipProps = {
     remaining: number;
     returnCondition?: string;
     notes?: string | null;
+    isCancelled?: boolean;
+    cancelRefunded?: boolean;
   }>;
   orders?: SlipOrderDisplay[];
   qrDataUrl?: string | null;
@@ -365,17 +367,42 @@ export default function ReturnSlip(props: ReturnSlipProps) {
               </thead>
               <tbody>
                 {items.map((item, idx) => {
-                  const normalized = normalizeCondition(item.returnCondition);
-                  const condition = itemReturnCondition({
-                    isIncompleteReturn: normalized !== "good",
-                    itemIncompleteNotes: normalized === "stained" ? "stain" : normalized,
-                  });
+                  const isCancelled = item.isCancelled || item.returnCondition === "cancelled";
+                  const normalized = isCancelled ? "good" : normalizeCondition(item.returnCondition);
+                  const condition = isCancelled
+                    ? "cancelled"
+                    : itemReturnCondition({
+                        isIncompleteReturn: normalized !== "good",
+                        itemIncompleteNotes: normalized === "stained" ? "stain" : normalized,
+                      });
                   const conditionColor =
-                    condition === "good" ? SLIP_SUCCESS : condition === "stained" ? SLIP_AMBER : SLIP_RED;
-                  const conditionBg = condition === "good" ? "#ecf9f0" : condition === "stained" ? "#fff6e8" : "#fff0ef";
+                    condition === "cancelled"
+                      ? SLIP_RED
+                      : condition === "good"
+                        ? SLIP_SUCCESS
+                        : condition === "stained"
+                          ? SLIP_AMBER
+                          : SLIP_RED;
+                  const conditionBg =
+                    condition === "cancelled"
+                      ? "#fff0ef"
+                      : condition === "good"
+                        ? "#ecf9f0"
+                        : condition === "stained"
+                          ? "#fff6e8"
+                          : "#fff0ef";
+                  const conditionLabel =
+                    condition === "cancelled"
+                      ? item.cancelRefunded
+                        ? "Cancelled · Adv refunded"
+                        : "Cancelled · Adv kept"
+                      : condition;
 
                   return (
-                    <tr key={`${item.dressName}-${idx}`} style={{ background: idx % 2 === 0 ? "#fff" : "#fafdfa" }}>
+                    <tr
+                      key={`${item.dressName}-${idx}`}
+                      style={{ background: isCancelled ? "rgba(192,57,43,0.05)" : idx % 2 === 0 ? "#fff" : "#fafdfa" }}
+                    >
                       <td data-label="#" style={{ padding: "9px 10px", fontSize: "clamp(11px, 1.8vw, 13px)" }}>
                         {idx + 1}
                       </td>
@@ -401,10 +428,19 @@ export default function ReturnSlip(props: ReturnSlipProps) {
                             textTransform: "capitalize",
                           }}
                         >
-                          {condition}
+                          {conditionLabel}
                         </span>
                       </td>
-                      <td data-label="Price" style={{ padding: "9px 10px", textAlign: "right", fontWeight: 700, fontSize: "clamp(11px, 1.8vw, 13px)" }}>
+                      <td
+                        data-label="Price"
+                        style={{
+                          padding: "9px 10px",
+                          textAlign: "right",
+                          fontWeight: 700,
+                          fontSize: "clamp(11px, 1.8vw, 13px)",
+                          textDecoration: isCancelled ? "line-through" : undefined,
+                        }}
+                      >
                         {slipRs(item.price)}
                       </td>
                     </tr>

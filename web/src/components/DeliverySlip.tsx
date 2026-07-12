@@ -42,6 +42,9 @@ export type DeliverySlipProps = {
     advance: number;
     remaining: number;
     notes?: string | null;
+    isCancelled?: boolean;
+    cancelRefunded?: boolean;
+    isPendingPickup?: boolean;
   }>;
   orders?: SlipOrderDisplay[];
   qrDataUrl?: string | null;
@@ -250,7 +253,7 @@ export default function DeliverySlip(props: DeliverySlipProps) {
         <div className="no-break" style={{ padding: "0 16px 14px" }}>
           <div style={{ display: "flex", alignItems: "center", gap: 8, marginBottom: 8 }}>
             <div style={{ width: 4, height: 18, background: G, borderRadius: 2 }} />
-            <span style={{ fontSize: 11, fontWeight: 700, color: G, textTransform: "uppercase", letterSpacing: "0.08em" }}>Delivered Items</span>
+            <span style={{ fontSize: 11, fontWeight: 700, color: G, textTransform: "uppercase", letterSpacing: "0.08em" }}>Items</span>
           </div>
           <div style={{ borderRadius: 8, overflow: "hidden", border: `1px solid ${BORDER}` }}>
             <div style={{
@@ -265,11 +268,34 @@ export default function DeliverySlip(props: DeliverySlipProps) {
             {items.map((item, i) => (
               <div key={i} style={{
                 display: "grid", gridTemplateColumns: "28px 1fr 80px 52px 60px 70px 70px 68px",
-                background: i % 2 === 0 ? "#fff" : "#f9fbf9",
+                background: item.isCancelled
+                  ? "rgba(192,57,43,0.06)"
+                  : item.isPendingPickup
+                    ? "rgba(217,119,6,0.06)"
+                    : i % 2 === 0 ? "#fff" : "#f9fbf9",
                 borderBottom: "1px solid #e8f0e8", padding: "7px 10px", gap: 4, alignItems: "center", fontSize: 12,
+                opacity: item.isCancelled || item.isPendingPickup ? 0.9 : 1,
               }}>
-                <div style={{ width: 20, height: 20, borderRadius: "50%", background: "#e8e8e8", display: "flex", alignItems: "center", justifyContent: "center", fontSize: 10, color: GREY, fontWeight: 600 }}>{i + 1}</div>
-                <div style={{ fontWeight: 600, overflow: "hidden", textOverflow: "ellipsis", whiteSpace: "nowrap" }}>{item.dressName}</div>
+                <div style={{
+                  width: 20, height: 20, borderRadius: "50%",
+                  background: item.isCancelled ? "#fdecea" : item.isPendingPickup ? "#fff7ed" : "#e8e8e8",
+                  display: "flex", alignItems: "center", justifyContent: "center", fontSize: 10,
+                  color: item.isCancelled ? RED : item.isPendingPickup ? "#c2410c" : GREY,
+                  fontWeight: 600,
+                }}>{i + 1}</div>
+                <div style={{ fontWeight: 600, overflow: "hidden", textOverflow: "ellipsis", whiteSpace: "nowrap" }}>
+                  {item.dressName}
+                  {item.isCancelled && (
+                    <span style={{ marginLeft: 6, fontSize: 9, fontWeight: 800, color: "#fff", background: RED, padding: "2px 6px", borderRadius: 8, letterSpacing: "0.04em" }}>
+                      CANCELLED{item.cancelRefunded ? " · ADV REFUNDED" : " · ADV KEPT"}
+                    </span>
+                  )}
+                  {!item.isCancelled && item.isPendingPickup && (
+                    <span style={{ marginLeft: 6, fontSize: 9, fontWeight: 800, color: "#fff", background: "#c2410c", padding: "2px 6px", borderRadius: 8, letterSpacing: "0.04em" }}>
+                      PENDING PICKUP
+                    </span>
+                  )}
+                </div>
                 <div><span style={{ fontSize: 10, background: "#e8f5e9", color: G, padding: "2px 6px", borderRadius: 10, fontWeight: 600 }}>{item.category || "—"}</span></div>
                 <div><span style={{ fontSize: 10, background: "#f3f4f6", color: GREY, padding: "2px 6px", borderRadius: 10 }}>{item.size || "—"}</span></div>
                 <div style={{ display: "flex", alignItems: "center", gap: 4 }}>
@@ -280,9 +306,11 @@ export default function DeliverySlip(props: DeliverySlipProps) {
                     </>
                   ) : <span style={{ fontSize: 10, color: "#bbb" }}>—</span>}
                 </div>
-                <div style={{ textAlign: "right", fontWeight: 500 }}>{rs(item.price)}</div>
+                <div style={{ textAlign: "right", fontWeight: 500, textDecoration: item.isCancelled || item.isPendingPickup ? "line-through" : undefined }}>{rs(item.price)}</div>
                 <div style={{ textAlign: "right", color: SUCCESS, fontWeight: 500 }}>{rs(item.advance)}</div>
-                <div style={{ textAlign: "right", fontWeight: 600, color: item.remaining > 0 ? "#d97706" : GREY }}>{rs(item.remaining)}</div>
+                <div style={{ textAlign: "right", fontWeight: 600, color: item.isCancelled || item.isPendingPickup ? "#c2410c" : item.remaining > 0 ? "#d97706" : GREY }}>
+                  {item.isCancelled || item.isPendingPickup ? "—" : rs(item.remaining)}
+                </div>
               </div>
             ))}
             <div style={{

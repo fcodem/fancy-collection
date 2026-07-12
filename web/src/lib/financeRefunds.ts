@@ -11,9 +11,13 @@ type BookingWithItems = {
 export async function getRefundsBetween(from: Date, to: Date) {
   return prisma.booking.findMany({
     where: {
-      status: "cancelled",
       refundAmount: { gt: 0 },
       refundedAt: { gte: from, lt: to },
+      OR: [
+        { status: "cancelled" },
+        // Partial dress cancel with advance refunded while booking stays active
+        { bookingItems: { some: { isCancelled: true, cancelRefundAmount: { gt: 0 } } } },
+      ],
     },
     include: { bookingItems: true },
   });

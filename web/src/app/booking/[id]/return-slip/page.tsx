@@ -57,6 +57,7 @@ export default async function ReturnSlipPage({
   }
 
   let slipData;
+  let resolvedActionItemIds: number[] | undefined;
   const bookingItemIds = parseBookingItemIdsParam(itemsParam);
   try {
     if (pdfRender && bookingItemIds?.length) {
@@ -70,15 +71,25 @@ export default async function ReturnSlipPage({
         bookingItemId: bookingItemIds.length === 1 ? bookingItemIds[0] : undefined,
         bookingItemIds,
       });
+      resolvedActionItemIds = bookingItemIds;
     } else if (pdfRender && scopeParam === "combined") {
       slipData = buildReturnSlipData(booking, { scope: "combined" });
     } else if (pdfRender && scopeParam === "full") {
       slipData = buildReturnSlipData(booking, { scope: "full" });
     } else if (pdfRender && scopeParam === "single" && itemParam) {
+      const id = parseInt(itemParam, 10);
       slipData = buildReturnSlipData(booking, {
         scope: "single",
-        bookingItemId: parseInt(itemParam, 10),
+        bookingItemId: id,
       });
+      resolvedActionItemIds = [id];
+    } else if (bookingItemIds?.length) {
+      slipData = buildReturnSlipData(booking, {
+        scope: bookingItemIds.length === 1 ? "single" : "combined",
+        bookingItemId: bookingItemIds.length === 1 ? bookingItemIds[0] : undefined,
+        bookingItemIds,
+      });
+      resolvedActionItemIds = bookingItemIds;
     } else {
       const resolved = resolveReturnSlip(booking, itemParam);
       if (resolved === "invalid") {
@@ -88,6 +99,13 @@ export default async function ReturnSlipPage({
         scope: resolved.scope,
         bookingItemId: resolved.scope === "single" ? resolved.bookingItemId : undefined,
       });
+      if (resolved.scope === "single") {
+        resolvedActionItemIds = [resolved.bookingItemId];
+      } else if (resolved.scope === "combined") {
+        resolvedActionItemIds = booking.bookingItems
+          .filter((bi) => bi.isReturned && !bi.isIncompleteReturn && !bi.isCancelled)
+          .map((bi) => bi.id);
+      }
     }
   } catch {
     redirect(`/return/${bookingId}`);
@@ -98,10 +116,19 @@ export default async function ReturnSlipPage({
   const qrToken = await ensureBookingQrToken(bookingId);
   const qrDataUrl = await bookingQrDataUrl(qrToken, undefined, 280);
 
+  const actionItemIds = resolvedActionItemIds;
+
   return (
     <>
       {pdfRender && <SlipPdfPrintStyles />}
-      {!pdfRender && <ReturnSlipActions bookingId={bookingId} autoPrint={print === "1"} />}
+      {!pdfRender && (
+        <ReturnSlipActions
+          bookingId={bookingId}
+          autoPrint={print === "1"}
+          itemId={actionItemIds?.length === 1 ? actionItemIds[0] : undefined}
+          itemIds={actionItemIds && actionItemIds.length > 1 ? actionItemIds : undefined}
+        />
+      )}
       <div className="slip-page-wrap">
         <ReturnSlip
           booking={slipBooking}

@@ -337,6 +337,10 @@ model BookingItem {
   itemSecurityHeld       Float   @default(0) @map("item_security_held")
   deliverySlipNotifiedAt DateTime? @map("delivery_slip_notified_at")
   returnSlipNotifiedAt   DateTime? @map("return_slip_notified_at")
+  isCancelled            Boolean   @default(false) @map("is_cancelled")
+  cancelledAt            DateTime? @map("cancelled_at")
+  /** >0 = advance refunded on cancel; 0 = advance retained (not refunded). */
+  cancelRefundAmount     Float     @default(0) @map("cancel_refund_amount")
 
   booking Booking      @relation(fields: [bookingId], references: [id], onDelete: Cascade)
   item    ClothingItem? @relation(fields: [itemId], references: [id], onDelete: SetNull)

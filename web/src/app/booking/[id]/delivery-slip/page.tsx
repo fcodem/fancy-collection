@@ -79,6 +79,12 @@ export default async function DeliverySlipPage({
       slipData = buildDeliverySlipData(booking, {
         bookingItemId: parseInt(itemParam, 10),
       });
+    } else if (bookingItemIds?.length) {
+      slipData = buildDeliverySlipData(booking, {
+        scope: bookingItemIds.length === 1 ? "single" : "combined",
+        bookingItemId: bookingItemIds.length === 1 ? bookingItemIds[0] : undefined,
+        bookingItemIds,
+      });
     } else {
       const slipItemId = resolveDeliverySlipItemId(booking, itemParam);
       if (slipItemId === "pick") {

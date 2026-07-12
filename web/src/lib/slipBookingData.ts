@@ -62,6 +62,8 @@ type BookingWithItems = {
     remaining: number;
     notes: string | null;
     isDelivered?: boolean;
+    isCancelled?: boolean;
+    cancelRefundAmount?: number;
     isIncompleteReturn: boolean;
     isReturned: boolean;
     itemIncompleteNotes: string | null;
@@ -144,6 +146,9 @@ function mapSlipItem(bi: BookingWithItems["bookingItems"][number]) {
     advance: bi.advance,
     remaining: bi.remaining,
     notes: bi.notes,
+    isCancelled: Boolean(bi.isCancelled),
+    cancelRefunded: Boolean(bi.isCancelled && (bi.cancelRefundAmount || 0) > 0),
+    isPendingPickup: Boolean(!bi.isDelivered && !bi.isCancelled),
   };
 }
 
@@ -158,7 +163,10 @@ export function buildDeliverySlipData(
 } {
   const publicId = resolvePublicBookingId(booking);
   const allItems = booking.bookingItems ?? [];
-  const deliveredItems = allItems.filter((bi) => bi.isDelivered);
+  const activeItems = allItems.filter((bi) => !bi.isCancelled);
+  const cancelledItems = allItems.filter((bi) => bi.isCancelled);
+  const deliveredItems = activeItems.filter((bi) => bi.isDelivered);
+  const pendingPickupItems = activeItems.filter((bi) => !bi.isDelivered);
 
   const deltaItems =
     opts?.bookingItemIds?.length
@@ -168,7 +176,7 @@ export function buildDeliverySlipData(
         : null;
 
   const allDelivered =
-    allItems.length > 0 && deliveredItems.length === allItems.length;
+    activeItems.length > 0 && deliveredItems.length === activeItems.length;
   const useFullSlip =
     opts?.scope === "full" ||
     (!opts?.scope &&
@@ -192,7 +200,7 @@ export function buildDeliverySlipData(
   if (useFullSlip) {
     sourceItems =
       allItems.length > 0
-        ? allItems
+        ? [...deliveredItems, ...pendingPickupItems, ...cancelledItems]
         : booking.dressName
           ? []
           : [];
@@ -257,9 +265,16 @@ export function buildDeliverySlipData(
     }`;
   }
 
+  // Always surface pending-pickup + cancelled dresses on the slip (not in money totals for partial).
+  const displayItems = [
+    ...sourceItems,
+    ...pendingPickupItems.filter((p) => !sourceItems.some((s) => s.id != null && s.id === p.id)),
+    ...cancelledItems.filter((c) => !sourceItems.some((s) => s.id != null && s.id === c.id)),
+  ];
+
   const items =
-    sourceItems.length > 0
-      ? sourceItems.map(mapSlipItem)
+    displayItems.length > 0
+      ? displayItems.map(mapSlipItem)
       : booking.dressName
         ? [
             {
@@ -323,8 +338,10 @@ function mapReturnSlipItem(bi: BookingWithItems["bookingItems"][number]) {
     price: bi.price,
     advance: bi.advance,
     remaining: bi.remaining,
-    returnCondition: itemReturnCondition(bi) as string,
+    returnCondition: bi.isCancelled ? "cancelled" : (itemReturnCondition(bi) as string),
     notes: bi.notes,
+    isCancelled: Boolean(bi.isCancelled),
+    cancelRefunded: Boolean(bi.isCancelled && (bi.cancelRefundAmount || 0) > 0),
   };
 }
 
@@ -339,8 +356,10 @@ export function buildReturnSlipData(
 } {
   const publicId = resolvePublicBookingId(booking);
   const allItems = booking.bookingItems ?? [];
-  const deliveredItems = allItems.filter((bi) => bi.isDelivered);
-  const returnedItems = allItems.filter((bi) => bi.isReturned && !bi.isIncompleteReturn);
+  const activeItems = allItems.filter((bi) => !bi.isCancelled);
+  const cancelledItems = allItems.filter((bi) => bi.isCancelled);
+  const deliveredItems = activeItems.filter((bi) => bi.isDelivered);
+  const returnedItems = activeItems.filter((bi) => bi.isReturned && !bi.isIncompleteReturn);
 
   const deltaItems =
     opts?.bookingItemIds?.length
@@ -350,7 +369,9 @@ export function buildReturnSlipData(
         : null;
 
   const allReturned =
-    deliveredItems.length > 0 && returnedItems.length === deliveredItems.length;
+    deliveredItems.length > 0 &&
+    returnedItems.length === deliveredItems.length &&
+    activeItems.every((bi) => bi.isDelivered);
   const useFullSlip =
     opts?.scope === "full" ||
     (!opts?.scope &&
@@ -478,6 +499,11 @@ export function buildReturnSlipData(
   const actual = formatSlipDateTime(returnedAt);
   const late = isLateReturn(returnedAt, booking.returnDate);
 
+  const displayItems = [
+    ...sourceItems,
+    ...cancelledItems.filter((c) => !sourceItems.some((s) => s.id != null && s.id === c.id)),
+  ];
+
   return {
     slipSubtitle,
     booking: {
@@ -510,7 +536,7 @@ export function buildReturnSlipData(
       createdAt: booking.createdAt.toISOString(),
       isLateReturn: late,
     },
-    items: sourceItems.map(mapReturnSlipItem),
+    items: displayItems.map(mapReturnSlipItem),
     orders: activeSlipOrders(booking),
   };
 }

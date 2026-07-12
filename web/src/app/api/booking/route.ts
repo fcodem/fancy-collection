@@ -9,6 +9,8 @@ import {
 import { BookingFormSchema } from "@/lib/validation";
 import { catalogPhotoRef } from "@/lib/catalogPhotoRef";
 
+export const maxDuration = 60;
+
 export async function POST(req: NextRequest) {
   const _ct = requireJsonContentType(req);
   if (_ct) return _ct;
