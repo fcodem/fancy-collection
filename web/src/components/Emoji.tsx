@@ -4,7 +4,14 @@ import twemoji from "twemoji";
 
 const TWEMOJI_BASE = "/emoji/";
 
-const twemojiOptions: twemoji.ParseOptions = {
+type TwemojiParseOptions = {
+  folder: string;
+  ext: string;
+  base: string;
+  callback: (icon: string, opts: { base: string; ext: string }) => string;
+};
+
+const twemojiOptions: TwemojiParseOptions = {
   folder: "svg",
   ext: ".svg",
   base: TWEMOJI_BASE,
@@ -19,7 +26,7 @@ type EmojiProps = {
 
 /** Inline Twemoji image for reliable PDF rendering on serverless Chromium. */
 export default function Emoji({ char, className, style }: EmojiProps) {
-  const html = twemoji.parse(char, twemojiOptions);
+  const html = twemoji.parse(char, twemojiOptions as never);
   return (
     <span
       className={className ? `slip-emoji ${className}` : "slip-emoji"}

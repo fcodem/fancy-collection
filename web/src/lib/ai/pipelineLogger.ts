@@ -2,6 +2,7 @@ import prisma from "@/lib/prisma";
 
 export type PipelineStage =
   | "pipeline_started"
+  | "pipeline_skipped"
   | "image_loaded"
   | "calling_openai"
   | "openai_response_received"

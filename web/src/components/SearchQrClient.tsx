@@ -7,6 +7,7 @@ import { useMounted } from "@/lib/useMounted";
 import { BRAND_FULL_NAME } from "@/lib/branding";
 import {
   bookingQrNavigatePath,
+  isAbortError,
   parseQrScanPayload,
 } from "@/lib/bookingQrClient";
 import {

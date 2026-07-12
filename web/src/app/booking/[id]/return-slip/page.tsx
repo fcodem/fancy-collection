@@ -125,8 +125,6 @@ export default async function ReturnSlipPage({
         <ReturnSlipActions
           bookingId={bookingId}
           autoPrint={print === "1"}
-          itemId={actionItemIds?.length === 1 ? actionItemIds[0] : undefined}
-          itemIds={actionItemIds && actionItemIds.length > 1 ? actionItemIds : undefined}
         />
       )}
       <div className="slip-page-wrap">

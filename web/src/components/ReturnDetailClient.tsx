@@ -219,8 +219,10 @@ export default function ReturnDetailClient({
       remaining: scopedTotalRemaining,
       dressName: deliveredItems.map((d) => d.dressName).join(", "),
       bookingItems: (
-        (booking as BookingForStandardDetails & { bookingItems?: Array<{ id?: number }> }).bookingItems || []
-      ).filter((bi) => bi.id != null && deliveredIdSet.has(bi.id)),
+        ((booking as { bookingItems?: Array<{ id?: number }> }).bookingItems || []).filter(
+          (bi) => typeof bi.id === "number" && deliveredIdSet.has(bi.id),
+        ) as Array<{ id: number }>
+      ),
     };
   }, [
     booking,
@@ -737,7 +739,7 @@ export default function ReturnDetailClient({
         </div>
         <div className="card-body">
           <BookingRecordDetails
-            booking={returnRecordBooking}
+            booking={returnRecordBooking as BookingForStandardDetails}
             items={billingItems}
             remainingCollected={collectedAtDelivery}
             warningItems={warningItems.length > 1 ? warningItems : undefined}

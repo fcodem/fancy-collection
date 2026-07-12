@@ -12,7 +12,8 @@ export function startDevCron() {
   console.log("[devCron] AI job drain cron started (every 1 min)");
   console.log("[devCron] AI queue watchdog started (every 5 min)");
 
-  const headers = secret ? { authorization: `Bearer ${secret}` } : {};
+  const headers = new Headers();
+  if (secret) headers.set("authorization", `Bearer ${secret}`);
 
   setInterval(async () => {
     try {
