@@ -4,42 +4,9 @@
  * when DIRECT_URL is not set — prevents 45-minute migrate hangs and missing-env fails.
  */
 import { spawnSync } from "child_process";
+import { ensureDirectUrl } from "./ensure-direct-url.mjs";
 
-function deriveDirectUrl(databaseUrl) {
-  let direct = databaseUrl.replace(/:6543\b/g, ":5432");
-  direct = direct
-    .replace(/([?&])pgbouncer=true&?/gi, "$1")
-    .replace(/([?&])connection_limit=\d+&?/gi, "$1")
-    .replace(/\?&/g, "?")
-    .replace(/[?&]$/g, "")
-    .replace(/\?$/g, "");
-  if (!/[?&]sslmode=/i.test(direct)) {
-    direct += (direct.includes("?") ? "&" : "?") + "sslmode=require";
-  }
-  return direct;
-}
-
-function ensureDirectUrl() {
-  if (process.env.DIRECT_URL?.trim()) {
-    console.log("[vercel-build] DIRECT_URL is set");
-    return;
-  }
-  const databaseUrl = process.env.DATABASE_URL?.trim();
-  if (!databaseUrl) {
-    console.error("[vercel-build] DATABASE_URL is missing");
-    process.exit(1);
-  }
-  if (!databaseUrl.startsWith("postgresql://") && !databaseUrl.startsWith("postgres://")) {
-    console.error(
-      "[vercel-build] DATABASE_URL must start with postgresql:// — check Vercel env value (no quotes, no DATABASE_URL= prefix)",
-    );
-    process.exit(1);
-  }
-  process.env.DIRECT_URL = deriveDirectUrl(databaseUrl);
-  console.log(
-    "[vercel-build] derived DIRECT_URL from DATABASE_URL (Session pooler port 5432 for migrations)",
-  );
-}
+ensureDirectUrl({ label: "vercel-build" });
 
 function run(label, command, args) {
   console.log(`[vercel-build] ${label}…`);
@@ -53,8 +20,6 @@ function run(label, command, args) {
     process.exit(result.status ?? 1);
   }
 }
-
-ensureDirectUrl();
 
 const migrateTimeoutMs = Number(process.env.PRISMA_MIGRATE_TIMEOUT_MS || 120_000);
 run("prisma generate", "npx", ["prisma", "generate"]);

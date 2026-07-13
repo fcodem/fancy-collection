@@ -14,7 +14,7 @@
     "lint": "next lint",
     "test": "tsx --test src/**/*.test.ts",
     "typecheck": "tsc --noEmit",
-    "postinstall": "prisma generate && node scripts/copy-assets.mjs",
+    "postinstall": "node scripts/prisma-postinstall.mjs",
     "db:push": "prisma db push",
     "db:seed": "tsx prisma/seed.ts",
     "db:reset-owner": "tsx scripts/reset-owner.ts",
