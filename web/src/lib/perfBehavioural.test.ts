@@ -164,14 +164,31 @@ describe("booking create isolation", () => {
     assert.equal(isPrismaClientRequestIdConflict({ code: "P2003" }), false);
   });
 
-  it("sequential retry of same client_request_id returns existing booking once", async () => {
-    const store = createAtomicClientRequestStore({ concurrentBarrier: false });
+  it("sequential retry of same client_request_id skips createBooking via pre-check", async () => {
     const key = "11111111-1111-4111-8111-111111111111";
+    const store = new Map<string, { id: number; monthlySerial: number }>();
+    let createCalls = 0;
+    let whatsappCalls = 0;
+    let activityCalls = 0;
+
     const deps = {
-      createBooking: store.createBooking,
-      scheduleBookingBill: store.scheduleBookingBill,
+      createBooking: async () => {
+        createCalls += 1;
+        if (createCalls > 1) {
+          throw new Error(
+            "createBooking must not run for a sequential retry because real availability validation could reject it",
+          );
+        }
+        activityCalls += 1;
+        const row = { id: 101, monthlySerial: 12 };
+        store.set(key, row);
+        return row;
+      },
+      scheduleBookingBill: async () => {
+        whatsappCalls += 1;
+      },
       processWhatsAppJobQueue: async () => ({ processed: 0 }),
-      findByClientRequestId: store.findByClientRequestId,
+      findByClientRequestId: async (k: string) => store.get(k) ?? null,
       after: () => {},
     };
     const user = { id: 1, username: "owner" };
@@ -180,12 +197,48 @@ describe("booking create isolation", () => {
     const first = await createBookingWithSideEffectsCore(payload, user, deps);
     const second = await createBookingWithSideEffectsCore(payload, user, deps);
 
+    assert.equal(first.id, 101);
+    assert.equal(second.id, 101);
     assert.equal(first.id, second.id);
     assert.equal(first.reused, false);
     assert.equal(second.reused, true);
-    assert.equal(store.bookings.length, 1, "exactly one booking row after sequential retry");
-    assert.equal(store.whatsappJobs.length, 1, "WhatsApp bill scheduled only for first create");
-    assert.equal(store.activities.length, 1);
+    assert.equal(createCalls, 1, "createBooking called exactly once");
+    assert.equal(whatsappCalls, 1, "WhatsApp scheduled exactly once");
+    assert.equal(activityCalls, 1, "no second activity/txn path on retry");
+  });
+
+  it("lost-response retry returns existing booking without side effects", async () => {
+    const key = "33333333-3333-4333-8333-333333333333";
+    // First booking already committed; browser lost the response and retries same UUID.
+    const existing = { id: 77, monthlySerial: 9 };
+    const store = new Map<string, { id: number; monthlySerial: number }>([[key, existing]]);
+    let createCalls = 0;
+    let whatsappCalls = 0;
+
+    const result = await createBookingWithSideEffectsCore(
+      { ...sampleInput, client_request_id: key },
+      { id: 1, username: "owner" },
+      {
+        createBooking: async () => {
+          createCalls += 1;
+          throw new Error(
+            "createBooking must not run for a sequential retry because real availability validation could reject it",
+          );
+        },
+        scheduleBookingBill: async () => {
+          whatsappCalls += 1;
+        },
+        processWhatsAppJobQueue: async () => ({ processed: 0 }),
+        findByClientRequestId: async (k: string) => store.get(k) ?? null,
+        after: () => {},
+      },
+    );
+
+    assert.equal(result.id, 77);
+    assert.equal(result.serial, 9);
+    assert.equal(result.reused, true);
+    assert.equal(createCalls, 0);
+    assert.equal(whatsappCalls, 0);
   });
 
   it("simultaneous client_request_id creates exactly one booking and one WhatsApp job", async () => {

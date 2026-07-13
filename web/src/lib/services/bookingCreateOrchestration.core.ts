@@ -1,6 +1,10 @@
 /**
  * Pure booking create orchestration — no Prisma / server-only imports.
- * Atomically relies on unique client_request_id inside createBooking's DB transaction.
+ *
+ * Sequential retries: look up client_request_id before createBooking so dress
+ * conflict validation is not re-run after a lost response.
+ * Simultaneous races: unique client_request_id inside createBooking's transaction
+ * + P2002 recovery; WhatsApp/PDF only for the actual create winner.
  */
 
 export type BookingCreateResult = {
@@ -28,7 +32,7 @@ export type BookingCreateCoreDeps = {
     limit?: number,
     opts?: { bookingId?: number },
   ) => Promise<unknown>;
-  /** Lookup winner when createBooking throws unique-constraint on client_request_id. */
+  /** Lookup by client_request_id (pre-create sequential retry + P2002 recovery). */
   findByClientRequestId: (key: string) => Promise<{ id: number; monthlySerial: number } | null>;
   after: (fn: () => void | Promise<void>) => void;
   isClientRequestIdConflict?: (err: unknown) => boolean;
@@ -54,6 +58,18 @@ export async function createBookingWithSideEffectsCore(
   const key = typeof input.client_request_id === "string" ? input.client_request_id.trim() : "";
   const detectConflict = d.isClientRequestIdConflict ?? isPrismaClientRequestIdConflict;
 
+  // Sequential retry / lost-response: reuse before createBooking (availability checks).
+  if (key) {
+    const existing = await d.findByClientRequestId(key);
+    if (existing) {
+      return {
+        id: existing.id,
+        serial: existing.monthlySerial,
+        reused: true,
+      };
+    }
+  }
+
   let booking: { id: number; monthlySerial: number };
   try {
     booking = await d.createBooking(input, user.username);
@@ -61,7 +77,7 @@ export async function createBookingWithSideEffectsCore(
     if (key && detectConflict(e)) {
       const existing = await d.findByClientRequestId(key);
       if (existing) {
-        // Losing transaction was rolled back by the DB — do not schedule WhatsApp/PDF.
+        // Losing race txn rolled back by DB — do not schedule WhatsApp/PDF.
         return { id: existing.id, serial: existing.monthlySerial, reused: true };
       }
     }
