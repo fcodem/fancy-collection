@@ -66,10 +66,8 @@ export function endOfMonthQ(d: Date): Date {
 }
 
 /**
- * Tune DATABASE_URL for Vercel/serverless:
- * - connection_limit=1 (one connection per lambda)
- * - pgbouncer=true for Supabase Transaction pooler
- * - short connect/pool timeouts so requests fail fast instead of hanging ~60s
+ * Tune DATABASE_URL for Vercel/serverless + Supabase pooler.
+ * connection_limit must be >1 so Promise.all dashboard queries don't starve the pool.
  */
 export function normalizeDatabaseUrl(raw: string | undefined): string | undefined {
   if (!raw?.trim()) return raw;
@@ -83,10 +81,10 @@ export function normalizeDatabaseUrl(raw: string | undefined): string | undefine
       if (port === "6543" && !parsed.searchParams.has("pgbouncer")) {
         parsed.searchParams.set("pgbouncer", "true");
       }
-      // Always keep serverless pools tiny.
-      parsed.searchParams.set("connection_limit", parsed.searchParams.get("connection_limit") || "1");
-      parsed.searchParams.set("connect_timeout", parsed.searchParams.get("connect_timeout") || "10");
-      parsed.searchParams.set("pool_timeout", parsed.searchParams.get("pool_timeout") || "10");
+      // 5 is enough for dashboard parallelism without exhausting Supabase pooler.
+      parsed.searchParams.set("connection_limit", "5");
+      parsed.searchParams.set("connect_timeout", "15");
+      parsed.searchParams.set("pool_timeout", "30");
       if (!parsed.searchParams.has("sslmode")) {
         parsed.searchParams.set("sslmode", "require");
       }
