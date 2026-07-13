@@ -8,6 +8,10 @@ function isNextBuildPhase(): boolean {
   );
 }
 
+function isVercelRuntime(): boolean {
+  return process.env.VERCEL === "1" || Boolean(process.env.VERCEL_ENV);
+}
+
 export async function register() {
   if (process.env.NEXT_RUNTIME === "nodejs") {
     await import("./sentry.server.config");
@@ -19,6 +23,14 @@ export async function register() {
       return;
     }
 
+    // On Vercel, never await DB/AI startup in register().
+    // A hung Prisma/engine check blocks every serverless cold start (site appears down).
+    // Dress Checker recovery is handled by cron routes instead.
+    if (isVercelRuntime()) {
+      console.log("[startup] Vercel runtime — skipping blocking AI/DB startup checks");
+      return;
+    }
+
     const { startDevCron } = await import("./lib/devCronRunner");
     startDevCron();
 
@@ -26,7 +38,6 @@ export async function register() {
     try {
       await runStartupHealthCheck();
       const { runAiQueueSelfHeal } = await import("./lib/dressChecker/queueSelfHeal");
-      // Light startup recovery — continue interrupted indexing without blocking boot.
       void runAiQueueSelfHeal({
         source: "startup",
         drainLimit: 5,
@@ -35,12 +46,8 @@ export async function register() {
       }).catch((err) => console.warn("[startup] self-heal:", err));
     } catch (err) {
       console.error("[startup] AI deployment safety gate failed:", err);
-      // Soft-fail on Vercel so a missing optional AI dep cannot brick deploy boot.
-      // Set AI_STARTUP_SOFT=0 to enforce hard fail after Dress Checker is fully ready.
       const soft =
-        process.env.AI_STARTUP_SOFT !== "0" ||
-        process.env.VERCEL === "1" ||
-        process.env.NODE_ENV !== "production";
+        process.env.AI_STARTUP_SOFT !== "0" || process.env.NODE_ENV !== "production";
       if (!soft) {
         throw err;
       }
