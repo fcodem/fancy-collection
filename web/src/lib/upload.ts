@@ -17,14 +17,24 @@ function extFromName(name: string) {
 }
 
 async function storeBuffer(bytes: Buffer, relativePath: string): Promise<string> {
-  if (process.env.BLOB_READ_WRITE_TOKEN) {
-    const blob = await put(`uploads/${relativePath}`, bytes, { access: "public" });
-    return blob.url;
+  const token = process.env.BLOB_READ_WRITE_TOKEN?.trim();
+  if (token) {
+    try {
+      const blob = await put(`uploads/${relativePath}`, bytes, {
+        access: "public",
+        token,
+        multipart: bytes.length > 4 * 1024 * 1024,
+      });
+      return blob.url;
+    } catch (e) {
+      const detail = e instanceof Error ? e.message : "Blob upload failed";
+      throw new Error(`Photo upload to Vercel Blob failed: ${detail}`);
+    }
   }
-  if (process.env.NODE_ENV === "production") {
+  if (process.env.VERCEL || process.env.NODE_ENV === "production") {
     throw new Error(
-      "BLOB_READ_WRITE_TOKEN is required in production for photo uploads. " +
-      "Add it in your Vercel environment variables."
+      "Cannot save photo: BLOB_READ_WRITE_TOKEN is missing from this deployment. " +
+        "Vercel → Settings → Environment Variables → add BLOB_READ_WRITE_TOKEN for Production → Redeploy.",
     );
   }
   const dir = join(process.cwd(), "public", "uploads", relativePath.split("/").slice(0, -1).join("/"));
@@ -85,18 +95,42 @@ export async function saveRecognitionBuffer(bytes: Buffer, itemId: number): Prom
 }
 
 /**
- * Save the single inventory photo — preserved original only (one file, one DB field).
+ * Save inventory photo.
+ * On Vercel: never run sharp (OOM kills the serverless function) — store bytes directly to Blob.
+ * Locally: compress with sharp when possible, else raw.
  */
 export async function saveFastInventoryPhoto(file: File): Promise<string> {
-  return saveOriginalUpload(file);
+  const raw = Buffer.from(await file.arrayBuffer());
+  if (!raw.length) throw new Error("Empty photo file.");
+
+  const ext = extFromName(file.name);
+  const outExt = ALLOWED_EXTENSIONS.includes(ext) ? (ext === "jpeg" ? "jpg" : ext) : "jpg";
+  if (!ALLOWED_EXTENSIONS.includes(ext) && !String(file.type || "").startsWith("image/")) {
+    throw new Error("Invalid file type. Use JPG, PNG, or WEBP.");
+  }
+
+  // Vercel serverless: skip sharp entirely — client already compresses large photos.
+  if (process.env.VERCEL) {
+    const path = `${randomUUID().replace(/-/g, "")}.${outExt}`;
+    return storeBuffer(raw, path);
+  }
+
+  try {
+    return await saveCompressedFromBuffer(raw);
+  } catch (e) {
+    console.error("[upload] compress failed, uploading raw bytes:", e instanceof Error ? e.message : e);
+  }
+
+  const path = `${randomUUID().replace(/-/g, "")}.${outExt}`;
+  return storeBuffer(raw, path);
 }
 
 /** Resize, strip metadata, and JPEG-compress before storage. */
 export async function compressImageBuffer(buffer: Buffer): Promise<Buffer> {
-  return sharp(buffer)
+  return sharp(buffer, { failOn: "none", limitInputPixels: 40_000_000 })
     .rotate()
     .resize(MAX_IMAGE_EDGE, MAX_IMAGE_EDGE, { fit: "inside", withoutEnlargement: true })
-    .jpeg({ quality: JPEG_QUALITY, mozjpeg: true })
+    .jpeg({ quality: JPEG_QUALITY, mozjpeg: false })
     .toBuffer();
 }
 
@@ -138,17 +172,5 @@ export async function saveIdProofUpload(file: File): Promise<string> {
   const ext = extFromName(file.name);
   if (!ALLOWED_EXTENSIONS.includes(ext)) throw new Error("Invalid file type");
   const raw = Buffer.from(await file.arrayBuffer());
-  const bytes = await compressImageBuffer(raw);
-  const filename = `id-proofs/${randomUUID().replace(/-/g, "")}.jpg`;
-  if (process.env.BLOB_READ_WRITE_TOKEN) {
-    const blob = await put(`uploads/${filename}`, bytes, { access: "public" });
-    return blob.url;
-  }
-  if (process.env.NODE_ENV === "production") {
-    throw new Error("BLOB_READ_WRITE_TOKEN is required in production.");
-  }
-  const dir = join(process.cwd(), "public", "uploads", "id-proofs");
-  await mkdir(dir, { recursive: true });
-  await writeFile(join(dir, filename), bytes);
-  return filename;
+  return saveCompressedFromBuffer(raw, "id-proofs");
 }
