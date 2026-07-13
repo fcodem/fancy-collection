@@ -1,6 +1,6 @@
 /**
  * Pure booking create orchestration — no Prisma / server-only imports.
- * Used by API routes (with deps) and unit tests (with mocks).
+ * Atomically relies on unique client_request_id inside createBooking's DB transaction.
  */
 
 export type BookingCreateResult = {
@@ -28,10 +28,23 @@ export type BookingCreateCoreDeps = {
     limit?: number,
     opts?: { bookingId?: number },
   ) => Promise<unknown>;
-  findIdempotent: (key: string) => Promise<{ id: number; monthlySerial: number } | null>;
-  saveIdempotent: (key: string, bookingId: number, userId: number) => Promise<void>;
+  /** Lookup winner when createBooking throws unique-constraint on client_request_id. */
+  findByClientRequestId: (key: string) => Promise<{ id: number; monthlySerial: number } | null>;
   after: (fn: () => void | Promise<void>) => void;
+  isClientRequestIdConflict?: (err: unknown) => boolean;
 };
+
+export function isPrismaClientRequestIdConflict(err: unknown): boolean {
+  if (!err || typeof err !== "object") return false;
+  const e = err as { code?: string; meta?: { target?: string[] | string } };
+  if (e.code !== "P2002") return false;
+  const target = e.meta?.target;
+  if (!target) return true; // unique conflict — assume client request when caller expects it
+  const parts = Array.isArray(target) ? target : [String(target)];
+  return parts.some((t) =>
+    /client_request_id|clientRequestId/i.test(String(t)),
+  );
+}
 
 export async function createBookingWithSideEffectsCore(
   input: BookingFormLike,
@@ -39,25 +52,20 @@ export async function createBookingWithSideEffectsCore(
   d: BookingCreateCoreDeps,
 ): Promise<BookingCreateResult> {
   const key = typeof input.client_request_id === "string" ? input.client_request_id.trim() : "";
-  if (key) {
-    const existing = await d.findIdempotent(key);
-    if (existing) {
-      return { id: existing.id, serial: existing.monthlySerial, reused: true };
-    }
-  }
+  const detectConflict = d.isClientRequestIdConflict ?? isPrismaClientRequestIdConflict;
 
-  const booking = await d.createBooking(input, user.username);
-
-  if (key) {
-    try {
-      await d.saveIdempotent(key, booking.id, user.id);
-    } catch (e) {
-      const raced = await d.findIdempotent(key);
-      if (raced) {
-        return { id: raced.id, serial: raced.monthlySerial, reused: true };
+  let booking: { id: number; monthlySerial: number };
+  try {
+    booking = await d.createBooking(input, user.username);
+  } catch (e) {
+    if (key && detectConflict(e)) {
+      const existing = await d.findByClientRequestId(key);
+      if (existing) {
+        // Losing transaction was rolled back by the DB — do not schedule WhatsApp/PDF.
+        return { id: existing.id, serial: existing.monthlySerial, reused: true };
       }
-      console.error("[booking] idempotency key save failed:", e);
     }
+    throw e;
   }
 
   try {

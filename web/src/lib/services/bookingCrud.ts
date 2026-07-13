@@ -49,6 +49,8 @@ export type BookingFormInput = {
   payment_mode?: "cash" | "online";
   items: BookingItemInput[];
   orders?: BookingOrderInput[];
+  /** Opaque client UUID — stored uniquely so duplicate submits reuse one booking. */
+  client_request_id?: string;
 };
 
 type ItemToBook = {
@@ -136,6 +138,9 @@ export async function createBooking(input: BookingFormInput, by?: string) {
         price: totalPrice,
         advance: totalAdvance,
         remaining: totalRemaining,
+        ...(input.client_request_id?.trim()
+          ? { clientRequestId: input.client_request_id.trim() }
+          : {}),
       },
     });
 

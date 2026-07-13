@@ -294,7 +294,8 @@ model Booking {
   whatsappSentAt     DateTime? @map("whatsapp_sent_at")
   whatsappError      String?   @map("whatsapp_error")
   lateReminderSentAt DateTime? @map("late_reminder_sent_at")
-  idempotencyKey     BookingIdempotencyKey?
+  /** Client UUID for create-once booking submits (double-click / retry safe). */
+  clientRequestId    String?   @unique @map("client_request_id") @db.VarChar(64)
 
   legacyItem            ClothingItem?          @relation("LegacyBookingItem", fields: [itemId], references: [id], onDelete: SetNull)
   bookingItems          BookingItem[]
@@ -315,19 +316,6 @@ model Booking {
   @@index([createdAt])
   @@index([customerName, deliveryDate])
   @@map("bookings")
-}
-
-/// Client-generated UUID for creating bookings exactly once (double-click / retry safe).
-model BookingIdempotencyKey {
-  key       String   @id @db.VarChar(64)
-  bookingId Int      @unique @map("booking_id")
-  userId    Int      @map("user_id")
-  createdAt DateTime @default(now()) @map("created_at")
-
-  booking Booking @relation(fields: [bookingId], references: [id], onDelete: Cascade)
-
-  @@index([userId, createdAt])
-  @@map("booking_idempotency_keys")
 }
 
 model BookingItem {

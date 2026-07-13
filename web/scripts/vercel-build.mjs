@@ -1,6 +1,10 @@
 /**
- * Vercel build: generate Prisma client → optional migrate → next build.
- * Migrate / owner-seed must NEVER fail the deploy (common Preview/pooler issues).
+ * Vercel build: generate Prisma client → migrate (required when DB configured) → next build.
+ *
+ * Preview/Production MUST have real DATABASE_URL + DIRECT_URL (preferably a separate
+ * Supabase preview/test project — never the live business DB for Preview).
+ * Missing DB credentials or failed migrate must fail the build so the preview
+ * cannot appear healthy without the required schema (e.g. booking client_request_id).
  */
 import { spawnSync } from "child_process";
 import { existsSync } from "fs";
@@ -70,17 +74,32 @@ function extractFailedMigrationNames(text) {
   return [...names];
 }
 
+function failMigrate(reason) {
+  console.error(`[vercel-build] BLOCKED: ${reason}`);
+  console.error(
+    "[vercel-build] Preview/Production must set DATABASE_URL and DIRECT_URL " +
+      "(recommend a separate Supabase preview/test database — not the live business DB). " +
+      "Do not claim this deployment is testable until migrate deploy succeeds.",
+  );
+  process.exit(1);
+}
+
 // --- Env bootstrap ---
 log(`node=${process.version} vercel=${process.env.VERCEL || "0"} env=${process.env.VERCEL_ENV || "local"}`);
 
-if (!process.env.DATABASE_URL?.trim()) {
+const isVercel = process.env.VERCEL === "1";
+const vercelEnv = process.env.VERCEL_ENV || "";
+const isDeployTarget = vercelEnv === "preview" || vercelEnv === "production";
+const rawDatabaseUrl = process.env.DATABASE_URL?.trim() || "";
+const isPlaceholderUrl =
+  !rawDatabaseUrl || rawDatabaseUrl.includes("127.0.0.1:5432/build");
+
+if (!rawDatabaseUrl) {
   const placeholder = "postgresql://build:build@127.0.0.1:5432/build?sslmode=disable";
   process.env.DATABASE_URL = placeholder;
-  process.env.DIRECT_URL = placeholder;
+  process.env.DIRECT_URL = process.env.DIRECT_URL || placeholder;
   console.warn(
-    "[vercel-build] DATABASE_URL is missing in this Vercel environment. " +
-      "Using a build placeholder so `prisma generate` + `next build` can finish. " +
-      "Set DATABASE_URL (and DIRECT_URL) for Production AND Preview, then redeploy.",
+    "[vercel-build] DATABASE_URL is missing. Using a local-only placeholder for prisma generate.",
   );
 } else {
   // Rewrites db.*.supabase.co DIRECT_URL → Session pooler when DATABASE_URL is pooler.
@@ -95,24 +114,42 @@ if (process.env.DIRECT_URL && /@db\.[a-z0-9]+\.supabase\.co:/i.test(process.env.
   );
 }
 
+// On Vercel Preview/Production, missing DB credentials must not yield a "healthy" build
+// without the required bookings.client_request_id migration.
+if (isVercel && isDeployTarget && isPlaceholderUrl) {
+  failMigrate(
+    "DATABASE_URL is missing or is a build placeholder in this Vercel environment. " +
+      "Required migration (booking client_request_id) cannot be applied.",
+  );
+}
+
 // --- Prisma generate (required) ---
 const prismaBin = bin("prisma");
 run("prisma generate", prismaBin, ["generate"]);
 
-// --- Migrate (optional — never fail deploy) ---
+// --- Migrate (required when a real database is configured) ---
 if (process.env.SKIP_PRISMA_MIGRATE === "1") {
+  if (isVercel && isDeployTarget && process.env.ALLOW_SKIP_MIGRATE !== "1") {
+    failMigrate(
+      "SKIP_PRISMA_MIGRATE=1 is not allowed on Preview/Production without ALLOW_SKIP_MIGRATE=1 " +
+        "(idempotency schema must be applied).",
+    );
+  }
   log("SKIP_PRISMA_MIGRATE=1 — skipping migrate deploy");
-} else if (process.env.DATABASE_URL?.includes("127.0.0.1:5432/build")) {
-  log("placeholder DATABASE_URL — skipping migrate deploy");
+} else if (isPlaceholderUrl) {
+  if (isVercel && isDeployTarget) {
+    failMigrate("placeholder DATABASE_URL — cannot migrate or verify idempotency schema");
+  }
+  log("placeholder DATABASE_URL — skipping migrate deploy (local/non-deploy only)");
 } else {
   const migrateTimeoutMs = Number(process.env.PRISMA_MIGRATE_TIMEOUT_MS || 90_000);
-  log(`prisma migrate deploy (timeout ${migrateTimeoutMs / 1000}s, non-blocking)…`);
+  log(`prisma migrate deploy (timeout ${migrateTimeoutMs / 1000}s, required)…`);
   let migrate = runCapture(prismaBin, ["migrate", "deploy"], migrateTimeoutMs);
   if (migrate.stdout) process.stdout.write(migrate.stdout);
   if (migrate.stderr) process.stderr.write(migrate.stderr);
 
   if (migrate.error?.code === "ETIMEDOUT" || migrate.signal === "SIGTERM") {
-    console.warn("[vercel-build] migrate timed out — continuing with next build");
+    failMigrate("prisma migrate deploy timed out — treating as deployment blocker");
   } else if ((migrate.status ?? 1) !== 0) {
     const migrateOut = `${migrate.stdout || ""}\n${migrate.stderr || ""}`;
     const looksLikeP3009 =
@@ -131,10 +168,9 @@ if (process.env.SKIP_PRISMA_MIGRATE === "1") {
       if (migrate.stderr) process.stderr.write(migrate.stderr);
     }
     if ((migrate.status ?? 1) !== 0) {
-      console.warn("[vercel-build] migrate still failing — continuing with next build");
-    } else {
-      log("migrate deploy OK after heal");
+      failMigrate("prisma migrate deploy failed — deployment blocked until schema is applied");
     }
+    log("migrate deploy OK after heal");
   } else {
     log("migrate deploy OK");
   }

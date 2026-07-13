@@ -8,6 +8,7 @@ import {
 } from "@/lib/services/whatsapp/jobQueue";
 import {
   createBookingWithSideEffectsCore,
+  isPrismaClientRequestIdConflict,
   type BookingCreateCoreDeps,
   type BookingCreateResult,
 } from "@/lib/services/bookingCreateOrchestration.core";
@@ -26,21 +27,19 @@ export async function createBookingWithSideEffects(
     scheduleBookingBill: (bookingId, _o, createdBy) =>
       scheduleBookingBill(bookingId, origin || _o, createdBy),
     processWhatsAppJobQueue,
-    findIdempotent: async (key) => {
-      const row = await prisma.bookingIdempotencyKey.findUnique({
-        where: { key },
-        select: { booking: { select: { id: true, monthlySerial: true } } },
+    findByClientRequestId: async (key) => {
+      const row = await prisma.booking.findUnique({
+        where: { clientRequestId: key },
+        select: { id: true, monthlySerial: true },
       });
-      return row?.booking ?? null;
+      return row;
     },
-    saveIdempotent: async (key, bookingId, userId) => {
-      await prisma.bookingIdempotencyKey.create({
-        data: { key, bookingId, userId },
-      });
-    },
-    after: opts?.nextAfter ?? ((fn) => {
-      void fn();
-    }),
+    isClientRequestIdConflict: isPrismaClientRequestIdConflict,
+    after:
+      opts?.nextAfter ??
+      ((fn) => {
+        void fn();
+      }),
     ...overrides,
   };
 

@@ -26,6 +26,7 @@ import { useCallback, useEffect, useMemo, useRef, useState } from "react";
 import DressNameSuggestInput from "@/components/DressNameSuggestInput";
 import PhotoCaptureButton from "@/components/PhotoCaptureButton";
 import TypeableDateInput from "@/components/TypeableDateInput";
+import { generateUuidV4 } from "@/lib/clientUuid";
 import { addDaysIso } from "@/lib/dateInput";
 import BookingConflictSummary from "@/components/BookingConflictSummary";
 import PaymentModePicker from "@/components/PaymentModePicker";
@@ -916,10 +917,7 @@ export default function BookingFormClient(props: Props) {
     setSaving(true);
 
     if (!props.editId && !isProspect && !clientRequestIdRef.current) {
-      clientRequestIdRef.current =
-        typeof crypto !== "undefined" && "randomUUID" in crypto
-          ? crypto.randomUUID()
-          : `req-${Date.now()}-${Math.random().toString(36).slice(2)}`;
+      clientRequestIdRef.current = generateUuidV4();
     }
 
     const printWindow =
