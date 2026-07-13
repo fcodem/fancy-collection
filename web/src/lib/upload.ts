@@ -143,7 +143,18 @@ export async function compressImageBuffer(buffer: Buffer): Promise<Buffer> {
 export async function saveUpload(file: File): Promise<string> {
   const ext = extFromName(file.name);
   if (!ALLOWED_EXTENSIONS.includes(ext)) throw new Error("Invalid file type");
+  if (file.size > 8 * 1024 * 1024) {
+    throw new Error("Image must be under 8 MB.");
+  }
   const raw = Buffer.from(await file.arrayBuffer());
+  // Validate bytes are a real image and reject absurd dimensions.
+  const meta = await sharp(raw, { failOn: "none", limitInputPixels: 40_000_000 }).metadata();
+  if (!meta.format || !["jpeg", "jpg", "png", "webp"].includes(meta.format)) {
+    throw new Error("File content is not a supported image.");
+  }
+  if ((meta.width || 0) > 8000 || (meta.height || 0) > 8000) {
+    throw new Error("Image dimensions are too large.");
+  }
   return saveCompressedFromBuffer(raw);
 }
 
@@ -177,10 +188,17 @@ export async function deleteUploads(stored: Array<string | null | undefined>): P
 export async function saveIdProofUpload(file: File): Promise<string> {
   const ext = extFromName(file.name);
   if (!ALLOWED_EXTENSIONS.includes(ext)) throw new Error("Invalid file type");
-  if (file.size > 4 * 1024 * 1024) {
-    throw new Error("ID proof must be under 4 MB.");
+  if (file.size > 5 * 1024 * 1024) {
+    throw new Error("ID proof must be under 5 MB.");
   }
   const raw = Buffer.from(await file.arrayBuffer());
+  const meta = await sharp(raw, { failOn: "none", limitInputPixels: 40_000_000 }).metadata();
+  if (!meta.format || !["jpeg", "jpg", "png", "webp"].includes(meta.format)) {
+    throw new Error("ID proof must be a valid image file.");
+  }
+  if ((meta.width || 0) > 8000 || (meta.height || 0) > 8000) {
+    throw new Error("ID proof image dimensions are too large.");
+  }
   // Private Blob (or local path). Never use public catalogue storage for ID documents.
   return saveCompressedFromBuffer(raw, "id-proofs", { access: "private" });
 }

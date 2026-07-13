@@ -2,6 +2,7 @@ import { NextRequest } from "next/server";
 import prisma from "@/lib/prisma";
 import { jsonOk, jsonError, requireOwner, isResponse, requireJsonContentType } from "@/lib/api";
 import { sendWhatsAppText } from "@/lib/services/whatsapp/metaApi";
+import { enforceRateLimit } from "@/lib/rateLimit";
 
 export async function POST(
   req: NextRequest,
@@ -12,6 +13,8 @@ export async function POST(
 
   const user = await requireOwner();
   if (isResponse(user)) return user;
+  const rate = enforceRateLimit(`wa-send:${user.id}`, 40, 60_000);
+  if (!rate.allowed) return jsonError("Too many WhatsApp sends. Please wait.", 429);
 
   const { id } = await params;
   const convId = parseInt(id, 10);

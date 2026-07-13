@@ -66,12 +66,9 @@ export async function middleware(request: NextRequest) {
     return passThrough();
   }
 
-  // Setup routes: closed on Vercel/production (handlers also return 404). Local first-run only.
+  // Setup routes are never public in production / on Vercel.
   if (pathname.startsWith("/api/setup/")) {
-    if (process.env.VERCEL === "1" || process.env.NODE_ENV === "production") {
-      return NextResponse.json({ error: "Not found" }, { status: 404 });
-    }
-    return passThrough();
+    return NextResponse.json({ error: "Not found" }, { status: 404 });
   }
 
   const sessionCookie = request.cookies.get("fancy_collection_session");

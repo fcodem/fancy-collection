@@ -140,24 +140,22 @@ if (process.env.SKIP_PRISMA_MIGRATE === "1") {
   }
 }
 
-// --- Owner seed (optional) ---
-if (!process.env.DATABASE_URL?.includes("127.0.0.1:5432/build")) {
-  log("ensure owner account…");
-  const seed = spawnSync(bin("tsx"), ["scripts/ensure-owner.ts"], {
+// --- Quality gates (required before next build) ---
+run("typecheck", bin("tsc"), ["--noEmit"]);
+run("lint", bin("next"), ["lint", "--quiet"]);
+// Tests are informational when no harness tests exist yet.
+run("test", bin("tsx"), ["--test", "src/**/*.test.ts"], { allowFail: true });
+
+// --- Owner seed: disabled on Vercel. Use in-app password change or scripts/set-owner-password.ts locally. ---
+if (process.env.VERCEL !== "1" && process.env.OWNER_BOOTSTRAP_PASSWORD) {
+  log("ensure owner account (local only)…");
+  spawnSync(bin("tsx"), ["scripts/ensure-owner.ts"], {
     stdio: "inherit",
-    env: {
-      ...process.env,
-      SEED_RESET_OWNER: process.env.SEED_RESET_OWNER ?? "1",
-    },
+    env: process.env,
     shell: true,
     cwd: root,
     timeout: 45_000,
   });
-  if ((seed.status ?? 1) !== 0) {
-    console.warn(
-      `[vercel-build] ensure-owner exited ${seed.status ?? 1} — use POST /api/setup/bootstrap-owner after deploy if needed`,
-    );
-  }
 }
 
 // --- Next build (required) ---

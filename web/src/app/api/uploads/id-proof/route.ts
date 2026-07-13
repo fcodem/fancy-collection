@@ -1,9 +1,11 @@
 import { NextRequest } from "next/server";
-import { get } from "@vercel/blob";
+import { get, issueSignedToken, presignUrl } from "@vercel/blob";
 import { readFile } from "fs/promises";
 import { join } from "path";
 import { getCurrentUser } from "@/lib/auth";
-import { jsonError } from "@/lib/api";
+import { jsonError, jsonOk } from "@/lib/api";
+import { enforceRateLimit } from "@/lib/rateLimit";
+import { getClientIpFromRequest } from "@/lib/loginRateLimit";
 
 /** Only proxy same-app uploads or Vercel Blob URLs — blocks open SSRF via ?url=. */
 function isAllowedProofUrl(raw: string, req: NextRequest): boolean {
@@ -27,7 +29,6 @@ function isAllowedProofUrl(raw: string, req: NextRequest): boolean {
       parsed.hostname.endsWith(".blob.vercel-storage.com") ||
       parsed.hostname.endsWith(".private.blob.vercel-storage.com")
     ) {
-      // Only allow id-proof pathnames when possible.
       if (!/id-proof/i.test(parsed.pathname) && !/uploads\/id-proofs/i.test(parsed.pathname)) {
         return false;
       }
@@ -39,16 +40,63 @@ function isAllowedProofUrl(raw: string, req: NextRequest): boolean {
   return false;
 }
 
+function blobPathname(url: string): string | null {
+  try {
+    const parsed = new URL(url);
+    return parsed.pathname.replace(/^\//, "");
+  } catch {
+    return null;
+  }
+}
+
+async function signedGetUrl(blobUrl: string): Promise<string | null> {
+  const pathname = blobPathname(blobUrl);
+  const token = process.env.BLOB_READ_WRITE_TOKEN?.trim();
+  if (!pathname || !token) return null;
+  const validUntil = Date.now() + 90_000; // ~90 seconds
+  const issued = await issueSignedToken({
+    pathname,
+    operations: ["get"],
+    validUntil,
+    token,
+  });
+  const { presignedUrl } = await presignUrl(issued, {
+    operation: "get",
+    pathname,
+    access: "private",
+    validUntil,
+    useCache: false,
+  });
+  return presignedUrl;
+}
+
 export async function GET(req: NextRequest) {
   const user = await getCurrentUser();
   if (!user) return jsonError("Unauthorized", 401);
+
+  const ip = getClientIpFromRequest(req);
+  const rate = enforceRateLimit(`id-proof:${user.id}:${ip}`, 60, 60_000);
+  if (!rate.allowed) return jsonError("Too many requests", 429);
+
   const url = req.nextUrl.searchParams.get("url");
   if (!url) return jsonError("Missing url", 400);
   if (!isAllowedProofUrl(url, req)) return jsonError("URL not allowed", 403);
 
+  const wantSigned = req.nextUrl.searchParams.get("format") === "signed";
+
   try {
     if (url.startsWith("http://") || url.startsWith("https://")) {
-      // Authenticated download for private (and legacy public) Blob objects.
+      if (wantSigned) {
+        try {
+          const signed = await signedGetUrl(url);
+          if (signed) {
+            return jsonOk({ url: signed, expiresInSec: 90 });
+          }
+        } catch {
+          /* fall through to authenticated stream */
+        }
+      }
+
       try {
         const result = await get(url, {
           access: "private",
@@ -63,7 +111,7 @@ export async function GET(req: NextRequest) {
           });
         }
       } catch {
-        // Fall through to public fetch for legacy public blobs.
+        // Legacy public blobs only.
       }
       const upstream = await fetch(url);
       if (!upstream.ok) return jsonError("Not found", 404);

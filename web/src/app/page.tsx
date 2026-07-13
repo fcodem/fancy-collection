@@ -1,5 +1,6 @@
 import { redirect } from "next/navigation";
 import { after } from "next/server";
+import Link from "next/link";
 import { getCurrentUser } from "@/lib/auth";
 import DashboardView from "@/components/DashboardView";
 import { getDashboardData, serializeDashboardData } from "@/lib/services/core";
@@ -81,9 +82,9 @@ export default async function DashboardPage() {
         >
           {message.replace(/postgresql:\/\/[^@\s]+@/gi, "postgresql://***@").slice(0, 400)}
         </pre>
-        <a className="btn btn-primary" href="/" style={{ display: "inline-block", marginTop: 12 }}>
+        <Link className="btn btn-primary" href="/" style={{ display: "inline-block", marginTop: 12 }}>
           Try again
-        </a>
+        </Link>
       </div>
     );
   }

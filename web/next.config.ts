@@ -12,9 +12,9 @@ const withPWA = withPWAInit({
 });
 
 const nextConfig: NextConfig = {
-  // Do not let non-critical ESLint style rules abort production deploys.
+  // Do not ignore ESLint errors during production builds.
   eslint: {
-    ignoreDuringBuilds: true,
+    ignoreDuringBuilds: false,
   },
   typescript: {
     ignoreBuildErrors: false,
@@ -50,7 +50,7 @@ const nextConfig: NextConfig = {
   },
   experimental: {
     serverActions: {
-      bodySizeLimit: "4mb",
+      bodySizeLimit: "5mb",
     },
     optimizePackageImports: ["@fullcalendar/react", "@fullcalendar/daygrid", "@fullcalendar/interaction"],
     staleTimes: {

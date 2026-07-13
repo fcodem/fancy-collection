@@ -49,9 +49,21 @@ export async function findBookingByPublicSlipToken(token: string): Promise<{ id:
   const booking = await prisma.booking.findFirst({
     where: {
       publicAccessToken: clean,
-      OR: [{ publicAccessExpiresAt: null }, { publicAccessExpiresAt: { gt: new Date() } }],
+      publicAccessExpiresAt: { gt: new Date() },
     },
     select: { id: true },
   });
   return booking;
 }
+
+/** Revoke public slip access immediately (clears token + expires link). */
+export async function revokePublicSlipAccess(bookingId: number): Promise<void> {
+  await prisma.booking.update({
+    where: { id: bookingId },
+    data: {
+      publicAccessToken: null,
+      publicAccessExpiresAt: new Date(0),
+    },
+  });
+}
+
