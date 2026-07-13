@@ -1,6 +1,7 @@
 import type { NextConfig } from "next";
 import withPWAInit from "@ducanh2912/next-pwa";
 import { withSentryConfig } from "@sentry/nextjs";
+import { PrismaPlugin } from "@prisma/nextjs-monorepo-workaround-plugin";
 
 const withPWA = withPWAInit({
   dest: "public",
@@ -16,10 +17,11 @@ const nextConfig: NextConfig = {
     ignoreDuringBuilds: true,
   },
   typescript: {
-    // Typecheck still runs in CI/local; keep build unblocked if a non-runtime TS edge slips in.
     ignoreBuildErrors: false,
   },
   serverExternalPackages: [
+    "@prisma/client",
+    "prisma",
     "puppeteer-core",
     "@sparticuz/chromium",
     "puppeteer",
@@ -27,6 +29,11 @@ const nextConfig: NextConfig = {
     "onnxruntime-node",
     "sharp",
   ],
+  // Ensure Prisma query-engine binaries are included in Vercel serverless traces.
+  outputFileTracingIncludes: {
+    "/api/**/*": ["./node_modules/.prisma/client/**/*", "./node_modules/@prisma/client/**/*"],
+    "/*": ["./node_modules/.prisma/client/**/*", "./node_modules/@prisma/client/**/*"],
+  },
   compress: true,
   images: {
     remotePatterns: [
@@ -42,6 +49,12 @@ const nextConfig: NextConfig = {
       dynamic: 30,
       static: 180,
     },
+  },
+  webpack: (config, { isServer }) => {
+    if (isServer) {
+      config.plugins = [...(config.plugins || []), new PrismaPlugin()];
+    }
+    return config;
   },
   async headers() {
     return [
