@@ -6,6 +6,38 @@ import { PrismaClient } from "@prisma/client";
  * The `*Q` helpers below return Date objects for convenient date-range queries.
  */
 
+/** Map Vercel Supabase integration vars (POSTGRES_*) onto DATABASE_URL / DIRECT_URL. */
+function applyRuntimeSupabaseEnvAliases() {
+  if (!process.env.DATABASE_URL?.trim()) {
+    const mapped =
+      process.env.POSTGRES_PRISMA_URL?.trim() ||
+      process.env.POSTGRES_URL?.trim() ||
+      "";
+    if (mapped) process.env.DATABASE_URL = mapped;
+  }
+  if (!process.env.DIRECT_URL?.trim()) {
+    const mapped = process.env.POSTGRES_URL_NON_POOLING?.trim() || "";
+    if (mapped) process.env.DIRECT_URL = mapped;
+  }
+  // Never use blocked direct host on Vercel when a pooler DATABASE_URL exists.
+  const dbUrl = process.env.DATABASE_URL?.trim() || "";
+  const direct = process.env.DIRECT_URL?.trim() || "";
+  if (
+    process.env.VERCEL &&
+    /@db\.[a-z0-9]+\.supabase\.co:/i.test(direct) &&
+    /pooler\.supabase\.com/i.test(dbUrl)
+  ) {
+    process.env.DIRECT_URL = dbUrl
+      .replace(/:6543\b/g, ":5432")
+      .replace(/([?&])pgbouncer=true&?/gi, "$1")
+      .replace(/([?&])connection_limit=\d+&?/gi, "$1")
+      .replace(/\?&/g, "?")
+      .replace(/[?&]$/g, "");
+  }
+}
+
+applyRuntimeSupabaseEnvAliases();
+
 export function nowISO(): string {
   return new Date().toISOString();
 }
