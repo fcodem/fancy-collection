@@ -11,7 +11,7 @@ import { isStarBooking } from "../starBooking";
 import { getAvailableItemsApi, bookingUsesItem, findItemIdsStillInActiveBookings } from "../booking";
 import { broadcastShopEvent } from "../realtime/broadcast";
 import { logActivity, snapshotBooking } from "../activityLog";
-import { deleteUploads, saveUpload } from "../upload";
+import { deleteUploads, saveIdProofUpload } from "../upload";
 import { syncBookingStatusFromItems } from "../syncBookingStatusFromItems";
 import { cachedQuery } from "../perfCache";
 import { serializeActiveOrders } from "../slipBookingData";
@@ -1035,11 +1035,11 @@ export async function saveDeliveryIdPhotos(
 
   if (isUpload(file1)) {
     if (idPhoto1) await deleteUploads([idPhoto1]);
-    idPhoto1 = await saveUpload(file1);
+    idPhoto1 = await saveIdProofUpload(file1);
   }
   if (isUpload(file2)) {
     if (idPhoto2) await deleteUploads([idPhoto2]);
-    idPhoto2 = await saveUpload(file2);
+    idPhoto2 = await saveIdProofUpload(file2);
   }
 
   if (idPhoto1 === booking.idPhoto1 && idPhoto2 === booking.idPhoto2) {

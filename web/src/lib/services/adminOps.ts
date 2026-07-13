@@ -1,7 +1,8 @@
 import prisma from "../prisma";
 import { activeBookingWhere } from "@/lib/bookingActiveStatus";
 import { dressDisplayName } from "../dress";
-import { hashPassword } from "../auth";
+import { hashPassword, invalidateAllSessionsForUser } from "../auth";
+import { assertStrongPassword } from "../passwordPolicy";
 import {
   BASE_ACCESSORY,
   BASE_JEWELLERY,
@@ -101,19 +102,27 @@ export async function changeUserRole(userId: number, role: string, currentUserId
   return prisma.user.update({ where: { id: userId }, data: { role } });
 }
 
-export async function resetUserPassword(userId: number, password: string) {
-  if (password.length < 4) throw new Error("Password must be at least 4 characters.");
-  return prisma.user.update({
+export async function resetUserPassword(userId: number, password: string, endedById?: number) {
+  const target = await prisma.user.findUnique({ where: { id: userId } });
+  if (!target) throw new Error("User not found");
+  assertStrongPassword(password, { role: target.role, username: target.username });
+  const updated = await prisma.user.update({
     where: { id: userId },
     data: { passwordHash: await hashPassword(password) },
   });
+  await invalidateAllSessionsForUser(userId, endedById);
+  return updated;
 }
 
 export async function toggleUserActive(userId: number, currentUserId: number) {
   if (userId === currentUserId) throw new Error("Cannot deactivate yourself.");
   const user = await prisma.user.findUnique({ where: { id: userId } });
   if (!user) throw new Error("User not found");
-  return prisma.user.update({ where: { id: userId }, data: { active: !user.active } });
+  const updated = await prisma.user.update({ where: { id: userId }, data: { active: !user.active } });
+  if (!updated.active) {
+    await invalidateAllSessionsForUser(userId, currentUserId);
+  }
+  return updated;
 }
 
 export async function changeOwnPassword(userId: number, currentPassword: string, newPassword: string) {
@@ -123,11 +132,13 @@ export async function changeOwnPassword(userId: number, currentPassword: string,
   if (!(await verifyPassword(currentPassword, user.passwordHash))) {
     throw new Error("Current password is incorrect.");
   }
-  if (newPassword.length < 4) throw new Error("New password must be at least 4 characters.");
-  return prisma.user.update({
+  assertStrongPassword(newPassword, { role: user.role, username: user.username });
+  const updated = await prisma.user.update({
     where: { id: userId },
     data: { passwordHash: await hashPassword(newPassword) },
   });
+  await invalidateAllSessionsForUser(userId, userId);
+  return updated;
 }
 
 export async function listCustomCategories() {

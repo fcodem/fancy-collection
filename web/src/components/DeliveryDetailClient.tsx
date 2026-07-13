@@ -14,7 +14,7 @@ import type { BookingForStandardDetails } from "@/lib/bookingDetails";
 import { WARNING_BOOKED_ON_RETURN, WARNING_RETURNING_ON_DELIVERY } from "@/lib/bookingDetails";
 import type { ItemWarningSource } from "@/lib/bookingWarningPdf";
 import { formatInr } from "@/lib/format";
-import { photoUrl } from "@/lib/photoUrl";
+import { idProofUrl, photoUrl } from "@/lib/photoUrl";
 import ZoomableImage from "@/components/ZoomableImage";
 import { deliverySlipHref, hasPartialDelivery } from "@/lib/bookingStatus";
 import { navigatePrintTab, openBlankPrintTab, withSlipPrintQuery } from "@/lib/slipPrintUrl";
@@ -728,7 +728,7 @@ export default function DeliveryDetailClient({
                     label={`ID photo ${slot}`}
                     modalTitle={`Capture ID Photo ${slot}`}
                     previewUrl={preview}
-                    savedUrl={saved ? photoUrl(saved) : null}
+                    savedUrl={saved ? idProofUrl(saved) : null}
                     onCapture={(file) => onIdPhotoChange(slot, file)}
                   />
                 </div>

@@ -1,4 +1,5 @@
 import { readFile } from "fs/promises";
+import { existsSync } from "fs";
 import { join } from "path";
 import { PrismaClient } from "@prisma/client";
 import { describe, it } from "node:test";
@@ -24,6 +25,18 @@ const PEACOCK_UPLOAD =
   "C:/Users/asus/.cursor/projects/c-Projects-ssdn-soft/assets/c__Users_asus_AppData_Roaming_Cursor_User_workspaceStorage_empty-window_images_94859627-1d31-4969-953b-6ffadd423997-6f89c1f3-969b-410e-a1be-f1993c3016f6.png";
 const BRIDAL_SCREENSHOT =
   "C:/Users/asus/.cursor/projects/c-Projects-ssdn-soft/assets/c__Users_asus_AppData_Roaming_Cursor_User_workspaceStorage_empty-window_images_MIS-6d698e03-3e31-48f8-8fb1-0c5166226b06.png";
+
+const META_UPLOAD =
+  "C:/Users/asus/.cursor/projects/c-Projects-ssdn-soft/assets/c__Users_asus_AppData_Roaming_Cursor_User_workspaceStorage_empty-window_images_META-51995eef-bd72-46b6-9dc6-7df4244453cb.png";
+
+const FIXTURES_OK = [
+  GREEN_FLOOR,
+  GREEN_HANGER,
+  BLUE_CUTDANA2,
+  PEACOCK_UPLOAD,
+  BRIDAL_SCREENSHOT,
+  META_UPLOAD,
+].every((p) => existsSync(p));
 
 /** Current inventory SKUs (renumbered after re-import). */
 const SKU = {
@@ -79,7 +92,7 @@ async function scoreAgainstCatalog(queryPath: string) {
   return scoreAgainstSkus(queryPath, [SKU.BLUE_CUTDANA_2, SKU.BLUE_CUTDANA, SKU.PISTA]);
 }
 
-describe("green lehenga integration", () => {
+describe("green lehenga integration", { skip: !FIXTURES_OK }, () => {
   it("ranks PISTA above blue CUTDANAs for floor photo", async () => {
     const { scores } = await scoreAgainstCatalog(GREEN_FLOOR);
     assert.ok((scores[SKU.PISTA] ?? 0) > (scores[SKU.BLUE_CUTDANA] ?? 0));
@@ -94,7 +107,7 @@ describe("green lehenga integration", () => {
   });
 });
 
-describe("blue cutdana integration", () => {
+describe("blue cutdana integration", { skip: !FIXTURES_OK }, () => {
   it("ranks CUTDANA 2 above CUTDANA for blue query when AI pattern applied", async () => {
     const { scores } = await scoreAgainstCatalog(BLUE_CUTDANA2);
     const cutdana2 = finalPhotoSearchScore(88, scores[SKU.BLUE_CUTDANA_2] ?? 0, 85, 43, 100, "blue", "blue");
@@ -103,7 +116,7 @@ describe("blue cutdana integration", () => {
   });
 });
 
-describe("multi bridal Dn 7967", () => {
+describe("multi bridal Dn 7967", { skip: !FIXTURES_OK }, () => {
   it("ranks MULTI RAJWADA above FLORAL CT and blue CUTDANAs", async () => {
     const { queryFamily, scores } = await scoreAgainstSkus(PEACOCK_UPLOAD, [
       SKU.RAJWADA,
@@ -124,9 +137,7 @@ describe("multi bridal Dn 7967", () => {
   });
 
   it("ranks MULTI RAJWADA above PISTA SIKKIYA for META phone upload", async () => {
-    const META =
-      "C:/Users/asus/.cursor/projects/c-Projects-ssdn-soft/assets/c__Users_asus_AppData_Roaming_Cursor_User_workspaceStorage_empty-window_images_META-51995eef-bd72-46b6-9dc6-7df4244453cb.png";
-    const { scores } = await scoreAgainstSkus(META, [SKU.RAJWADA, SKU.PISTA, SKU.FLORAL_CT]);
+    const { scores } = await scoreAgainstSkus(META_UPLOAD, [SKU.RAJWADA, SKU.PISTA, SKU.FLORAL_CT]);
     assert.ok((scores[SKU.RAJWADA] ?? 0) > (scores[SKU.PISTA] ?? 0));
     assert.ok((scores[SKU.PISTA] ?? 0) <= 12);
   });

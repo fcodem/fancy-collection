@@ -286,6 +286,9 @@ model Booking {
   refundedAt         DateTime? @map("refunded_at")
   postponedAt        DateTime? @map("postponed_at")
   publicBookingId    String?   @unique @map("public_booking_id")
+  /** Cryptographically random token for unauthenticated public slip URLs (not BK-######). */
+  publicAccessToken  String?   @unique @map("public_access_token")
+  publicAccessExpiresAt DateTime? @map("public_access_expires_at")
   qrCodeUrl          String?   @map("qr_code_url")
   whatsappStatus     String?   @map("whatsapp_status")
   whatsappSentAt     DateTime? @map("whatsapp_sent_at")

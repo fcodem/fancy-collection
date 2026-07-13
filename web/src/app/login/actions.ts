@@ -25,13 +25,12 @@ async function loginActionImpl(
   formData: FormData,
 ): Promise<string | undefined> {
   const ip = await getClientIp();
-  const blocked = await checkLoginBlocked(ip);
+  const username = String(formData.get("username") || "").trim();
+  const password = String(formData.get("password") || "");
+  const blocked = await checkLoginBlocked(ip, username);
   if (blocked.blocked) {
     return loginBlockedMessage(blocked.retryAfterMinutes ?? 60);
   }
-
-  const username = String(formData.get("username") || "").trim();
-  const password = String(formData.get("password") || "");
 
   if (!username || !password) {
     return "Username and password are required.";

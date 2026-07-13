@@ -80,8 +80,7 @@ if (!process.env.DATABASE_URL?.trim()) {
   console.warn(
     "[vercel-build] DATABASE_URL is missing in this Vercel environment. " +
       "Using a build placeholder so `prisma generate` + `next build` can finish. " +
-      "Set DATABASE_URL (and DIRECT_URL) for Production AND Preview, then redeploy — " +
-      "otherwise the live site cannot reach the database.",
+      "Set DATABASE_URL (and DIRECT_URL) for Production AND Preview, then redeploy.",
   );
 } else {
   // Rewrites db.*.supabase.co DIRECT_URL → Session pooler when DATABASE_URL is pooler.
@@ -109,13 +108,13 @@ if (process.env.SKIP_PRISMA_MIGRATE === "1") {
   const migrateTimeoutMs = Number(process.env.PRISMA_MIGRATE_TIMEOUT_MS || 90_000);
   log(`prisma migrate deploy (timeout ${migrateTimeoutMs / 1000}s, non-blocking)…`);
   let migrate = runCapture(prismaBin, ["migrate", "deploy"], migrateTimeoutMs);
-  let migrateOut = `${migrate.stdout || ""}\n${migrate.stderr || ""}`;
   if (migrate.stdout) process.stdout.write(migrate.stdout);
   if (migrate.stderr) process.stderr.write(migrate.stderr);
 
   if (migrate.error?.code === "ETIMEDOUT" || migrate.signal === "SIGTERM") {
     console.warn("[vercel-build] migrate timed out — continuing with next build");
   } else if ((migrate.status ?? 1) !== 0) {
+    const migrateOut = `${migrate.stdout || ""}\n${migrate.stderr || ""}`;
     const looksLikeP3009 =
       /P3009|failed migrations in the target database|recorded as failed/i.test(migrateOut);
     if (looksLikeP3009) {
@@ -141,24 +140,25 @@ if (process.env.SKIP_PRISMA_MIGRATE === "1") {
   }
 }
 
-// --- Owner seed (optional) ---
-if (!process.env.DATABASE_URL?.includes("127.0.0.1:5432/build")) {
-  log("ensure owner account…");
-  const seed = spawnSync(bin("tsx"), ["scripts/ensure-owner.ts"], {
+// --- Quality gates (required before next build) ---
+run("typecheck", bin("tsc"), ["--noEmit"]);
+run("lint", bin("next"), ["lint", "--quiet"]);
+// Do not run the full test suite on Vercel: several *.integration.test.ts files
+// and vitest-only suites need local fixtures / packages that are not in the deploy image.
+if (process.env.VERCEL !== "1" && process.env.RUN_BUILD_TESTS === "1") {
+  run("test", bin("npm"), ["run", "test:unit"], { allowFail: false });
+}
+
+// --- Owner seed: disabled on Vercel. Use in-app password change or scripts/set-owner-password.ts locally. ---
+if (process.env.VERCEL !== "1" && process.env.OWNER_BOOTSTRAP_PASSWORD) {
+  log("ensure owner account (local only)…");
+  spawnSync(bin("tsx"), ["scripts/ensure-owner.ts"], {
     stdio: "inherit",
-    env: {
-      ...process.env,
-      SEED_RESET_OWNER: process.env.SEED_RESET_OWNER ?? "1",
-    },
+    env: process.env,
     shell: true,
     cwd: root,
     timeout: 45_000,
   });
-  if ((seed.status ?? 1) !== 0) {
-    console.warn(
-      `[vercel-build] ensure-owner exited ${seed.status ?? 1} — use POST /api/setup/bootstrap-owner after deploy if needed`,
-    );
-  }
 }
 
 // --- Next build (required) ---

@@ -1,13 +1,16 @@
 import { NextRequest, NextResponse } from "next/server";
 import { readFile } from "fs/promises";
 import path from "path";
-import prisma from "@/lib/prisma";
 import {
   generateDeliverySlipPdf,
   generateReturnSlipPdf,
   generateIncompleteSlipPdf,
   generateBookingSlipPdf,
 } from "@/lib/services/whatsapp/slipHtmlPdf.server";
+import { isEnumerablePublicBookingId, resolvePublicBookingId } from "@/lib/services/whatsapp/publicBookingId";
+import { findBookingByPublicSlipToken } from "@/lib/services/whatsapp/publicSlipAccess";
+import { consumeRateLimit } from "@/lib/publicRateLimit";
+import prisma from "@/lib/prisma";
 
 export const runtime = "nodejs";
 export const dynamic = "force-dynamic";
@@ -15,32 +18,49 @@ export const dynamic = "force-dynamic";
 const KINDS = new Set(["delivery", "return", "incomplete", "booking"]);
 
 /**
- * Public slip PDF for WhatsApp URL-button templates (no login).
- * kind: delivery | return | incomplete | booking
+ * Public slip PDF — requires random publicAccessToken (not BK-######).
  */
 export async function GET(
   req: NextRequest,
   { params }: { params: Promise<{ kind: string; publicId: string }> },
 ) {
+  const ip = req.headers.get("x-forwarded-for")?.split(",")[0]?.trim() || "unknown";
+  const limited = consumeRateLimit(`public-slip:${ip}`, { limit: 30, windowMs: 60_000 });
+  if (!limited.ok) {
+    return NextResponse.json(
+      { error: "Too many requests" },
+      { status: 429, headers: { "Retry-After": String(limited.retryAfterSec) } },
+    );
+  }
+
   const { kind: rawKind, publicId: rawId } = await params;
   const kind = (rawKind || "").trim().toLowerCase();
   const publicId = decodeURIComponent(rawId || "").trim();
 
   if (!KINDS.has(kind)) {
-    return NextResponse.json({ error: "Invalid slip kind" }, { status: 400 });
+    return NextResponse.json({ error: "Not found" }, { status: 404 });
   }
-  if (!publicId || publicId.length > 64 || !/^[\w.-]+$/.test(publicId)) {
-    return NextResponse.json({ error: "Invalid slip id" }, { status: 400 });
+  if (!publicId || publicId.length > 86 || !/^[\w.-]+$/.test(publicId)) {
+    return NextResponse.json({ error: "Not found" }, { status: 404 });
+  }
+  if (isEnumerablePublicBookingId(publicId)) {
+    return NextResponse.json({ error: "Not found" }, { status: 404 });
   }
 
-  const booking = await prisma.booking.findFirst({
-    where: { publicBookingId: publicId },
-    select: { id: true },
+  const byToken = await findBookingByPublicSlipToken(publicId);
+  if (!byToken) {
+    return NextResponse.json({ error: "Not found" }, { status: 404 });
+  }
+
+  const booking = await prisma.booking.findUnique({
+    where: { id: byToken.id },
+    select: { id: true, publicBookingId: true },
   });
   if (!booking) {
-    return NextResponse.json({ error: "Slip not found" }, { status: 404 });
+    return NextResponse.json({ error: "Not found" }, { status: 404 });
   }
 
+  const displayId = resolvePublicBookingId(booking);
   const folder =
     kind === "delivery"
       ? "delivery-slips"
@@ -52,18 +72,18 @@ export async function GET(
 
   const candidates =
     kind === "booking"
-      ? [`${publicId}.pdf`]
+      ? [`${displayId}.pdf`]
       : [
           kind === "delivery"
-            ? `DeliverySlip_${publicId}.pdf`
+            ? `DeliverySlip_${displayId}.pdf`
             : kind === "return"
-              ? `ReturnSlip_${publicId}.pdf`
-              : `IncompleteReturn_${publicId}.pdf`,
+              ? `ReturnSlip_${displayId}.pdf`
+              : `IncompleteReturn_${displayId}.pdf`,
           kind === "delivery"
-            ? `DeliverySlip_${publicId}_partial.pdf`
+            ? `DeliverySlip_${displayId}_partial.pdf`
             : kind === "return"
-              ? `ReturnSlip_${publicId}_partial.pdf`
-              : `IncompleteReturn_${publicId}_partial.pdf`,
+              ? `ReturnSlip_${displayId}_partial.pdf`
+              : `IncompleteReturn_${displayId}_partial.pdf`,
         ];
 
   let pdf: Buffer | null = null;
@@ -100,7 +120,7 @@ export async function GET(
     headers: {
       "Content-Type": "application/pdf",
       "Content-Disposition": `inline; filename="${outName}"`,
-      "Cache-Control": "private, max-age=300",
+      "Cache-Control": "private, no-store",
     },
   });
 }

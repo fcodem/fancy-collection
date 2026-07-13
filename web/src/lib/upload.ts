@@ -7,21 +7,26 @@ import { ALLOWED_EXTENSIONS } from "./constants";
 
 export { photoUrl } from "./photoUrl";
 
-const MAX_IMAGE_EDGE = 1920;
-const JPEG_QUALITY = 82;
-const ORIGINAL_JPEG_QUALITY = 95;
+const MAX_IMAGE_EDGE = 1280;
+const JPEG_QUALITY = 72;
+const ORIGINAL_JPEG_QUALITY = 78;
 
 function extFromName(name: string) {
   const parts = name.split(".");
   return parts.length > 1 ? parts[parts.length - 1].toLowerCase() : "jpg";
 }
 
-async function storeBuffer(bytes: Buffer, relativePath: string): Promise<string> {
+async function storeBuffer(
+  bytes: Buffer,
+  relativePath: string,
+  opts?: { access?: "public" | "private" },
+): Promise<string> {
+  const access = opts?.access ?? "public";
   const token = process.env.BLOB_READ_WRITE_TOKEN?.trim();
   if (token) {
     try {
       const blob = await put(`uploads/${relativePath}`, bytes, {
-        access: "public",
+        access,
         token,
         multipart: bytes.length > 4 * 1024 * 1024,
       });
@@ -75,11 +80,12 @@ async function saveOriginalFromBuffer(raw: Buffer, filename: string): Promise<st
 export async function saveCompressedFromBuffer(
   raw: Buffer,
   subfolder = "",
+  opts?: { access?: "public" | "private" },
 ): Promise<string> {
   const bytes = await compressImageBuffer(raw);
   const filename = `${randomUUID().replace(/-/g, "")}.jpg`;
   const path = subfolder ? `${subfolder.replace(/\/$/, "")}/${filename}` : filename;
-  return storeBuffer(bytes, path);
+  return storeBuffer(bytes, path, opts);
 }
 
 /** Preserve original upload — EXIF rotate only, no resize or heavy compression. */
@@ -109,9 +115,9 @@ export async function saveFastInventoryPhoto(file: File): Promise<string> {
     throw new Error("Invalid file type. Use JPG, PNG, or WEBP.");
   }
 
-  // Vercel serverless: skip sharp entirely — client already compresses large photos.
+  // Vercel: skip sharp (OOM risk) — client already compresses to ~1.2MB JPEG.
   if (process.env.VERCEL) {
-    const path = `${randomUUID().replace(/-/g, "")}.${outExt}`;
+    const path = `${randomUUID().replace(/-/g, "")}.jpg`;
     return storeBuffer(raw, path);
   }
 
@@ -137,7 +143,18 @@ export async function compressImageBuffer(buffer: Buffer): Promise<Buffer> {
 export async function saveUpload(file: File): Promise<string> {
   const ext = extFromName(file.name);
   if (!ALLOWED_EXTENSIONS.includes(ext)) throw new Error("Invalid file type");
+  if (file.size > 8 * 1024 * 1024) {
+    throw new Error("Image must be under 8 MB.");
+  }
   const raw = Buffer.from(await file.arrayBuffer());
+  // Validate bytes are a real image and reject absurd dimensions.
+  const meta = await sharp(raw, { failOn: "none", limitInputPixels: 40_000_000 }).metadata();
+  if (!meta.format || !["jpeg", "jpg", "png", "webp"].includes(meta.format)) {
+    throw new Error("File content is not a supported image.");
+  }
+  if ((meta.width || 0) > 8000 || (meta.height || 0) > 8000) {
+    throw new Error("Image dimensions are too large.");
+  }
   return saveCompressedFromBuffer(raw);
 }
 
@@ -171,6 +188,17 @@ export async function deleteUploads(stored: Array<string | null | undefined>): P
 export async function saveIdProofUpload(file: File): Promise<string> {
   const ext = extFromName(file.name);
   if (!ALLOWED_EXTENSIONS.includes(ext)) throw new Error("Invalid file type");
+  if (file.size > 5 * 1024 * 1024) {
+    throw new Error("ID proof must be under 5 MB.");
+  }
   const raw = Buffer.from(await file.arrayBuffer());
-  return saveCompressedFromBuffer(raw, "id-proofs");
+  const meta = await sharp(raw, { failOn: "none", limitInputPixels: 40_000_000 }).metadata();
+  if (!meta.format || !["jpeg", "jpg", "png", "webp"].includes(meta.format)) {
+    throw new Error("ID proof must be a valid image file.");
+  }
+  if ((meta.width || 0) > 8000 || (meta.height || 0) > 8000) {
+    throw new Error("ID proof image dimensions are too large.");
+  }
+  // Private Blob (or local path). Never use public catalogue storage for ID documents.
+  return saveCompressedFromBuffer(raw, "id-proofs", { access: "private" });
 }

@@ -54,11 +54,23 @@ export default async function BookingPanelPage({
   const { from: panelFrom, to: panelTo, label: panelLabel } = bookingPanelDateRange(year, month);
   const panelDeliveryWhere = await whereDeliveryInRange(panelFrom, panelTo);
 
-  const yearBounds = await prisma.booking.aggregate({
-    where: activeBookingWhere(),
-    _min: { deliveryDate: true },
-    _max: { deliveryDate: true },
-  });
+  const [yearBounds, bookings, statusCounts] = await Promise.all([
+    prisma.booking.aggregate({
+      where: activeBookingWhere(),
+      _min: { deliveryDate: true },
+      _max: { deliveryDate: true },
+    }),
+    prisma.booking.findMany({
+      where: { ...activeBookingWhere(), ...panelDeliveryWhere },
+      include: bookingPanelInclude,
+      orderBy: [{ deliveryDate: "asc" }, { monthlySerial: "asc" }],
+    }),
+    prisma.booking.groupBy({
+      by: ["status"],
+      where: { ...activeBookingWhere(), ...panelDeliveryWhere },
+      _count: { _all: true },
+    }),
+  ]);
   const minYear = yearBounds._min.deliveryDate
     ? yearBounds._min.deliveryDate.getUTCFullYear()
     : currentYear - 2;
@@ -68,19 +80,6 @@ export default async function BookingPanelPage({
   const yearOptions: number[] = [];
   for (let y = maxYear + 1; y >= minYear - 1; y--) yearOptions.push(y);
 
-  const [bookings, statusCounts] = await Promise.all([
-    prisma.booking.findMany({
-      where: { ...activeBookingWhere(), ...panelDeliveryWhere },
-      include: bookingPanelInclude,
-      orderBy: [{ deliveryDate: "asc" }, { monthlySerial: "asc" }],
-    }),
-    prisma.booking.groupBy({
-      by: ["status"],
-      where: activeBookingWhere(),
-      _count: { _all: true },
-    }),
-  ]);
-
   const countByStatus = Object.fromEntries(statusCounts.map((r) => [r.status, r._count._all]));
   const totalCount = statusCounts.reduce((sum, r) => sum + r._count._all, 0);
   const bookedCount = countByStatus.booked || 0;
@@ -89,7 +88,8 @@ export default async function BookingPanelPage({
 
   const pdfHeaders = recordBookingPdfHeaders("Status");
   const span = dateSpanFromBookings(bookings);
-  const edgeBookings = span.from ? await fetchWarningEdgeBookings(span.from, span.to) : [];
+  const edgeBookings =
+    month == null && span.from ? await fetchWarningEdgeBookings(span.from, span.to) : bookings;
   const { returning: returningMap, booked: bookedMap } = buildWarningMaps(edgeBookings);
   const pdfResults = bookings.map((b) =>
     recordBookingPdfRow(

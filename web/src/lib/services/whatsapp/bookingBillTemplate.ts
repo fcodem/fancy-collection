@@ -68,8 +68,8 @@ export function whatsAppPublicBaseUrl(): string | null {
   return base;
 }
 
-export function bookingSlipPublicPath(publicBookingId: string): string {
-  return `/api/public/booking-slip/${encodeURIComponent(publicBookingId)}`;
+export function bookingSlipPublicPath(accessToken: string): string {
+  return `/api/public/booking-slip/${encodeURIComponent(accessToken)}`;
 }
 
 /** Minimal valid PDF used only as Meta DOCUMENT template header sample. */

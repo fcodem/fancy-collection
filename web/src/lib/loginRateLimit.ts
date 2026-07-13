@@ -18,15 +18,32 @@ export function getClientIpFromRequest(req: { headers: Headers }): string {
   return req.headers.get("x-real-ip") || req.headers.get("cf-connecting-ip") || "unknown";
 }
 
-export async function checkLoginBlocked(ip: string): Promise<{ blocked: boolean; retryAfterMinutes?: number }> {
+export async function checkLoginBlocked(
+  ip: string,
+  username?: string,
+): Promise<{ blocked: boolean; retryAfterMinutes?: number }> {
   try {
     const cutoff = new Date(Date.now() - FAIL_WINDOW_MS);
-    const recentFailures = await prisma.loginAttempt.findMany({
+    const byIp = await prisma.loginAttempt.findMany({
       where: { ip, success: false, createdAt: { gte: cutoff } },
       orderBy: { createdAt: "desc" },
       take: MAX_FAILURES,
     });
 
+    const userKey = username?.trim().toLowerCase() || "";
+    const byUser = userKey
+      ? await prisma.loginAttempt.findMany({
+          where: {
+            success: false,
+            createdAt: { gte: cutoff },
+            username: { equals: userKey, mode: "insensitive" },
+          },
+          orderBy: { createdAt: "desc" },
+          take: MAX_FAILURES,
+        })
+      : [];
+
+    const recentFailures = byIp.length >= byUser.length ? byIp : byUser;
     if (recentFailures.length < MAX_FAILURES) {
       return { blocked: false };
     }
@@ -41,8 +58,8 @@ export async function checkLoginBlocked(ip: string): Promise<{ blocked: boolean;
 
     return { blocked: false };
   } catch (e) {
-    console.warn("[loginRateLimit] checkLoginBlocked skipped:", e);
-    return { blocked: false };
+    console.error("[loginRateLimit] checkLoginBlocked failed closed:", e);
+    return { blocked: true, retryAfterMinutes: 5 };
   }
 }
 

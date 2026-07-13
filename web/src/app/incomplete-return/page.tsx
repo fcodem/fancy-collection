@@ -11,8 +11,6 @@ import DownloadPdfButton from "@/components/DownloadPdfButton";
 import { recordBookingPdfHeaders, recordBookingPdfRow, flattenBookingPdfRows } from "@/lib/standardBookingPdfRows";
 import {
   buildWarningMaps,
-  dateSpanFromBookings,
-  fetchWarningEdgeBookings,
   pdfWarningsForBooking,
 } from "@/lib/bookingWarnings";
 
@@ -34,14 +32,53 @@ function incompleteMissingNotes(
 export default async function IncompleteReturnPage() {
   const bookings = await prisma.booking.findMany({
     where: { status: "incomplete_return" },
-    include: { bookingItems: { include: { item: true } }, legacyItem: true },
+    select: {
+      id: true,
+      monthlySerial: true,
+      publicBookingId: true,
+      customerName: true,
+      contact1: true,
+      whatsappNo: true,
+      deliveryDate: true,
+      deliveryTime: true,
+      returnDate: true,
+      returnTime: true,
+      returnedAt: true,
+      venue: true,
+      status: true,
+      totalPrice: true,
+      totalAdvance: true,
+      totalRemaining: true,
+      securityDeposit: true,
+      securityHeld: true,
+      securityCollected: true,
+      incompleteNotes: true,
+      incompletePhoto: true,
+      bookingItems: {
+        select: {
+          id: true,
+          itemId: true,
+          dressName: true,
+          category: true,
+          size: true,
+          isIncompleteReturn: true,
+          itemIncompleteNotes: true,
+          itemIncompletePhoto: true,
+          itemSecurityHeld: true,
+          isReturned: true,
+          isDelivered: true,
+          isCancelled: true,
+        },
+      },
+      legacyItem: { select: { size: true, category: true } },
+    },
     orderBy: { returnedAt: "desc" },
+    take: 100,
   });
 
   const pdfHeaders = recordBookingPdfHeaders("Missing Notes", "Total Security", "Security Returned", "Security Held", "Returned On");
-  const span = dateSpanFromBookings(bookings);
-  const edgeBookings = span.from ? await fetchWarningEdgeBookings(span.from, span.to) : [];
-  const { returning: returningMap, booked: bookedMap } = buildWarningMaps(edgeBookings);
+  // Build warnings from the already-loaded incomplete set — avoid a second heavy findMany.
+  const { returning: returningMap, booked: bookedMap } = buildWarningMaps(bookings);
   const pdfResults = bookings.map((b) => {
     const security = incompleteReturnSecuritySummary({
       securityHeld: b.securityHeld,

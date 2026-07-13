@@ -45,7 +45,8 @@ function wantsHtmlRedirect(req: NextRequest) {
 export async function POST(req: NextRequest) {
   try {
     const ip = getClientIpFromRequest(req);
-    const blocked = await checkLoginBlocked(ip);
+    const { username, password } = await parseCredentials(req);
+    const blocked = await checkLoginBlocked(ip, username);
     if (blocked.blocked) {
       const msg = loginBlockedMessage(blocked.retryAfterMinutes ?? 60);
       if (wantsHtmlRedirect(req)) {
@@ -54,7 +55,6 @@ export async function POST(req: NextRequest) {
       return jsonError(msg, 429);
     }
 
-    const { username, password } = await parseCredentials(req);
     const htmlRedirect = wantsHtmlRedirect(req);
 
     if (!username || !password) {

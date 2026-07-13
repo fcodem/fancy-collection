@@ -4,6 +4,8 @@
  * On Vercel, never keep db.*.supabase.co:5432 (P1001 — blocked from serverless).
  * Mutates process.env — call from the same Node process that runs prisma.
  */
+import { applySupabaseEnvAliases } from "./apply-supabase-env.mjs";
+
 export function deriveDirectUrl(databaseUrl) {
   let direct = databaseUrl.replace(/:6543\b/g, ":5432");
   direct = direct
@@ -23,6 +25,7 @@ function isSupabaseDirectDbHost(url) {
 }
 
 export function ensureDirectUrl({ label = "ensure-direct-url", exitOnMissing = true } = {}) {
+  applySupabaseEnvAliases({ label });
   const databaseUrl = process.env.DATABASE_URL?.trim() || "";
   const existingDirect = process.env.DIRECT_URL?.trim() || "";
   const onVercel = process.env.VERCEL === "1" || Boolean(process.env.VERCEL_ENV);

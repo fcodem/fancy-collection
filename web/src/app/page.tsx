@@ -1,5 +1,6 @@
 import { redirect } from "next/navigation";
 import { after } from "next/server";
+import Link from "next/link";
 import { getCurrentUser } from "@/lib/auth";
 import DashboardView from "@/components/DashboardView";
 import { getDashboardData, serializeDashboardData } from "@/lib/services/core";
@@ -21,7 +22,7 @@ export default async function DashboardPage() {
     after(async () => {
       try {
         const { processWhatsAppJobQueue } = await import("@/lib/services/whatsapp/jobQueue");
-        await processWhatsAppJobQueue(5);
+        await processWhatsAppJobQueue(2);
       } catch (e) {
         console.error("[dashboard] whatsapp queue drain:", e);
       }
@@ -29,10 +30,12 @@ export default async function DashboardPage() {
   }
 
   try {
-    // Load dashboard first, then owner widgets — avoids connection-pool stampede on login.
-    const data = serializeDashboardData(await getDashboardData());
-    const pendingStaff = owner ? await getPendingStaffLoginRequests() : [];
-    const activeStaff = owner ? await getActiveStaffSessions() : [];
+    // Load dashboard + owner widgets together when pool allows — one round-trip wait.
+    const [data, pendingStaff, activeStaff] = await Promise.all([
+      getDashboardData().then(serializeDashboardData),
+      owner ? getPendingStaffLoginRequests() : Promise.resolve([]),
+      owner ? getActiveStaffSessions() : Promise.resolve([]),
+    ]);
 
     return (
       <DashboardView
@@ -79,9 +82,9 @@ export default async function DashboardPage() {
         >
           {message.replace(/postgresql:\/\/[^@\s]+@/gi, "postgresql://***@").slice(0, 400)}
         </pre>
-        <a className="btn btn-primary" href="/" style={{ display: "inline-block", marginTop: 12 }}>
+        <Link className="btn btn-primary" href="/" style={{ display: "inline-block", marginTop: 12 }}>
           Try again
-        </a>
+        </Link>
       </div>
     );
   }

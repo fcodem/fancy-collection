@@ -25,7 +25,7 @@ npm run db:seed
 npm run dev
 ```
 
-Open **http://localhost:3000** — login: `owner` / `admin123`
+Open **http://localhost:3000** after seeding. Create a long unique owner password — do not use documented defaults in production.
 
 ## Deploy to Vercel
 

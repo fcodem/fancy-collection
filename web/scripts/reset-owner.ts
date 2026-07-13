@@ -1,46 +1,25 @@
-import { PrismaClient } from "@prisma/client";
+/**
+ * Local password reset for owner — requires OWNER_BOOTSTRAP_PASSWORD (16+).
+ * Disabled when VERCEL=1.
+ */
 import bcrypt from "bcryptjs";
-import { isWerkzeugHash } from "../src/lib/werkzeugPassword";
-
-const prisma = new PrismaClient();
+import prisma from "../src/lib/prisma";
 
 async function main() {
-  const passwordHash = await bcrypt.hash("admin123", 10);
-
-  const cleared = await prisma.loginAttempt.deleteMany({});
-  console.log(`Cleared ${cleared.count} login attempt record(s) (rate-limit reset).`);
-
+  if (process.env.VERCEL === "1") {
+    throw new Error("reset-owner is disabled on Vercel. Change password in-app as owner.");
+  }
+  const password = process.env.OWNER_BOOTSTRAP_PASSWORD?.trim() || "";
+  if (password.length < 16) {
+    throw new Error("Set OWNER_BOOTSTRAP_PASSWORD to a 16+ character password.");
+  }
+  const passwordHash = await bcrypt.hash(password, 12);
   const owner = await prisma.user.upsert({
     where: { username: "owner" },
-    update: {
-      passwordHash,
-      active: true,
-      role: "owner",
-    },
-    create: {
-      username: "owner",
-      passwordHash,
-      role: "owner",
-      active: true,
-    },
+    create: { username: "owner", passwordHash, role: "owner", active: true },
+    update: { passwordHash, active: true, role: "owner" },
   });
-
-  console.log(`Owner account reset (id=${owner.id}). Login: owner / admin123`);
-
-  // Migrate any remaining Flask/Werkzeug password hashes and re-activate accounts.
-  const legacy = await prisma.user.findMany({
-    where: { NOT: { username: "owner" } },
-    select: { id: true, username: true, passwordHash: true, active: true },
-  });
-  for (const u of legacy) {
-    if (isWerkzeugHash(u.passwordHash) || !u.active) {
-      await prisma.user.update({
-        where: { id: u.id },
-        data: { active: true },
-      });
-      console.log(`Re-activated legacy account: ${u.username} (password unchanged — use your existing password)`);
-    }
-  }
+  console.log(`Owner account reset (id=${owner.id}). Username: owner. Password: from OWNER_BOOTSTRAP_PASSWORD.`);
 }
 
 main()
@@ -48,4 +27,6 @@ main()
     console.error(e);
     process.exit(1);
   })
-  .finally(() => prisma.$disconnect());
+  .finally(async () => {
+    await prisma.$disconnect();
+  });

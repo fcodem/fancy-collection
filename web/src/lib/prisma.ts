@@ -6,6 +6,38 @@ import { PrismaClient } from "@prisma/client";
  * The `*Q` helpers below return Date objects for convenient date-range queries.
  */
 
+/** Map Vercel Supabase integration vars (POSTGRES_*) onto DATABASE_URL / DIRECT_URL. */
+function applyRuntimeSupabaseEnvAliases() {
+  if (!process.env.DATABASE_URL?.trim()) {
+    const mapped =
+      process.env.POSTGRES_PRISMA_URL?.trim() ||
+      process.env.POSTGRES_URL?.trim() ||
+      "";
+    if (mapped) process.env.DATABASE_URL = mapped;
+  }
+  if (!process.env.DIRECT_URL?.trim()) {
+    const mapped = process.env.POSTGRES_URL_NON_POOLING?.trim() || "";
+    if (mapped) process.env.DIRECT_URL = mapped;
+  }
+  // Never use blocked direct host on Vercel when a pooler DATABASE_URL exists.
+  const dbUrl = process.env.DATABASE_URL?.trim() || "";
+  const direct = process.env.DIRECT_URL?.trim() || "";
+  if (
+    process.env.VERCEL &&
+    /@db\.[a-z0-9]+\.supabase\.co:/i.test(direct) &&
+    /pooler\.supabase\.com/i.test(dbUrl)
+  ) {
+    process.env.DIRECT_URL = dbUrl
+      .replace(/:6543\b/g, ":5432")
+      .replace(/([?&])pgbouncer=true&?/gi, "$1")
+      .replace(/([?&])connection_limit=\d+&?/gi, "$1")
+      .replace(/\?&/g, "?")
+      .replace(/[?&]$/g, "");
+  }
+}
+
+applyRuntimeSupabaseEnvAliases();
+
 export function nowISO(): string {
   return new Date().toISOString();
 }
@@ -68,6 +100,7 @@ export function endOfMonthQ(d: Date): Date {
 /**
  * Tune DATABASE_URL for Vercel/serverless + Supabase pooler.
  * connection_limit must be >1 so Promise.all dashboard queries don't starve the pool.
+ * Never force TLS on localhost — local Postgres usually has no SSL.
  */
 export function normalizeDatabaseUrl(raw: string | undefined): string | undefined {
   if (!raw?.trim()) return raw;
@@ -75,8 +108,24 @@ export function normalizeDatabaseUrl(raw: string | undefined): string | undefine
   if (url.startsWith("file:")) return url;
   try {
     const parsed = new URL(url);
-    const isServerless = process.env.VERCEL === "1" || process.env.NODE_ENV === "production";
-    if (isServerless || /pooler\.supabase\.com/i.test(parsed.host)) {
+    const host = parsed.hostname.toLowerCase();
+    const isLocalHost =
+      host === "localhost" || host === "127.0.0.1" || host === "::1" || host === "[::1]";
+
+    if (isLocalHost) {
+      if (!parsed.searchParams.has("sslmode")) {
+        parsed.searchParams.set("sslmode", "disable");
+      }
+      return parsed.toString();
+    }
+
+    const isRemoteProd =
+      process.env.VERCEL === "1" ||
+      process.env.NODE_ENV === "production" ||
+      /pooler\.supabase\.com/i.test(parsed.host) ||
+      /\.supabase\.co$/i.test(host);
+
+    if (isRemoteProd) {
       const port = parsed.port || (url.includes(":6543") ? "6543" : "");
       if (port === "6543" && !parsed.searchParams.has("pgbouncer")) {
         parsed.searchParams.set("pgbouncer", "true");

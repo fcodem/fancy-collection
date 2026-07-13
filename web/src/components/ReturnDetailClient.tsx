@@ -24,7 +24,7 @@ import { isDeliverySlipEligible, isCommonDeliverySlipEligible, isIncompleteSlipE
 import { navigatePrintTab, openBlankPrintTab, withSlipPrintQuery } from "@/lib/slipPrintUrl";
 import type { BookingItemPricingRow } from "@/lib/dress";
 import { formatInr } from "@/lib/format";
-import { photoUrl } from "@/lib/photoUrl";
+import { idProofUrl, photoUrl } from "@/lib/photoUrl";
 import IncompleteSecuritySummaryBox from "@/components/IncompleteSecuritySummaryBox";
 import type { SlipOrderDisplay } from "@/components/BookingSlip";
 import type { ItemWarningSource } from "@/lib/bookingWarningPdf";
@@ -679,9 +679,9 @@ export default function ReturnDetailClient({
           {booking.idPhoto1 || booking.idPhoto2 ? (
             <div style={{ display: "flex", gap: 12, flexWrap: "wrap" }}>
               {booking.idPhoto1 && (
-                <a href={photoUrl(booking.idPhoto1)} target="_blank" rel="noreferrer">
+                <a href={idProofUrl(booking.idPhoto1)} target="_blank" rel="noreferrer">
                   <img
-                    src={photoUrl(booking.idPhoto1)}
+                    src={idProofUrl(booking.idPhoto1)}
                     alt="Customer ID 1"
                     style={{
                       width: 160,
@@ -694,9 +694,9 @@ export default function ReturnDetailClient({
                 </a>
               )}
               {booking.idPhoto2 && (
-                <a href={photoUrl(booking.idPhoto2)} target="_blank" rel="noreferrer">
+                <a href={idProofUrl(booking.idPhoto2)} target="_blank" rel="noreferrer">
                   <img
-                    src={photoUrl(booking.idPhoto2)}
+                    src={idProofUrl(booking.idPhoto2)}
                     alt="Customer ID 2"
                     style={{
                       width: 160,
@@ -1058,18 +1058,18 @@ export default function ReturnDetailClient({
                     </div>
                     <div style={{ display: "flex", gap: 12, flexWrap: "wrap" }}>
                       {booking.idPhoto1 && (
-                        <a href={photoUrl(booking.idPhoto1)} target="_blank" rel="noreferrer">
+                        <a href={idProofUrl(booking.idPhoto1)} target="_blank" rel="noreferrer">
                           <img
-                            src={photoUrl(booking.idPhoto1)}
+                            src={idProofUrl(booking.idPhoto1)}
                             alt="Customer ID 1"
                             style={{ width: 140, height: 100, objectFit: "cover", borderRadius: 8, border: "1px solid var(--border)" }}
                           />
                         </a>
                       )}
                       {booking.idPhoto2 && (
-                        <a href={photoUrl(booking.idPhoto2)} target="_blank" rel="noreferrer">
+                        <a href={idProofUrl(booking.idPhoto2)} target="_blank" rel="noreferrer">
                           <img
-                            src={photoUrl(booking.idPhoto2)}
+                            src={idProofUrl(booking.idPhoto2)}
                             alt="Customer ID 2"
                             style={{ width: 140, height: 100, objectFit: "cover", borderRadius: 8, border: "1px solid var(--border)" }}
                           />

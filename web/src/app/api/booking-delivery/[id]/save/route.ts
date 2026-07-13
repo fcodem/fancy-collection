@@ -1,4 +1,4 @@
-import { NextRequest } from "next/server";
+import { NextRequest, after } from "next/server";
 import prisma from "@/lib/prisma";
 import { saveDelivery } from "@/lib/services/operations";
 import { jsonError, jsonOk, requireUser, isResponse, requireJsonContentType } from "@/lib/api";
@@ -6,6 +6,7 @@ import {
   finalizeSlipTrigger,
 } from "@/lib/services/whatsapp/slipDebounce";
 import { newlyDeliveredItemIdsFromPayload } from "@/lib/slipDelta";
+import { processWhatsAppJobQueue } from "@/lib/services/whatsapp/jobQueue";
 
 export const maxDuration = 60;
 
@@ -58,6 +59,13 @@ export async function POST(req: NextRequest, { params }: { params: Promise<{ id:
         // Always send immediately via durable DB jobs. In-memory debounce was lost
         // on Next.js restarts and left delivered bookings with no WhatsApp slip.
         await finalizeSlipTrigger(bookingId, "delivery", slipOpts);
+        after(async () => {
+          try {
+            await processWhatsAppJobQueue(2, { bookingId });
+          } catch (e) {
+            console.error("[delivery save] whatsapp queue error:", e);
+          }
+        });
       } catch (e) {
         console.error("[delivery save] WhatsApp slip error:", e);
       }

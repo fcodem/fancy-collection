@@ -1,10 +1,16 @@
 import { NextRequest } from "next/server";
 import { requireUser, isResponse, jsonError, jsonOk } from "@/lib/api";
 import { saveUpload } from "@/lib/upload";
+import { enforceRateLimit } from "@/lib/rateLimit";
+import { getClientIpFromRequest } from "@/lib/loginRateLimit";
 
 export async function POST(req: NextRequest) {
   const user = await requireUser();
   if (isResponse(user)) return user;
+
+  const ip = getClientIpFromRequest(req);
+  const rate = enforceRateLimit(`upload-order-photo:${user.id}:${ip}`, 30, 60_000);
+  if (!rate.allowed) return jsonError("Too many uploads. Please wait.", 429);
 
   let form: FormData;
   try {
@@ -16,6 +22,9 @@ export async function POST(req: NextRequest) {
   const file = form.get("file");
   if (!(file instanceof File) || file.size === 0) {
     return jsonError("No file provided", 400);
+  }
+  if (file.size > 8 * 1024 * 1024) {
+    return jsonError("Photo must be under 8 MB", 400);
   }
 
   try {

@@ -33,6 +33,7 @@ import {
   resolvePublicBookingId,
   returnReceiptPdfFilename,
 } from "./publicBookingId";
+import { ensurePublicSlipAccess } from "./publicSlipAccess";
 import {
   getBookingBillTemplateStatus,
   isWhatsAppSessionOpen,
@@ -43,7 +44,6 @@ import {
   resolveApprovedSlipDocumentTemplate,
   sendDocumentSlipTemplate,
   sendTextSlipTemplate,
-  sendUrlSlipTemplate,
 } from "./slipTemplates";
 import {
   bookingSlipDetailsFromBooking,
@@ -59,6 +59,8 @@ import {
   returnSlipDetailsFromBooking,
   SLIP_WA_CONTACT_LINE,
 } from "./slipMessageCopy";
+import { generateBookingBillPdfFallback } from "./bookingBillPdfFallback";
+import { generateOperationSlipPdfFallback } from "./operationSlipPdfFallback";
 
 export type WhatsAppSendOutcome = {
   ok: boolean;
@@ -214,7 +216,7 @@ export async function sendBookingBillWhatsApp(
     where: { id: bookingId },
     include: {
       bookingItems: {
-        include: { item: { select: { color: true } } },
+        include: { item: { select: { color: true, photo: true } } },
       },
     },
   });
@@ -242,10 +244,16 @@ export async function sendBookingBillWhatsApp(
   let pdfBuffer: Buffer;
   try {
     pdfBuffer = await generateBookingSlipPdf(bookingId, requestOrigin);
-  } catch (e) {
-    const err = e instanceof Error ? e.message : "PDF generation failed";
-    console.error("[sendBookingBillWhatsApp] PDF error:", err);
-    return { ok: false, error: err };
+  } catch (htmlErr) {
+    const htmlMsg = htmlErr instanceof Error ? htmlErr.message : "HTML PDF failed";
+    console.warn("[sendBookingBillWhatsApp] HTML PDF failed, using jsPDF fallback:", htmlMsg);
+    try {
+      pdfBuffer = await generateBookingBillPdfFallback(booking, publicBookingId, requestOrigin);
+    } catch (e) {
+      const err = e instanceof Error ? e.message : "PDF generation failed";
+      console.error("[sendBookingBillWhatsApp] PDF error:", err);
+      return { ok: false, error: `${htmlMsg} | fallback: ${err}` };
+    }
   }
 
   let pdfUrl = "";
@@ -574,10 +582,16 @@ export async function sendReturnReceiptWhatsApp(
   let pdfBuffer: Buffer;
   try {
     pdfBuffer = await generateReturnSlipPdf(bookingId, requestOrigin, { scope: "full" });
-  } catch (e) {
-    const err = e instanceof Error ? e.message : "PDF generation failed";
-    console.error("[sendReturnReceiptWhatsApp] PDF error:", err);
-    return { ok: false, error: err };
+  } catch (htmlErr) {
+    const htmlMsg = htmlErr instanceof Error ? htmlErr.message : "HTML PDF failed";
+    console.warn("[sendReturnReceiptWhatsApp] HTML PDF failed, using jsPDF fallback:", htmlMsg);
+    try {
+      pdfBuffer = generateOperationSlipPdfFallback("return", booking);
+    } catch (e) {
+      const err = e instanceof Error ? e.message : "PDF generation failed";
+      console.error("[sendReturnReceiptWhatsApp] PDF error:", err);
+      return { ok: false, error: `${htmlMsg} | fallback: ${err}` };
+    }
   }
 
   let pdfUrl = "";
@@ -750,6 +764,8 @@ async function sendSlipDocument(opts: {
 
   // Prefer free-form caption (current copy) while the 24h session is open.
   // Fall back to Meta DOCUMENT templates for cold sends.
+  // Ensure random slip access token exists for any URL-button templates.
+  await ensurePublicSlipAccess(opts.bookingId).catch(() => null);
   if (sessionOpen) {
     docResult = await sendWhatsAppDocumentByMediaId(
       opts.phoneRaw,
@@ -855,8 +871,17 @@ export async function sendDeliverySlipWhatsApp(
       bookingItemId: payload.scope === "single" ? payload.bookingItemId : undefined,
       bookingItemIds: itemIds.length ? itemIds : undefined,
     });
-  } catch (e) {
-    return { ok: false, error: e instanceof Error ? e.message : "PDF generation failed" };
+  } catch (htmlErr) {
+    const htmlMsg = htmlErr instanceof Error ? htmlErr.message : "HTML PDF failed";
+    console.warn("[sendDeliverySlipWhatsApp] HTML PDF failed, using jsPDF fallback:", htmlMsg);
+    try {
+      pdfBuffer = generateOperationSlipPdfFallback("delivery", booking, itemIds.length ? itemIds : undefined);
+    } catch (e) {
+      return {
+        ok: false,
+        error: `${htmlMsg} | fallback: ${e instanceof Error ? e.message : "PDF failed"}`,
+      };
+    }
   }
 
   const suffix =
@@ -940,8 +965,21 @@ export async function sendPartialReturnSlipWhatsApp(
       bookingItemId: payload.scope === "single" ? payload.bookingItemId : undefined,
       bookingItemIds: itemIds.length ? itemIds : undefined,
     });
-  } catch (e) {
-    return { ok: false, error: e instanceof Error ? e.message : "PDF generation failed" };
+  } catch (htmlErr) {
+    const htmlMsg = htmlErr instanceof Error ? htmlErr.message : "HTML PDF failed";
+    console.warn("[sendPartialReturnSlipWhatsApp] HTML PDF failed, using jsPDF fallback:", htmlMsg);
+    try {
+      pdfBuffer = generateOperationSlipPdfFallback(
+        "return",
+        booking,
+        itemIds.length ? itemIds : undefined,
+      );
+    } catch (e) {
+      return {
+        ok: false,
+        error: `${htmlMsg} | fallback: ${e instanceof Error ? e.message : "PDF failed"}`,
+      };
+    }
   }
 
   const suffix =
@@ -1039,8 +1077,21 @@ export async function sendIncompleteSlipWhatsApp(
       bookingItemId: payload.scope === "single" ? payload.bookingItemId : undefined,
       bookingItemIds: ids,
     });
-  } catch (e) {
-    return { ok: false, error: e instanceof Error ? e.message : "PDF generation failed" };
+  } catch (htmlErr) {
+    const htmlMsg = htmlErr instanceof Error ? htmlErr.message : "HTML PDF failed";
+    console.warn("[sendIncompleteSlipWhatsApp] HTML PDF failed, using jsPDF fallback:", htmlMsg);
+    try {
+      pdfBuffer = generateOperationSlipPdfFallback(
+        "incomplete",
+        booking,
+        ids.length ? ids : undefined,
+      );
+    } catch (e) {
+      return {
+        ok: false,
+        error: `${htmlMsg} | fallback: ${e instanceof Error ? e.message : "PDF failed"}`,
+      };
+    }
   }
 
   const suffix =

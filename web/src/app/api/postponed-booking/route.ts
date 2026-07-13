@@ -1,4 +1,4 @@
-import { NextRequest } from "next/server";
+import { NextRequest, after } from "next/server";
 import {
   listPostponedBookingsCached,
   postponeBooking,
@@ -49,11 +49,13 @@ export async function POST(req: NextRequest) {
     if (action === "postpone") {
       await postponeBooking(bookingId, user.username);
       await schedulePostponementHeld(bookingId, user.username);
-      try {
-        await processWhatsAppJobQueue(3, { bookingId });
-      } catch (e) {
-        console.error("[postponed-booking] WhatsApp queue error:", e);
-      }
+      after(async () => {
+        try {
+          await processWhatsAppJobQueue(2, { bookingId });
+        } catch (e) {
+          console.error("[postponed-booking] WhatsApp queue error:", e);
+        }
+      });
       return jsonOk({ ok: true, status: "postponed" });
     }
     if (action === "resolve") {

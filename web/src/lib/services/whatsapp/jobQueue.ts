@@ -351,21 +351,9 @@ export async function processWhatsAppJobQueue(
     take: limit,
   });
 
-  // When scoped to one booking, also drain other pending jobs (retries / recovered
-  // stuck sends). Without frequent Hobby crons those would sit forever otherwise.
-  let jobs = primary;
-  if (options?.bookingId != null && primary.length < limit) {
-    const extra = await prisma.whatsAppJob.findMany({
-      where: {
-        status: "pending",
-        scheduledAt: { lte: now },
-        NOT: { bookingId: options.bookingId },
-      },
-      orderBy: [{ scheduledAt: "asc" }, { id: "asc" }],
-      take: limit - primary.length,
-    });
-    jobs = [...primary, ...extra];
-  }
+  // Only pull other bookings' jobs on unscoped drains (cron / Run Queue Now).
+  // User-facing saves must not wait on unrelated Chromium/PDF work.
+  const jobs = primary;
 
   const results: Array<{
     jobId: number;

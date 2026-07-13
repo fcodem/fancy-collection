@@ -19,7 +19,11 @@ if (fs.existsSync(envPath)) {
 }
 
 const user = process.env.SLIP_TEST_USER || "owner";
-const pass = process.env.SLIP_TEST_PASS || "admin123";
+const pass = process.env.SLIP_TEST_PASS;
+if (!pass) {
+  console.error("Set SLIP_TEST_PASS to a strong password (do not hardcode credentials).");
+  process.exit(1);
+}
 const jar = new Map();
 
 function parseSetCookie(res) {

@@ -20,10 +20,17 @@ function parseSetCookie(res) {
   }
 }
 
+const username = process.env.TEST_LOGIN_USER || "owner";
+const password = process.env.TEST_LOGIN_PASS;
+if (!password) {
+  console.error("Set TEST_LOGIN_PASS (do not hardcode credentials in scripts).");
+  process.exit(1);
+}
+
 const login = await fetch(`${base}/api/login`, {
   method: "POST",
   headers: { "Content-Type": "application/json" },
-  body: JSON.stringify({ username: "owner", password: "admin123" }),
+  body: JSON.stringify({ username, password }),
 });
 parseSetCookie(login);
 

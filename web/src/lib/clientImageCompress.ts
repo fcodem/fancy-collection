@@ -1,8 +1,8 @@
 /** Browser-side image resize/compress before multipart upload (avoids Vercel 4.5MB body limit). */
 
-const MAX_EDGE = 1600;
-const JPEG_QUALITY = 0.82;
-const MAX_OUTPUT_BYTES = 2.5 * 1024 * 1024;
+const MAX_EDGE = 1280;
+const JPEG_QUALITY = 0.72;
+const MAX_OUTPUT_BYTES = 1.2 * 1024 * 1024;
 
 function loadImageFromFile(file: File): Promise<HTMLImageElement> {
   return new Promise((resolve, reject) => {
@@ -39,7 +39,7 @@ export async function compressImageForUpload(file: File): Promise<File> {
     return file;
   }
   // Always compress images before upload (phone JPEGs blow Vercel's body limit / memory).
-  if (file.size > 0 && file.size <= 400_000 && /\.jpe?g$/i.test(file.name)) return file;
+  if (file.size > 0 && file.size <= 250_000 && /\.jpe?g$/i.test(file.name)) return file;
 
   try {
     const img = await loadImageFromFile(file);
