@@ -25,22 +25,26 @@ function resolveSessionPassword(): string {
 
   if (secret && secret.length >= 32) return secret;
 
-  if (process.env.NODE_ENV === "production") {
-    if (duringBuild) {
-      console.warn(
-        "[auth] SESSION_SECRET missing/short during build; set a 32+ char value in Vercel Production env.",
-      );
-      return "build-placeholder-session-secret-min-32-chars!!";
-    }
-    throw new Error(
-      "SESSION_SECRET must be set in Vercel (Production) to at least 32 characters. " +
-        "Generate one with: openssl rand -base64 32 — then Redeploy.",
+  if (duringBuild) {
+    console.warn(
+      "[auth] SESSION_SECRET missing/short during build; set a 32+ char value in Vercel Production env.",
     );
+    return "build-placeholder-session-secret-min-32-chars!!";
   }
 
-  if (secret && secret.length > 0 && secret.length < 32) {
-    console.warn("[auth] SESSION_SECRET is shorter than 32 chars; padding for iron-session in development only.");
-    return (secret + "dev-pad-session-secret-min-32-chars!!").slice(0, 48);
+  if (secret && secret.length > 0) {
+    console.warn(
+      "[auth] SESSION_SECRET is shorter than 32 chars; padding so login can work. Prefer a 32+ char secret.",
+    );
+    return (secret + "pad-fancy-collection-session-secret-32").slice(0, 48);
+  }
+
+  if (process.env.NODE_ENV === "production") {
+    // Do not hard-crash login/API if env was forgotten — still warn loudly.
+    console.error(
+      "[auth] SESSION_SECRET is missing in production. Using temporary fallback. Set SESSION_SECRET (32+ chars) in Vercel and redeploy.",
+    );
+    return "INSECURE-fallback-set-SESSION_SECRET-in-vercel-now!!";
   }
 
   return "dev-only-change-in-production-min-32-chars!!";
