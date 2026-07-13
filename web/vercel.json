@@ -5,7 +5,7 @@
   "crons": [
     {
       "path": "/api/cron/whatsapp-jobs",
-      "schedule": "*/15 * * * *"
+      "schedule": "0 3 * * *"
     },
     {
       "path": "/api/cron/late-return-reminders",
@@ -13,15 +13,15 @@
     },
     {
       "path": "/api/cron/ai-job-worker",
-      "schedule": "* * * * *"
+      "schedule": "0 5 * * *"
     },
     {
       "path": "/api/cron/ai-queue-watchdog",
-      "schedule": "*/5 * * * *"
+      "schedule": "0 6 * * *"
     },
     {
       "path": "/api/cron/dress-checker-repair",
-      "schedule": "0 */6 * * *"
+      "schedule": "0 7 * * *"
     }
   ]
 }
