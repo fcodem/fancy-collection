@@ -17,14 +17,22 @@ export default function GlobalError({
     Sentry.captureException(error);
   }, [error]);
 
-  const message =
-    process.env.NODE_ENV === "production"
+  const rawMessage =
+    error instanceof Error
+      ? error.message
+      : typeof error === "object" && error && "message" in error
+        ? String((error as { message: unknown }).message)
+        : String(error);
+
+  const isDbIssue = /Timed out fetching a new connection|Can't reach database|P1001|P1017|Query Engine|connection/i.test(
+    rawMessage,
+  );
+
+  const message = isDbIssue
+    ? "Database connection failed or timed out. Check DATABASE_URL (Supabase pooler :6543 + pgbouncer=true&connection_limit=1) in Vercel, then Redeploy."
+    : process.env.NODE_ENV === "production"
       ? "An unexpected error occurred. Please refresh the page or contact support."
-      : error instanceof Error
-        ? error.message
-        : typeof error === "object" && error && "message" in error
-          ? String((error as { message: unknown }).message)
-          : String(error);
+      : rawMessage;
 
   return (
     <div className="login-page">

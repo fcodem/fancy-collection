@@ -65,17 +65,52 @@ export function endOfMonthQ(d: Date): Date {
   return new Date(Date.UTC(d.getUTCFullYear(), d.getUTCMonth() + 1, 1));
 }
 
+/**
+ * Tune DATABASE_URL for Vercel/serverless:
+ * - connection_limit=1 (one connection per lambda)
+ * - pgbouncer=true for Supabase Transaction pooler
+ * - short connect/pool timeouts so requests fail fast instead of hanging ~60s
+ */
+export function normalizeDatabaseUrl(raw: string | undefined): string | undefined {
+  if (!raw?.trim()) return raw;
+  const url = raw.trim();
+  if (url.startsWith("file:")) return url;
+  try {
+    const parsed = new URL(url);
+    const isServerless = process.env.VERCEL === "1" || process.env.NODE_ENV === "production";
+    if (isServerless || /pooler\.supabase\.com/i.test(parsed.host)) {
+      const port = parsed.port || (url.includes(":6543") ? "6543" : "");
+      if (port === "6543" && !parsed.searchParams.has("pgbouncer")) {
+        parsed.searchParams.set("pgbouncer", "true");
+      }
+      // Always keep serverless pools tiny.
+      parsed.searchParams.set("connection_limit", parsed.searchParams.get("connection_limit") || "1");
+      parsed.searchParams.set("connect_timeout", parsed.searchParams.get("connect_timeout") || "10");
+      parsed.searchParams.set("pool_timeout", parsed.searchParams.get("pool_timeout") || "10");
+      if (!parsed.searchParams.has("sslmode")) {
+        parsed.searchParams.set("sslmode", "require");
+      }
+    }
+    return parsed.toString();
+  } catch {
+    return url;
+  }
+}
+
+function createPrismaClient() {
+  const url = normalizeDatabaseUrl(process.env.DATABASE_URL);
+  return new PrismaClient({
+    log: process.env.NODE_ENV === "development" ? ["error", "warn"] : ["error"],
+    ...(url ? { datasources: { db: { url } } } : {}),
+  });
+}
+
 const globalForPrisma = globalThis as unknown as { prisma?: PrismaClient };
 
-const prisma =
-  globalForPrisma.prisma ??
-  new PrismaClient({
-    log: process.env.NODE_ENV === "development" ? ["error", "warn"] : ["error"],
-  });
+const prisma = globalForPrisma.prisma ?? createPrismaClient();
 
-if (process.env.NODE_ENV !== "production") {
-  globalForPrisma.prisma = prisma;
-}
+// Reuse across hot reloads (dev) and warm serverless isolates (Vercel).
+globalForPrisma.prisma = prisma;
 
 export { prisma };
 export default prisma;
