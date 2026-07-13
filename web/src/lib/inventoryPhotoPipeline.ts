@@ -2,9 +2,8 @@ import prisma from "./prisma";
 import { broadcastShopEvent } from "./realtime/broadcast";
 import { photoUrl } from "./photoUrl";
 import type { PipelineStage, PipelineStatus } from "./inventoryPhotoPipelineTypes";
+import { enqueueInventoryAiJob } from "./dressChecker/aiJobQueue";
 export type { PipelineStage, PipelineStatus } from "./inventoryPhotoPipelineTypes";
-
-const pipelinePending = new Set<number>();
 
 export function computePipelineStatus(item: {
   photo: string | null;
@@ -47,8 +46,7 @@ export function computePipelineStatus(item: {
     label = "Queued for search indexing";
   }
 
-  const is_processing =
-    stage !== "completed" && stage !== "none" && hasPhoto;
+  const is_processing = stage !== "completed" && stage !== "none" && hasPhoto;
 
   return {
     stage,
@@ -62,42 +60,73 @@ export function computePipelineStatus(item: {
 }
 
 /**
- * Run recognition / metadata / search indexing asynchronously.
- * Never call from the save request path.
- *
- * Embedding (FashionCLIP → SigLIP → OpenCLIP) runs on every photo save.
- * Full Dress Checker identity pipeline runs in parallel.
+ * Lightweight durable enqueue only — never runs embeddings / OpenAI / Dress Checker.
+ * Call from inventory save after items are committed. Awaits DB writes.
  */
-export async function runInventoryPhotoPipeline(
-  itemId: number,
-  _category: string,
-  reason: string,
-): Promise<void> {
-  // Instant enqueue — worker performs embeddings + signatures + validation.
-  const { scheduleInventoryAiProfile } = await import("./dressChecker/processInventory");
-  scheduleInventoryAiProfile(itemId, reason);
-  broadcastShopEvent({ type: "inventory.changed", itemIds: [itemId] });
+export async function enqueueInventoryPhotoJobsDurable(
+  itemIds: number[],
+  reason = "photo_changed",
+  enqueueFn: typeof enqueueInventoryAiJob = enqueueInventoryAiJob,
+): Promise<{ queued: number; jobIds: number[]; warning: string | null }> {
+  const unique = [...new Set(itemIds.filter((id) => Number.isFinite(id) && id > 0))];
+  if (!unique.length) return { queued: 0, jobIds: [], warning: null };
+
+  const staleExisting =
+    reason.includes("photo") || reason.includes("replaced") || reason.includes("created");
+  const priority = reason.includes("repair") ? 50 : 100;
+  const jobIds: number[] = [];
+  const errors: string[] = [];
+
+  const CONCURRENCY = 5;
+  for (let i = 0; i < unique.length; i += CONCURRENCY) {
+    const chunk = unique.slice(i, i + CONCURRENCY);
+    const results = await Promise.allSettled(
+      chunk.map((itemId) =>
+        enqueueFn({
+          itemId,
+          reason,
+          staleExisting,
+          priority,
+        }),
+      ),
+    );
+    results.forEach((r, idx) => {
+      if (r.status === "fulfilled") {
+        jobIds.push(r.value.jobId);
+      } else {
+        const msg = r.reason instanceof Error ? r.reason.message : String(r.reason);
+        errors.push(`item ${chunk[idx]}: ${msg}`);
+        console.error("[inventory-pipeline] durable enqueue failed", chunk[idx], r.reason);
+      }
+    });
+  }
+
+  if (jobIds.length) {
+    try {
+      broadcastShopEvent({ type: "inventory.changed", itemIds: unique });
+    } catch {
+      /* realtime notify is best-effort */
+    }
+  }
+
+  return {
+    queued: jobIds.length,
+    jobIds,
+    warning: errors.length
+      ? `AI queue incomplete for ${errors.length} item(s). Use AI indexing to retry.`
+      : null,
+  };
 }
 
-/** Queue search indexing — returns immediately. */
-export function scheduleInventoryPhotoPipeline(
+/**
+ * @deprecated Prefer enqueueInventoryPhotoJobsDurable + after(drain).
+ * Kept as a thin async wrapper for call sites mid-migration.
+ */
+export async function scheduleInventoryPhotoPipeline(
   itemId: number,
-  category: string,
+  _category: string,
   reason = "photo_changed",
-): void {
-  if (!itemId || pipelinePending.has(itemId)) return;
-  pipelinePending.add(itemId);
-
-  setImmediate(() => {
-    void (async () => {
-      try {
-        console.log(`[inventory-pipeline] item=${itemId} scheduled reason=${reason}`);
-        await runInventoryPhotoPipeline(itemId, category, reason);
-      } catch (err) {
-        console.error("[inventory-pipeline]", itemId, err);
-      } finally {
-        pipelinePending.delete(itemId);
-      }
-    })();
-  });
+): Promise<{ queued: number; warning: string | null }> {
+  const result = await enqueueInventoryPhotoJobsDurable([itemId], reason);
+  return { queued: result.queued, warning: result.warning };
 }

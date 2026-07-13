@@ -3,25 +3,24 @@
 import { useEffect } from "react";
 import { parseResponseJson } from "@/lib/fetchJson";
 import { usePathname, useRouter } from "next/navigation";
+import {
+  SESSION_HEARTBEAT_INITIAL_DELAY_MS,
+  SESSION_HEARTBEAT_INTERVAL_MS,
+  skipHeartbeat,
+} from "@/lib/sessionHeartbeat";
+
+export {
+  SESSION_HEARTBEAT_INTERVAL_MS,
+  SESSION_HEARTBEAT_INITIAL_DELAY_MS,
+  skipHeartbeat,
+} from "@/lib/sessionHeartbeat";
 
 let lastCheckedAt = 0;
 let inFlight: Promise<void> | null = null;
-/** Background revalidation only — not on every navigation. */
-const INTERVAL_MS = 8 * 60_000;
-const INITIAL_DELAY_MS = 30_000;
 
-function skipHeartbeat(pathname: string | null): boolean {
-  if (!pathname) return true;
-  if (pathname.startsWith("/login")) return true;
-  if (pathname === "/privacy" || pathname.startsWith("/privacy/")) return true;
-  if (pathname === "/data-deletion" || pathname.startsWith("/data-deletion/")) return true;
-  if (pathname === "/~offline") return true;
-  return false;
-}
-
-async function checkSessionOnce(router: ReturnType<typeof useRouter>) {
+async function checkSessionOnce(router: { replace: (href: string) => void }) {
   const now = Date.now();
-  if (now - lastCheckedAt < INTERVAL_MS / 2) return;
+  if (now - lastCheckedAt < SESSION_HEARTBEAT_INTERVAL_MS / 2) return;
   if (inFlight) return inFlight;
 
   inFlight = (async () => {
@@ -45,29 +44,30 @@ async function checkSessionOnce(router: ReturnType<typeof useRouter>) {
 }
 
 /**
- * Single shell-level session probe. Does not restart timers on every route change.
+ * Shell-level session probe.
+ * Timers start when entering the protected app (from login/public) and stop when leaving.
+ * Navigating between protected pages does not recreate timers (`shouldSkipHeartbeat` stays false).
  */
 export default function SessionHeartbeat() {
   const router = useRouter();
   const pathname = usePathname();
+  const shouldSkipHeartbeat = skipHeartbeat(pathname);
 
   useEffect(() => {
-    if (skipHeartbeat(pathname)) return;
+    if (shouldSkipHeartbeat) return;
 
     const initial = setTimeout(() => {
       void checkSessionOnce(router);
-    }, INITIAL_DELAY_MS);
+    }, SESSION_HEARTBEAT_INITIAL_DELAY_MS);
     const id = setInterval(() => {
       void checkSessionOnce(router);
-    }, INTERVAL_MS);
+    }, SESSION_HEARTBEAT_INTERVAL_MS);
 
     return () => {
       clearTimeout(initial);
       clearInterval(id);
     };
-    // Intentionally omit pathname — navigation must not re-bind timers.
-    // eslint-disable-next-line react-hooks/exhaustive-deps
-  }, [router]);
+  }, [router, shouldSkipHeartbeat]);
 
   return null;
 }

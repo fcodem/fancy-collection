@@ -12,10 +12,13 @@ export function cachedQuery<T>(
 type MemoryEntry<T> = { value: T; expiresAt: number };
 
 const memoryStore = new Map<string, MemoryEntry<unknown>>();
+/** In-flight miss sharing — concurrent callers await the same promise. */
+const memoryPending = new Map<string, Promise<unknown>>();
 
 /**
  * In-process TTL cache for payloads that exceed Next.js unstable_cache 2MB limit
  * or when tag-based invalidation is not required.
+ * Concurrent cache misses share one pending promise (rejected results are not cached).
  */
 export function memoryCachedQuery<T>(
   key: string[],
@@ -28,8 +31,25 @@ export function memoryCachedQuery<T>(
   if (hit && hit.expiresAt > now) {
     return Promise.resolve(hit.value);
   }
-  return fn().then((value) => {
-    memoryStore.set(cacheKey, { value, expiresAt: now + ttlSeconds * 1000 });
-    return value;
-  });
+
+  const pending = memoryPending.get(cacheKey) as Promise<T> | undefined;
+  if (pending) return pending;
+
+  const run = fn()
+    .then((value) => {
+      memoryStore.set(cacheKey, { value, expiresAt: Date.now() + ttlSeconds * 1000 });
+      return value;
+    })
+    .finally(() => {
+      memoryPending.delete(cacheKey);
+    });
+
+  memoryPending.set(cacheKey, run);
+  return run;
+}
+
+/** Test helper — clears memory cache + pending map. */
+export function clearMemoryCache() {
+  memoryStore.clear();
+  memoryPending.clear();
 }
