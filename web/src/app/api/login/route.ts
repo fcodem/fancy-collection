@@ -81,7 +81,14 @@ export async function POST(req: NextRequest) {
     }
 
     await recordLoginAttempt(ip, true, username);
-    after(() => upgradePasswordHashIfNeeded(user.id, password, user.passwordHash));
+    try {
+      after(() => {
+        void upgradePasswordHashIfNeeded(user.id, password, user.passwordHash);
+      });
+    } catch (afterErr) {
+      console.warn("[login] after() unavailable:", afterErr);
+      void upgradePasswordHashIfNeeded(user.id, password, user.passwordHash).catch(() => {});
+    }
 
     if (user.role === "owner") {
       if (htmlRedirect) {
