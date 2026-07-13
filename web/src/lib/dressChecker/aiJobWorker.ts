@@ -72,9 +72,15 @@ export async function drainAiJobQueue(
 
 /**
  * Optional local pump for long-lived Node (npm run dress:worker / next start).
- * Does not affect health — only durable heartbeats do.
+ * NEVER start setInterval on Vercel — serverless crons must drain and exit.
  */
 export function startAiJobWorker(opts: { intervalMs?: number; skipImmediateDrain?: boolean } = {}): void {
+  if (process.env.VERCEL === "1") {
+    console.warn(
+      "[ai-worker] startAiJobWorker ignored on Vercel — use cron drainAiJobQueue instead",
+    );
+    return;
+  }
   if (workerTimer) return;
   const intervalMs = opts.intervalMs ?? Number(process.env.AI_JOB_WORKER_INTERVAL_MS || 5000);
   console.log(`[ai-worker] local pump started interval=${intervalMs}ms`);
@@ -107,9 +113,11 @@ export function startAiJobWorker(opts: { intervalMs?: number; skipImmediateDrain
   }
 }
 
-/** Heartbeat-only (deploy audit) — writes durable row, no RAM health. */
+/** Heartbeat-only (deploy audit) — writes durable row, no RAM health / no interval on Vercel. */
 export function touchAiWorkerHeartbeat(): void {
-  if (!workerTimer) startAiJobWorker({ skipImmediateDrain: true });
+  if (process.env.VERCEL !== "1" && !workerTimer) {
+    startAiJobWorker({ skipImmediateDrain: true });
+  }
   void touchDurableWorkerHeartbeat({ source: "heartbeat" });
 }
 

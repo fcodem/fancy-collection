@@ -26,7 +26,12 @@ export async function POST(req: NextRequest) {
     const body = parseResult.data;
     const booking = await createBooking(body, user.username);
 
-    await scheduleBookingBill(booking.id, req.nextUrl.origin, user.username);
+    try {
+      await scheduleBookingBill(booking.id, req.nextUrl.origin, user.username);
+    } catch (e) {
+      // Durable queue write failed — booking is already committed; staff can retry WhatsApp.
+      console.error("[booking POST] scheduleBookingBill failed (booking kept):", e);
+    }
     // Do not block save on Chromium PDF / Meta send — drain in background.
     after(async () => {
       try {

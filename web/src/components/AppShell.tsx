@@ -201,18 +201,28 @@ export default function AppShell({
 
   useEffect(() => {
     let cancelled = false;
-    function loadNavCounts() {
-      fetchJson<{ overdue_delivery_count: number }>("/api/dashboard/nav-counts")
+    let lastFetch = 0;
+    function loadNavCounts(force = false) {
+      const now = Date.now();
+      if (!force && now - lastFetch < 60_000) return;
+      lastFetch = now;
+      fetchJson<{ overdue_delivery_count: number }>("/api/dashboard/nav-counts", {
+        dedupeMs: 60_000,
+      })
         .then((d) => {
           if (!cancelled) setOverdueDelivery(d.overdue_delivery_count || 0);
         })
         .catch(() => {});
     }
-    // RealtimeProvider updates badge every poll cycle; focus listener refreshes on tab return.
-    window.addEventListener("focus", loadNavCounts);
+    loadNavCounts(true);
+    // Focus refresh is rate-limited by the 60s client window.
+    function onFocus() {
+      loadNavCounts(false);
+    }
+    window.addEventListener("focus", onFocus);
     return () => {
       cancelled = true;
-      window.removeEventListener("focus", loadNavCounts);
+      window.removeEventListener("focus", onFocus);
     };
   }, []);
 

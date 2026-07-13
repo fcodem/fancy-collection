@@ -90,11 +90,10 @@ async function createInventoryUnits(
       },
     });
     if (base.photo) {
-      try {
-        await ensurePendingAiProfile(item.id);
-      } catch (e) {
+      // Fire-and-forget — inventory create must not wait on AI profile rows.
+      void ensurePendingAiProfile(item.id).catch((e) => {
         console.error("[inventory] ensurePendingAiProfile failed:", e);
-      }
+      });
     }
     created.push(item);
   }

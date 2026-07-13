@@ -866,6 +866,8 @@ export default function BookingFormClient(props: Props) {
 
     setError("");
 
+    if (saving) return;
+
     if (!selectedDresses.length) {
 
       setError("Please select at least one dress.");

@@ -130,10 +130,11 @@ export function normalizeDatabaseUrl(raw: string | undefined): string | undefine
       if (port === "6543" && !parsed.searchParams.has("pgbouncer")) {
         parsed.searchParams.set("pgbouncer", "true");
       }
-      // 5 is enough for dashboard parallelism without exhausting Supabase pooler.
-      parsed.searchParams.set("connection_limit", "5");
-      parsed.searchParams.set("connect_timeout", "15");
-      parsed.searchParams.set("pool_timeout", "30");
+      // 2 keeps each serverless isolate light on Supabase pooler;
+      // dashboard uses memory cache so parallel bursts are rarer.
+      parsed.searchParams.set("connection_limit", "2");
+      parsed.searchParams.set("connect_timeout", "10");
+      parsed.searchParams.set("pool_timeout", "15");
       if (!parsed.searchParams.has("sslmode")) {
         parsed.searchParams.set("sslmode", "require");
       }
