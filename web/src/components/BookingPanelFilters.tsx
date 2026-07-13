@@ -20,7 +20,7 @@ export default function BookingPanelFilters({
     (nextYear: number, nextMonth: string) => {
       const params = new URLSearchParams();
       params.set("year", String(nextYear));
-      if (nextMonth) params.set("month", nextMonth);
+      params.set("month", nextMonth || "all");
       startTransition(() => {
         router.push(`/booking?${params.toString()}`);
       });
@@ -40,16 +40,16 @@ export default function BookingPanelFilters({
     >
       <div>
         <label className="form-label" style={{ marginBottom: 4, fontSize: 12 }}>
-          Month <span style={{ fontWeight: 400, color: "var(--text-muted)" }}>(optional)</span>
+          Month
         </label>
         <select
           className="form-control"
           style={{ minWidth: 150 }}
-          value={month ?? ""}
+          value={month == null ? "all" : String(month)}
           disabled={pending}
           onChange={(e) => apply(year, e.target.value)}
         >
-          <option value="">All months</option>
+          <option value="all">All months</option>
           {BOOKING_PANEL_MONTHS.map((m) => (
             <option key={m.value} value={m.value}>
               {m.label}
@@ -66,7 +66,7 @@ export default function BookingPanelFilters({
           style={{ minWidth: 110 }}
           value={String(year)}
           disabled={pending}
-          onChange={(e) => apply(Number(e.target.value), month ? String(month) : "")}
+          onChange={(e) => apply(Number(e.target.value), month == null ? "all" : String(month))}
         >
           {yearOptions.map((y) => (
             <option key={y} value={y}>

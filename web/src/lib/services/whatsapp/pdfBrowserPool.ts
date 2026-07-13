@@ -68,7 +68,25 @@ function resolveChromeExecutable(): string | undefined {
  * Vercel Fluid Compute omits AWS Lambda env vars that @sparticuz/chromium uses
  * to unpack AL2023 libs (libnss3.so). Hint the runtime before import, then set
  * LD_LIBRARY_PATH to the extracted binary directory.
+ *
+ * Next/NFT sometimes drops `node_modules/@sparticuz/chromium/bin` from the
+ * serverless bundle — fall back to the official remote pack URL when bin is missing.
  */
+const CHROMIUM_REMOTE_PACK =
+  process.env.CHROMIUM_PACK_URL?.trim() ||
+  "https://github.com/Sparticuz/chromium/releases/download/v149.0.0/chromium-v149.0.0-pack.x64.tar";
+
+function resolveLocalChromiumBin(): string | undefined {
+  const candidates = [
+    path.join(process.cwd(), "node_modules", "@sparticuz", "chromium", "bin"),
+    path.join(process.cwd(), "web", "node_modules", "@sparticuz", "chromium", "bin"),
+  ];
+  for (const dir of candidates) {
+    if (fs.existsSync(path.join(dir, "chromium.br"))) return dir;
+  }
+  return undefined;
+}
+
 async function launchServerlessBrowser(): Promise<Browser> {
   if (!process.env.AWS_LAMBDA_JS_RUNTIME) {
     const major = Number(process.versions.node.split(".")[0]) || 22;
@@ -85,7 +103,17 @@ async function launchServerlessBrowser(): Promise<Browser> {
     /* ignore */
   }
 
-  const executablePath = await chromium.executablePath();
+  const localBin = resolveLocalChromiumBin();
+  let executablePath: string;
+  if (localBin) {
+    executablePath = await chromium.executablePath(localBin);
+  } else {
+    console.warn(
+      "[pdfBrowserPool] @sparticuz/chromium/bin missing from bundle — downloading remote pack",
+    );
+    executablePath = await chromium.executablePath(CHROMIUM_REMOTE_PACK);
+  }
+
   const execDir = path.dirname(executablePath);
   if (typeof chromiumMod.setupLambdaEnvironment === "function") {
     chromiumMod.setupLambdaEnvironment(execDir);

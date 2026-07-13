@@ -29,10 +29,12 @@ export default async function DashboardPage() {
   }
 
   try {
-    // Load dashboard first, then owner widgets — avoids connection-pool stampede on login.
-    const data = serializeDashboardData(await getDashboardData());
-    const pendingStaff = owner ? await getPendingStaffLoginRequests() : [];
-    const activeStaff = owner ? await getActiveStaffSessions() : [];
+    // Load dashboard + owner widgets together when pool allows — one round-trip wait.
+    const [data, pendingStaff, activeStaff] = await Promise.all([
+      getDashboardData().then(serializeDashboardData),
+      owner ? getPendingStaffLoginRequests() : Promise.resolve([]),
+      owner ? getActiveStaffSessions() : Promise.resolve([]),
+    ]);
 
     return (
       <DashboardView

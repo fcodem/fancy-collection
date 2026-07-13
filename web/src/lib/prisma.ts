@@ -100,6 +100,7 @@ export function endOfMonthQ(d: Date): Date {
 /**
  * Tune DATABASE_URL for Vercel/serverless + Supabase pooler.
  * connection_limit must be >1 so Promise.all dashboard queries don't starve the pool.
+ * Never force TLS on localhost — local Postgres usually has no SSL.
  */
 export function normalizeDatabaseUrl(raw: string | undefined): string | undefined {
   if (!raw?.trim()) return raw;
@@ -107,8 +108,24 @@ export function normalizeDatabaseUrl(raw: string | undefined): string | undefine
   if (url.startsWith("file:")) return url;
   try {
     const parsed = new URL(url);
-    const isServerless = process.env.VERCEL === "1" || process.env.NODE_ENV === "production";
-    if (isServerless || /pooler\.supabase\.com/i.test(parsed.host)) {
+    const host = parsed.hostname.toLowerCase();
+    const isLocalHost =
+      host === "localhost" || host === "127.0.0.1" || host === "::1" || host === "[::1]";
+
+    if (isLocalHost) {
+      if (!parsed.searchParams.has("sslmode")) {
+        parsed.searchParams.set("sslmode", "disable");
+      }
+      return parsed.toString();
+    }
+
+    const isRemoteProd =
+      process.env.VERCEL === "1" ||
+      process.env.NODE_ENV === "production" ||
+      /pooler\.supabase\.com/i.test(parsed.host) ||
+      /\.supabase\.co$/i.test(host);
+
+    if (isRemoteProd) {
       const port = parsed.port || (url.includes(":6543") ? "6543" : "");
       if (port === "6543" && !parsed.searchParams.has("pgbouncer")) {
         parsed.searchParams.set("pgbouncer", "true");

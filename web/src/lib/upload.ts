@@ -7,9 +7,9 @@ import { ALLOWED_EXTENSIONS } from "./constants";
 
 export { photoUrl } from "./photoUrl";
 
-const MAX_IMAGE_EDGE = 1920;
-const JPEG_QUALITY = 82;
-const ORIGINAL_JPEG_QUALITY = 95;
+const MAX_IMAGE_EDGE = 1280;
+const JPEG_QUALITY = 72;
+const ORIGINAL_JPEG_QUALITY = 78;
 
 function extFromName(name: string) {
   const parts = name.split(".");
@@ -109,9 +109,9 @@ export async function saveFastInventoryPhoto(file: File): Promise<string> {
     throw new Error("Invalid file type. Use JPG, PNG, or WEBP.");
   }
 
-  // Vercel serverless: skip sharp entirely — client already compresses large photos.
+  // Vercel: skip sharp (OOM risk) — client already compresses to ~1.2MB JPEG.
   if (process.env.VERCEL) {
-    const path = `${randomUUID().replace(/-/g, "")}.${outExt}`;
+    const path = `${randomUUID().replace(/-/g, "")}.jpg`;
     return storeBuffer(raw, path);
   }
 

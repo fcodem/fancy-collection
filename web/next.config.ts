@@ -29,10 +29,18 @@ const nextConfig: NextConfig = {
     "onnxruntime-node",
     "sharp",
   ],
-  // Ensure Prisma query-engine binaries are included in Vercel serverless traces.
+  // Ensure Prisma engines + Chromium binary pack are traced into Vercel functions.
   outputFileTracingIncludes: {
-    "/api/**/*": ["./node_modules/.prisma/client/**/*", "./node_modules/@prisma/client/**/*"],
-    "/*": ["./node_modules/.prisma/client/**/*", "./node_modules/@prisma/client/**/*"],
+    "/api/**/*": [
+      "./node_modules/.prisma/client/**/*",
+      "./node_modules/@prisma/client/**/*",
+      "./node_modules/@sparticuz/chromium/**/*",
+    ],
+    "/*": [
+      "./node_modules/.prisma/client/**/*",
+      "./node_modules/@prisma/client/**/*",
+      "./node_modules/@sparticuz/chromium/**/*",
+    ],
   },
   compress: true,
   images: {

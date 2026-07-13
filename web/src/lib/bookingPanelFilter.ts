@@ -37,11 +37,17 @@ export function bookingPanelDateRange(
 export function parseBookingPanelFilters(
   searchParams: { year?: string; month?: string },
   currentYear: number,
+  currentMonth = new Date().getUTCMonth() + 1,
 ): { year: number; month: number | null } {
   const filterYear = searchParams.year ? parseInt(searchParams.year, 10) : currentYear;
-  const filterMonth = searchParams.month ? parseInt(searchParams.month, 10) : null;
   const year = Number.isFinite(filterYear) ? filterYear : currentYear;
-  const month =
-    filterMonth && filterMonth >= 1 && filterMonth <= 12 ? filterMonth : null;
-  return { year, month };
+  const raw = searchParams.month;
+
+  // Explicit "all" = full year; missing param = current month (fast default).
+  if (raw === "all") return { year, month: null };
+  if (raw != null && raw !== "") {
+    const n = parseInt(raw, 10);
+    if (n >= 1 && n <= 12) return { year, month: n };
+  }
+  return { year, month: currentMonth >= 1 && currentMonth <= 12 ? currentMonth : 1 };
 }

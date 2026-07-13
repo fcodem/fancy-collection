@@ -1,4 +1,4 @@
-import prisma, { parseDateQ } from "@/lib/prisma";
+import prisma from "@/lib/prisma";
 import {
   whereDeliveryInRange,
   whereUnavailableDuringPeriod,
@@ -153,7 +153,7 @@ function buildItems(
       category: cat,
       size: "",
       price: 0,
-      notes: noteParts.join(" ¬∑ "),
+      notes: noteParts.join(" ù "),
       photo: j.photo || "",
       returning_warning: j.itemId ? pickWarning(returningMap, delIso, j.itemId, b.id) : null,
       booked_warning: j.itemId ? pickWarning(bookedMap, retIso, j.itemId, b.id) : null,
@@ -203,9 +203,6 @@ export async function getBookingListData(
   let rDate = returnDateStr ? parseDate(returnDateStr) : dDate;
   if (rDate < dDate) rDate = dDate;
 
-  const dDateQ = parseDateQ(deliveryDateStr);
-  const rDateQ = parseDateQ(returnDateStr || deliveryDateStr);
-
   const fromDisplay = formatDate(dDate, "display");
   const toDisplay = formatDate(rDate, "display");
 
@@ -241,16 +238,9 @@ export async function getBookingListData(
     }),
   ]);
 
-  const edgeBookings = await prisma.booking.findMany({
-    where: {
-      status: { in: ["booked", "delivered"] },
-      OR: [
-        { returnDate: { gte: dDateQ, lte: rDateQ } },
-        { deliveryDate: { gte: dDateQ, lte: rDateQ } },
-      ],
-    },
-    select: bookingSelect,
-  });
+  const edgeBookings = [...mainBookings, ...unavailableBookings].filter(
+    (b, i, arr) => arr.findIndex((x) => x.id === b.id) === i,
+  );
 
   const { returning: returningMap, booked: bookedMap } = buildWarningMaps(edgeBookings);
 
@@ -262,7 +252,7 @@ export async function getBookingListData(
     .map((b) => {
       const row = serializeBooking(b, categoryFilter, returningMap, bookedMap);
       if (!row) return null;
-      row.reason = `Delivered ${formatDate(b.deliveryDate, "display")} (before ${fromDisplay}) ‚Äî returns ${formatDate(b.returnDate, "display")} (before ${toDisplay})`;
+      row.reason = `Delivered ${formatDate(b.deliveryDate, "display")} (before ${fromDisplay}) ù returns ${formatDate(b.returnDate, "display")} (before ${toDisplay})`;
       return row;
     })
     .filter((b): b is BookingListRow => b !== null);
