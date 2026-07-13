@@ -1,5 +1,5 @@
 {
-  "buildCommand": "npm run build:vercel",
+  "buildCommand": "node scripts/vercel-build.mjs",
   "framework": "nextjs",
   "regions": ["bom1"],
   "crons": [
