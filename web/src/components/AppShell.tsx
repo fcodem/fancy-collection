@@ -22,7 +22,6 @@ const NAV_MAIN = [
   { href: "/", label: "Dashboard", icon: "fa-house-chimney" },
   { href: "/booking", label: "Booking Panel", icon: "fa-calendar-plus" },
   { href: "/search-booking", label: "Search Booking", icon: "fa-magnifying-glass-plus" },
-  { href: "/booking-assistant", label: "AI Booking Assistant", icon: "fa-robot" },
   { href: "/free-items", label: "Free Item List", icon: "fa-magnifying-glass" },
   { href: "/booking-delivery", label: "Booking Delivery", icon: "fa-truck-fast" },
   { href: "/jewellery-selection", label: "Jewellery Selection", icon: "fa-gem" },
@@ -31,9 +30,6 @@ const NAV_MAIN = [
   { href: "/booking-list", label: "Booked Items", icon: "fa-list-check" },
   { href: "/returning-today", label: "Returning Today (Alternate)", icon: "fa-arrows-rotate" },
   { href: "/inventory/search", label: "Dress Search", icon: "fa-shirt" },
-  // Hidden while enhancement is paused — pages kept at /ai-tools/* for future use
-  // { href: "/ai-tools/image-enhancer", label: "AI Enhancer (Pipeline 2)", icon: "fa-wand-magic-sparkles" },
-  // { href: "/ai-tools/catalog-generator", label: "AI Catalog Generator (Pipeline 3)", icon: "fa-sparkles" },
   { href: "/inventory", label: "Manage Inventory", icon: "fa-layer-group" },
   { href: "/search-qr", label: "Search QR Code", icon: "fa-qrcode" },
   { href: "/late-return", label: "Late Returns", icon: "fa-hourglass-end" },
@@ -42,6 +38,9 @@ const NAV_MAIN = [
   { href: "/remaining-to-deliver", label: "Remaining to Deliver", icon: "fa-clock", badgeKey: "overdue_delivery" as const },
   { href: "/incomplete-return", label: "Incomplete Return", icon: "fa-circle-exclamation" },
 ];
+
+/** All AI tools live under /ai-features — single sidebar entry at the bottom. */
+const NAV_AI_FEATURES = { href: "/ai-features", label: "AI Features", icon: "fa-wand-magic-sparkles" };
 
 const NAV_COMMON = [
   { href: "/prospect-leads", label: "Prospect & Enquiries", icon: "fa-user-clock" },
@@ -72,12 +71,6 @@ const NAV_OWNER = [
   { href: "/reports", label: "Reports & Backup", icon: "fa-file-export" },
   { href: "/admin/restore", label: "Restore Database", icon: "fa-upload" },
   { href: "/admin/image-sync", label: "Bulk Image Sync", icon: "fa-images" },
-  { href: "/admin/ai-indexing", label: "AI Indexing Health", icon: "fa-heart-pulse" },
-  { href: "/admin/recognition", label: "AI Recognition", icon: "fa-fingerprint" },
-  { href: "/admin/recognition/diagnostics", label: "AI Diagnostics", icon: "fa-microscope" },
-  { href: "/admin/ai-debug", label: "AI Dress Checker Debug", icon: "fa-bug" },
-  { href: "/admin/dress-checker-debug", label: "Dress Checker Scores", icon: "fa-chart-bar" },
-  { href: "/admin/ai-settings", label: "AI Settings", icon: "fa-sliders" },
   { href: "/admin/reset-data", label: "Reset All Data", icon: "fa-triangle-exclamation", danger: true },
 ];
 
@@ -86,17 +79,29 @@ const NAV_QUICK = [
   { href: "/inventory/add", label: "Add Inventory", icon: "fa-shirt" },
 ];
 
-const ALL_NAV = [...NAV_MAIN, ...NAV_COMMON, ...NAV_FINANCE, ...NAV_OWNER, ...NAV_QUICK, ...NAV_WHATSAPP];
+const ALL_NAV = [
+  ...NAV_MAIN,
+  ...NAV_COMMON,
+  ...NAV_FINANCE,
+  ...NAV_OWNER,
+  ...NAV_QUICK,
+  ...NAV_WHATSAPP,
+  NAV_AI_FEATURES,
+];
 
 function pageTitle(pathname: string) {
   const exact = ALL_NAV.find((n) => n.href === pathname);
   if (exact) return exact.label;
+  if (pathname.startsWith("/ai-features")) return "AI Features";
   if (pathname.startsWith("/search-qr")) return "Search QR Code";
   if (pathname.startsWith("/late-return")) return "Late Returns";
   if (pathname.startsWith("/ai-tools/image-enhancer")) return "AI Enhancer";
   if (pathname.startsWith("/ai-tools/catalog-generator")) return "AI Catalog Generator";
+  if (pathname.startsWith("/booking-assistant")) return "AI Booking Assistant";
   if (pathname.startsWith("/admin/ai-indexing")) return "AI Indexing Health";
-  if (pathname.startsWith("/admin/dress-checker-debug")) return "Dress Checker Debug";
+  if (pathname.startsWith("/admin/recognition/diagnostics")) return "AI Diagnostics";
+  if (pathname.startsWith("/admin/recognition")) return "AI Recognition";
+  if (pathname.startsWith("/admin/dress-checker-debug")) return "Dress Checker Scores";
   if (pathname.startsWith("/admin/ai-debug")) return "AI Dress Checker Debug";
   if (pathname.startsWith("/admin/ai-settings")) return "AI Settings";
   if (pathname.startsWith("/search-booking")) return "Search Booking";
@@ -265,7 +270,7 @@ export default function AppShell({
       loadAiHealth();
     }
     loadIfVisible();
-    const interval = setInterval(loadIfVisible, 60_000);
+    const interval = setInterval(loadIfVisible, 180_000);
     return () => {
       cancelled = true;
       clearInterval(interval);
@@ -407,31 +412,6 @@ function AppLayoutInner({
         </div>
         <SidebarBrandMark />
         <nav className="sidebar-nav">
-          {isOwner && (
-            <Link
-              href="/ai-dashboard"
-              className={`nav-item ${pathname === "/ai-dashboard" ? "active" : ""}`}
-              onClick={onCloseMobile}
-              style={{
-                marginBottom: 8,
-                background: pathname === "/ai-dashboard"
-                  ? undefined
-                  : "linear-gradient(135deg, #7B1F45, #C9A846)",
-                color: "#fff",
-                fontWeight: 700,
-                borderRadius: 8,
-              }}
-            >
-              <i className="fa-solid fa-wand-magic-sparkles" />{" "}
-              <span className="nav-label">AI Mode</span>
-              <span
-                className="nav-badge"
-                style={{ background: "rgba(255,255,255,0.25)", color: "#fff" }}
-              >
-                NEW
-              </span>
-            </Link>
-          )}
           <div className="nav-section-label">Main Menu</div>
           {NAV_MAIN.map((item) => (
             <Link key={item.href} href={item.href} className={`nav-item ${pathname === item.href ? "active" : ""}`} onClick={onCloseMobile}>
@@ -501,6 +481,26 @@ function AppLayoutInner({
               <i className={`fa-solid ${item.icon}`} /> <span className="nav-label">{item.label}</span>
             </Link>
           ))}
+          <div className="nav-section-label" style={{ marginTop: 8 }}>AI</div>
+          <Link
+            href={NAV_AI_FEATURES.href}
+            className={`nav-item ${
+              pathname === NAV_AI_FEATURES.href ||
+              pathname.startsWith("/ai-features") ||
+              pathname.startsWith("/ai-dashboard") ||
+              pathname.startsWith("/booking-assistant") ||
+              pathname.startsWith("/admin/ai-") ||
+              pathname.startsWith("/admin/recognition") ||
+              pathname.startsWith("/admin/dress-checker-debug") ||
+              pathname.startsWith("/ai-tools/")
+                ? "active"
+                : ""
+            }`}
+            onClick={onCloseMobile}
+          >
+            <i className={`fa-solid ${NAV_AI_FEATURES.icon}`} />{" "}
+            <span className="nav-label">{NAV_AI_FEATURES.label}</span>
+          </Link>
         </nav>
         <div className="sidebar-footer">
           <div className="user-chip">
@@ -567,8 +567,8 @@ function AppLayoutInner({
             }}
           >
             <span>⚠ {aiHealthBanner}</span>
-            <Link href="/admin/ai-indexing" style={{ color: "#7B1F45", fontWeight: 700, whiteSpace: "nowrap" }}>
-              Open AI Indexing →
+            <Link href="/ai-features" style={{ color: "#7B1F45", fontWeight: 700, whiteSpace: "nowrap" }}>
+              Open AI Features →
             </Link>
           </div>
         )}

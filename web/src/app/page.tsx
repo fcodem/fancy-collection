@@ -21,7 +21,7 @@ export default async function DashboardPage() {
     after(async () => {
       try {
         const { processWhatsAppJobQueue } = await import("@/lib/services/whatsapp/jobQueue");
-        await processWhatsAppJobQueue(5);
+        await processWhatsAppJobQueue(2);
       } catch (e) {
         console.error("[dashboard] whatsapp queue drain:", e);
       }

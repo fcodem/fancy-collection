@@ -7,19 +7,33 @@ import InventoryDeleteButton from "@/components/InventoryDeleteButton";
 import InventoryListThumb from "@/components/InventoryListThumb";
 import { dressDisplayName, stripUnitSuffix, buildDressSearchWhere } from "@/lib/dress";
 import { catalogPhotoUrl } from "@/lib/catalogPhotoUrl";
-import type { ClothingItem } from "@prisma/client";
 
 export const dynamic = "force-dynamic";
+
+type InventoryListItem = {
+  id: number;
+  sku: string;
+  name: string;
+  category: string;
+  size: string | null;
+  color: string | null;
+  status: string;
+  dailyRate: number;
+  photo: string | null;
+  originalPhoto: string | null;
+  enhancedPhoto: string | null;
+  marketingPhoto: string | null;
+};
 
 type InventoryGroup = {
   key: string;
   baseName: string;
   category: string;
   size: string;
-  items: ClothingItem[];
+  items: InventoryListItem[];
 };
 
-function groupInventoryItems(items: Awaited<ReturnType<typeof prisma.clothingItem.findMany>>): InventoryGroup[] {
+function groupInventoryItems(items: InventoryListItem[]): InventoryGroup[] {
   const map = new Map<string, InventoryGroup>();
   for (const item of items) {
     const baseName = stripUnitSuffix(item.name);
@@ -61,6 +75,20 @@ export default async function InventoryPage({
       ...(category ? { category } : {}),
       ...(status ? { status } : {}),
       ...(q ? buildDressSearchWhere(q) : {}),
+    },
+    select: {
+      id: true,
+      sku: true,
+      name: true,
+      category: true,
+      size: true,
+      color: true,
+      status: true,
+      dailyRate: true,
+      photo: true,
+      originalPhoto: true,
+      enhancedPhoto: true,
+      marketingPhoto: true,
     },
     orderBy: [{ category: "asc" }, { name: "asc" }],
     take: 200,

@@ -1,4 +1,4 @@
-import { NextRequest } from "next/server";
+import { NextRequest, after } from "next/server";
 import prisma from "@/lib/prisma";
 import { saveReturn } from "@/lib/services/operations";
 import { saveUpload } from "@/lib/upload";
@@ -10,6 +10,7 @@ import {
   newlyReturnedItemIdsFromAction,
   newlyIncompleteItemIdsFromAction,
 } from "@/lib/slipDelta";
+import { processWhatsAppJobQueue } from "@/lib/services/whatsapp/jobQueue";
 
 export const maxDuration = 60;
 
@@ -96,6 +97,13 @@ async function triggerReturnSlipIfNeeded(
         return;
       }
       await finalizeSlipTrigger(bookingId, "return", baseOpts);
+      after(async () => {
+        try {
+          await processWhatsAppJobQueue(2, { bookingId });
+        } catch (e) {
+          console.error("[return save] whatsapp queue error:", e);
+        }
+      });
     }
   } catch (e) {
     console.error("[return save] WhatsApp slip error:", e);

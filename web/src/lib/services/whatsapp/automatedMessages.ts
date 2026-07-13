@@ -59,6 +59,7 @@ import {
   returnSlipDetailsFromBooking,
   SLIP_WA_CONTACT_LINE,
 } from "./slipMessageCopy";
+import { generateBookingBillPdfFallback } from "./bookingBillPdfFallback";
 
 export type WhatsAppSendOutcome = {
   ok: boolean;
@@ -214,7 +215,7 @@ export async function sendBookingBillWhatsApp(
     where: { id: bookingId },
     include: {
       bookingItems: {
-        include: { item: { select: { color: true } } },
+        include: { item: { select: { color: true, photo: true } } },
       },
     },
   });
@@ -242,10 +243,16 @@ export async function sendBookingBillWhatsApp(
   let pdfBuffer: Buffer;
   try {
     pdfBuffer = await generateBookingSlipPdf(bookingId, requestOrigin);
-  } catch (e) {
-    const err = e instanceof Error ? e.message : "PDF generation failed";
-    console.error("[sendBookingBillWhatsApp] PDF error:", err);
-    return { ok: false, error: err };
+  } catch (htmlErr) {
+    const htmlMsg = htmlErr instanceof Error ? htmlErr.message : "HTML PDF failed";
+    console.warn("[sendBookingBillWhatsApp] HTML PDF failed, using jsPDF fallback:", htmlMsg);
+    try {
+      pdfBuffer = await generateBookingBillPdfFallback(booking, publicBookingId, requestOrigin);
+    } catch (e) {
+      const err = e instanceof Error ? e.message : "PDF generation failed";
+      console.error("[sendBookingBillWhatsApp] PDF error:", err);
+      return { ok: false, error: `${htmlMsg} | fallback: ${err}` };
+    }
   }
 
   let pdfUrl = "";

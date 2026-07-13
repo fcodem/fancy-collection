@@ -1,4 +1,4 @@
-import { NextRequest } from "next/server";
+import { NextRequest, after } from "next/server";
 import prisma from "@/lib/prisma";
 import { createBooking } from "@/lib/services/bookingCrud";
 import { jsonError, jsonOk, requireUser, isResponse, requireJsonContentType } from "@/lib/api";
@@ -27,11 +27,14 @@ export async function POST(req: NextRequest) {
     const booking = await createBooking(body, user.username);
 
     await scheduleBookingBill(booking.id, req.nextUrl.origin, user.username);
-    try {
-      await processWhatsAppJobQueue(3, { bookingId: booking.id });
-    } catch (e) {
-      console.error("[booking POST] whatsapp queue error:", e);
-    }
+    // Do not block save on Chromium PDF / Meta send — drain in background.
+    after(async () => {
+      try {
+        await processWhatsAppJobQueue(2, { bookingId: booking.id });
+      } catch (e) {
+        console.error("[booking POST] whatsapp queue error:", e);
+      }
+    });
 
     return jsonOk({ ok: true, id: booking.id, serial: booking.monthlySerial });
   } catch (e) {

@@ -8,7 +8,6 @@ import {
   scheduleDeliverySlip,
   scheduleIncompleteSlip,
   scheduleReturnSlip,
-  processWhatsAppJobQueue,
 } from "./jobQueue";
 import { isWhatsAppReceiptsDisabled } from "./metaApi";
 
@@ -97,10 +96,6 @@ export async function triggerWhatsAppSlipJobs(
   } else {
     await scheduleReturnSlipsForBooking(bookingId, opts);
   }
-  try {
-    return await processWhatsAppJobQueue(5, { bookingId });
-  } catch (e) {
-    console.error("[triggerWhatsAppSlipJobs] queue error:", e);
-    throw e;
-  }
+  // Schedule only — cron / after() / Run Queue Now drains jobs so saves stay fast.
+  return { scheduled: true as const };
 }
