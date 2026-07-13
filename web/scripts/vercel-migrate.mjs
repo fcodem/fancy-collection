@@ -1,18 +1,36 @@
 /**
  * Run prisma migrate deploy with a hard timeout so Vercel builds
  * fail fast instead of hanging 45 minutes on a Transaction pooler URL.
+ * If DIRECT_URL is unset, derive Session pooler (:5432) from DATABASE_URL.
  */
 import { spawn } from "child_process";
 
 const timeoutMs = Number(process.env.PRISMA_MIGRATE_TIMEOUT_MS || 120_000);
 
+function deriveDirectUrl(databaseUrl) {
+  let direct = databaseUrl.replace(/:6543\b/g, ":5432");
+  direct = direct
+    .replace(/([?&])pgbouncer=true&?/gi, "$1")
+    .replace(/([?&])connection_limit=\d+&?/gi, "$1")
+    .replace(/\?&/g, "?")
+    .replace(/[?&]$/g, "")
+    .replace(/\?$/g, "");
+  if (!/[?&]sslmode=/i.test(direct)) {
+    direct += (direct.includes("?") ? "&" : "?") + "sslmode=require";
+  }
+  return direct;
+}
+
 if (!process.env.DIRECT_URL?.trim()) {
-  console.error(
-    "[vercel-migrate] DIRECT_URL is missing.\n" +
-      "Set DIRECT_URL to your Supabase Session pooler URI (port 5432).\n" +
-      "Keep DATABASE_URL as Transaction pooler (port 6543) for the running app.",
+  const databaseUrl = process.env.DATABASE_URL?.trim();
+  if (!databaseUrl) {
+    console.error("[vercel-migrate] DATABASE_URL and DIRECT_URL are both missing.");
+    process.exit(1);
+  }
+  process.env.DIRECT_URL = deriveDirectUrl(databaseUrl);
+  console.log(
+    "[vercel-migrate] derived DIRECT_URL from DATABASE_URL (Session pooler port 5432)",
   );
-  process.exit(1);
 }
 
 console.log(`[vercel-migrate] starting prisma migrate deploy (timeout ${timeoutMs / 1000}s)…`);
