@@ -16,14 +16,23 @@ export interface SessionData {
   pendingLoginToken?: string;
 }
 
+function readEnv(name: string): string {
+  // Dynamic key access avoids Next.js build-time inlining of empty env values.
+  try {
+    return String(process.env[name] ?? "").trim();
+  } catch {
+    return "";
+  }
+}
+
 function resolveSessionPassword(): string {
-  const secret = process.env.SESSION_SECRET?.trim();
+  const secret = readEnv("SESSION_SECRET");
   const duringBuild =
-    process.env.NEXT_PHASE === "phase-production-build" ||
-    process.env.NEXT_PHASE === "phase-export" ||
+    readEnv("NEXT_PHASE") === "phase-production-build" ||
+    readEnv("NEXT_PHASE") === "phase-export" ||
     process.argv.includes("build");
 
-  if (secret && secret.length >= 32) return secret;
+  if (secret.length >= 32) return secret;
 
   if (duringBuild) {
     console.warn(
@@ -32,15 +41,14 @@ function resolveSessionPassword(): string {
     return "build-placeholder-session-secret-min-32-chars!!";
   }
 
-  if (secret && secret.length > 0) {
+  if (secret.length > 0) {
     console.warn(
       "[auth] SESSION_SECRET is shorter than 32 chars; padding so login can work. Prefer a 32+ char secret.",
     );
     return (secret + "pad-fancy-collection-session-secret-32").slice(0, 48);
   }
 
-  if (process.env.NODE_ENV === "production") {
-    // Do not hard-crash login/API if env was forgotten — still warn loudly.
+  if (readEnv("NODE_ENV") === "production") {
     console.error(
       "[auth] SESSION_SECRET is missing in production. Using temporary fallback. Set SESSION_SECRET (32+ chars) in Vercel and redeploy.",
     );
@@ -50,19 +58,25 @@ function resolveSessionPassword(): string {
   return "dev-only-change-in-production-min-32-chars!!";
 }
 
-export const sessionOptions: SessionOptions = {
-  // iron-session requires password length >= 32
-  password: resolveSessionPassword(),
-  cookieName: "fancy_collection_session",
-  cookieOptions: {
-    secure: process.env.NODE_ENV === "production"
-      ? process.env.SESSION_COOKIE_SECURE !== "false"
-      : false,
-    httpOnly: true,
-    sameSite: "lax",
-    maxAge: 60 * 60 * 24 * 7,
-  },
-};
+export function getSessionOptions(): SessionOptions {
+  return {
+    // iron-session requires password length >= 32
+    password: resolveSessionPassword(),
+    cookieName: "fancy_collection_session",
+    cookieOptions: {
+      secure:
+        readEnv("NODE_ENV") === "production"
+          ? readEnv("SESSION_COOKIE_SECURE") !== "false"
+          : false,
+      httpOnly: true,
+      sameSite: "lax",
+      maxAge: 60 * 60 * 24 * 7,
+    },
+  };
+}
+
+/** @deprecated Prefer getSessionOptions() so SESSION_SECRET is read at request time. */
+export const sessionOptions: SessionOptions = getSessionOptions();
 
 const LAST_SEEN_INTERVAL_MS = 60_000;
 const lastSeenAt = new Map<string, number>();
@@ -70,7 +84,7 @@ let lastExpireLoginRequestsAt = 0;
 
 export async function getSession() {
   await connection();
-  return getIronSession<SessionData>(await cookies(), sessionOptions);
+  return getIronSession<SessionData>(await cookies(), getSessionOptions());
 }
 
 async function resolveSessionUser(updateLastSeen: boolean) {
@@ -142,7 +156,7 @@ export async function establishUserLoginWithRedirect(
   const url = typeof redirectTo === "string" ? new URL(redirectTo, req.url) : redirectTo;
   const response = NextResponse.redirect(url);
   const sessionId = await createUserSessionRecord(userId);
-  const session = await getIronSession<SessionData>(req, response, sessionOptions);
+  const session = await getIronSession<SessionData>(req, response, getSessionOptions());
   session.userId = userId;
   session.sessionId = sessionId;
   delete session.pendingLoginToken;
@@ -159,7 +173,7 @@ export async function establishUserLoginWithJson<T>(
 ) {
   const response = NextResponse.json(body, { status });
   const sessionId = await createUserSessionRecord(userId);
-  const session = await getIronSession<SessionData>(req, response, sessionOptions);
+  const session = await getIronSession<SessionData>(req, response, getSessionOptions());
   session.userId = userId;
   session.sessionId = sessionId;
   delete session.pendingLoginToken;
@@ -173,7 +187,7 @@ export async function establishPendingLoginToken(
   token: string,
   response: NextResponse,
 ) {
-  const session = await getIronSession<SessionData>(req, response, sessionOptions);
+  const session = await getIronSession<SessionData>(req, response, getSessionOptions());
   session.pendingLoginToken = token;
   await session.save();
   return response;
@@ -244,16 +258,27 @@ export async function findUserForLogin(identifier: string) {
   const trimmed = identifier.trim();
   if (!trimmed) return null;
 
-  const byUsername = await prisma.user.findFirst({
-    where: {
-      active: true,
-      OR: [
-        { username: trimmed },
-        { username: { equals: trimmed, mode: "insensitive" } },
-      ],
-    },
+  // Avoid Prisma `mode: "insensitive"` (can fail on some Postgres/pooler setups).
+  const exact = await prisma.user.findFirst({
+    where: { active: true, username: trimmed },
   });
-  if (byUsername) return byUsername;
+  if (exact) return exact;
+
+  const lower = trimmed.toLowerCase();
+  if (lower !== trimmed) {
+    const ci = await prisma.user.findFirst({
+      where: { active: true, username: lower },
+    });
+    if (ci) return ci;
+  }
+
+  // Also try common casing for owner.
+  if (lower === "owner") {
+    const owner = await prisma.user.findFirst({
+      where: { active: true, username: "owner" },
+    });
+    if (owner) return owner;
+  }
 
   if (/^\d+$/.test(trimmed)) {
     const staffId = parseInt(trimmed, 10);
