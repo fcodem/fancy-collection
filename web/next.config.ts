@@ -44,7 +44,7 @@ const nextConfig: NextConfig = {
     serverActions: {
       bodySizeLimit: "50mb",
     },
-    optimizePackageImports: ["@prisma/client", "@fullcalendar/react", "@fullcalendar/daygrid", "@fullcalendar/interaction"],
+    optimizePackageImports: ["@fullcalendar/react", "@fullcalendar/daygrid", "@fullcalendar/interaction"],
     staleTimes: {
       dynamic: 30,
       static: 180,
