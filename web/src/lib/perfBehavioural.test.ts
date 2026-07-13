@@ -30,7 +30,7 @@ type BookingRow = { id: number; monthlySerial: number; clientRequestId: string }
  * concurrent create txns both start; exactly one INSERT commits; the other
  * throws P2002 and leaves no booking / activity / WhatsApp side effects.
  */
-function createAtomicClientRequestStore() {
+function createAtomicClientRequestStore(opts?: { concurrentBarrier?: boolean }) {
   const bookings: BookingRow[] = [];
   const activities: number[] = [];
   const whatsappJobs: number[] = [];
@@ -38,22 +38,27 @@ function createAtomicClientRequestStore() {
   let serial = 0;
   let writeChain: Promise<void> = Promise.resolve();
 
+  const useBarrier = opts?.concurrentBarrier === true;
   /** Barrier so both callers enter createBooking before either commits. */
   let barrierRelease: (() => void) | null = null;
   let barrierWaiters = 0;
-  const barrier = new Promise<void>((resolve) => {
-    barrierRelease = resolve;
-  });
+  const barrier = useBarrier
+    ? new Promise<void>((resolve) => {
+        barrierRelease = resolve;
+      })
+    : Promise.resolve();
 
   const createBooking = async (input: { client_request_id?: string }) => {
     const key = input.client_request_id?.trim();
     if (!key) throw new Error("client_request_id required in race mock");
 
-    barrierWaiters += 1;
-    if (barrierWaiters >= 2 && barrierRelease) barrierRelease();
-    await barrier;
-    // Overlapping work before unique commit (both txns open).
-    await new Promise((r) => setTimeout(r, 5));
+    if (useBarrier) {
+      barrierWaiters += 1;
+      if (barrierWaiters >= 2 && barrierRelease) barrierRelease();
+      await barrier;
+      // Overlapping work before unique commit (both txns open).
+      await new Promise((r) => setTimeout(r, 5));
+    }
 
     return new Promise<BookingRow>((resolve, reject) => {
       writeChain = writeChain.then(() => {
@@ -159,8 +164,32 @@ describe("booking create isolation", () => {
     assert.equal(isPrismaClientRequestIdConflict({ code: "P2003" }), false);
   });
 
+  it("sequential retry of same client_request_id returns existing booking once", async () => {
+    const store = createAtomicClientRequestStore({ concurrentBarrier: false });
+    const key = "11111111-1111-4111-8111-111111111111";
+    const deps = {
+      createBooking: store.createBooking,
+      scheduleBookingBill: store.scheduleBookingBill,
+      processWhatsAppJobQueue: async () => ({ processed: 0 }),
+      findByClientRequestId: store.findByClientRequestId,
+      after: () => {},
+    };
+    const user = { id: 1, username: "owner" };
+    const payload = { ...sampleInput, client_request_id: key };
+
+    const first = await createBookingWithSideEffectsCore(payload, user, deps);
+    const second = await createBookingWithSideEffectsCore(payload, user, deps);
+
+    assert.equal(first.id, second.id);
+    assert.equal(first.reused, false);
+    assert.equal(second.reused, true);
+    assert.equal(store.bookings.length, 1, "exactly one booking row after sequential retry");
+    assert.equal(store.whatsappJobs.length, 1, "WhatsApp bill scheduled only for first create");
+    assert.equal(store.activities.length, 1);
+  });
+
   it("simultaneous client_request_id creates exactly one booking and one WhatsApp job", async () => {
-    const store = createAtomicClientRequestStore();
+    const store = createAtomicClientRequestStore({ concurrentBarrier: true });
     const key = "22222222-2222-4222-8222-222222222222";
     const deps = {
       createBooking: store.createBooking,
