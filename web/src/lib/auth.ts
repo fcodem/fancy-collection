@@ -18,13 +18,25 @@ export interface SessionData {
 
 export const sessionOptions: SessionOptions = {
   password: (() => {
-    if (process.env.NODE_ENV === "production" && !process.env.SESSION_SECRET) {
+    const secret = process.env.SESSION_SECRET?.trim();
+    const duringBuild =
+      process.env.NEXT_PHASE === "phase-production-build" ||
+      process.env.NEXT_PHASE === "phase-export" ||
+      process.argv.includes("build");
+    if (process.env.NODE_ENV === "production" && !secret) {
+      // Do not crash `next build` — still refuse insecure runtime sessions.
+      if (duringBuild) {
+        console.warn(
+          "[auth] SESSION_SECRET missing during build; set it in Vercel Production env before go-live.",
+        );
+        return "build-placeholder-session-secret-min-32-chars!!";
+      }
       throw new Error(
         "SESSION_SECRET environment variable must be set in production. " +
-        "Generate one with: openssl rand -base64 32"
+          "Generate one with: openssl rand -base64 32",
       );
     }
-    return process.env.SESSION_SECRET || "dev-only-change-in-production-min-32-chars!!";
+    return secret || "dev-only-change-in-production-min-32-chars!!";
   })(),
   cookieName: "fancy_collection_session",
   cookieOptions: {
