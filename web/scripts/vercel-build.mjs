@@ -72,10 +72,8 @@ function extractFailedMigrationNames(text) {
 
 // --- Env bootstrap ---
 log(`node=${process.version} vercel=${process.env.VERCEL || "0"} env=${process.env.VERCEL_ENV || "local"}`);
-ensureDirectUrl({ label: "vercel-build", exitOnMissing: false });
 
 if (!process.env.DATABASE_URL?.trim()) {
-  // Preview builds often lack Production-only env vars. Prisma generate only needs the vars present.
   const placeholder = "postgresql://build:build@127.0.0.1:5432/build?sslmode=disable";
   process.env.DATABASE_URL = placeholder;
   process.env.DIRECT_URL = placeholder;
@@ -85,11 +83,18 @@ if (!process.env.DATABASE_URL?.trim()) {
       "Set DATABASE_URL (and DIRECT_URL) for Production AND Preview, then redeploy — " +
       "otherwise the live site cannot reach the database.",
   );
-} else if (!process.env.DIRECT_URL?.trim()) {
-  ensureDirectUrl({ label: "vercel-build-retry", exitOnMissing: false });
+} else {
+  // Rewrites db.*.supabase.co DIRECT_URL → Session pooler when DATABASE_URL is pooler.
+  ensureDirectUrl({ label: "vercel-build", exitOnMissing: false });
 }
 
 log(`DATABASE_URL set=${Boolean(process.env.DATABASE_URL)} DIRECT_URL set=${Boolean(process.env.DIRECT_URL)}`);
+if (process.env.DIRECT_URL && /@db\.[a-z0-9]+\.supabase\.co:/i.test(process.env.DIRECT_URL)) {
+  console.warn(
+    "[vercel-build] DIRECT_URL still points at db.*.supabase.co — expect P1001 on Vercel. " +
+      "Set DIRECT_URL to Session pooler :5432 (same host as Transaction pooler, port 5432).",
+  );
+}
 
 // --- Prisma generate (required) ---
 const prismaBin = bin("prisma");

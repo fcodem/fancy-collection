@@ -1,6 +1,7 @@
 /**
  * Ensure DIRECT_URL is set for Prisma (schema requires env("DIRECT_URL")).
  * Derives Session-pooler :5432 from Transaction DATABASE_URL :6543 when unset.
+ * On Vercel, never keep db.*.supabase.co:5432 (P1001 — blocked from serverless).
  * Mutates process.env — call from the same Node process that runs prisma.
  */
 export function deriveDirectUrl(databaseUrl) {
@@ -17,11 +18,28 @@ export function deriveDirectUrl(databaseUrl) {
   return direct;
 }
 
+function isSupabaseDirectDbHost(url) {
+  return /@db\.[a-z0-9]+\.supabase\.co:/i.test(url || "");
+}
+
 export function ensureDirectUrl({ label = "ensure-direct-url", exitOnMissing = true } = {}) {
-  if (process.env.DIRECT_URL?.trim()) {
-    return { source: "env", url: process.env.DIRECT_URL.trim() };
+  const databaseUrl = process.env.DATABASE_URL?.trim() || "";
+  const existingDirect = process.env.DIRECT_URL?.trim() || "";
+  const onVercel = process.env.VERCEL === "1" || Boolean(process.env.VERCEL_ENV);
+
+  if (existingDirect) {
+    // Vercel cannot reach Supabase "direct" db.*.supabase.co — rewrite to session pooler.
+    if (onVercel && isSupabaseDirectDbHost(existingDirect) && databaseUrl.includes("pooler.supabase.com")) {
+      process.env.DIRECT_URL = deriveDirectUrl(databaseUrl);
+      console.warn(
+        `[${label}] DIRECT_URL used db.*.supabase.co (P1001 on Vercel). ` +
+          `Rewrote to Session pooler :5432 from DATABASE_URL.`,
+      );
+      return { source: "rewritten-from-pooler", url: process.env.DIRECT_URL };
+    }
+    return { source: "env", url: existingDirect };
   }
-  const databaseUrl = process.env.DATABASE_URL?.trim();
+
   if (!databaseUrl) {
     if (exitOnMissing) {
       console.error(`[${label}] DATABASE_URL is missing (required to derive DIRECT_URL)`);
@@ -38,7 +56,7 @@ export function ensureDirectUrl({ label = "ensure-direct-url", exitOnMissing = t
     }
     return { source: "invalid", url: "" };
   }
-  if (/@db\.[a-z0-9]+\.supabase\.co:/i.test(databaseUrl)) {
+  if (isSupabaseDirectDbHost(databaseUrl)) {
     console.warn(
       `[${label}] DATABASE_URL uses direct db.*.supabase.co — Vercel often fails (P1001). Use pooler.supabase.com:6543 instead.`,
     );
