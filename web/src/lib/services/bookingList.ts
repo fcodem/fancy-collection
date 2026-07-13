@@ -153,7 +153,7 @@ function buildItems(
       category: cat,
       size: "",
       price: 0,
-      notes: noteParts.join("  "),
+      notes: noteParts.join(" - "),
       photo: j.photo || "",
       returning_warning: j.itemId ? pickWarning(returningMap, delIso, j.itemId, b.id) : null,
       booked_warning: j.itemId ? pickWarning(bookedMap, retIso, j.itemId, b.id) : null,
@@ -252,7 +252,7 @@ export async function getBookingListData(
     .map((b) => {
       const row = serializeBooking(b, categoryFilter, returningMap, bookedMap);
       if (!row) return null;
-      row.reason = `Delivered ${formatDate(b.deliveryDate, "display")} (before ${fromDisplay})  returns ${formatDate(b.returnDate, "display")} (before ${toDisplay})`;
+      row.reason = `Delivered ${formatDate(b.deliveryDate, "display")} (before ${fromDisplay}) - returns ${formatDate(b.returnDate, "display")} (before ${toDisplay})`;
       return row;
     })
     .filter((b): b is BookingListRow => b !== null);
