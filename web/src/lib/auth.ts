@@ -16,28 +16,39 @@ export interface SessionData {
   pendingLoginToken?: string;
 }
 
-export const sessionOptions: SessionOptions = {
-  password: (() => {
-    const secret = process.env.SESSION_SECRET?.trim();
-    const duringBuild =
-      process.env.NEXT_PHASE === "phase-production-build" ||
-      process.env.NEXT_PHASE === "phase-export" ||
-      process.argv.includes("build");
-    if (process.env.NODE_ENV === "production" && !secret) {
-      // Do not crash `next build` — still refuse insecure runtime sessions.
-      if (duringBuild) {
-        console.warn(
-          "[auth] SESSION_SECRET missing during build; set it in Vercel Production env before go-live.",
-        );
-        return "build-placeholder-session-secret-min-32-chars!!";
-      }
-      throw new Error(
-        "SESSION_SECRET environment variable must be set in production. " +
-          "Generate one with: openssl rand -base64 32",
+function resolveSessionPassword(): string {
+  const secret = process.env.SESSION_SECRET?.trim();
+  const duringBuild =
+    process.env.NEXT_PHASE === "phase-production-build" ||
+    process.env.NEXT_PHASE === "phase-export" ||
+    process.argv.includes("build");
+
+  if (secret && secret.length >= 32) return secret;
+
+  if (process.env.NODE_ENV === "production") {
+    if (duringBuild) {
+      console.warn(
+        "[auth] SESSION_SECRET missing/short during build; set a 32+ char value in Vercel Production env.",
       );
+      return "build-placeholder-session-secret-min-32-chars!!";
     }
-    return secret || "dev-only-change-in-production-min-32-chars!!";
-  })(),
+    throw new Error(
+      "SESSION_SECRET must be set in Vercel (Production) to at least 32 characters. " +
+        "Generate one with: openssl rand -base64 32 — then Redeploy.",
+    );
+  }
+
+  if (secret && secret.length > 0 && secret.length < 32) {
+    console.warn("[auth] SESSION_SECRET is shorter than 32 chars; padding for iron-session in development only.");
+    return (secret + "dev-pad-session-secret-min-32-chars!!").slice(0, 48);
+  }
+
+  return "dev-only-change-in-production-min-32-chars!!";
+}
+
+export const sessionOptions: SessionOptions = {
+  // iron-session requires password length >= 32
+  password: resolveSessionPassword(),
   cookieName: "fancy_collection_session",
   cookieOptions: {
     secure: process.env.NODE_ENV === "production"

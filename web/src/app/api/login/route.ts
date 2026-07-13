@@ -118,6 +118,25 @@ export async function POST(req: NextRequest) {
     return establishPendingLoginToken(req, reqRow.token, response);
   } catch (e) {
     console.error(e);
-    return jsonError("Login failed.", 500);
+    const message = e instanceof Error ? e.message : "Login failed.";
+    if (/SESSION_SECRET/i.test(message)) {
+      return jsonError(
+        "Server misconfigured: set SESSION_SECRET in Vercel (32+ characters) and Redeploy.",
+        500,
+      );
+    }
+    if (/P1001|P1017|Can't reach database|timed out|ECONNREFUSED/i.test(message)) {
+      return jsonError(
+        "Database connection failed. Check DATABASE_URL (pooler :6543) in Vercel env.",
+        500,
+      );
+    }
+    if (/does not exist|P2021|P2010/i.test(message)) {
+      return jsonError(
+        "Database tables missing. Redeploy latest main so migrations/seed can run.",
+        500,
+      );
+    }
+    return jsonError("Login failed. Check Vercel function logs for details.", 500);
   }
 }
