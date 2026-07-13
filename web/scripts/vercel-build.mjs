@@ -112,5 +112,19 @@ if (migrate.status !== 0) {
   process.exit(migrate.status ?? 1);
 }
 
+// Ensure owner login exists on fresh DBs (idempotent — does not reset existing passwords).
+console.log("[vercel-build] prisma db seed (ensure owner)…");
+const seed = spawnSync("npx", ["tsx", "prisma/seed.ts"], {
+  stdio: "inherit",
+  env: process.env,
+  shell: true,
+  timeout: 60_000,
+});
+if (seed.status !== 0) {
+  console.warn(
+    `[vercel-build] seed exited ${seed.status ?? 1} — login may fail until /api/setup/bootstrap-owner is called`,
+  );
+}
+
 run("next build", "npx", ["next", "build"]);
 console.log("[vercel-build] done");
