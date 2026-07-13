@@ -29,11 +29,16 @@ const DEFAULTS: Required<Omit<AiRuntimeSettings, "openaiApiKey">> = {
 
 function keyMaterial(): Buffer {
   const secret =
-    process.env.AI_SETTINGS_SECRET ||
-    process.env.SESSION_SECRET ||
-    process.env.NEXTAUTH_SECRET ||
+    process.env.AI_SETTINGS_SECRET?.trim() ||
+    process.env.SESSION_SECRET?.trim() ||
     "";
-  return createHash("sha256").update(secret || "fancy-collection-ai-settings").digest();
+  if (!secret) {
+    if (process.env.NODE_ENV === "production" || process.env.VERCEL === "1") {
+      throw new Error("AI_SETTINGS_SECRET or SESSION_SECRET must be set in production.");
+    }
+    return createHash("sha256").update("dev-only-ai-settings").digest();
+  }
+  return createHash("sha256").update(secret).digest();
 }
 
 function encrypt(raw: string): string {

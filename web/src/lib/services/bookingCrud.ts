@@ -11,6 +11,7 @@ import { shouldSkipCustomerCreate } from "./customersOps";
 import { broadcastShopEvent } from "../realtime/broadcast";
 import { logActivity, snapshotBooking } from "../activityLog";
 import { formatPublicBookingId } from "./whatsapp/publicBookingId";
+import { newPublicAccessToken } from "@/lib/publicRateLimit";
 import { generateBookingQrToken } from "../bookingQr";
 
 export type BookingItemInput = {
@@ -185,9 +186,11 @@ export async function createBooking(input: BookingFormInput, by?: string) {
 
     const publicBookingId = formatPublicBookingId(b.id);
     const qrToken = generateBookingQrToken();
+    const publicAccessToken = newPublicAccessToken();
+    const publicAccessExpiresAt = new Date(Date.now() + 90 * 24 * 60 * 60 * 1000);
     return tx.booking.update({
       where: { id: b.id },
-      data: { publicBookingId, qrToken },
+      data: { publicBookingId, qrToken, publicAccessToken, publicAccessExpiresAt },
     });
   });
 

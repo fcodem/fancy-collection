@@ -8,11 +8,15 @@ export function generateBookingQrToken() {
 }
 
 function qrSigningSecret() {
-  return (
-    process.env.QR_SIGNING_SECRET ||
-    process.env.SESSION_SECRET ||
-    "dev-only-change-qr-secret-in-production!!"
-  );
+  const secret =
+    process.env.QR_SIGNING_SECRET?.trim() ||
+    process.env.SESSION_SECRET?.trim() ||
+    "";
+  if (secret.length >= 32) return secret;
+  if (process.env.NODE_ENV === "production" || process.env.VERCEL === "1") {
+    throw new Error("QR_SIGNING_SECRET or SESSION_SECRET (32+) required in production.");
+  }
+  return "dev-only-change-qr-secret-in-production!!";
 }
 
 /** HMAC signature — QR only valid when opened through this app with matching ?s= */

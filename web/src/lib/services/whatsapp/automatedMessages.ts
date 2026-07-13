@@ -33,6 +33,7 @@ import {
   resolvePublicBookingId,
   returnReceiptPdfFilename,
 } from "./publicBookingId";
+import { ensurePublicSlipAccess } from "./publicSlipAccess";
 import {
   getBookingBillTemplateStatus,
   isWhatsAppSessionOpen,
@@ -43,7 +44,6 @@ import {
   resolveApprovedSlipDocumentTemplate,
   sendDocumentSlipTemplate,
   sendTextSlipTemplate,
-  sendUrlSlipTemplate,
 } from "./slipTemplates";
 import {
   bookingSlipDetailsFromBooking,
@@ -764,6 +764,8 @@ async function sendSlipDocument(opts: {
 
   // Prefer free-form caption (current copy) while the 24h session is open.
   // Fall back to Meta DOCUMENT templates for cold sends.
+  // Ensure random slip access token exists for any URL-button templates.
+  await ensurePublicSlipAccess(opts.bookingId).catch(() => null);
   if (sessionOpen) {
     docResult = await sendWhatsAppDocumentByMediaId(
       opts.phoneRaw,

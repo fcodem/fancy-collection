@@ -11,7 +11,7 @@ export async function POST(req: NextRequest, { params }: { params: Promise<{ id:
   const { id } = await params;
   try {
     const body = await req.json();
-    await resetUserPassword(parseInt(id, 10), body.password);
+    await resetUserPassword(parseInt(id, 10), body.password, user.id);
     return jsonOk({ ok: true });
   } catch (e) {
     return jsonError(e instanceof Error ? e.message : "Failed");

@@ -41,33 +41,34 @@ function resolveSessionPassword(): string {
     return "build-placeholder-session-secret-min-32-chars!!";
   }
 
-  if (secret.length > 0) {
-    console.warn(
-      "[auth] SESSION_SECRET is shorter than 32 chars; padding so login can work. Prefer a 32+ char secret.",
+  // Fail closed in production — never pad or fall back to a known string.
+  if (readEnv("NODE_ENV") === "production" || readEnv("VERCEL") === "1") {
+    throw new Error(
+      "SESSION_SECRET must contain at least 32 random characters in production. Set it in Vercel Environment Variables and redeploy.",
     );
-    return (secret + "pad-fancy-collection-session-secret-32").slice(0, 48);
   }
 
-  if (readEnv("NODE_ENV") === "production") {
-    console.error(
-      "[auth] SESSION_SECRET is missing in production. Using temporary fallback. Set SESSION_SECRET (32+ chars) in Vercel and redeploy.",
+  if (secret.length > 0) {
+    console.warn(
+      "[auth] SESSION_SECRET is shorter than 32 chars; padding for local/dev only. Prefer a 32+ char secret.",
     );
-    return "INSECURE-fallback-set-SESSION_SECRET-in-vercel-now!!";
+    return (secret + "pad-fancy-collection-session-secret-32").slice(0, 48);
   }
 
   return "dev-only-change-in-production-min-32-chars!!";
 }
 
 export function getSessionOptions(): SessionOptions {
+  const isProd = readEnv("NODE_ENV") === "production" || readEnv("VERCEL") === "1";
+  if (isProd && readEnv("SESSION_COOKIE_SECURE") === "false") {
+    throw new Error("SESSION_COOKIE_SECURE=false is not allowed in production.");
+  }
   return {
     // iron-session requires password length >= 32
     password: resolveSessionPassword(),
     cookieName: "fancy_collection_session",
     cookieOptions: {
-      secure:
-        readEnv("NODE_ENV") === "production"
-          ? readEnv("SESSION_COOKIE_SECURE") !== "false"
-          : false,
+      secure: isProd ? true : false,
       httpOnly: true,
       sameSite: "lax",
       maxAge: 60 * 60 * 24 * 7,
@@ -252,6 +253,14 @@ export async function endUserSession(sessionId?: string, endedById?: number) {
   if (!sessionId) {
     session.destroy();
   }
+}
+
+/** Revoke every active DB session for a user (password change / reset / deactivation). */
+export async function invalidateAllSessionsForUser(userId: number, endedById?: number) {
+  await prisma.userSession.updateMany({
+    where: { userId, active: true },
+    data: { active: false, endedAt: new Date(), endedById: endedById ?? null },
+  });
 }
 
 export async function findUserForLogin(identifier: string) {

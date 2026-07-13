@@ -16,12 +16,17 @@ function extFromName(name: string) {
   return parts.length > 1 ? parts[parts.length - 1].toLowerCase() : "jpg";
 }
 
-async function storeBuffer(bytes: Buffer, relativePath: string): Promise<string> {
+async function storeBuffer(
+  bytes: Buffer,
+  relativePath: string,
+  opts?: { access?: "public" | "private" },
+): Promise<string> {
+  const access = opts?.access ?? "public";
   const token = process.env.BLOB_READ_WRITE_TOKEN?.trim();
   if (token) {
     try {
       const blob = await put(`uploads/${relativePath}`, bytes, {
-        access: "public",
+        access,
         token,
         multipart: bytes.length > 4 * 1024 * 1024,
       });
@@ -75,11 +80,12 @@ async function saveOriginalFromBuffer(raw: Buffer, filename: string): Promise<st
 export async function saveCompressedFromBuffer(
   raw: Buffer,
   subfolder = "",
+  opts?: { access?: "public" | "private" },
 ): Promise<string> {
   const bytes = await compressImageBuffer(raw);
   const filename = `${randomUUID().replace(/-/g, "")}.jpg`;
   const path = subfolder ? `${subfolder.replace(/\/$/, "")}/${filename}` : filename;
-  return storeBuffer(bytes, path);
+  return storeBuffer(bytes, path, opts);
 }
 
 /** Preserve original upload — EXIF rotate only, no resize or heavy compression. */
@@ -171,6 +177,10 @@ export async function deleteUploads(stored: Array<string | null | undefined>): P
 export async function saveIdProofUpload(file: File): Promise<string> {
   const ext = extFromName(file.name);
   if (!ALLOWED_EXTENSIONS.includes(ext)) throw new Error("Invalid file type");
+  if (file.size > 4 * 1024 * 1024) {
+    throw new Error("ID proof must be under 4 MB.");
+  }
   const raw = Buffer.from(await file.arrayBuffer());
-  return saveCompressedFromBuffer(raw, "id-proofs");
+  // Private Blob (or local path). Never use public catalogue storage for ID documents.
+  return saveCompressedFromBuffer(raw, "id-proofs", { access: "private" });
 }

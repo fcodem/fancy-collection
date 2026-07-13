@@ -60,10 +60,15 @@ function extractCookie(res) {
 }
 
 async function login() {
+  const username = process.env.TEST_LOGIN_USER || "owner";
+  const password = process.env.TEST_LOGIN_PASS;
+  if (!password) {
+    throw new Error("Set TEST_LOGIN_PASS (do not hardcode credentials in scripts).");
+  }
   const res = await fetch(`${BASE}/api/login`, {
     method: "POST",
     headers: { "Content-Type": "application/json" },
-    body: JSON.stringify({ username: "owner", password: "admin123" }),
+    body: JSON.stringify({ username, password }),
     redirect: "manual",
   });
   if (!res.ok && res.status !== 302) {

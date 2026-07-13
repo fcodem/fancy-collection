@@ -5,7 +5,15 @@ import { isWerkzeugHash } from "../src/lib/werkzeugPassword";
 const prisma = new PrismaClient();
 
 async function ensureOwnerExists() {
-  const passwordHash = await bcrypt.hash("admin123", 10);
+  const password =
+    process.env.OWNER_SEED_PASSWORD?.trim() ||
+    (process.env.NODE_ENV === "production" ? "" : "ChangeMe-LocalOnly-16+");
+  if (!password || password.length < 16) {
+    throw new Error(
+      "Set OWNER_SEED_PASSWORD to a 16+ character password before seeding. Never use short defaults in production.",
+    );
+  }
+  const passwordHash = await bcrypt.hash(password, 12);
   const owner = await prisma.user.findUnique({ where: { username: "owner" } });
   if (!owner) {
     await prisma.user.create({
@@ -16,6 +24,7 @@ async function ensureOwnerExists() {
         active: true,
       },
     });
+    console.log("Owner account created. Username: owner (password from OWNER_SEED_PASSWORD / local default).");
     return;
   }
 
@@ -42,7 +51,7 @@ async function main() {
   console.log("Seeding database...");
   await ensureOwnerExists();
   await seedDatabase();
-  console.log("Done. Default owner login: owner / admin123");
+  console.log("Done. Change the owner password after first login.");
 }
 
 main()

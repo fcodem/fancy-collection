@@ -546,12 +546,13 @@ export async function sendDocumentSlipTemplate(opts: {
   });
 }
 
-/** Send a URL-button slip template (body params + public booking id button). */
+/** Send a URL-button slip template (body params + random slip access token button). */
 export async function sendUrlSlipTemplate(opts: {
   key: string;
   phone: string;
   bodyParams: string[];
-  publicBookingId: string;
+  /** Random publicAccessToken for /api/public/slip/... — never BK-###### */
+  slipAccessToken: string;
 }): Promise<WhatsAppSendResult> {
   const def = SLIP_TEMPLATE_DEFS.find((d) => d.key === opts.key);
   if (!def) return { ok: false, error: `Unknown template key: ${opts.key}` };
@@ -565,7 +566,7 @@ export async function sendUrlSlipTemplate(opts: {
       type: "button",
       sub_type: "url",
       index: "0",
-      parameters: [{ type: "text", text: opts.publicBookingId }],
+      parameters: [{ type: "text", text: opts.slipAccessToken }],
     },
   ]);
 }

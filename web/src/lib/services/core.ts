@@ -31,17 +31,22 @@ const SEED_ITEMS = [
 ];
 
 export async function ensureOwnerExists() {
-  const owner = await prisma.user.findUnique({ where: { username: "owner" } });
-  if (!owner) {
-    await prisma.user.create({
-      data: {
-        username: "owner",
-        passwordHash: await bcrypt.hash("admin123", 10),
-        role: "owner",
-        active: true,
-      },
-    });
+  // Never auto-create a known default password in production.
+  if (process.env.VERCEL === "1" || process.env.NODE_ENV === "production") {
+    return;
   }
+  const owner = await prisma.user.findUnique({ where: { username: "owner" } });
+  if (owner) return;
+  const password = process.env.OWNER_SEED_PASSWORD?.trim() || "ChangeMe-LocalOnly-16+";
+  if (password.length < 16) return;
+  await prisma.user.create({
+    data: {
+      username: "owner",
+      passwordHash: await bcrypt.hash(password, 12),
+      role: "owner",
+      active: true,
+    },
+  });
 }
 
 export async function seedDatabase() {

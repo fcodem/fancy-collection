@@ -17,6 +17,9 @@ export async function POST(req: NextRequest) {
   if (!(file instanceof File) || file.size === 0) {
     return jsonError("No file provided", 400);
   }
+  if (file.size > 4 * 1024 * 1024) {
+    return jsonError("Photo must be under 4 MB", 400);
+  }
 
   try {
     const stored = await saveUpload(file);

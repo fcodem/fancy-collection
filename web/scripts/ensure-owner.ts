@@ -1,44 +1,44 @@
 /**
- * Ensure owner login exists (Vercel build). Uses DIRECT_URL when set.
+ * Local/dev helper — never use a fixed password on Vercel production.
+ * Set OWNER_BOOTSTRAP_PASSWORD (16+) in env, or SCRIPT will refuse.
  */
-import { PrismaClient } from "@prisma/client";
 import bcrypt from "bcryptjs";
-
-const url = process.env.DIRECT_URL?.trim() || process.env.DATABASE_URL?.trim();
-const prisma = new PrismaClient(url ? { datasources: { db: { url } } } : undefined);
+import prisma from "../src/lib/prisma";
 
 async function main() {
-  const passwordHash = await bcrypt.hash("admin123", 10);
+  if (process.env.VERCEL === "1" || process.env.NODE_ENV === "production") {
+    throw new Error(
+      "ensure-owner is disabled in production. Set a password via your secure ops process, not this script.",
+    );
+  }
+  const password = process.env.OWNER_BOOTSTRAP_PASSWORD?.trim() || "";
+  if (password.length < 16) {
+    throw new Error("Set OWNER_BOOTSTRAP_PASSWORD to a 16+ character password.");
+  }
+  const passwordHash = await bcrypt.hash(password, 12);
   const existing = await prisma.user.findUnique({ where: { username: "owner" } });
-
+  const shouldReset = process.env.SEED_RESET_OWNER === "1";
   if (!existing) {
     await prisma.user.create({
-      data: {
-        username: "owner",
-        passwordHash,
-        role: "owner",
-        active: true,
-      },
+      data: { username: "owner", passwordHash, role: "owner", active: true },
     });
-    console.log("[ensure-owner] created owner / admin123");
+    console.log("[ensure-owner] created owner (password from OWNER_BOOTSTRAP_PASSWORD)");
     return;
   }
-
-  if (!existing.active || process.env.SEED_RESET_OWNER === "1") {
+  if (shouldReset) {
     await prisma.user.update({
       where: { username: "owner" },
       data: { passwordHash, active: true, role: "owner" },
     });
-    console.log("[ensure-owner] reset owner / admin123");
-    return;
+    console.log("[ensure-owner] reset owner password from OWNER_BOOTSTRAP_PASSWORD");
+  } else {
+    console.log("[ensure-owner] owner already exists (no reset)");
   }
-
-  console.log("[ensure-owner] owner already present");
 }
 
 main()
   .catch((e) => {
-    console.error("[ensure-owner] failed:", e instanceof Error ? e.message : e);
+    console.error(e);
     process.exit(1);
   })
   .finally(async () => {
