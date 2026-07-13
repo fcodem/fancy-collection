@@ -99,68 +99,67 @@ const _getDashboardDataRaw = async () => {
     whereReturnBefore(todayStr),
   ]);
 
+  // Batch queries so we don't starve a small Prisma pool on Vercel/Supabase.
   const [
     itemStatusCounts,
     totalCustomers,
     lateReturnCount,
     activeRentals,
     overdueRentals,
-    monthlyRevenueAgg,
-    outstandingAgg,
-    todayDeliveryTotal,
-    todayDelivered,
-    todayRemainingDelivery,
-    todayReturning,
-    undeliveredCount,
-    overdueList,
-    subCategories,
-    ordersDueSoonList,
   ] = await Promise.all([
     prisma.clothingItem.groupBy({ by: ["status"], _count: { _all: true } }),
     prisma.customer.count(),
     prisma.booking.count({ where: { ...lateReturnWhere, status: "delivered" } }),
     prisma.rental.count({ where: { status: { in: ["active", "overdue"] } } }),
     prisma.rental.count({ where: { status: "active", endDate: { lt: today } } }),
-    prisma.payment.aggregate({ _sum: { amount: true }, where: { paidAt: { gte: monthStart } } }),
-    prisma.invoice.aggregate({
-      _sum: { total: true, amountPaid: true },
-      where: { status: { in: ["unpaid", "partial"] } },
-    }),
-    prisma.booking.count({ where: deliveryTodayWhere }),
-    prisma.booking.count({ where: { ...deliveryTodayWhere, status: "delivered" } }),
-    prisma.booking.count({ where: { ...deliveryTodayWhere, status: "booked" } }),
-    prisma.booking.count({
-      where: { ...returnTodayWhere, status: { in: ["booked", "delivered"] } },
-    }),
-    prisma.booking.count({ where: undeliveredWhere }),
-    prisma.rental.findMany({
-      where: { status: "active", endDate: { lt: today } },
-      include: { customer: true },
-      orderBy: { endDate: "asc" },
-      take: 5,
-    }),
-    getAllSubCategories(),
-    prisma.bookingOrder.findMany({
-      where: {
-        status: "active",
-        readyAt: null,
-        deliveryDate: { lt: ordersDueEnd },
-      },
-      orderBy: { deliveryDate: "asc" },
-      include: {
-        booking: {
-          select: {
-            id: true,
-            monthlySerial: true,
-            publicBookingId: true,
-            customerName: true,
-            contact1: true,
-            whatsappNo: true,
+  ]);
+
+  const [monthlyRevenueAgg, outstandingAgg, todayDeliveryTotal, todayDelivered, todayRemainingDelivery] =
+    await Promise.all([
+      prisma.payment.aggregate({ _sum: { amount: true }, where: { paidAt: { gte: monthStart } } }),
+      prisma.invoice.aggregate({
+        _sum: { total: true, amountPaid: true },
+        where: { status: { in: ["unpaid", "partial"] } },
+      }),
+      prisma.booking.count({ where: deliveryTodayWhere }),
+      prisma.booking.count({ where: { ...deliveryTodayWhere, status: "delivered" } }),
+      prisma.booking.count({ where: { ...deliveryTodayWhere, status: "booked" } }),
+    ]);
+
+  const [todayReturning, undeliveredCount, overdueList, subCategories, ordersDueSoonList] =
+    await Promise.all([
+      prisma.booking.count({
+        where: { ...returnTodayWhere, status: { in: ["booked", "delivered"] } },
+      }),
+      prisma.booking.count({ where: undeliveredWhere }),
+      prisma.rental.findMany({
+        where: { status: "active", endDate: { lt: today } },
+        include: { customer: true },
+        orderBy: { endDate: "asc" },
+        take: 5,
+      }),
+      getAllSubCategories(),
+      prisma.bookingOrder.findMany({
+        where: {
+          status: "active",
+          readyAt: null,
+          deliveryDate: { lt: ordersDueEnd },
+        },
+        orderBy: { deliveryDate: "asc" },
+        include: {
+          booking: {
+            select: {
+              id: true,
+              monthlySerial: true,
+              publicBookingId: true,
+              customerName: true,
+              contact1: true,
+              whatsappNo: true,
+            },
           },
         },
-      },
-    }),
-  ]);
+      }),
+    ]);
 
   const statusMap = Object.fromEntries(itemStatusCounts.map((row) => [row.status, row._count._all]));
   const totalItems = itemStatusCounts.reduce((sum, row) => sum + row._count._all, 0);
