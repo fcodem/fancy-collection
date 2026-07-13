@@ -124,26 +124,28 @@ export async function POST(req: NextRequest) {
     });
     return establishPendingLoginToken(req, reqRow.token, response);
   } catch (e) {
-    console.error(e);
-    const message = e instanceof Error ? e.message : "Login failed.";
-    if (/SESSION_SECRET/i.test(message)) {
+    console.error("[login]", e);
+    const message = e instanceof Error ? e.message : String(e);
+    if (/SESSION_SECRET|Password must be at least 32/i.test(message)) {
       return jsonError(
         "Server misconfigured: set SESSION_SECRET in Vercel (32+ characters) and Redeploy.",
         500,
       );
     }
-    if (/P1001|P1017|Can't reach database|timed out|ECONNREFUSED/i.test(message)) {
+    if (/P1001|P1017|Can't reach database|timed out|ECONNREFUSED|Can't reach|connection/i.test(message)) {
       return jsonError(
         "Database connection failed. Check DATABASE_URL (pooler :6543) in Vercel env.",
         500,
       );
     }
-    if (/does not exist|P2021|P2010/i.test(message)) {
+    if (/does not exist|P2021|P2010|P1002|P1012/i.test(message)) {
       return jsonError(
-        "Database tables missing. Redeploy latest main so migrations/seed can run.",
+        "Database tables or URL misconfigured. Check DATABASE_URL / migrations, then Redeploy.",
         500,
       );
     }
-    return jsonError("Login failed. Check Vercel function logs for details.", 500);
+    // Surface a safe one-line reason so we don't need Vercel log access.
+    const safe = message.replace(/postgresql:\/\/[^@\s]+@/gi, "postgresql://***@").slice(0, 180);
+    return jsonError(`Login failed: ${safe || "unknown server error"}`, 500);
   }
 }
