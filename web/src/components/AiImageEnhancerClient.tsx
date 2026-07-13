@@ -241,7 +241,7 @@ export default function AiImageEnhancerClient() {
                   display: "flex", alignItems: "center", justifyContent: "center",
                   background: "#fafafa", color: "#ccc", fontSize: 13,
                 }}>
-                  Click "Remove Background" to preview
+                  Click &quot;Remove Background&quot; to preview
                 </div>
               )}
             </div>

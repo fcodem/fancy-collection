@@ -112,17 +112,23 @@ if (migrate.status !== 0) {
   process.exit(migrate.status ?? 1);
 }
 
-// Ensure owner login exists on fresh DBs (idempotent — does not reset existing passwords).
-console.log("[vercel-build] prisma db seed (ensure owner)…");
-const seed = spawnSync("npx", ["tsx", "prisma/seed.ts"], {
+// Ensure owner login exists (do not fail the whole build if seed has issues).
+console.log("[vercel-build] ensure owner account…");
+const seedEnv = {
+  ...process.env,
+  // Reset owner to admin123 on deploy so first login always works after DB setup.
+  // Set SEED_RESET_OWNER=0 in Vercel to keep a custom owner password across deploys.
+  SEED_RESET_OWNER: process.env.SEED_RESET_OWNER ?? "1",
+};
+const seed = spawnSync("npx", ["tsx", "scripts/ensure-owner.ts"], {
   stdio: "inherit",
-  env: process.env,
+  env: seedEnv,
   shell: true,
   timeout: 60_000,
 });
 if (seed.status !== 0) {
   console.warn(
-    `[vercel-build] seed exited ${seed.status ?? 1} — login may fail until /api/setup/bootstrap-owner is called`,
+    `[vercel-build] ensure-owner exited ${seed.status ?? 1} — after deploy call POST /api/setup/bootstrap-owner`,
   );
 }
 
