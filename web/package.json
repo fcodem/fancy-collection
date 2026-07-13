@@ -8,6 +8,7 @@
     "dev:open": "node --max-old-space-size=4096 node_modules/next/dist/bin/next dev -p 3000",
     "build": "prisma generate && next build",
     "build:vercel": "node scripts/vercel-build.mjs",
+    "build:vercel:safe": "prisma generate && next build",
     "start": "next start",
     "start:prod": "next start -H 0.0.0.0",
     "preview": "npm run build && npm run start:prod",

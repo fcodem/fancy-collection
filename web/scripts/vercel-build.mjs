@@ -1,30 +1,50 @@
 /**
- * Single Vercel build entry: ensure DIRECT_URL, then generate → migrate → next build.
- * Auto-heals Prisma P3009 (failed migration recorded) by marking rolled-back and retrying once.
+ * Vercel build: generate Prisma client → optional migrate → next build.
+ * Migrate / owner-seed must NEVER fail the deploy (common Preview/pooler issues).
  */
 import { spawnSync } from "child_process";
+import { existsSync } from "fs";
+import { join } from "path";
 import { ensureDirectUrl } from "./ensure-direct-url.mjs";
 
-ensureDirectUrl({ label: "vercel-build" });
+const root = process.cwd();
 
-function run(label, command, args) {
-  console.log(`[vercel-build] ${label}…`);
+function log(msg) {
+  console.log(`[vercel-build] ${msg}`);
+}
+
+function bin(name) {
+  const local = join(root, "node_modules", ".bin", name);
+  if (existsSync(local)) return local;
+  const localCmd = `${local}.cmd`;
+  if (existsSync(localCmd)) return localCmd;
+  return name;
+}
+
+function run(label, command, args, { allowFail = false } = {}) {
+  log(`${label}…`);
   const result = spawnSync(command, args, {
     stdio: "inherit",
     env: process.env,
     shell: true,
+    cwd: root,
   });
-  if (result.status !== 0) {
-    console.error(`[vercel-build] ${label} failed with code ${result.status ?? 1}`);
-    process.exit(result.status ?? 1);
+  const code = result.status ?? 1;
+  if (code !== 0) {
+    console.error(`[vercel-build] ${label} failed with code ${code}`);
+    if (!allowFail) process.exit(code);
+    console.warn(`[vercel-build] continuing despite ${label} failure`);
   }
+  return code;
 }
 
-function runCapture(command, args) {
+function runCapture(command, args, timeoutMs) {
   return spawnSync(command, args, {
     encoding: "utf8",
     env: process.env,
     shell: true,
+    cwd: root,
+    timeout: timeoutMs,
   });
 }
 
@@ -34,7 +54,6 @@ function extractFailedMigrationNames(text) {
     /The `([^`]+)` migration[\s\S]*?failed/gi,
     /Migration name:\s*([^\s\r\n]+)/gi,
     /failed migrations? in the target database[\s\S]*?`([^`]+)`/gi,
-    /migrate found failed migrations[\s\S]*?`([^`]+)`/gi,
   ];
   for (const re of patterns) {
     let m;
@@ -42,7 +61,6 @@ function extractFailedMigrationNames(text) {
       if (m[1]) names.add(m[1].trim());
     }
   }
-  // Also catch bare folder-style names mentioned near P3009
   const p3009 = text.match(/P3009[\s\S]{0,800}/i);
   if (p3009) {
     for (const m of p3009[0].matchAll(/`?(20\d{12}_[A-Za-z0-9_]+)`?/g)) {
@@ -52,85 +70,96 @@ function extractFailedMigrationNames(text) {
   return [...names];
 }
 
-function migrateDeployOnce() {
-  const migrateTimeoutMs = Number(process.env.PRISMA_MIGRATE_TIMEOUT_MS || 120_000);
-  console.log(`[vercel-build] prisma migrate deploy (timeout ${migrateTimeoutMs / 1000}s)…`);
-  return spawnSync("npx", ["prisma", "migrate", "deploy"], {
-    encoding: "utf8",
-    env: process.env,
-    shell: true,
-    timeout: migrateTimeoutMs,
-  });
-}
+// --- Env bootstrap ---
+log(`node=${process.version} vercel=${process.env.VERCEL || "0"} env=${process.env.VERCEL_ENV || "local"}`);
+ensureDirectUrl({ label: "vercel-build", exitOnMissing: false });
 
-run("prisma generate", "npx", ["prisma", "generate"]);
-
-let migrate = migrateDeployOnce();
-const migrateOut = `${migrate.stdout || ""}\n${migrate.stderr || ""}`;
-if (migrate.stdout) process.stdout.write(migrate.stdout);
-if (migrate.stderr) process.stderr.write(migrate.stderr);
-
-if (migrate.error?.code === "ETIMEDOUT" || migrate.signal === "SIGTERM") {
-  console.error(
-    "[vercel-build] migrate timed out. Set DIRECT_URL explicitly to Session pooler :5432",
+if (!process.env.DATABASE_URL?.trim()) {
+  const placeholder = "postgresql://build:build@127.0.0.1:5432/build?sslmode=disable";
+  process.env.DATABASE_URL = placeholder;
+  process.env.DIRECT_URL = placeholder;
+  console.warn(
+    "[vercel-build] DATABASE_URL is missing in this Vercel environment. " +
+      "Using a build placeholder so `prisma generate` + `next build` can finish. " +
+      "Set DATABASE_URL (and DIRECT_URL) for Production AND Preview, then redeploy.",
   );
-  process.exit(1);
+} else if (!process.env.DIRECT_URL?.trim()) {
+  ensureDirectUrl({ label: "vercel-build-retry", exitOnMissing: false });
 }
 
-if (migrate.status !== 0) {
-  const failedNames = extractFailedMigrationNames(migrateOut);
-  const looksLikeP3009 =
-    /P3009|failed migrations in the target database|recorded as failed/i.test(migrateOut);
+log(`DATABASE_URL set=${Boolean(process.env.DATABASE_URL)} DIRECT_URL set=${Boolean(process.env.DIRECT_URL)}`);
 
-  if (looksLikeP3009) {
-    const names =
-      failedNames.length > 0
-        ? failedNames
-        : ["202607091345_pgvector_inventory_ai"]; // known production blocker
+// --- Prisma generate (required) ---
+const prismaBin = bin("prisma");
+run("prisma generate", prismaBin, ["generate"]);
 
-    console.warn(
-      `[vercel-build] detected failed migration history (${names.join(", ")}). Marking rolled-back and retrying once…`,
-    );
+// --- Migrate (optional — never fail deploy) ---
+if (process.env.SKIP_PRISMA_MIGRATE === "1") {
+  log("SKIP_PRISMA_MIGRATE=1 — skipping migrate deploy");
+} else if (process.env.DATABASE_URL?.includes("127.0.0.1:5432/build")) {
+  log("placeholder DATABASE_URL — skipping migrate deploy");
+} else {
+  const migrateTimeoutMs = Number(process.env.PRISMA_MIGRATE_TIMEOUT_MS || 90_000);
+  log(`prisma migrate deploy (timeout ${migrateTimeoutMs / 1000}s, non-blocking)…`);
+  let migrate = runCapture(prismaBin, ["migrate", "deploy"], migrateTimeoutMs);
+  if (migrate.stdout) process.stdout.write(migrate.stdout);
+  if (migrate.stderr) process.stderr.write(migrate.stderr);
 
-    for (const name of names) {
-      const resolve = runCapture("npx", ["prisma", "migrate", "resolve", "--rolled-back", name]);
-      if (resolve.stdout) process.stdout.write(resolve.stdout);
-      if (resolve.stderr) process.stderr.write(resolve.stderr);
-      if (resolve.status !== 0) {
-        console.warn(`[vercel-build] resolve --rolled-back ${name} exited ${resolve.status}`);
+  if (migrate.error?.code === "ETIMEDOUT" || migrate.signal === "SIGTERM") {
+    console.warn("[vercel-build] migrate timed out — continuing with next build");
+  } else if ((migrate.status ?? 1) !== 0) {
+    const migrateOut = `${migrate.stdout || ""}\n${migrate.stderr || ""}`;
+    const looksLikeP3009 =
+      /P3009|failed migrations in the target database|recorded as failed/i.test(migrateOut);
+    if (looksLikeP3009) {
+      const names = extractFailedMigrationNames(migrateOut);
+      const list = names.length ? names : ["202607091345_pgvector_inventory_ai"];
+      console.warn(`[vercel-build] healing failed migrations: ${list.join(", ")}`);
+      for (const name of list) {
+        const resolve = runCapture(prismaBin, ["migrate", "resolve", "--rolled-back", name], 60_000);
+        if (resolve.stdout) process.stdout.write(resolve.stdout);
+        if (resolve.stderr) process.stderr.write(resolve.stderr);
       }
+      migrate = runCapture(prismaBin, ["migrate", "deploy"], migrateTimeoutMs);
+      if (migrate.stdout) process.stdout.write(migrate.stdout);
+      if (migrate.stderr) process.stderr.write(migrate.stderr);
     }
-
-    migrate = migrateDeployOnce();
-    if (migrate.stdout) process.stdout.write(migrate.stdout);
-    if (migrate.stderr) process.stderr.write(migrate.stderr);
+    if ((migrate.status ?? 1) !== 0) {
+      console.warn("[vercel-build] migrate still failing — continuing with next build");
+    } else {
+      log("migrate deploy OK after heal");
+    }
+  } else {
+    log("migrate deploy OK");
   }
 }
 
-if (migrate.status !== 0) {
-  console.error(`[vercel-build] migrate failed with code ${migrate.status ?? 1}`);
-  process.exit(migrate.status ?? 1);
+// --- Owner seed (optional) ---
+if (!process.env.DATABASE_URL?.includes("127.0.0.1:5432/build")) {
+  log("ensure owner account…");
+  const seed = spawnSync(bin("tsx"), ["scripts/ensure-owner.ts"], {
+    stdio: "inherit",
+    env: {
+      ...process.env,
+      SEED_RESET_OWNER: process.env.SEED_RESET_OWNER ?? "1",
+    },
+    shell: true,
+    cwd: root,
+    timeout: 45_000,
+  });
+  if ((seed.status ?? 1) !== 0) {
+    console.warn(
+      `[vercel-build] ensure-owner exited ${seed.status ?? 1} — use POST /api/setup/bootstrap-owner after deploy if needed`,
+    );
+  }
 }
 
-// Ensure owner login exists (do not fail the whole build if seed has issues).
-console.log("[vercel-build] ensure owner account…");
-const seedEnv = {
-  ...process.env,
-  // Reset owner to admin123 on deploy so first login always works after DB setup.
-  // Set SEED_RESET_OWNER=0 in Vercel to keep a custom owner password across deploys.
-  SEED_RESET_OWNER: process.env.SEED_RESET_OWNER ?? "1",
-};
-const seed = spawnSync("npx", ["tsx", "scripts/ensure-owner.ts"], {
-  stdio: "inherit",
-  env: seedEnv,
-  shell: true,
-  timeout: 60_000,
-});
-if (seed.status !== 0) {
-  console.warn(
-    `[vercel-build] ensure-owner exited ${seed.status ?? 1} — after deploy call POST /api/setup/bootstrap-owner`,
-  );
+// --- Next build (required) ---
+const nextBin = join(root, "node_modules", "next", "dist", "bin", "next");
+if (existsSync(nextBin)) {
+  run("next build", process.execPath, [nextBin, "build"]);
+} else {
+  run("next build", bin("next"), ["build"]);
 }
 
-run("next build", "npx", ["next", "build"]);
-console.log("[vercel-build] done");
+log("done");

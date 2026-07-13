@@ -1,0 +1,33 @@
+{
+  "generatedAt": "2026-07-10T12:39:10.328Z",
+  "jobsByStatus": [
+    {
+      "status": "READY",
+      "c": 11
+    }
+  ],
+  "profilesByStatus": [
+    {
+      "s": "READY",
+      "c": 11
+    }
+  ],
+  "versionGaps": {
+    "total_with_photo": 11,
+    "no_profile": 0,
+    "matching_lt9": 0,
+    "recognition_lt9": 0,
+    "pipeline_lt9": 0,
+    "missing_embedding": 0,
+    "missing_sigs": 0,
+    "missing_colour": 0,
+    "ready": 11,
+    "stale": 0,
+    "failed": 0,
+    "needs_reindex": 0
+  },
+  "stuck": [],
+  "failedJobs": [],
+  "pending": [],
+  "incompleteItems": []
+}

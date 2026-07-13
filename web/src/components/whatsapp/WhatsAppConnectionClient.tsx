@@ -113,14 +113,19 @@ export default function WhatsAppConnectionClient() {
       <div className="card" style={{ marginBottom: 20 }}>
         <div className="card-body">
           <h3 style={{ fontSize: 15, marginTop: 0 }}>
-            Required in <code>web/.env.local</code>
+            Required environment variables
           </h3>
+          <p style={{ fontSize: 13, color: "#4b5563" }}>
+            On <strong>Vercel</strong>, set these in{" "}
+            <strong>Project → Settings → Environment Variables (Production)</strong>, then Redeploy.
+            Locally, put them in <code>web/.env.local</code>.
+          </p>
           <ul style={{ fontSize: 13, lineHeight: 1.8, color: "#374151", paddingLeft: 20 }}>
             <li>
               <code>META_APP_ID</code>
             </li>
             <li>
-              <code>WHATSAPP_ACCESS_TOKEN</code> — permanent system user token
+              <code>WHATSAPP_ACCESS_TOKEN</code> — permanent system user token (not a short-lived user token)
             </li>
             <li>
               <code>WHATSAPP_PHONE_NUMBER_ID</code> — from WhatsApp → API Setup
@@ -131,10 +136,12 @@ export default function WhatsAppConnectionClient() {
             <li>
               <code>WHATSAPP_WEBHOOK_VERIFY_TOKEN</code> — your webhook secret
             </li>
+            <li>
+              <code>BLOB_READ_WRITE_TOKEN</code> — required to attach PDF slips on Vercel
+            </li>
           </ul>
           <p style={{ fontSize: 12, color: "#6b7280", marginBottom: 0 }}>
-            After a token replace below, restart <code>npm run dev</code> when convenient so all workers
-            reload env.
+            Also ensure <code>WHATSAPP_RECEIPTS_DISABLED</code> is not set to <code>true</code>.
           </p>
         </div>
       </div>
@@ -146,9 +153,9 @@ export default function WhatsAppConnectionClient() {
             Replace WhatsApp access token
           </h3>
           <p style={{ fontSize: 13, color: "#4b5563" }}>
-            When Meta expires or rotates your token, paste the new permanent System User token here. It
-            overwrites <code>WHATSAPP_ACCESS_TOKEN</code> in <code>.env.local</code> and updates the
-            running process.
+            Paste a new permanent System User token. On this live site it updates the current server
+            instance immediately; you must also save it in Vercel Environment Variables and Redeploy
+            so it survives restarts.
           </p>
           <label style={{ fontSize: 13, fontWeight: 500, color: "#4b5563", display: "block" }}>
             New access token

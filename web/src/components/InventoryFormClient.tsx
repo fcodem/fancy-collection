@@ -3,11 +3,11 @@
 import { useRouter } from "next/navigation";
 import { useCallback, useEffect, useState } from "react";
 import { type CatalogPhotoItem } from "@/lib/catalogPhotoUrl";
+import { compressImageForUpload } from "@/lib/clientImageCompress";
 import { BASE_MENS, BASE_WOMENS, BASE_JEWELLERY, BASE_ACCESSORY, SIZES, MENS_CATEGORIES, JEWELLERY_CATEGORIES } from "@/lib/constants";
 import { formatJewelleryPartsLabel, partsPresentOnItem } from "@/lib/jewelleryParts";
 import { useToast } from "@/components/ui/Toast";
 import { SaveConfirmedBanner } from "@/components/SaveConfirmedBanner";
-import { buildSaveRedirectUrl } from "@/components/SaveConfirmedBanner";
 
 type InventoryFormItem = CatalogPhotoItem & {
   id?: number;
@@ -105,15 +105,68 @@ export default function InventoryFormClient({
     setPendingForm(null);
   }, []);
 
+  async function prepareFormForUpload(form: FormData): Promise<FormData> {
+    const photo = form.get("photo");
+    if (!(photo instanceof File) || photo.size <= 0) return form;
+    const compressed = await compressImageForUpload(photo);
+    if (compressed === photo) return form;
+    form.set("photo", compressed);
+    return form;
+  }
+
+  async function readApiError(res: Response): Promise<string> {
+    const text = await res.text().catch(() => "");
+    try {
+      const data = text ? (JSON.parse(text) as { error?: string }) : {};
+      if (data.error) return data.error;
+    } catch {
+      /* not JSON — platform body limit / timeout / HTML error page */
+    }
+    if (res.status === 413 || /request entity too large|payload too large/i.test(text)) {
+      return "Photo is too large for upload. Please choose a smaller image and try again.";
+    }
+    if (res.status === 401) return "Please log in again, then save the item.";
+    if (res.status === 403) return "Only the owner can add inventory.";
+    if (res.status >= 500) {
+      return "Server error while saving. On Vercel, confirm BLOB_READ_WRITE_TOKEN is set, then try again.";
+    }
+    return text?.trim()?.slice(0, 280) || `Save failed (HTTP ${res.status}). Check Vercel logs for /api/inventory.`;
+  }
+
   async function saveForm(form: FormData, url: string, method: string) {
     setSaving(true);
-    const res = await fetch(url, { method, body: form, credentials: "same-origin" });
-    const data = await res.json().catch(() => ({}));
-    setSaving(false);
-    if (!res.ok) {
-      alert(data.error || "Failed");
-      return;
+    try {
+      const uploadForm = await prepareFormForUpload(form);
+      const res = await fetch(url, { method, body: uploadForm, credentials: "same-origin" });
+      if (!res.ok) {
+        alert(await readApiError(res));
+        return;
+      }
+      const data = (await res.json().catch(() => ({}))) as {
+        count?: number;
+        sku?: string;
+        name?: string;
+        original_photo_url?: string;
+        display_photo_url?: string;
+      };
+      await finishSaveSuccess(uploadForm, data);
+    } catch {
+      alert("Could not reach the server. Check your connection and try again.");
+    } finally {
+      setSaving(false);
     }
+  }
+
+  async function finishSaveSuccess(
+    form: FormData,
+    data: {
+      count?: number;
+      sku?: string;
+      name?: string;
+      original_photo_url?: string;
+      display_photo_url?: string;
+    },
+  ) {
 
     if (!isEdit) {
       const count = Number(data.count) || 1;
@@ -161,10 +214,12 @@ export default function InventoryFormClient({
 
     if (!isEdit && photo instanceof File && photo.size > 0 && category) {
       setCheckingDuplicate(true);
-      const dupForm = new FormData();
-      dupForm.append("photo", photo);
-      dupForm.append("category", category);
       try {
+        const prepared = await prepareFormForUpload(form);
+        const checkPhoto = prepared.get("photo");
+        const dupForm = new FormData();
+        if (checkPhoto instanceof File) dupForm.append("photo", checkPhoto);
+        dupForm.append("category", category);
         const dupRes = await fetch("/api/inventory/duplicate-check", {
           method: "POST",
           body: dupForm,
@@ -177,14 +232,17 @@ export default function InventoryFormClient({
             name: dupData.match.name,
             similarity: dupData.match.similarity,
           });
-          setPendingForm(form);
+          setPendingForm(prepared);
           setCheckingDuplicate(false);
           return;
         }
+        await saveForm(prepared, url, method);
+        return;
       } catch {
-        // proceed if duplicate check fails
+        // proceed with normal save if duplicate check fails
+      } finally {
+        setCheckingDuplicate(false);
       }
-      setCheckingDuplicate(false);
     }
 
     await saveForm(form, url, method);
