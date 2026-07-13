@@ -143,8 +143,11 @@ if (process.env.SKIP_PRISMA_MIGRATE === "1") {
 // --- Quality gates (required before next build) ---
 run("typecheck", bin("tsc"), ["--noEmit"]);
 run("lint", bin("next"), ["lint", "--quiet"]);
-// Tests are informational when no harness tests exist yet.
-run("test", bin("tsx"), ["--test", "src/**/*.test.ts"], { allowFail: true });
+// Do not run the full test suite on Vercel: several *.integration.test.ts files
+// and vitest-only suites need local fixtures / packages that are not in the deploy image.
+if (process.env.VERCEL !== "1" && process.env.RUN_BUILD_TESTS === "1") {
+  run("test", bin("npm"), ["run", "test:unit"], { allowFail: false });
+}
 
 // --- Owner seed: disabled on Vercel. Use in-app password change or scripts/set-owner-password.ts locally. ---
 if (process.env.VERCEL !== "1" && process.env.OWNER_BOOTSTRAP_PASSWORD) {
