@@ -1,57 +1,62 @@
 import { NextRequest } from "next/server";
-import prisma from "@/lib/prisma";
-import { dressDisplayName } from "@/lib/dress";
-import { buildDressSearchWhere } from "@/lib/dress";
 import { jsonOk, requireUser, isResponse } from "@/lib/api";
-import { catalogPhotoRef } from "@/lib/catalogPhotoRef";
+import { createPerfTimer, withServerTiming } from "@/lib/perfTiming";
+import {
+  inventorySearchApiRow,
+  searchInventoryText,
+} from "@/lib/services/inventorySearch";
+
+export const dynamic = "force-dynamic";
 
 export async function GET(req: NextRequest) {
+  const perf = createPerfTimer("GET /api/inventory/search");
+  perf.mark("auth");
   const user = await requireUser();
+  perf.endStage("authMs", "auth");
   if (isResponse(user)) return user;
 
+  perf.mark("parse");
   const q = req.nextUrl.searchParams.get("q")?.trim() || "";
   const category = req.nextUrl.searchParams.get("category")?.trim() || "";
-  if (!q) return jsonOk({ category_results: [], other_results: [], used_fallback: false, category });
+  perf.endStage("parseMs", "parse");
 
-  const where = buildDressSearchWhere(q);
-  const serialize = (items: Awaited<ReturnType<typeof prisma.clothingItem.findMany>>) =>
-    items.map((i) => ({
-      id: i.id,
-      name: i.name,
-      display_name: dressDisplayName(i.name, i.category, i.size),
-      sku: i.sku,
-      category: i.category,
-      size: i.size,
-      color: i.color,
-      status: i.status,
-      photo: catalogPhotoRef(i),
-      sub_category: i.subCategory,
-      daily_rate: i.dailyRate,
-      deposit: i.deposit,
-    }));
+  if (!q) {
+    const timings = perf.finish({ kind: "read" });
+    return withServerTiming(
+      jsonOk({ category_results: [], other_results: [], used_fallback: false, category }),
+      timings,
+    );
+  }
 
+  perf.mark("query");
   let categoryResults = category
-    ? await prisma.clothingItem.findMany({ where: { ...where, category }, take: 50, orderBy: { name: "asc" } })
+    ? await searchInventoryText({ q, category, limit: 20 })
     : [];
+  let otherResults: typeof categoryResults = [];
+  let usedFallback = false;
 
   if (category && !categoryResults.length) {
-    const otherResults = await prisma.clothingItem.findMany({ where, take: 50, orderBy: { name: "asc" } });
-    return jsonOk({
-      category_results: [],
-      other_results: serialize(otherResults),
-      used_fallback: true,
-      category,
-    });
+    otherResults = await searchInventoryText({ q, limit: 20 });
+    usedFallback = otherResults.length > 0;
+    perf.addQueries(2);
+  } else if (!category) {
+    categoryResults = await searchInventoryText({ q, limit: 20 });
+    perf.addQueries(1);
+  } else {
+    perf.addQueries(1);
   }
+  perf.endStage("queryMs", "query");
+  perf.setItemCount(categoryResults.length + otherResults.length);
 
-  if (!category) {
-    categoryResults = await prisma.clothingItem.findMany({ where, take: 50, orderBy: { name: "asc" } });
-  }
-
-  return jsonOk({
-    category_results: serialize(categoryResults),
-    other_results: [],
-    used_fallback: false,
+  perf.mark("serialize");
+  const payload = {
+    category_results: categoryResults.map(inventorySearchApiRow),
+    other_results: otherResults.map(inventorySearchApiRow),
+    used_fallback: usedFallback,
     category,
-  });
+  };
+  perf.endStage("serializeMs", "serialize");
+
+  const timings = perf.finish({ kind: "read" });
+  return withServerTiming(jsonOk(payload), timings);
 }

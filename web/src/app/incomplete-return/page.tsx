@@ -198,11 +198,11 @@ export default async function IncompleteReturnPage() {
                       <td>{b.returnedAt ? formatDate(b.returnedAt, "display") : "—"}</td>
                       <td>
                         <div style={{ display: "flex", gap: 6, flexWrap: "wrap" }}>
-                          <Link href={`/booking/${b.id}/incomplete-slip`} className="btn btn-sm btn-outline" style={{ color: "#c2410c", borderColor: "#f39c12" }}>
+                          <Link href={`/booking/${b.id}/incomplete-slip`} prefetch={false} className="btn btn-sm btn-outline" style={{ color: "#c2410c", borderColor: "#f39c12" }}>
                             <i className="fa-solid fa-receipt" style={{ marginRight: 4 }} />Slip
                           </Link>
                           <ResolveButton bookingId={b.id} />
-                          <Link href={`/return/${b.id}`} className="btn btn-sm btn-outline">View</Link>
+                          <Link href={`/return/${b.id}`} prefetch={false} className="btn btn-sm btn-outline">View</Link>
                         </div>
                       </td>
                     </tr>

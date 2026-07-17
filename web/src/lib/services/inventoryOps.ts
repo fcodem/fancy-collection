@@ -7,7 +7,7 @@ import {
   ACCESSORY_CATEGORIES,
 } from "../constants";
 import { dressDisplayName, formatUnitName } from "../dress";
-import { saveFastInventoryPhoto } from "../upload";
+import { saveFastInventoryPhotoWithThumb } from "../upload";
 import { broadcastShopEvent } from "../realtime/broadcast";
 import { logActivity, snapshotInventory } from "../activityLog";
 import { onInventoryPhotoRemoved } from "../dressCheckerIndexing";
@@ -69,6 +69,7 @@ type UnitBase = {
   condition_notes?: string;
   itemType: string;
   photo: string;
+  thumbnailPhoto?: string | null;
   subCategory: string;
   inventoryGroupId: string;
   hasNecklace?: boolean;
@@ -94,6 +95,7 @@ function buildUnitRows(base: UnitBase, quantity: number, skus: string[]) {
       conditionNotes: base.condition_notes || "",
       itemType: base.itemType,
       photo: base.photo || null,
+      thumbnailPhoto: base.thumbnailPhoto ?? null,
       originalPhoto: base.photo || null,
       subCategory: base.subCategory,
       hasNecklace: base.hasNecklace ?? false,
@@ -148,6 +150,7 @@ export async function createInventoryItemInTx(
   tx: Prisma.TransactionClient,
   form: CreateInventoryForm,
   photoFilename: string,
+  thumbnailFilename: string | null = null,
 ): Promise<{ items: Awaited<ReturnType<typeof createInventoryUnitsInTx>>; inventoryGroupId: string }> {
   const itemType = itemTypeForCategory(form.category);
   const subCategory = form.sub_category || "Normal";
@@ -182,6 +185,7 @@ export async function createInventoryItemInTx(
             condition_notes: form.condition_notes,
             itemType,
             photo: photoFilename,
+            thumbnailPhoto: thumbnailFilename,
             subCategory,
             inventoryGroupId,
             ...partFlags,
@@ -211,6 +215,7 @@ export async function createInventoryItemInTx(
       condition_notes: form.condition_notes,
       itemType,
       photo: photoFilename,
+      thumbnailPhoto: thumbnailFilename,
       subCategory,
       inventoryGroupId,
       ...partFlags,
@@ -225,19 +230,30 @@ export async function createInventoryItem(
   by?: string,
 ): Promise<{ items: Awaited<ReturnType<typeof createInventoryUnitsInTx>>; ai_queue_warning: string | null }> {
   let photoFilename = form.photoPath || "";
+  let thumbnailFilename: string | null = null;
   if (!photoFilename && form.photo) {
-    photoFilename = await saveFastInventoryPhoto(form.photo);
+    const saved = await saveFastInventoryPhotoWithThumb(form.photo);
+    photoFilename = saved.photo;
+    thumbnailFilename = saved.thumbnailPhoto;
   }
 
   let created: Awaited<ReturnType<typeof createInventoryUnitsInTx>> = [];
   try {
     created = await prisma.$transaction(async (tx) => {
-      const { items } = await createInventoryItemInTx(tx, form, photoFilename);
+      const { items } = await createInventoryItemInTx(
+        tx,
+        form,
+        photoFilename,
+        thumbnailFilename,
+      );
       return items;
     });
   } catch (e) {
     if (photoFilename) {
-      await enqueueBlobCleanup([photoFilename], { reason: "orphan_inventory_create_upload" });
+      await enqueueBlobCleanup(
+        [photoFilename, thumbnailFilename],
+        { reason: "orphan_inventory_create_upload" },
+      );
     }
     throw e;
   }
@@ -300,6 +316,7 @@ export async function updateInventoryItemInTx(
   id: number,
   form: UpdateInventoryForm,
   photoFilename: string | null,
+  thumbnailFilename: string | null = null,
 ): Promise<{
   updated: Awaited<ReturnType<typeof prisma.clothingItem.update>>;
   uploadsToDelete: string[];
@@ -312,6 +329,7 @@ export async function updateInventoryItemInTx(
   const beforeSnapshot = snapshotInventory(existing as unknown as Record<string, unknown>);
 
   let photo = existing.photo;
+  let thumbnailPhoto = existing.thumbnailPhoto;
   let newOriginalPhoto: string | null | undefined = undefined;
   const uploadsToDelete: string[] = [];
   const photoRemoved = !!form.remove_photo;
@@ -319,16 +337,20 @@ export async function updateInventoryItemInTx(
 
   if (photoRemoved) {
     if (existing.photo) uploadsToDelete.push(existing.photo);
+    if (existing.thumbnailPhoto) uploadsToDelete.push(existing.thumbnailPhoto);
     photo = null;
+    thumbnailPhoto = null;
   }
   if (photoReplaced && photoFilename) {
     if (existing.photo) uploadsToDelete.push(existing.photo);
+    if (existing.thumbnailPhoto) uploadsToDelete.push(existing.thumbnailPhoto);
     if (existing.originalPhoto && existing.originalPhoto !== existing.photo) {
       uploadsToDelete.push(existing.originalPhoto);
     }
     if (existing.enhancedPhoto) uploadsToDelete.push(existing.enhancedPhoto);
     if (existing.marketingPhoto) uploadsToDelete.push(existing.marketingPhoto);
     photo = photoFilename;
+    thumbnailPhoto = thumbnailFilename;
     newOriginalPhoto = photoFilename;
   }
 
@@ -345,6 +367,7 @@ export async function updateInventoryItemInTx(
       status: form.status || existing.status,
       subCategory: form.sub_category || existing.subCategory,
       photo,
+      thumbnailPhoto,
       ...(newOriginalPhoto !== undefined ? { originalPhoto: newOriginalPhoto } : {}),
       ...(photoReplaced
         ? {
@@ -384,18 +407,24 @@ export async function updateInventoryItemInTx(
 
 export async function updateInventoryItem(id: number, form: UpdateInventoryForm, by?: string) {
   let photoFilename: string | null = form.photoPath ?? null;
+  let thumbnailFilename: string | null = null;
   if (!photoFilename && form.photo && !form.remove_photo) {
-    photoFilename = await saveFastInventoryPhoto(form.photo);
+    const saved = await saveFastInventoryPhotoWithThumb(form.photo);
+    photoFilename = saved.photo;
+    thumbnailFilename = saved.thumbnailPhoto;
   }
 
   let result: Awaited<ReturnType<typeof updateInventoryItemInTx>>;
   try {
     result = await prisma.$transaction((tx) =>
-      updateInventoryItemInTx(tx, id, form, photoFilename),
+      updateInventoryItemInTx(tx, id, form, photoFilename, thumbnailFilename),
     );
   } catch (e) {
     if (photoFilename && form.photo && !form.photoPath) {
-      await enqueueBlobCleanup([photoFilename], { reason: "orphan_inventory_update_upload" });
+      await enqueueBlobCleanup(
+        [photoFilename, thumbnailFilename],
+        { reason: "orphan_inventory_update_upload" },
+      );
     }
     throw e;
   }

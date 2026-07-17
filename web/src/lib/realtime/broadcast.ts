@@ -3,8 +3,8 @@ import type { ShopEventType } from "./types";
 import {
   invalidateBookingCaches,
   invalidateDeliveryReturnCaches,
-  invalidateInventoryCaches,
 } from "@/lib/cacheInvalidation";
+import { invalidateInventoryCaches } from "@/lib/inventoryCacheTags";
 
 type BroadcastOpts = {
   type: ShopEventType;

@@ -1,10 +1,10 @@
 "use client";
 
-import Link from "next/link";
+import PrefetchOnIntentLink from "@/components/PrefetchOnIntentLink";
+import dynamic from "next/dynamic";
 import { useCallback, useEffect, useRef, useState, type DragEvent, type ReactNode } from "react";
 import DressNameSuggestInput from "@/components/DressNameSuggestInput";
 import CategorySelect from "./CategorySelect";
-import CameraCaptureModal from "@/components/CameraCaptureModal";
 import { photoUrl } from "@/lib/photoUrl";
 import { useRealtimeRefresh } from "@/hooks/useRealtimeRefresh";
 import { INVENTORY_EVENTS } from "@/lib/realtime/types";
@@ -12,6 +12,11 @@ import { SIZES, SUB_CATEGORIES } from "@/lib/constants";
 import type { DressCheckerSearchMeta } from "@/lib/dressCheckerTypes";
 import { remediationForIssueCode } from "@/lib/dressChecker/issueRemediation";
 import { subcategoryOptionsForCategory } from "@/lib/dressChecker/categorySearchScope";
+
+const CameraCaptureModal = dynamic(() => import("@/components/CameraCaptureModal"), {
+  ssr: false,
+  loading: () => null,
+});
 
 type Confidence = {
   stars: string;
@@ -284,7 +289,7 @@ function TextResultRow({ item }: { item: SearchItem }) {
   const sColor = statusColor(item.status || "");
 
   return (
-    <Link
+    <PrefetchOnIntentLink
       href={`/inventory/${item.id}`}
       style={{
         display: "flex",
@@ -342,7 +347,7 @@ function TextResultRow({ item }: { item: SearchItem }) {
         className="fa-solid fa-arrow-right"
         style={{ color: "var(--text-muted)", fontSize: 12, flexShrink: 0, alignSelf: "center" }}
       />
-    </Link>
+    </PrefetchOnIntentLink>
   );
 }
 
@@ -364,7 +369,7 @@ function PhotoResultRow({ item, debugMode }: { item: SearchItem; debugMode?: boo
   const comps = item.component_scores;
 
   return (
-    <Link
+    <PrefetchOnIntentLink
       href={`/inventory/${item.id}`}
       style={{
         display: "flex",
@@ -435,7 +440,7 @@ function PhotoResultRow({ item, debugMode }: { item: SearchItem; debugMode?: boo
       >
         {item.status}
       </span>
-    </Link>
+    </PrefetchOnIntentLink>
   );
 }
 

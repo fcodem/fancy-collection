@@ -1,6 +1,6 @@
 "use client";
 
-import Link from "next/link";
+import PrefetchOnIntentLink from "@/components/PrefetchOnIntentLink";
 import { useRouter } from "next/navigation";
 import { useState } from "react";
 import { formatInr } from "@/lib/format";
@@ -141,9 +141,9 @@ export default function OrdersListClient({ orders, todayIso }: { orders: OrderLi
               return (
                 <tr key={o.id} style={overdue ? { background: "rgba(220,53,69,0.05)" } : undefined}>
                   <td>
-                    <Link href={`/booking/${o.bookingId}`} style={{ color: "var(--primary)", textDecoration: "none", fontWeight: 700 }}>
+                    <PrefetchOnIntentLink href={`/booking/${o.bookingId}`} style={{ color: "var(--primary)", textDecoration: "none", fontWeight: 700 }}>
                       #{String(o.monthlySerial).padStart(2, "0")}
-                    </Link>
+                    </PrefetchOnIntentLink>
                   </td>
                   <td>
                     <div style={{ fontWeight: 600 }}>{o.customerName}</div>
@@ -176,9 +176,9 @@ export default function OrdersListClient({ orders, todayIso }: { orders: OrderLi
                   </td>
                   <td>
                     <div style={{ display: "flex", gap: 6, flexWrap: "wrap" }}>
-                      <Link href={`/booking/${o.bookingId}`} className="btn btn-sm btn-outline">
+                      <PrefetchOnIntentLink href={`/booking/${o.bookingId}`} className="btn btn-sm btn-outline">
                         View Booking
-                      </Link>
+                      </PrefetchOnIntentLink>
                       {isReadySection ? (
                         <button type="button" className="btn btn-sm btn-outline" disabled={busyId === o.id} onClick={() => toggleReady(o, false)}>
                           Not Ready

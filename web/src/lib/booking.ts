@@ -371,9 +371,16 @@ export async function getAvailableItemsApi(
         CROSS JOIN LATERAL (
           SELECT bi.item_id
           FROM booking_items bi
-          WHERE bi.booking_id = b.id AND bi.item_id IS NOT NULL
-          UNION
-          SELECT b.item_id WHERE b.item_id IS NOT NULL
+          WHERE bi.booking_id = b.id
+            AND bi.item_id IS NOT NULL
+            AND bi.is_cancelled = false
+            AND bi.is_returned = false
+          UNION ALL
+          SELECT b.item_id
+          WHERE b.item_id IS NOT NULL
+            AND NOT EXISTS (
+              SELECT 1 FROM booking_items bi2 WHERE bi2.booking_id = b.id
+            )
         ) items
         WHERE b.status IN ('booked', 'delivered')
           AND (${excludeId}::int IS NULL OR b.id <> ${excludeId})

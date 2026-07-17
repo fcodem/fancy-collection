@@ -1,6 +1,6 @@
 "use client";
 
-import Link from "next/link";
+import PrefetchOnIntentLink from "@/components/PrefetchOnIntentLink";
 import { useCallback, useEffect, useMemo, useState } from "react";
 import BookingSearchSuggestInput from "@/components/BookingSearchSuggestInput";
 import { StandardBookingTableCells, StandardBookingTableHead } from "@/components/BookingDetailsColumns";
@@ -419,18 +419,18 @@ export default function BookingSearchPage({
                         <td className="booking-col-actions">
                           {showRecordActions ? (
                             <div className="booking-col-actions-inner">
-                              <Link href={`/booking/${b.id}`} className="btn btn-sm btn-outline">
+                              <PrefetchOnIntentLink href={`/booking/${b.id}`} className="btn btn-sm btn-outline">
                                 <i className="fa-solid fa-eye" /> View
-                              </Link>
+                              </PrefetchOnIntentLink>
                               {b.status === "booked" && (
-                                <Link href={`/booking-delivery/${b.id}`} className="btn btn-sm btn-primary">
+                                <PrefetchOnIntentLink href={`/booking-delivery/${b.id}`} className="btn btn-sm btn-primary">
                                   <i className="fa-solid fa-truck-fast" /> Deliver
-                                </Link>
+                                </PrefetchOnIntentLink>
                               )}
                               {b.status === "delivered" && (
-                                <Link href={`/return/${b.id}`} className="btn btn-sm btn-primary">
+                                <PrefetchOnIntentLink href={`/return/${b.id}`} className="btn btn-sm btn-primary">
                                   <i className="fa-solid fa-rotate-left" /> Return
-                                </Link>
+                                </PrefetchOnIntentLink>
                               )}
                             </div>
                           ) : (

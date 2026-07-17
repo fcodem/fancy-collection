@@ -92,6 +92,8 @@ model ClothingItem {
   originalPhoto   String?   @map("original_photo")
   enhancedPhoto   String?   @map("enhanced_photo")
   marketingPhoto  String?   @map("marketing_photo")
+  /** Small WebP list thumbnail (~320px). Prefer over original for inventory lists. */
+  thumbnailPhoto  String?   @map("thumbnail_photo")
   conditionNotes  String?  @map("condition_notes")
   createdAt       DateTime @default(now()) @map("created_at")
   subCategory     String?  @map("sub_category")

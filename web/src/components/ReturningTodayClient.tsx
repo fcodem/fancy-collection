@@ -1,7 +1,7 @@
 "use client";
 
 import { useCallback, useEffect, useMemo, useState } from "react";
-import Link from "next/link";
+import PrefetchOnIntentLink from "@/components/PrefetchOnIntentLink";
 import { BookingNotesBlock } from "@/components/BookingNotesBlock";
 import { formatDate } from "@/lib/constants";
 import { formatInr } from "@/lib/format";
@@ -203,18 +203,18 @@ function CustomerRecordPanel({
           </tbody>
         </table>
         <div className="alternate-booking-actions">
-          <Link
+          <PrefetchOnIntentLink
             href={viewHref}
             className={`btn btn-sm ${isReturn ? "btn-outline" : "btn-outline"}`}
           >
             <i className="fa-solid fa-eye" style={{ marginRight: 6 }} />
             View Record
-          </Link>
+          </PrefetchOnIntentLink>
           {!isReturn && (
-            <Link href={`/booking-delivery/${side.id}`} className="btn btn-sm btn-primary">
+            <PrefetchOnIntentLink href={`/booking-delivery/${side.id}`} className="btn btn-sm btn-primary">
               <i className="fa-solid fa-truck" style={{ marginRight: 6 }} />
               Deliver
-            </Link>
+            </PrefetchOnIntentLink>
           )}
         </div>
       </div>

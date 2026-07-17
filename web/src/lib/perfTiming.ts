@@ -15,6 +15,15 @@ export type PerfStage =
   | "jobEnqueueMs"
   | "responseReadMs"
   | "photoUploadMs"
+  | "queryMs"
+  | "groupMs"
+  | "serializeMs"
+  | "thumbnailMs"
+  | "compressionMs"
+  | "hashMs"
+  | "duplicateCheckMs"
+  | "uploadMs"
+  | "cacheMs"
   | "totalMs";
 
 export type PerfTimings = Partial<Record<PerfStage, number>> & {
@@ -104,6 +113,15 @@ export function logPerf(timings: PerfTimings) {
     "jobEnqueueMs",
     "responseReadMs",
     "photoUploadMs",
+    "queryMs",
+    "groupMs",
+    "serializeMs",
+    "thumbnailMs",
+    "compressionMs",
+    "hashMs",
+    "duplicateCheckMs",
+    "uploadMs",
+    "cacheMs",
     "totalMs",
   ] as const) {
     const v = timings[key];
