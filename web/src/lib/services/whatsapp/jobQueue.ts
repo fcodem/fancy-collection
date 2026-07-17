@@ -205,15 +205,55 @@ export async function scheduleDeliverySlip(
   createdBy?: string,
 ) {
   if (isWhatsAppReceiptsDisabled()) return null;
-  return prisma.whatsAppJob.create({
-    data: {
-      jobType: "delivery_slip",
+
+  const itemIds =
+    payload.bookingItemIds?.length
+      ? payload.bookingItemIds
+      : payload.bookingItemId
+        ? [payload.bookingItemId]
+        : [];
+
+  const createLegacy = () =>
+    prisma.whatsAppJob.create({
+      data: {
+        jobType: "delivery_slip",
+        bookingId,
+        scheduledAt: new Date(),
+        createdBy: createdBy ?? null,
+        payload: { ...payload, requestOrigin: requestOrigin ?? null },
+      },
+    });
+
+  try {
+    const { buildWhatsAppIdempotencyKey } = await import("@/lib/mutationIdempotency");
+    const idempotencyKey = buildWhatsAppIdempotencyKey(
+      "delivery_slip",
       bookingId,
-      scheduledAt: new Date(),
-      createdBy: createdBy ?? null,
-      payload: { ...payload, requestOrigin: requestOrigin ?? null },
-    },
-  });
+      itemIds,
+      payload.scope,
+    );
+    const existing = await prisma.whatsAppJob.findFirst({
+      where: { idempotencyKey, status: { in: ["pending", "processing", "completed"] } },
+    });
+    if (existing) return existing;
+
+    return await prisma.whatsAppJob.create({
+      data: {
+        jobType: "delivery_slip",
+        bookingId,
+        idempotencyKey,
+        scheduledAt: new Date(),
+        createdBy: createdBy ?? null,
+        payload: { ...payload, requestOrigin: requestOrigin ?? null },
+      },
+    });
+  } catch (e) {
+    const msg = e instanceof Error ? e.message : "";
+    if (/idempotency|P2002|does not exist|Unknown arg/i.test(msg)) {
+      return createLegacy();
+    }
+    throw e;
+  }
 }
 
 export async function scheduleReturnSlip(
