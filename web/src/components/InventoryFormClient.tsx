@@ -1,7 +1,7 @@
 "use client";
 
 import { useRouter } from "next/navigation";
-import { useCallback, useEffect, useState } from "react";
+import { useCallback, useEffect, useRef, useState } from "react";
 import { type CatalogPhotoItem } from "@/lib/catalogPhotoUrl";
 import { compressImageForUpload } from "@/lib/clientImageCompress";
 import {
@@ -44,6 +44,17 @@ type SaveConfirmed = {
   name: string;
   count: number;
 };
+
+type PreparedPhoto = {
+  file: File;
+  hash: string;
+  sourceKey: string;
+};
+
+type DuplicateCheckResult = {
+  is_duplicate?: boolean;
+  match?: { sku: string; name: string; similarity: number };
+} | null;
 
 async function hashFileSha256(file: File): Promise<string> {
   const buf = await file.arrayBuffer();
@@ -113,13 +124,19 @@ export default function InventoryFormClient({
   const [hasTeeka, setHasTeeka] = useState(Boolean(item?.hasTeeka));
   const [hasPasa, setHasPasa] = useState(Boolean(item?.hasPasa));
   const [saving, setSaving] = useState(false);
-  const [checkingDuplicate, setCheckingDuplicate] = useState(false);
   const [statusMessage, setStatusMessage] = useState("");
   const [duplicateWarning, setDuplicateWarning] = useState<{
     sku: string;
     name: string;
     similarity: number;
   } | null>(null);
+  const [preparedPhoto, setPreparedPhoto] = useState<PreparedPhoto | null>(null);
+  const [photoPrepPending, setPhotoPrepPending] = useState(false);
+  const [dupCheckResult, setDupCheckResult] = useState<DuplicateCheckResult>(null);
+  const [dupCheckPending, setDupCheckPending] = useState(false);
+  const prepGenRef = useRef(0);
+  const dupCacheRef = useRef(new Map<string, DuplicateCheckResult>());
+  const dupAbortRef = useRef<AbortController | null>(null);
   const [pendingForm, setPendingForm] = useState<FormData | null>(null);
   const [localPreview, setLocalPreview] = useState("");
   const [photoUrl, setPhotoUrl] = useState(initialPhotoUrl || "");
@@ -143,8 +160,13 @@ export default function InventoryFormClient({
 
   function handlePhotoChange(e: React.ChangeEvent<HTMLInputElement>) {
     const file = e.target.files?.[0];
+    setDuplicateWarning(null);
+    setDupCheckResult(null);
+    setPreparedPhoto(null);
+    dupAbortRef.current?.abort();
     if (!file) {
       setLocalPreview("");
+      setPhotoPrepPending(false);
       return;
     }
     const reader = new FileReader();
@@ -152,7 +174,74 @@ export default function InventoryFormClient({
       if (typeof reader.result === "string") setLocalPreview(reader.result);
     };
     reader.readAsDataURL(file);
+
+    const sourceKey = `${file.name}:${file.size}:${file.lastModified}`;
+    const gen = ++prepGenRef.current;
+    setPhotoPrepPending(true);
+    void (async () => {
+      try {
+        const compressed = await compressImageForUpload(file);
+        if (gen !== prepGenRef.current) return;
+        const hash = await hashFileSha256(compressed);
+        if (gen !== prepGenRef.current) return;
+        setPreparedPhoto({ file: compressed, hash, sourceKey });
+      } catch {
+        if (gen === prepGenRef.current) setPreparedPhoto(null);
+      } finally {
+        if (gen === prepGenRef.current) setPhotoPrepPending(false);
+      }
+    })();
   }
+
+  useEffect(() => {
+    if (isEdit || !category || !preparedPhoto) {
+      setDupCheckResult(null);
+      setDupCheckPending(false);
+      return;
+    }
+
+    const cacheKey = `${preparedPhoto.hash}|${category}`;
+    const cached = dupCacheRef.current.get(cacheKey);
+    if (cached !== undefined) {
+      setDupCheckResult(cached);
+      return;
+    }
+
+    const timer = setTimeout(() => {
+      dupAbortRef.current?.abort();
+      const controller = new AbortController();
+      dupAbortRef.current = controller;
+      setDupCheckPending(true);
+
+      void (async () => {
+        try {
+          const dupForm = new FormData();
+          dupForm.append("photo", preparedPhoto.file);
+          dupForm.append("category", category);
+          const dupRes = await fetch("/api/inventory/duplicate-check", {
+            method: "POST",
+            body: dupForm,
+            credentials: "same-origin",
+            signal: controller.signal,
+          });
+          const dupData = (await dupRes.json().catch(() => ({}))) as DuplicateCheckResult;
+          const result: DuplicateCheckResult = dupRes.ok ? dupData : null;
+          if (controller.signal.aborted) return;
+          dupCacheRef.current.set(cacheKey, result);
+          setDupCheckResult(result);
+        } catch {
+          if (!controller.signal.aborted) setDupCheckResult(null);
+        } finally {
+          if (!controller.signal.aborted) setDupCheckPending(false);
+        }
+      })();
+    }, 400);
+
+    return () => {
+      clearTimeout(timer);
+      dupAbortRef.current?.abort();
+    };
+  }, [category, preparedPhoto, isEdit]);
 
   const resetFormForNewItem = useCallback(() => {
     setCategory("");
@@ -164,18 +253,33 @@ export default function InventoryFormClient({
     setHasPasa(false);
     setLocalPreview("");
     setPhotoUrl("");
+    setPreparedPhoto(null);
+    setDupCheckResult(null);
+    setPhotoPrepPending(false);
     setDuplicateWarning(null);
     setPendingForm(null);
     setStatusMessage("");
   }, []);
 
-  async function prepareFormForUpload(form: FormData): Promise<FormData> {
+  async function applyPreparedPhoto(form: FormData): Promise<{ form: FormData; photoHash: string | null }> {
     const photo = form.get("photo");
-    if (!(photo instanceof File) || photo.size <= 0) return form;
+    if (!(photo instanceof File) || photo.size <= 0) {
+      return { form, photoHash: null };
+    }
+    if (preparedPhoto) {
+      form.set("photo", preparedPhoto.file);
+      return { form, photoHash: preparedPhoto.hash };
+    }
+    setStatusMessage("Preparing image…");
     const compressed = await compressImageForUpload(photo);
-    if (compressed === photo) return form;
     form.set("photo", compressed);
-    return form;
+    const photoHash = await hashFileSha256(compressed);
+    return { form, photoHash };
+  }
+
+  async function prepareFormForUpload(form: FormData): Promise<FormData> {
+    const { form: next } = await applyPreparedPhoto(form);
+    return next;
   }
 
   async function readApiError(res: Response): Promise<MutationApiError> {
@@ -205,14 +309,8 @@ export default function InventoryFormClient({
     setSaving(true);
     setStatusMessage("Saving record…");
     try {
-      const uploadForm = await prepareFormForUpload(form);
-      const photo = uploadForm.get("photo");
-      let photoHash: string | null = null;
-      if (photo instanceof File && photo.size > 0) {
-        setStatusMessage("Preparing image…");
-        photoHash = await hashFileSha256(photo);
-        uploadForm.set("photo_content_hash", photoHash);
-      }
+      const { form: uploadForm, photoHash } = await applyPreparedPhoto(form);
+      if (photoHash) uploadForm.set("photo_content_hash", photoHash);
 
       const payloadKey = buildPayloadKey(uploadForm, photoHash);
       const operationId = op.begin(payloadKey);
@@ -310,38 +408,29 @@ export default function InventoryFormClient({
     const photo = form.get("photo");
 
     if (!isEdit && photo instanceof File && photo.size > 0 && category) {
-      setCheckingDuplicate(true);
-      setStatusMessage("Checking for duplicates…");
-      try {
-        const prepared = await prepareFormForUpload(form);
-        const checkPhoto = prepared.get("photo");
-        const dupForm = new FormData();
-        if (checkPhoto instanceof File) dupForm.append("photo", checkPhoto);
-        dupForm.append("category", category);
-        const dupRes = await fetch("/api/inventory/duplicate-check", {
-          method: "POST",
-          body: dupForm,
-          credentials: "same-origin",
-        });
-        const dupData = await dupRes.json().catch(() => ({}));
-        if (dupRes.ok && dupData.is_duplicate && dupData.match) {
-          setDuplicateWarning({
-            sku: dupData.match.sku,
-            name: dupData.match.name,
-            similarity: dupData.match.similarity,
-          });
-          setPendingForm(prepared);
-          setCheckingDuplicate(false);
-          setStatusMessage("");
-          return;
-        }
-        await saveForm(prepared, url, method);
+      if (photoPrepPending) {
+        setStatusMessage("Preparing image…");
+        alert("Image is still being prepared. Wait a moment and try again.");
         return;
-      } catch {
-        // proceed with normal save if duplicate check fails
-      } finally {
-        setCheckingDuplicate(false);
       }
+
+      const uploadForm = await prepareFormForUpload(form);
+      const dup = dupCheckResult;
+      if (dup?.is_duplicate && dup.match) {
+        setDuplicateWarning({
+          sku: dup.match.sku,
+          name: dup.match.name,
+          similarity: dup.match.similarity,
+        });
+        setPendingForm(uploadForm);
+        return;
+      }
+
+      if (dupCheckPending) {
+        setStatusMessage("Checking for duplicates…");
+      }
+      await saveForm(uploadForm, url, method);
+      return;
     }
 
     await saveForm(form, url, method);
@@ -556,8 +645,17 @@ export default function InventoryFormClient({
         {statusMessage ? (
           <p style={{ fontSize: 13, color: "var(--text-muted)", margin: 0 }}>{statusMessage}</p>
         ) : null}
-        <button className="btn btn-primary" disabled={saving || checkingDuplicate}>
-          {checkingDuplicate ? "Checking for duplicates…" : saving ? "Saving…" : isEdit ? "Update" : "Add Item"}
+        {!isEdit && photoPrepPending ? (
+          <p style={{ fontSize: 12, color: "var(--text-muted)", margin: 0 }}>Compressing photo…</p>
+        ) : null}
+        {!isEdit && dupCheckPending && !photoPrepPending ? (
+          <p style={{ fontSize: 12, color: "var(--text-muted)", margin: 0 }}>Checking for duplicates…</p>
+        ) : null}
+        <button
+          className="btn btn-primary"
+          disabled={saving || photoPrepPending}
+        >
+          {saving ? "Saving…" : isEdit ? "Update" : "Add Item"}
         </button>
       </div>
       {duplicateWarning && (

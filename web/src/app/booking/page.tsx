@@ -191,9 +191,9 @@ export default async function BookingPanelPage({
                         </td>
                         <td className="booking-col-actions">
                           <div className="booking-col-actions-inner">
-                            <Link href={`/booking/${b.id}`} className="btn btn-outline btn-sm"><i className="fa-solid fa-eye" /></Link>
+                            <Link href={`/booking/${b.id}`} prefetch={false} className="btn btn-outline btn-sm"><i className="fa-solid fa-eye" /></Link>
                             {status === "delivered" && (
-                              <Link href={`/booking-delivery/${b.id}`} className="btn btn-outline btn-sm" title="Edit Delivered"><i className="fa-solid fa-pen" /></Link>
+                              <Link href={`/booking-delivery/${b.id}`} prefetch={false} className="btn btn-outline btn-sm" title="Edit Delivered"><i className="fa-solid fa-pen" /></Link>
                             )}
                           </div>
                         </td>

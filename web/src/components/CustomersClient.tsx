@@ -1,6 +1,7 @@
 "use client";
 
 import Link from "next/link";
+import PrefetchOnIntentLink from "@/components/PrefetchOnIntentLink";
 import { useEffect, useState } from "react";
 
 type CustomerRow = {
@@ -79,7 +80,7 @@ export default function CustomersClient() {
                   <td>{c.address || "—"}</td>
                   <td>
                     {c.id > 0 ? (
-                      <Link href={`/customers/${c.id}`} className="btn btn-sm btn-outline">View</Link>
+                      <PrefetchOnIntentLink href={`/customers/${c.id}`} className="btn btn-sm btn-outline">View</PrefetchOnIntentLink>
                     ) : (
                       <span style={{ color: "var(--text-muted)", fontSize: 12 }}>From bookings</span>
                     )}

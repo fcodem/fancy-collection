@@ -2,12 +2,22 @@ import type { NextConfig } from "next";
 import withPWAInit from "@ducanh2912/next-pwa";
 import { withSentryConfig } from "@sentry/nextjs";
 import { PrismaPlugin } from "@prisma/nextjs-monorepo-workaround-plugin";
+import { pwaRuntimeCaching } from "./src/lib/pwaRuntimeCaching";
 
 const withPWA = withPWAInit({
   dest: "public",
   disable: process.env.NODE_ENV === "development",
+  cacheOnFrontEndNav: false,
+  cacheStartUrl: false,
+  customWorkerSrc: "worker",
   fallbacks: {
     document: "/~offline",
+  },
+  workboxOptions: {
+    cleanupOutdatedCaches: true,
+    skipWaiting: true,
+    clientsClaim: true,
+    runtimeCaching: pwaRuntimeCaching,
   },
 });
 

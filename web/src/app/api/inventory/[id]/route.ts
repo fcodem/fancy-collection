@@ -6,9 +6,10 @@ import { dressDisplayName } from "@/lib/dress";
 import { catalogPhotoUrl, recognitionPhotoUrl } from "@/lib/catalogPhotoUrl";
 import { photoUrl } from "@/lib/photoUrl";
 import { computePipelineStatus, enqueueInventoryPhotoJobsDurable } from "@/lib/inventoryPhotoPipeline";
-import { saveFastInventoryPhoto } from "@/lib/upload";
+import { saveFastInventoryPhotoWithThumb } from "@/lib/upload";
 import { enqueueBlobCleanup } from "@/lib/blobCleanup";
 import { broadcastShopEvent } from "@/lib/realtime/broadcast";
+import { invalidateInventoryCaches } from "@/lib/inventoryCacheTags";
 import { logActivity, snapshotInventory } from "@/lib/activityLog";
 import { onInventoryPhotoRemoved } from "@/lib/dressCheckerIndexing";
 import {
@@ -27,20 +28,30 @@ import {
   storeMutationStaging,
   toPublicErrorPayload,
 } from "@/lib/mutationReceipt";
+import { createPerfTimer, withServerTiming } from "@/lib/perfTiming";
 
 export async function GET(_req: NextRequest, { params }: { params: Promise<{ id: string }> }) {
+  const perf = createPerfTimer("GET /api/inventory/[id]");
+  perf.mark("auth");
   const user = await requireUser();
+  perf.endStage("authMs", "auth");
   if (isResponse(user)) return user;
   const { id } = await params;
+  perf.mark("query");
   const item = await prisma.clothingItem.findUnique({ where: { id: parseInt(id, 10) } });
+  perf.endStage("queryMs", "query");
   if (!item) return jsonError("Not found", 404);
-  return jsonOk({
-    ...item,
-    display_name: dressDisplayName(item.name, item.category, item.size),
-    photo_url: catalogPhotoUrl(item),
-    recognition_photo_url: recognitionPhotoUrl(item),
-    original_photo_url: photoUrl(item.photo),
-  });
+  const timings = perf.finish({ kind: "read" });
+  return withServerTiming(
+    jsonOk({
+      ...item,
+      display_name: dressDisplayName(item.name, item.category, item.size),
+      photo_url: catalogPhotoUrl(item),
+      recognition_photo_url: recognitionPhotoUrl(item),
+      original_photo_url: photoUrl(item.photo),
+    }),
+    timings,
+  );
 }
 
 async function fileContentHash(file: File): Promise<string> {
@@ -57,6 +68,7 @@ export async function PUT(req: NextRequest, { params }: { params: Promise<{ id: 
   let claimedOperationId: string | null = null;
   let committed = false;
   let stagedPhotoPath: string | null = null;
+  let stagedThumbPath: string | null = null;
 
   try {
     const form = await req.formData();
@@ -105,14 +117,20 @@ export async function PUT(req: NextRequest, { params }: { params: Promise<{ id: 
     const staging = await readMutationStaging(operationId);
     const stagedPhoto =
       typeof staging?.staging_photo === "string" ? staging.staging_photo : null;
+    const stagedThumb =
+      typeof staging?.staging_thumbnail === "string" ? staging.staging_thumbnail : null;
 
     if (hasPhoto && !removePhoto) {
       if (stagedPhoto) {
         stagedPhotoPath = stagedPhoto;
+        stagedThumbPath = stagedThumb;
       } else {
-        stagedPhotoPath = await saveFastInventoryPhoto(photo as File);
+        const saved = await saveFastInventoryPhotoWithThumb(photo as File);
+        stagedPhotoPath = saved.photo;
+        stagedThumbPath = saved.thumbnailPhoto;
         await storeMutationStaging(operationId, {
           staging_photo: stagedPhotoPath,
+          staging_thumbnail: stagedThumbPath,
           photo_content_hash: photoHash,
         });
       }
@@ -137,7 +155,7 @@ export async function PUT(req: NextRequest, { params }: { params: Promise<{ id: 
 
     const result = await prisma.$transaction(async (tx) => {
       const { updated, uploadsToDelete, beforeSnapshot, photoReplaced, photoRemoved } =
-        await updateInventoryItemInTx(tx, itemId, formInput, stagedPhotoPath);
+        await updateInventoryItemInTx(tx, itemId, formInput, stagedPhotoPath, stagedThumbPath);
       const pipeline = computePipelineStatus(updated);
       const payload = {
         ok: true as const,
@@ -168,6 +186,7 @@ export async function PUT(req: NextRequest, { params }: { params: Promise<{ id: 
       await enqueueBlobCleanup(result._uploadsToDelete, { reason: "inventory_photo_replaced" });
     }
     broadcastShopEvent({ type: "inventory.changed", itemIds: [itemId], by: user.username });
+    invalidateInventoryCaches();
     void logActivity({
       username: user.username,
       action: "updated",
@@ -229,6 +248,7 @@ export async function DELETE(_req: NextRequest, { params }: { params: Promise<{ 
   const { id } = await params;
   try {
     await deleteInventoryItem(parseInt(id, 10), user.username);
+    invalidateInventoryCaches();
     return jsonOk({ ok: true });
   } catch (e) {
     return jsonError(e instanceof Error ? e.message : "Delete failed");

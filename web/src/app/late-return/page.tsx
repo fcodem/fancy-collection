@@ -76,7 +76,7 @@ export default async function LateReturnPage() {
                         <td className="booking-col-serial"><strong>{String(b.monthlySerial).padStart(2, "0")}</strong></td>
                         <StandardBookingTableCells d={serializeStandardBookingDetails(b)} />
                         <td className="booking-col-date"><span className="badge badge-overdue">{daysLate} days</span></td>
-                        <td className="booking-col-actions"><Link href={`/return/${b.id}`} className="btn btn-sm btn-primary">Process Return</Link></td>
+                        <td className="booking-col-actions"><Link href={`/return/${b.id}`} prefetch={false} className="btn btn-sm btn-primary">Process Return</Link></td>
                       </tr>
                     );
                   })}

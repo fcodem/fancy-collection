@@ -1,18 +1,21 @@
 import { revalidateTag } from "next/cache";
+import { INVENTORY_CACHE_TAGS, invalidateInventoryCaches } from "@/lib/inventoryCacheTags";
+
+export { invalidateInventoryCaches };
 
 /** Next.js cache tags used across list/summary surfaces. */
 export const CACHE_TAGS = {
-  dashboard: "dashboard-data",
-  dashboardCounts: "dashboard-counts",
+  dashboard: INVENTORY_CACHE_TAGS.dashboard,
+  dashboardCounts: INVENTORY_CACHE_TAGS.dashboardCounts,
   bookingList: "booking-list",
   bookingPanel: "booking-panel",
-  bookingAvailability: "available-items",
-  freeItems: "dashboard-free-items",
+  bookingAvailability: INVENTORY_CACHE_TAGS.bookingAvailability,
+  freeItems: INVENTORY_CACHE_TAGS.freeItems,
   packingList: "packing-list",
   deliveryList: "delivery-list",
   returnList: "return-list",
-  inventoryList: "inventory-list",
-  inventorySearch: "inventory-search",
+  inventoryList: INVENTORY_CACHE_TAGS.inventoryList,
+  inventorySearch: INVENTORY_CACHE_TAGS.inventorySearch,
   customers: "customers",
   orders: "orders",
 } as const;
@@ -38,17 +41,6 @@ export function invalidateBookingCaches() {
     CACHE_TAGS.dashboardCounts,
     CACHE_TAGS.deliveryList,
     CACHE_TAGS.returnList,
-  ]);
-}
-
-export function invalidateInventoryCaches() {
-  safeRevalidate([
-    CACHE_TAGS.inventoryList,
-    CACHE_TAGS.inventorySearch,
-    CACHE_TAGS.freeItems,
-    CACHE_TAGS.bookingAvailability,
-    CACHE_TAGS.dashboard,
-    CACHE_TAGS.dashboardCounts,
   ]);
 }
 

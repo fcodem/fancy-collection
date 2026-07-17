@@ -1,61 +1,50 @@
 import { redirect } from "next/navigation";
-import Link from "next/link";
-import prisma from "@/lib/prisma";
-import { getCurrentUser, isOwner } from "@/lib/auth";
-import InventoryFilterBar from "@/components/InventoryFilterBar";
-import InventoryDeleteButton from "@/components/InventoryDeleteButton";
-import InventoryListThumb from "@/components/InventoryListThumb";
-import { dressDisplayName, stripUnitSuffix, buildDressSearchWhere } from "@/lib/dress";
-import { catalogPhotoUrl } from "@/lib/catalogPhotoUrl";
+import { Suspense } from "react";
+import { getCurrentUserForLayout, isOwner } from "@/lib/auth";
+import { listInventoryGroups } from "@/lib/services/inventoryList";
+import InventoryListClient from "@/components/InventoryListClient";
+import { createPerfTimer } from "@/lib/perfTiming";
 
 export const dynamic = "force-dynamic";
 
-type InventoryListItem = {
-  id: number;
-  sku: string;
-  name: string;
-  category: string;
-  size: string | null;
-  color: string | null;
-  status: string;
-  dailyRate: number;
-  photo: string | null;
-  originalPhoto: string | null;
-  enhancedPhoto: string | null;
-  marketingPhoto: string | null;
-};
-
-type InventoryGroup = {
-  key: string;
-  baseName: string;
-  category: string;
-  size: string;
-  items: InventoryListItem[];
-};
-
-function groupInventoryItems(items: InventoryListItem[]): InventoryGroup[] {
-  const map = new Map<string, InventoryGroup>();
-  for (const item of items) {
-    const baseName = stripUnitSuffix(item.name);
-    const key = `${baseName}|${item.category}|${item.size || ""}|${item.color || ""}`;
-    const existing = map.get(key);
-    if (existing) {
-      existing.items.push(item);
-    } else {
-      map.set(key, {
-        key,
-        baseName,
-        category: item.category,
-        size: item.size || "",
-        items: [item],
-      });
-    }
-  }
-  return Array.from(map.values()).sort((a, b) => {
-    const cat = a.category.localeCompare(b.category);
-    if (cat !== 0) return cat;
-    return a.baseName.localeCompare(b.baseName);
-  });
+function InventoryListFallback() {
+  return (
+    <div className="card" style={{ padding: 24 }}>
+      <div
+        style={{
+          height: 24,
+          width: 180,
+          background: "var(--border-color)",
+          borderRadius: 4,
+          marginBottom: 16,
+          opacity: 0.4,
+        }}
+      />
+      {[1, 2, 3, 4, 5, 6].map((i) => (
+        <div key={i} style={{ display: "flex", gap: 12, marginBottom: 8 }}>
+          <div
+            style={{
+              height: 40,
+              width: 40,
+              background: "var(--border-color)",
+              borderRadius: 4,
+              opacity: 0.25,
+              flexShrink: 0,
+            }}
+          />
+          <div
+            style={{
+              flex: 1,
+              height: 40,
+              background: "var(--border-color)",
+              borderRadius: 4,
+              opacity: 0.2,
+            }}
+          />
+        </div>
+      ))}
+    </div>
+  );
 }
 
 export default async function InventoryPage({
@@ -63,167 +52,41 @@ export default async function InventoryPage({
 }: {
   searchParams: Promise<{ q?: string; category?: string; status?: string }>;
 }) {
-  const user = await getCurrentUser();
+  const perf = createPerfTimer("GET /inventory");
+  perf.mark("auth");
+  const user = await getCurrentUserForLayout();
+  perf.endStage("authMs", "auth");
   if (!user) redirect("/login");
+
   const sp = await searchParams;
   const q = sp.q?.trim() || "";
   const category = sp.category || "";
   const status = sp.status || "";
+  // First page: 40 desktop default; client may request 20 on mobile via API
+  const pageSize = 40;
 
-  const items = await prisma.clothingItem.findMany({
-    where: {
-      ...(category ? { category } : {}),
-      ...(status ? { status } : {}),
-      ...(q ? buildDressSearchWhere(q) : {}),
-    },
-    select: {
-      id: true,
-      sku: true,
-      name: true,
-      category: true,
-      size: true,
-      color: true,
-      status: true,
-      dailyRate: true,
-      photo: true,
-      originalPhoto: true,
-      enhancedPhoto: true,
-      marketingPhoto: true,
-    },
-    orderBy: [{ category: "asc" }, { name: "asc" }],
-    take: 200,
+  perf.mark("query");
+  const result = await listInventoryGroups({
+    q,
+    category,
+    status,
+    limit: pageSize,
+    sort: "name",
   });
-
-  const groups = groupInventoryItems(items);
-  const owner = isOwner(user);
+  perf.endStage("queryMs", "query");
+  perf.setItemCount(result.rowCount);
+  perf.finish({ kind: "read" });
 
   return (
-    <>
-      <InventoryFilterBar q={q} status={status} showAdd={isOwner(user)} />
-      <div className="card">
-        <div className="card-body p-0">
-          <table className="data-table">
-            <thead>
-              <tr>
-                <th>Photo</th>
-                <th>SKU</th>
-                <th>Name</th>
-                <th>Qty</th>
-                <th>Category</th>
-                <th>Size</th>
-                <th>Status</th>
-                <th>Rate</th>
-                <th>Actions</th>
-              </tr>
-            </thead>
-            <tbody>
-              {groups.map((group) => {
-                const primary = group.items[0];
-                const available = group.items.filter((i) => i.status === "available").length;
-                const statusLabel =
-                  group.items.length === 1
-                    ? primary.status
-                    : `${available}/${group.items.length} avail`;
-                const statusClass = group.items.length === 1 ? primary.status : available > 0 ? "available" : primary.status;
-                return (
-                  <tr key={group.key}>
-                    <td>
-                      {(() => {
-                        const thumb = catalogPhotoUrl(primary);
-                        const caption = dressDisplayName(primary.name, primary.category, primary.size);
-                        return thumb ? (
-                          <InventoryListThumb src={thumb} caption={caption} />
-                        ) : (
-                          <span className="inv-list-thumb-empty">—</span>
-                        );
-                      })()}
-                    </td>
-                    <td>
-                      {group.items.length === 1 ? (
-                        primary.sku
-                      ) : (
-                        <span title={group.items.map((i) => i.sku).join(", ")}>{group.items.length} units</span>
-                      )}
-                    </td>
-                    <td>
-                      {group.items.length === 1 ? (
-                        <Link href={`/inventory/${primary.id}`}>
-                          {dressDisplayName(primary.name, primary.category, primary.size)}
-                        </Link>
-                      ) : (
-                        <details>
-                          <summary style={{ cursor: "pointer" }}>
-                            {dressDisplayName(group.baseName, group.category, group.size)}
-                          </summary>
-                          <ul className="inv-unit-list">
-                            {group.items.map((item) => (
-                              <li key={item.id}>
-                                <Link href={`/inventory/${item.id}`}>
-                                  {dressDisplayName(item.name, item.category, item.size)} ({item.sku})
-                                </Link>
-                                {" "}
-                                <span className={`badge badge-${item.status}`}>{item.status}</span>
-                              </li>
-                            ))}
-                          </ul>
-                        </details>
-                      )}
-                    </td>
-                    <td>{group.items.length}</td>
-                    <td>{group.category}</td>
-                    <td>{group.size || "—"}</td>
-                    <td><span className={`badge badge-${statusClass}`}>{statusLabel}</span></td>
-                    <td>₹{primary.dailyRate.toLocaleString()}</td>
-                    <td>
-                      <div className="inv-row-actions">
-                        {group.items.length === 1 ? (
-                          <>
-                            <Link href={`/inventory/${primary.id}`} className="btn btn-sm btn-outline">
-                              Details
-                            </Link>
-                            {owner && (
-                              <InventoryDeleteButton
-                                id={primary.id}
-                                label={dressDisplayName(primary.name, primary.category, primary.size)}
-                              />
-                            )}
-                          </>
-                        ) : (
-                          <details className="inv-unit-actions-details">
-                            <summary className="btn btn-sm btn-outline inv-unit-actions-summary">
-                              Units ({group.items.length})
-                            </summary>
-                            <ul className="inv-unit-actions-list">
-                              {group.items.map((item) => (
-                                <li key={item.id}>
-                                  <span className="inv-unit-actions-label">
-                                    {dressDisplayName(item.name, item.category, item.size)} ({item.sku})
-                                  </span>
-                                  <div className="inv-row-actions">
-                                    <Link href={`/inventory/${item.id}`} className="btn btn-sm btn-outline">
-                                      Details
-                                    </Link>
-                                    {owner && (
-                                      <InventoryDeleteButton
-                                        id={item.id}
-                                        label={dressDisplayName(item.name, item.category, item.size)}
-                                      />
-                                    )}
-                                  </div>
-                                </li>
-                              ))}
-                            </ul>
-                          </details>
-                        )}
-                      </div>
-                    </td>
-                  </tr>
-                );
-              })}
-            </tbody>
-          </table>
-        </div>
-      </div>
-    </>
+    <Suspense fallback={<InventoryListFallback />}>
+      <InventoryListClient
+        initialGroups={result.groups}
+        initialNextCursor={result.nextCursor}
+        initialQ={q}
+        initialStatus={status}
+        isOwner={isOwner(user)}
+        pageSize={pageSize}
+      />
+    </Suspense>
   );
 }

@@ -5,9 +5,11 @@ import { jsonError, jsonOk, requireOwner, isResponse, requireOperationId } from 
 import { InventoryItemSchema } from "@/lib/validation";
 import { photoUrl } from "@/lib/photoUrl";
 import { computePipelineStatus, enqueueInventoryPhotoJobsDurable } from "@/lib/inventoryPhotoPipeline";
-import { saveFastInventoryPhoto } from "@/lib/upload";
+import { saveFastInventoryPhotoWithThumb } from "@/lib/upload";
 import { broadcastShopEvent } from "@/lib/realtime/broadcast";
+import { invalidateInventoryCaches } from "@/lib/inventoryCacheTags";
 import { logActivity, snapshotInventory } from "@/lib/activityLog";
+import { createPerfTimer, withServerTiming } from "@/lib/perfTiming";
 import prisma from "@/lib/prisma";
 import {
   MutationIdempotencyError,
@@ -27,17 +29,23 @@ async function fileContentHash(file: File): Promise<string> {
 }
 
 export async function POST(req: NextRequest) {
+  const perf = createPerfTimer("POST /api/inventory");
+  perf.mark("auth");
   const user = await requireOwner();
+  perf.endStage("authMs", "auth");
   if (isResponse(user)) return user;
 
   let uploadedPhotoPath: string | null = null;
+  let uploadedThumbPath: string | null = null;
   let claimedOperationId: string | null = null;
   let committed = false;
 
   try {
     let form: FormData;
     try {
+      perf.mark("parse");
       form = await req.formData();
+      perf.endStage("parseMs", "parse");
     } catch {
       return jsonError(
         "Upload too large or incomplete. Use a smaller photo (under ~4 MB) and try again.",
@@ -108,14 +116,20 @@ export async function POST(req: NextRequest) {
     const staging = await readMutationStaging(operationId);
     const stagedPhoto =
       typeof staging?.staging_photo === "string" ? staging.staging_photo : null;
+    const stagedThumb =
+      typeof staging?.staging_thumbnail === "string" ? staging.staging_thumbnail : null;
 
     if (hasPhoto) {
       if (stagedPhoto) {
         uploadedPhotoPath = stagedPhoto;
+        uploadedThumbPath = stagedThumb;
       } else {
-        uploadedPhotoPath = await saveFastInventoryPhoto(photo as File);
+        const saved = await saveFastInventoryPhotoWithThumb(photo as File);
+        uploadedPhotoPath = saved.photo;
+        uploadedThumbPath = saved.thumbnailPhoto;
         await storeMutationStaging(operationId, {
           staging_photo: uploadedPhotoPath,
+          staging_thumbnail: uploadedThumbPath,
           photo_content_hash: photoHash,
         });
       }
@@ -143,9 +157,11 @@ export async function POST(req: NextRequest) {
         tx,
         formInput,
         uploadedPhotoPath || "",
+        uploadedThumbPath,
       );
       const primary = items[0];
       const pipeline = primary ? computePipelineStatus(primary) : null;
+      const thumbRef = primary?.thumbnailPhoto || primary?.photo || null;
       const publicPayload = {
         ok: true as const,
         count: items.length,
@@ -154,6 +170,8 @@ export async function POST(req: NextRequest) {
         sku: primary?.sku ?? "",
         name: primary?.name ?? "",
         inventory_group_id: inventoryGroupId,
+        primary_id: primary?.id,
+        thumbnail_url: thumbRef ? photoUrl(thumbRef) : "",
         original_photo_url: primary ? photoUrl(primary.photo) : "",
         display_photo_url: pipeline?.display_photo_url || "",
         pipeline,
@@ -177,6 +195,7 @@ export async function POST(req: NextRequest) {
       itemIds: result.ids,
       by: user.username,
     });
+    invalidateInventoryCaches();
     for (const snap of result._itemSnapshots || []) {
       void logActivity({
         username: user.username,
@@ -211,7 +230,8 @@ export async function POST(req: NextRequest) {
     }
 
     const { _hasPhoto: _a, _itemSnapshots: _b, ...publicResult } = result;
-    return jsonOk({ ...publicResult, ai_queue_warning });
+    const timings = perf.finish({ kind: "mutation" });
+    return withServerTiming(jsonOk({ ...publicResult, ai_queue_warning }), timings);
   } catch (e) {
     if (e instanceof MutationIdempotencyError) {
       const pub = toPublicErrorPayload(e);

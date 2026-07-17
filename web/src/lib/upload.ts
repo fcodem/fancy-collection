@@ -106,6 +106,37 @@ export async function saveRecognitionBuffer(bytes: Buffer, itemId: number): Prom
  * Locally: compress with sharp when possible, else raw.
  */
 export async function saveFastInventoryPhoto(file: File): Promise<string> {
+  const { photo } = await saveFastInventoryPhotoWithThumb(file);
+  return photo;
+}
+
+/** List thumbnail (~320px WebP). Best-effort — returns null if sharp fails (e.g. Vercel OOM). */
+export async function saveInventoryThumbnailFromBuffer(raw: Buffer): Promise<string | null> {
+  if (!raw.length) return null;
+  try {
+    const bytes = await sharp(raw, { failOn: "none", limitInputPixels: 40_000_000 })
+      .rotate()
+      .resize(320, 320, { fit: "inside", withoutEnlargement: true })
+      .webp({ quality: 72 })
+      .toBuffer();
+    const path = `thumbs/${randomUUID().replace(/-/g, "")}.webp`;
+    return await storeBuffer(bytes, path);
+  } catch (e) {
+    console.error(
+      "[upload] thumbnail generation skipped:",
+      e instanceof Error ? e.message.slice(0, 120) : "error",
+    );
+    return null;
+  }
+}
+
+/**
+ * Store catalog photo and optionally a list thumbnail.
+ * Thumbnail failure never fails the inventory save.
+ */
+export async function saveFastInventoryPhotoWithThumb(
+  file: File,
+): Promise<{ photo: string; thumbnailPhoto: string | null }> {
   const raw = Buffer.from(await file.arrayBuffer());
   if (!raw.length) throw new Error("Empty photo file.");
 
@@ -115,20 +146,25 @@ export async function saveFastInventoryPhoto(file: File): Promise<string> {
     throw new Error("Invalid file type. Use JPG, PNG, or WEBP.");
   }
 
-  // Vercel: skip sharp (OOM risk) — client already compresses to ~1.2MB JPEG.
+  let photo: string;
   if (process.env.VERCEL) {
     const path = `${randomUUID().replace(/-/g, "")}.jpg`;
-    return storeBuffer(raw, path);
+    photo = await storeBuffer(raw, path);
+  } else {
+    try {
+      photo = await saveCompressedFromBuffer(raw);
+    } catch (e) {
+      console.error(
+        "[upload] compress failed, uploading raw bytes:",
+        e instanceof Error ? e.message : e,
+      );
+      const path = `${randomUUID().replace(/-/g, "")}.${outExt}`;
+      photo = await storeBuffer(raw, path);
+    }
   }
 
-  try {
-    return await saveCompressedFromBuffer(raw);
-  } catch (e) {
-    console.error("[upload] compress failed, uploading raw bytes:", e instanceof Error ? e.message : e);
-  }
-
-  const path = `${randomUUID().replace(/-/g, "")}.${outExt}`;
-  return storeBuffer(raw, path);
+  const thumbnailPhoto = await saveInventoryThumbnailFromBuffer(raw);
+  return { photo, thumbnailPhoto };
 }
 
 /** Resize, strip metadata, and JPEG-compress before storage. */
