@@ -21,10 +21,12 @@ async function uploadSlipPdf(
 ): Promise<string> {
   if (process.env.BLOB_READ_WRITE_TOKEN?.trim()) {
     const { put } = await import("@vercel/blob");
+    // Deterministic archive paths: latest version replaces previous (not immutable history).
     const blob = await put(`${folder}/${filename}`, pdfBuffer, {
       access: "public",
       contentType: "application/pdf",
       addRandomSuffix: false,
+      allowOverwrite: true,
     });
     return blob.url;
   }

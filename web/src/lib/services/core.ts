@@ -117,8 +117,10 @@ const _getDashboardDataRaw = async () => {
     )),
   );
 
-  const tBooking = Date.now();
-  const bookingStats = await prisma.$queryRaw<BookingStatsRow[]>`
+  // Independent aggregates — run concurrently (connection_limit=3).
+  const tAgg = Date.now();
+  const [bookingStats, businessStats, financeStats] = await Promise.all([
+    prisma.$queryRaw<BookingStatsRow[]>`
     SELECT
       COUNT(*) FILTER (
         WHERE status = 'delivered'
@@ -158,8 +160,27 @@ const _getDashboardDataRaw = async () => {
       )::int AS undelivered_count
     FROM bookings
     WHERE status NOT IN ('cancelled', 'postponed')
-  `;
-  const bookingStatsMs = Date.now() - tBooking;
+  `,
+    prisma.$queryRaw<BusinessStatsRow[]>`
+    SELECT
+      (SELECT COUNT(*)::int FROM clothing_items) AS total_items,
+      (SELECT COUNT(*)::int FROM clothing_items WHERE status = 'available') AS available_items,
+      (SELECT COUNT(*)::int FROM clothing_items WHERE status = 'rented') AS rented_items,
+      (SELECT COUNT(*)::int FROM customers) AS total_customers,
+      (SELECT COUNT(*)::int FROM rentals WHERE status IN ('active', 'overdue')) AS active_rentals,
+      (SELECT COUNT(*)::int FROM rentals WHERE status = 'active' AND end_date < ${today}::timestamptz) AS overdue_rentals
+  `,
+    prisma.$queryRaw<FinanceStatsRow[]>`
+    SELECT
+      COALESCE((SELECT SUM(amount) FROM payments WHERE paid_at >= ${monthStart}::timestamptz), 0)::float AS monthly_revenue,
+      COALESCE((
+        SELECT SUM(total - amount_paid) FROM invoices WHERE status IN ('unpaid', 'partial')
+      ), 0)::float AS outstanding
+  `,
+  ]);
+  const bookingStatsMs = Date.now() - tAgg;
+  const businessStatsMs = bookingStatsMs;
+  const financeStatsMs = bookingStatsMs;
   const b = bookingStats[0] || {
     late_return_count: 0,
     today_delivery_total: 0,
@@ -168,18 +189,6 @@ const _getDashboardDataRaw = async () => {
     today_returning: 0,
     undelivered_count: 0,
   };
-
-  const tBusiness = Date.now();
-  const businessStats = await prisma.$queryRaw<BusinessStatsRow[]>`
-    SELECT
-      (SELECT COUNT(*)::int FROM clothing_items) AS total_items,
-      (SELECT COUNT(*)::int FROM clothing_items WHERE status = 'available') AS available_items,
-      (SELECT COUNT(*)::int FROM clothing_items WHERE status = 'rented') AS rented_items,
-      (SELECT COUNT(*)::int FROM customers) AS total_customers,
-      (SELECT COUNT(*)::int FROM rentals WHERE status IN ('active', 'overdue')) AS active_rentals,
-      (SELECT COUNT(*)::int FROM rentals WHERE status = 'active' AND end_date < ${today}::timestamptz) AS overdue_rentals
-  `;
-  const businessStatsMs = Date.now() - tBusiness;
   const biz = businessStats[0] || {
     total_items: 0,
     available_items: 0,
@@ -188,16 +197,6 @@ const _getDashboardDataRaw = async () => {
     active_rentals: 0,
     overdue_rentals: 0,
   };
-
-  const tFinance = Date.now();
-  const financeStats = await prisma.$queryRaw<FinanceStatsRow[]>`
-    SELECT
-      COALESCE((SELECT SUM(amount) FROM payments WHERE paid_at >= ${monthStart}::timestamptz), 0)::float AS monthly_revenue,
-      COALESCE((
-        SELECT SUM(total - amount_paid) FROM invoices WHERE status IN ('unpaid', 'partial')
-      ), 0)::float AS outstanding
-  `;
-  const financeStatsMs = Date.now() - tFinance;
   const fin = financeStats[0] || { monthly_revenue: 0, outstanding: 0 };
 
   const tLists = Date.now();

@@ -39,6 +39,7 @@ import { useToast } from "@/components/ui/Toast";
 import { downloadBookingSlipPdf } from "@/lib/bookingSlipClient";
 import { useRealtimeRefresh } from "@/hooks/useRealtimeRefresh";
 import { BOOKING_EVENTS, INVENTORY_EVENTS } from "@/lib/realtime/types";
+import { cachedFetchJson, yearMonthKey, invalidateClientCache } from "@/lib/clientRequestCache";
 
 
 
@@ -420,6 +421,11 @@ export default function BookingFormClient(props: Props) {
 
   const [dateCheckLoading, setDateCheckLoading] = useState(false);
   const availabilityAbortRef = useRef<AbortController | null>(null);
+  const dateCheckAbortRef = useRef<AbortController | null>(null);
+  const availabilityVersionRef = useRef(0);
+  const dateCheckVersionRef = useRef(0);
+  const lastSerialYmRef = useRef<string>("");
+  const lastRealtimeRefreshRef = useRef(0);
 
   /** True when date-check reports a hard double-booking (blocks save unless prospect). */
   const hasHardBlock = useMemo(
@@ -445,35 +451,32 @@ export default function BookingFormClient(props: Props) {
 
 
   const updateSerial = useCallback(async (date: string) => {
-
     if (props.editId) {
-
       setSerialDisplay(`#${String(props.initial?.monthly_serial || 0).padStart(2, "0")}`);
-
       return;
-
     }
-
     if (!date) return;
-
+    const ym = yearMonthKey(date);
+    if (ym === lastSerialYmRef.current) return;
     try {
-
-      const res = await fetch(`/api/booking/next-serial?delivery_date=${date}`, { credentials: "same-origin" });
-
-      if (!res.ok) return;
-
-      const data = await res.json();
-
+      const data = await cachedFetchJson<{ display?: string }>(
+        `next-serial:${ym}`,
+        async (signal) => {
+          const res = await fetch(`/api/booking/next-serial?delivery_date=${date}`, {
+            credentials: "same-origin",
+            signal,
+          });
+          if (!res.ok) throw new Error(`serial ${res.status}`);
+          return res.json();
+        },
+        { ttlMs: 30_000 },
+      );
+      lastSerialYmRef.current = ym;
       setSerialDisplay(data.display ? `#${data.display}` : "--");
-
     } catch (e) {
-
       if (isAbortError(e)) return;
-
       /* keep current serial on transient network errors */
-
     }
-
   }, [props.editId, props.initial?.monthly_serial]);
 
 
@@ -503,6 +506,7 @@ export default function BookingFormClient(props: Props) {
     setDateCheckLoading(false);
     setError("");
     setSerialDisplay("--");
+    lastSerialYmRef.current = "";
     void updateSerial(t);
   }, [updateSerial]);
 
@@ -510,148 +514,152 @@ export default function BookingFormClient(props: Props) {
 
   /** Loads free inventory for delivery/return range; aborts stale requests on date change. */
   const fetchAvailability = useCallback(async () => {
-
     if (!deliveryDate || !returnDate) return;
     if (parseDate(returnDate) < parseDate(deliveryDate)) return;
 
     availabilityAbortRef.current?.abort();
     const controller = new AbortController();
     availabilityAbortRef.current = controller;
+    const version = ++availabilityVersionRef.current;
 
     setLoading(true);
-
-    let url = `/api/booking/available-items?delivery_date=${deliveryDate}&return_date=${returnDate}`;
-
-    if (props.editId) url += `&exclude_booking=${props.editId}`;
+    const exclude = props.editId ? `&exclude_booking=${props.editId}` : "";
+    const cacheKey = `avail:${deliveryDate}:${returnDate}:${props.editId || 0}`;
 
     try {
+      const data = await cachedFetchJson<{ free_items?: FreeItem[]; error?: string }>(
+        cacheKey,
+        async (signal) => {
+          const res = await fetch(
+            `/api/booking/available-items?delivery_date=${deliveryDate}&return_date=${returnDate}${exclude}`,
+            { credentials: "same-origin", signal, cache: "no-store" },
+          );
+          const json = await res.json();
+          if (!res.ok) {
+            const err = new Error(String(json?.error || res.status)) as Error & { status?: number };
+            err.status = res.status;
+            throw err;
+          }
+          return json;
+        },
+        { ttlMs: 20_000, signal: controller.signal },
+      );
 
-      const res = await fetch(url, {
-        credentials: "same-origin",
-        signal: controller.signal,
-        cache: "no-store",
-      });
-
-      const data = await res.json();
-
-      if (controller.signal.aborted) return;
-
-      if (!res.ok) {
-        setAllFreeItems([]);
-        if (res.status === 401) setError("Session expired — please log in again.");
+      if (controller.signal.aborted || version !== availabilityVersionRef.current) return;
+      setAllFreeItems(data.free_items || []);
+    } catch (e) {
+      if (controller.signal.aborted || isAbortError(e) || version !== availabilityVersionRef.current) {
         return;
       }
-
-      setAllFreeItems(data.free_items || []);
-
-    } catch (e) {
-
-      if (controller.signal.aborted || isAbortError(e)) return;
-
       setAllFreeItems([]);
-
+      if ((e as { status?: number })?.status === 401) {
+        setError("Session expired — please log in again.");
+      }
     } finally {
-
-      if (!controller.signal.aborted) setLoading(false);
-
+      if (!controller.signal.aborted && version === availabilityVersionRef.current) {
+        setLoading(false);
+      }
     }
-
   }, [deliveryDate, returnDate, props.editId]);
 
   useRealtimeRefresh([...BOOKING_EVENTS, ...INVENTORY_EVENTS], () => {
+    const now = Date.now();
+    if (now - lastRealtimeRefreshRef.current < 2_500) return;
+    lastRealtimeRefreshRef.current = now;
+    invalidateClientCache("avail:");
     void fetchAvailability();
   });
 
-  useEffect(() => () => availabilityAbortRef.current?.abort(), []);
-
-
+  useEffect(() => () => {
+    availabilityAbortRef.current?.abort();
+    dateCheckAbortRef.current?.abort();
+  }, []);
 
   /** Re-checks each selected item for conflicts when dates or selection change. */
   const runDateCheck = useCallback(async () => {
-
     if (!deliveryDate || !returnDate || !selectedDresses.length) {
-
       setDateCheckResults([]);
-
+      setDateCheckLoading(false);
       return;
-
     }
-
     if (parseDate(returnDate) < parseDate(deliveryDate)) {
-
       setDateCheckResults([]);
-
+      setDateCheckLoading(false);
       return;
-
     }
 
+    dateCheckAbortRef.current?.abort();
+    const controller = new AbortController();
+    dateCheckAbortRef.current = controller;
+    const version = ++dateCheckVersionRef.current;
     setDateCheckLoading(true);
 
     const params = new URLSearchParams({
-
       booking_id: String(props.editId || 0),
-
       delivery_date: deliveryDate,
-
       return_date: returnDate,
-
     });
-
     selectedDresses.forEach((d) => params.append("item_ids[]", String(d.id)));
+    const itemKey = selectedDresses.map((d) => d.id).filter((id): id is number => id != null).sort((a, b) => a - b).join(",");
+    const cacheKey = `datecheck:${props.editId || 0}:${deliveryDate}:${returnDate}:${itemKey}`;
 
     try {
+      const data = await cachedFetchJson<DateCheckResult[] | { results?: DateCheckResult[] }>(
+        cacheKey,
+        async (signal) => {
+          const res = await fetch(`/api/booking/date-check?${params}`, {
+            credentials: "same-origin",
+            signal,
+          });
+          const json = await res.json();
+          if (!res.ok) {
+            const err = new Error(String(json?.error || res.status)) as Error & { status?: number };
+            err.status = res.status;
+            throw err;
+          }
+          return json;
+        },
+        { ttlMs: 15_000, signal: controller.signal },
+      );
 
-      const res = await fetch(`/api/booking/date-check?${params}`, { credentials: "same-origin" });
-
-      const data = await res.json();
-
+      if (controller.signal.aborted || version !== dateCheckVersionRef.current) return;
       const results = Array.isArray(data) ? data : (data?.results ?? []);
-
-      if (!res.ok) {
-        setDateCheckResults([]);
-        if (res.status === 401) setError("Session expired — please log in again.");
+      setDateCheckResults(results);
+    } catch (e) {
+      if (controller.signal.aborted || isAbortError(e) || version !== dateCheckVersionRef.current) {
         return;
       }
-
-      setDateCheckResults(results);
-
-    } catch {
-
-      setDateCheckResults([]);
-
+      // Keep previous results on failure — do not clear correct data from stale/abort races
+      if ((e as { status?: number })?.status === 401) {
+        setError("Session expired — please log in again.");
+      }
     } finally {
-
-      setDateCheckLoading(false);
-
+      if (!controller.signal.aborted && version === dateCheckVersionRef.current) {
+        setDateCheckLoading(false);
+      }
     }
-
   }, [deliveryDate, returnDate, selectedDresses, props.editId]);
 
-
-
   useEffect(() => {
-
-    const t = setTimeout(runDateCheck, 400);
-
+    const t = setTimeout(runDateCheck, 450);
     return () => clearTimeout(t);
-
   }, [runDateCheck]);
 
-
-
+  // next-serial depends only on delivery year-month — not return date
   useEffect(() => {
-
     const t = setTimeout(() => {
-
-      updateSerial(deliveryDate);
-
-      fetchAvailability();
-
-    }, props.editId ? 0 : 600);
-
+      void updateSerial(deliveryDate);
+    }, props.editId ? 0 : 400);
     return () => clearTimeout(t);
+  }, [deliveryDate, updateSerial, props.editId]);
 
-  }, [deliveryDate, returnDate, updateSerial, fetchAvailability, props.editId]);
+  // availability depends on both dates
+  useEffect(() => {
+    const t = setTimeout(() => {
+      void fetchAvailability();
+    }, props.editId ? 0 : 450);
+    return () => clearTimeout(t);
+  }, [deliveryDate, returnDate, fetchAvailability, props.editId]);
 
   const durationDays = useMemo(() => {
 
@@ -908,10 +916,8 @@ export default function BookingFormClient(props: Props) {
 
     }
 
-    if (dateCheckLoading) {
-      setError("Please wait — still checking dress availability for these dates.");
-      return;
-    }
+    // Client date-check is advisory UI only — server transaction is authoritative.
+    // Do not block save while a non-authoritative request is still loading.
 
     submittingRef.current = true;
     setSaving(true);
@@ -1060,13 +1066,12 @@ export default function BookingFormClient(props: Props) {
       toast("Prospect lead saved", "success");
       resetFormForNewBooking();
       router.replace(`/prospect-leads/new?saved=1&serial=${serial ?? ""}`);
-      router.refresh();
       window.scrollTo(0, 0);
     } else if (!props.editId) {
       const serial = data.serial ?? data.monthly_serial;
       resetFormForNewBooking();
+      invalidateClientCache();
       router.replace(`/booking/new?confirmed=1&serial=${serial ?? ""}`);
-      router.refresh();
       window.scrollTo(0, 0);
     }
     else router.replace(props.afterSaveHref || `/booking/${bookingId}`);
@@ -1858,15 +1863,15 @@ export default function BookingFormClient(props: Props) {
             />
           )}
           <div style={{ display: "flex", gap: 12, flexWrap: "wrap", alignItems: "center" }}>
-          <button type="button" className="btn btn-primary btn-lg" disabled={saving || dateCheckLoading || !selectedDresses.length || hasHardBlock} onClick={() => void save()}>
-            {hasHardBlock ? "Cannot Save — Dress Already Booked" : saving ? "Saving…" : dateCheckLoading ? "Checking dates…" : isProspect ? "Save Prospect Lead" : props.editId ? "Update Booking" : "Save Booking"}
+          <button type="button" className="btn btn-primary btn-lg" disabled={saving || !selectedDresses.length || hasHardBlock} onClick={() => void save()}>
+            {hasHardBlock ? "Cannot Save — Dress Already Booked" : saving ? "Saving…" : isProspect ? "Save Prospect Lead" : props.editId ? "Update Booking" : "Save Booking"}
           </button>
           {!props.editId && !isProspect && (
             <>
             <button
               type="button"
               className="btn btn-outline btn-lg"
-              disabled={saving || dateCheckLoading || !selectedDresses.length || hasHardBlock}
+              disabled={saving || !selectedDresses.length || hasHardBlock}
               onClick={() => void save({ openPrintSlip: true })}
               style={{ color: "#1a5c2a", borderColor: "#1a5c2a", display: "inline-flex", alignItems: "center", gap: 8 }}
               title="Save booking and open A4 slip for printing"
@@ -1877,7 +1882,7 @@ export default function BookingFormClient(props: Props) {
             <button
               type="button"
               className="btn btn-outline btn-lg"
-              disabled={saving || dateCheckLoading || !selectedDresses.length || hasHardBlock}
+              disabled={saving || !selectedDresses.length || hasHardBlock}
               onClick={() => void save({ downloadSlipPdf: true })}
               style={{ color: "#b45309", borderColor: "#b45309", display: "inline-flex", alignItems: "center", gap: 8 }}
               title="Save booking and download A4 slip PDF (for mobile or when no printer is connected)"

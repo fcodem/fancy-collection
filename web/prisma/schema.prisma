@@ -358,6 +358,7 @@ model BookingItem {
   @@index([category])
   @@index([bookingId])
   @@index([bookingId, dressName])
+  @@index([bookingId, isDelivered, isReturned, isCancelled])
   @@map("booking_items")
 }
 
@@ -602,20 +603,22 @@ model LoginAttempt {
 }
 
 model WhatsAppJob {
-  id            Int       @id @default(autoincrement())
-  jobType       String    @map("job_type")
-  bookingId     Int?      @map("booking_id")
-  payload       Json?
-  scheduledAt   DateTime  @map("scheduled_at")
-  status        String    @default("pending")
-  attempts      Int       @default(0)
-  maxAttempts   Int       @default(3) @map("max_attempts")
-  lastAttemptAt DateTime? @map("last_attempt_at")
-  completedAt   DateTime? @map("completed_at")
-  failedReason  String?   @map("failed_reason")
-  createdAt     DateTime  @default(now()) @map("created_at")
-  createdBy     String?   @map("created_by")
-  booking       Booking?  @relation(fields: [bookingId], references: [id], onDelete: Cascade)
+  id              Int       @id @default(autoincrement())
+  jobType         String    @map("job_type")
+  bookingId       Int?      @map("booking_id")
+  payload         Json?
+  /** Prevents duplicate slip/WhatsApp work for the same operation. */
+  idempotencyKey  String?   @unique @map("idempotency_key")
+  scheduledAt     DateTime  @map("scheduled_at")
+  status          String    @default("pending")
+  attempts        Int       @default(0)
+  maxAttempts     Int       @default(3) @map("max_attempts")
+  lastAttemptAt   DateTime? @map("last_attempt_at")
+  completedAt     DateTime? @map("completed_at")
+  failedReason    String?   @map("failed_reason")
+  createdAt       DateTime  @default(now()) @map("created_at")
+  createdBy       String?   @map("created_by")
+  booking         Booking?  @relation(fields: [bookingId], references: [id], onDelete: Cascade)
 
   @@index([status, scheduledAt])
   @@index([bookingId])
@@ -1106,4 +1109,21 @@ model AiRuntimeSetting {
   updatedBy String?  @map("updated_by")
 
   @@map("ai_runtime_settings")
+}
+
+/** Idempotent mutation receipts for delivery/return (and similar) retries. */
+model MutationReceipt {
+  id            Int       @id @default(autoincrement())
+  operationId   String    @unique @map("operation_id")
+  operationType String    @map("operation_type")
+  bookingId     Int?      @map("booking_id")
+  actorUserId   Int?      @map("actor_user_id")
+  requestHash   String    @map("request_hash")
+  status        String    @default("completed")
+  resultJson    Json?     @map("result_json")
+  createdAt     DateTime  @default(now()) @map("created_at")
+  completedAt   DateTime? @map("completed_at")
+
+  @@index([bookingId, operationType])
+  @@map("mutation_receipts")
 }

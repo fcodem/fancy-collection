@@ -11,6 +11,7 @@ import {
   newlyIncompleteItemIdsFromAction,
 } from "@/lib/slipDelta";
 import { processWhatsAppJobQueue } from "@/lib/services/whatsapp/jobQueue";
+import { createPerfTimer, withServerTiming } from "@/lib/perfTiming";
 
 export const maxDuration = 60;
 
@@ -111,7 +112,10 @@ async function triggerReturnSlipIfNeeded(
 }
 
 export async function POST(req: NextRequest, { params }: { params: Promise<{ id: string }> }) {
+  const perf = createPerfTimer("POST /api/return/[id]/save");
+  perf.mark("auth");
   const user = await requireUser();
+  perf.endStage("authMs", "auth");
   if (isResponse(user)) return user;
   const { id } = await params;
   const bookingId = parseInt(id, 10);
@@ -120,7 +124,9 @@ export async function POST(req: NextRequest, { params }: { params: Promise<{ id:
     const contentType = req.headers.get("content-type") || "";
 
     if (contentType.includes("multipart/form-data")) {
+      perf.mark("parse");
       const form = await req.formData();
+      perf.endStage("parseMs", "parse");
       const action = String(form.get("action") || "");
       const incomplete_notes = String(form.get("incomplete_notes") || "");
       const security_held = Number(form.get("security_held") || 0);
@@ -128,7 +134,9 @@ export async function POST(req: NextRequest, { params }: { params: Promise<{ id:
 
       const photo = form.get("incomplete_photo");
       if (photo instanceof File && photo.size > 0) {
+        perf.mark("photo");
         incomplete_photo = await saveUpload(photo);
+        perf.endStage("photoUploadMs", "photo");
       }
 
       let items: IncompleteItemPayload[] = [];
@@ -149,7 +157,10 @@ export async function POST(req: NextRequest, { params }: { params: Promise<{ id:
         }
       }
 
+      perf.mark("read");
       const beforeItems = await loadBookingItemsBefore(bookingId);
+      perf.endStage("initialReadMs", "read");
+      perf.mark("tx");
       const booking = await saveReturn(
         bookingId,
         action,
@@ -161,6 +172,7 @@ export async function POST(req: NextRequest, { params }: { params: Promise<{ id:
         },
         user.username,
       );
+      perf.endStage("transactionMs", "tx");
       const slip = slipOptsForReturnAction(
         action,
         { items: items.length ? items : undefined },
@@ -169,16 +181,27 @@ export async function POST(req: NextRequest, { params }: { params: Promise<{ id:
         user.username,
       );
       if (slip.hasWork || IMMEDIATE_RETURN_SLIP_ACTIONS.has(action)) {
+        perf.mark("job");
         await triggerReturnSlipIfNeeded(bookingId, action, slip);
+        perf.endStage("jobEnqueueMs", "job");
       }
-      return jsonOk({ ok: true, id: booking?.id, status: booking?.status });
+      const timings = perf.finish({ kind: incomplete_photo || items.some((i) => i.incomplete_photo) ? "photo" : "mutation" });
+      return withServerTiming(
+        jsonOk({ ok: true, id: booking?.id, status: booking?.status, slip_queued: true }),
+        timings,
+      );
     }
 
     const _ct = requireJsonContentType(req);
     if (_ct) return _ct;
+    perf.mark("parse");
     const body = await req.json();
+    perf.endStage("parseMs", "parse");
     const action = String(body.action || "");
+    perf.mark("read");
     const beforeItems = await loadBookingItemsBefore(bookingId);
+    perf.endStage("initialReadMs", "read");
+    perf.mark("tx");
     const booking = await saveReturn(
       bookingId,
       String(body.action || ""),
@@ -193,6 +216,7 @@ export async function POST(req: NextRequest, { params }: { params: Promise<{ id:
       },
       user.username,
     );
+    perf.endStage("transactionMs", "tx");
     const slip = slipOptsForReturnAction(
       action,
       {
@@ -207,10 +231,17 @@ export async function POST(req: NextRequest, { params }: { params: Promise<{ id:
       user.username,
     );
     if (slip.hasWork || IMMEDIATE_RETURN_SLIP_ACTIONS.has(action)) {
+      perf.mark("job");
       await triggerReturnSlipIfNeeded(bookingId, action, slip);
+      perf.endStage("jobEnqueueMs", "job");
     }
-    return jsonOk({ ok: true, id: booking?.id, status: booking?.status });
+    const timings = perf.finish({ kind: "mutation" });
+    return withServerTiming(
+      jsonOk({ ok: true, id: booking?.id, status: booking?.status, slip_queued: true }),
+      timings,
+    );
   } catch (e) {
+    perf.finish({ kind: "mutation", forceLog: true });
     return jsonError(e instanceof Error ? e.message : "Save failed");
   }
 }

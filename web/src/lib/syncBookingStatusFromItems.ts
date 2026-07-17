@@ -19,5 +19,6 @@ export async function syncBookingStatusFromItems(bookingId: number) {
       status: "delivered",
       deliveredAt: booking.deliveredAt || itemDeliveredAt || new Date(),
     },
+    include: { bookingItems: true },
   });
 }

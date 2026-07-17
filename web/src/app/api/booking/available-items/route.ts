@@ -1,9 +1,13 @@
 import { NextRequest } from "next/server";
 import { getAvailableItemsApi } from "@/lib/booking";
 import { jsonOk, requireUserReadOnly, isResponse } from "@/lib/api";
+import { createPerfTimer, withServerTiming } from "@/lib/perfTiming";
 
 export async function GET(req: NextRequest) {
+  const perf = createPerfTimer("GET /api/booking/available-items");
+  perf.mark("auth");
   const user = await requireUserReadOnly();
+  perf.endStage("authMs", "auth");
   if (isResponse(user)) return user;
 
   const deliveryDate = req.nextUrl.searchParams.get("delivery_date") || "";
@@ -15,8 +19,10 @@ export async function GET(req: NextRequest) {
   }
 
   const exclude = parseInt(req.nextUrl.searchParams.get("exclude_booking") || "0", 10) || undefined;
+  perf.mark("db");
   // Live DB read — New Booking must not show dresses that are already booked.
-  // (Cached path remains available for non-critical consumers via getAvailableItemsApiCached.)
   const data = await getAvailableItemsApi(deliveryDate, returnDate, category, exclude);
-  return jsonOk(data);
+  perf.endStage("initialReadMs", "db");
+  const timings = perf.finish({ kind: "read" });
+  return withServerTiming(jsonOk(data), timings);
 }

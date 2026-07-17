@@ -129,15 +129,50 @@ export async function scheduleBookingBill(
   if (isWhatsAppReceiptsDisabled()) return null;
   await cancelPendingJobs(bookingId, "booking_bill");
 
-  return prisma.whatsAppJob.create({
-    data: {
-      jobType: "booking_bill",
-      bookingId,
-      scheduledAt: new Date(),
-      createdBy: createdBy ?? null,
-      payload: { requestOrigin: requestOrigin ?? null },
-    },
-  });
+  const createLegacy = () =>
+    prisma.whatsAppJob.create({
+      data: {
+        jobType: "booking_bill",
+        bookingId,
+        scheduledAt: new Date(),
+        createdBy: createdBy ?? null,
+        payload: { requestOrigin: requestOrigin ?? null },
+      },
+    });
+
+  try {
+    const { buildWhatsAppIdempotencyKey } = await import("@/lib/mutationIdempotency");
+    const idempotencyKey = buildWhatsAppIdempotencyKey("booking_bill", bookingId);
+    const existing = await prisma.whatsAppJob.findFirst({
+      where: { idempotencyKey, status: { in: ["pending", "processing", "completed"] } },
+    });
+    if (existing) return existing;
+
+    return await prisma.whatsAppJob.create({
+      data: {
+        jobType: "booking_bill",
+        bookingId,
+        idempotencyKey,
+        scheduledAt: new Date(),
+        createdBy: createdBy ?? null,
+        payload: { requestOrigin: requestOrigin ?? null },
+      },
+    });
+  } catch (e) {
+    const msg = e instanceof Error ? e.message : "";
+    if (/idempotency|P2002|does not exist|Unknown arg/i.test(msg)) {
+      try {
+        const { buildWhatsAppIdempotencyKey } = await import("@/lib/mutationIdempotency");
+        const idempotencyKey = buildWhatsAppIdempotencyKey("booking_bill", bookingId);
+        const raced = await prisma.whatsAppJob.findFirst({ where: { idempotencyKey } });
+        if (raced) return raced;
+      } catch {
+        /* column may be absent until migration */
+      }
+      return createLegacy();
+    }
+    throw e;
+  }
 }
 
 export async function scheduleReturnReceipt(

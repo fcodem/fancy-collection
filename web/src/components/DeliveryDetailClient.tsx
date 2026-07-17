@@ -2,7 +2,7 @@
 
 import { useRouter } from "next/navigation";
 import Link from "next/link";
-import { useEffect, useState } from "react";
+import { useEffect, useRef, useState } from "react";
 import { BookingRecordDetails } from "@/components/BookingRecordDetails";
 import BookingItemWarningsBlock, {
   BookingItemWarningsSection,
@@ -18,6 +18,8 @@ import { idProofUrl, photoUrl } from "@/lib/photoUrl";
 import ZoomableImage from "@/components/ZoomableImage";
 import { deliverySlipHref, hasPartialDelivery } from "@/lib/bookingStatus";
 import { navigatePrintTab, openBlankPrintTab, withSlipPrintQuery } from "@/lib/slipPrintUrl";
+import { generateUuidV4 } from "@/lib/clientUuid";
+import { useToast } from "@/components/ui/Toast";
 
 type ItemRow = {
   id: number;
@@ -130,6 +132,8 @@ export default function DeliveryDetailClient({
     return init;
   });
   const [saving, setSaving] = useState(false);
+  const submittingRef = useRef(false);
+  const toast = useToast();
   const [error, setError] = useState("");
   const [editingDelivered, setEditingDelivered] = useState<Record<number, boolean>>({});
   const [idPhoto1File, setIdPhoto1File] = useState<File | null>(null);
@@ -297,6 +301,8 @@ export default function DeliveryDetailClient({
   }
 
   async function saveItem(itemId: number, opts?: { openPrintSlip?: boolean }) {
+    if (submittingRef.current || saving) return;
+    submittingRef.current = true;
     setSaving(true);
     setError("");
     const printWindow = opts?.openPrintSlip ? openBlankPrintTab() : null;
@@ -304,17 +310,20 @@ export default function DeliveryDetailClient({
     if (!it) {
       printWindow?.close();
       setSaving(false);
+      submittingRef.current = false;
       return;
     }
 
     if (!(await flushPendingIdPhotos())) {
       printWindow?.close();
       setSaving(false);
+      submittingRef.current = false;
       setError("Could not save ID photos. Try Save ID Photos, then deliver again.");
       return;
     }
 
     const payload = {
+      operation_id: generateUuidV4(),
       payment_mode: paymentMode,
       security_payment_mode: securityPaymentMode,
       items: [{
@@ -327,6 +336,7 @@ export default function DeliveryDetailClient({
       }],
     };
 
+    try {
     const res = await fetch(`/api/booking-delivery/${booking.id}/save`, {
       method: "POST",
       headers: { "Content-Type": "application/json" },
@@ -334,13 +344,13 @@ export default function DeliveryDetailClient({
       credentials: "same-origin",
     });
     const data = await res.json();
-    setSaving(false);
     if (!res.ok) {
       printWindow?.close();
       setError(data.error || "Save failed");
       return;
     }
     applySaveResponse(data);
+    if (data.slip_queued) toast("Delivery saved — receipt queued for WhatsApp", "success");
     if (opts?.openPrintSlip) {
       const updatedItems = localItems.map((row) => {
         const saved = data.items?.find((s: SaveItemResponse) => s.id === row.id);
@@ -359,10 +369,15 @@ export default function DeliveryDetailClient({
         ),
       );
     }
-    if (data.status === "delivered") router.refresh();
+    } finally {
+      setSaving(false);
+      submittingRef.current = false;
+    }
   }
 
   async function saveAll(markDelivered = false, opts?: { openPrintSlip?: boolean }) {
+    if (submittingRef.current || saving) return;
+    submittingRef.current = true;
     setSaving(true);
     setError("");
     const printWindow = opts?.openPrintSlip && markDelivered ? openBlankPrintTab() : null;
@@ -370,17 +385,20 @@ export default function DeliveryDetailClient({
     if (!pending.length) {
       printWindow?.close();
       setSaving(false);
+      submittingRef.current = false;
       return;
     }
 
     if (!(await flushPendingIdPhotos())) {
       printWindow?.close();
       setSaving(false);
+      submittingRef.current = false;
       setError("Could not save ID photos. Try Save ID Photos, then deliver again.");
       return;
     }
 
     const payload = {
+      operation_id: generateUuidV4(),
       slip_finalize: true,
       payment_mode: paymentMode,
       security_payment_mode: securityPaymentMode,
@@ -393,6 +411,7 @@ export default function DeliveryDetailClient({
       })),
     };
 
+    try {
     const res = await fetch(`/api/booking-delivery/${booking.id}/save`, {
       method: "POST",
       headers: { "Content-Type": "application/json" },
@@ -400,13 +419,13 @@ export default function DeliveryDetailClient({
       credentials: "same-origin",
     });
     const data = await res.json();
-    setSaving(false);
     if (!res.ok) {
       printWindow?.close();
       setError(data.error || "Save failed");
       return;
     }
     applySaveResponse(data);
+    if (data.slip_queued) toast("Delivery saved — receipt queued for WhatsApp", "success");
     if (opts?.openPrintSlip && markDelivered) {
       const merged = localItems.map((row) => {
         const saved = data.items?.find((s: SaveItemResponse) => s.id === row.id);
@@ -424,7 +443,10 @@ export default function DeliveryDetailClient({
         ),
       );
     }
-    if (data.status === "delivered") router.refresh();
+    } finally {
+      setSaving(false);
+      submittingRef.current = false;
+    }
   }
 
   /** Save selected dresses as delivered and send slip for only those dresses (1 = single, 2+ = combined). */
@@ -434,6 +456,8 @@ export default function DeliveryDetailClient({
       setError("Select at least one dress to deliver, then press Save.");
       return;
     }
+    if (submittingRef.current || saving) return;
+    submittingRef.current = true;
     setSaving(true);
     setError("");
     const printWindow = opts?.openPrintSlip ? openBlankPrintTab() : null;
@@ -441,11 +465,13 @@ export default function DeliveryDetailClient({
     if (!(await flushPendingIdPhotos())) {
       printWindow?.close();
       setSaving(false);
+      submittingRef.current = false;
       setError("Could not save ID photos. Try Save ID Photos, then deliver again.");
       return;
     }
 
     const payload = {
+      operation_id: generateUuidV4(),
       slip_finalize: true,
       payment_mode: paymentMode,
       security_payment_mode: securityPaymentMode,
@@ -458,6 +484,7 @@ export default function DeliveryDetailClient({
       })),
     };
 
+    try {
     const res = await fetch(`/api/booking-delivery/${booking.id}/save`, {
       method: "POST",
       headers: { "Content-Type": "application/json" },
@@ -465,13 +492,13 @@ export default function DeliveryDetailClient({
       credentials: "same-origin",
     });
     const data = await res.json();
-    setSaving(false);
     if (!res.ok) {
       printWindow?.close();
       setError(data.error || "Save failed");
       return;
     }
     applySaveResponse(data);
+    if (data.slip_queued) toast("Delivery saved — receipt queued for WhatsApp", "success");
     setSelectedToDeliver((prev) => {
       const next = { ...prev };
       for (const id of ids) delete next[id];
@@ -494,7 +521,10 @@ export default function DeliveryDetailClient({
         ),
       );
     }
-    router.refresh();
+    } finally {
+      setSaving(false);
+      submittingRef.current = false;
+    }
   }
 
   async function saveIdPhotos(files?: { slot1?: File | null; slot2?: File | null }): Promise<boolean> {
@@ -535,7 +565,6 @@ export default function DeliveryDetailClient({
       setIdPhoto1Preview(null);
       setIdPhoto2Preview(null);
       setIdPhotoMessage("ID photos saved — they will show on the return page.");
-      router.refresh();
       return true;
     } catch (e) {
       const msg =

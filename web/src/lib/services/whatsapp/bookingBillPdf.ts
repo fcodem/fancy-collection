@@ -877,6 +877,7 @@ export async function uploadReturnReceiptPdf(
       access: "public",
       contentType: "application/pdf",
       addRandomSuffix: false,
+      allowOverwrite: true,
     });
     return blob.url;
   }
@@ -901,6 +902,7 @@ export async function uploadBookingBillPdf(
       access: "public",
       contentType: "application/pdf",
       addRandomSuffix: false,
+      allowOverwrite: true,
     });
     return blob.url;
   }

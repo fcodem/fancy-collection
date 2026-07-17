@@ -856,7 +856,13 @@ export async function saveDelivery(
       : booking.securityPaymentMode;
 
   if (data.items?.length) {
+    const newlyDeliveredItemIds: number[] = [];
     const result = await prisma.$transaction(async (tx) => {
+      await tx.$executeRawUnsafe(
+        `SELECT id FROM bookings WHERE id = $1 FOR UPDATE`,
+        bookingId,
+      );
+
       const itemById = new Map(booking.bookingItems.map((bi) => [bi.id, bi]));
       const updates = data.items!.map((item) => {
         const bi = itemById.get(item.booking_item_id);
@@ -877,6 +883,7 @@ export async function saveDelivery(
         if (item.mark_delivered && !bi.isDelivered && !bi.isCancelled) {
           itemUpdate.isDelivered = true;
           itemUpdate.deliveredAt = new Date();
+          newlyDeliveredItemIds.push(bi.id);
         }
 
         return tx.bookingItem.update({ where: { id: bi.id }, data: itemUpdate });
@@ -909,7 +916,16 @@ export async function saveDelivery(
               ? booking.securityDeposit
               : 0;
 
-      let updated = await tx.booking.update({
+      const allActiveDelivered =
+        refreshed.status === "booked" &&
+        refreshed.bookingItems.filter((bi) => !bi.isCancelled).length > 0 &&
+        refreshed.bookingItems.filter((bi) => !bi.isCancelled).every((bi) => bi.isDelivered);
+
+      const itemDeliveredAt = refreshed.bookingItems
+        .map((bi) => bi.deliveredAt)
+        .find((d): d is Date => d != null);
+
+      const updated = await tx.booking.update({
         where: { id: bookingId },
         data: {
           remainingCollected: totalRemaining,
@@ -918,25 +934,15 @@ export async function saveDelivery(
           deliveryNotes: newNotes || data.delivery_notes || booking.deliveryNotes,
           remainingPaymentMode: resolveRemainingPaymentMode(totalRemaining),
           securityPaymentMode: resolveSecurityPaymentMode(totalSecurity),
+          ...(allActiveDelivered
+            ? {
+                status: "delivered" as const,
+                deliveredAt: refreshed.deliveredAt || itemDeliveredAt || new Date(),
+              }
+            : {}),
         },
         include: { bookingItems: true },
       });
-
-      if (
-        updated.status === "booked" &&
-        updated.bookingItems.filter((bi) => !bi.isCancelled).length > 0 &&
-        updated.bookingItems.filter((bi) => !bi.isCancelled).every((bi) => bi.isDelivered)
-      ) {
-        const itemDeliveredAt = updated.bookingItems.map((bi) => bi.deliveredAt).find((d): d is Date => d != null);
-        updated = await tx.booking.update({
-          where: { id: bookingId },
-          data: {
-            status: "delivered",
-            deliveredAt: updated.deliveredAt || itemDeliveredAt || new Date(),
-          },
-          include: { bookingItems: true },
-        });
-      }
 
       return updated;
     });
@@ -953,7 +959,7 @@ export async function saveDelivery(
       before: beforeDelivery,
       after: snapshotBooking(result as unknown as Record<string, unknown>),
     });
-    return result;
+    return Object.assign(result, { newlyDeliveredItemIds });
   }
 
   if (data.mark_delivered && booking.status === "booked" && booking.bookingItems.length > 0) {

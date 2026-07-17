@@ -4,34 +4,50 @@ import { jsonError, jsonOk, requireUser, isResponse, requireJsonContentType } fr
 import { BookingFormSchema } from "@/lib/validation";
 import { catalogPhotoRef } from "@/lib/catalogPhotoRef";
 import { createBookingWithSideEffects } from "@/lib/services/bookingCreateOrchestration";
+import { createPerfTimer, withServerTiming } from "@/lib/perfTiming";
 
 export const maxDuration = 60;
 
 export async function POST(req: NextRequest) {
+  const perf = createPerfTimer("POST /api/booking");
   const _ct = requireJsonContentType(req);
   if (_ct) return _ct;
 
+  perf.mark("auth");
   const user = await requireUser();
+  perf.endStage("authMs", "auth");
   if (isResponse(user)) return user;
   try {
+    perf.mark("parse");
     const raw = await req.json();
+    perf.endStage("parseMs", "parse");
+    perf.mark("validation");
     const parseResult = BookingFormSchema.safeParse(raw);
+    perf.endStage("validationMs", "validation");
     if (!parseResult.success) {
       return jsonError(parseResult.error.issues[0]?.message || "Invalid input", 400);
     }
     const body = parseResult.data;
+    perf.setItemCount(Array.isArray(body.items) ? body.items.length : 0);
+    perf.mark("tx");
     const result = await createBookingWithSideEffects(body, user, {}, {
       nextAfter: after,
       origin: req.nextUrl.origin,
     });
-
-    return jsonOk({
-      ok: true,
-      id: result.id,
-      serial: result.serial,
-      reused: result.reused || undefined,
-    });
+    perf.endStage("transactionMs", "tx");
+    const timings = perf.finish({ kind: "mutation" });
+    return withServerTiming(
+      jsonOk({
+        ok: true,
+        id: result.id,
+        serial: result.serial,
+        reused: result.reused || undefined,
+        slip_queued: !result.reused,
+      }),
+      timings,
+    );
   } catch (e) {
+    perf.finish({ kind: "mutation", forceLog: true });
     const msg = e instanceof Error ? e.message : "Failed to create booking";
     return jsonError(msg);
   }
