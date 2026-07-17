@@ -5,8 +5,19 @@ export function jsonOk<T>(data: T, status = 200) {
   return NextResponse.json(data, { status });
 }
 
-export function jsonError(message: string, status = 400) {
-  return NextResponse.json({ error: message }, { status });
+export function jsonError(
+  message: string,
+  status = 400,
+  extra?: { code?: string; retryable?: boolean },
+) {
+  return NextResponse.json(
+    {
+      error: message,
+      ...(extra?.code ? { code: extra.code } : {}),
+      ...(typeof extra?.retryable === "boolean" ? { retryable: extra.retryable } : {}),
+    },
+    { status },
+  );
 }
 
 export async function requireUser(): Promise<AuthUser | NextResponse> {
@@ -40,4 +51,15 @@ export function requireJsonContentType(req: import("next/server").NextRequest): 
     return jsonError("Unsupported Media Type", 415);
   }
   return null;
+}
+
+export function requireOperationId(raw: unknown): string | NextResponse {
+  const id = typeof raw === "string" ? raw.trim() : "";
+  if (!id || id.length < 8) {
+    return jsonError("operation_id is required", 400, {
+      code: "INVALID_OPERATION_ID",
+      retryable: false,
+    });
+  }
+  return id;
 }

@@ -41,3 +41,53 @@ jobs:
           DIRECT_URL: postgresql://build:build@127.0.0.1:5432/build?sslmode=disable
           SKIP_PRISMA_MIGRATE: "1"
           NEXT_TELEMETRY_DISABLED: "1"
+
+  integration:
+    runs-on: ubuntu-latest
+    timeout-minutes: 30
+    services:
+      postgres:
+        image: postgres:16
+        env:
+          POSTGRES_USER: test
+          POSTGRES_PASSWORD: test
+          POSTGRES_DB: fancy_test
+        ports:
+          - 5432:5432
+        options: >-
+          --health-cmd pg_isready
+          --health-interval 10s
+          --health-timeout 5s
+          --health-retries 5
+    steps:
+      - uses: actions/checkout@v4
+      - uses: actions/setup-node@v4
+        with:
+          node-version: "22"
+          cache: npm
+          cache-dependency-path: web/package-lock.json
+      - name: Install
+        run: npm ci
+      - name: Prisma generate
+        run: npx prisma generate
+        env:
+          DATABASE_URL: postgresql://test:test@127.0.0.1:5432/fancy_test?sslmode=disable
+          DIRECT_URL: postgresql://test:test@127.0.0.1:5432/fancy_test?sslmode=disable
+      - name: Apply migrations (test DB only)
+        run: npx prisma migrate deploy
+        env:
+          DATABASE_URL: postgresql://test:test@127.0.0.1:5432/fancy_test?sslmode=disable
+          DIRECT_URL: postgresql://test:test@127.0.0.1:5432/fancy_test?sslmode=disable
+      - name: Unit tests
+        run: npm run test:unit
+      - name: Integration harness placeholder
+        run: |
+          if [ -f scripts/run-integration-tests.mjs ]; then
+            node scripts/run-integration-tests.mjs
+          else
+            echo "Integration harness not yet present — unit gates remain required."
+          fi
+        env:
+          DATABASE_URL: postgresql://test:test@127.0.0.1:5432/fancy_test?sslmode=disable
+          DIRECT_URL: postgresql://test:test@127.0.0.1:5432/fancy_test?sslmode=disable
+          NODE_ENV: test

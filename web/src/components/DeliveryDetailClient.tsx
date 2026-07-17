@@ -345,7 +345,7 @@ export default function DeliveryDetailClient({
       if (!res.ok) {
         printWindow?.close();
         setError(data.error || "Save failed");
-        op.fail({ clearId: res.status === 409 });
+        op.failFromApi(data);
         return;
       }
       applySaveResponse(data);
@@ -425,7 +425,7 @@ export default function DeliveryDetailClient({
       if (!res.ok) {
         printWindow?.close();
         setError(data.error || "Save failed");
-        op.fail({ clearId: res.status === 409 });
+        op.failFromApi(data);
         return;
       }
       applySaveResponse(data);
@@ -496,7 +496,7 @@ export default function DeliveryDetailClient({
       const data = await res.json();
       if (!res.ok) {
         setError(data.error || "Save failed");
-        op.fail({ clearId: res.status === 409 });
+        op.failFromApi(data);
         return;
       }
       applySaveResponse(data);

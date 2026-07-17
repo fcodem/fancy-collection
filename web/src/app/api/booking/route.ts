@@ -1,6 +1,13 @@
 import { NextRequest, after } from "next/server";
 import prisma from "@/lib/prisma";
-import { jsonError, jsonOk, requireUser, isResponse, requireJsonContentType } from "@/lib/api";
+import {
+  jsonError,
+  jsonOk,
+  requireUser,
+  isResponse,
+  requireJsonContentType,
+  requireOperationId,
+} from "@/lib/api";
 import { BookingFormSchema } from "@/lib/validation";
 import { catalogPhotoRef } from "@/lib/catalogPhotoRef";
 import { createBookingWithSideEffects } from "@/lib/services/bookingCreateOrchestration";
@@ -21,13 +28,24 @@ export async function POST(req: NextRequest) {
     perf.mark("parse");
     const raw = await req.json();
     perf.endStage("parseMs", "parse");
+
+    const operationIdOrErr = requireOperationId(
+      raw.operation_id ?? raw.client_request_id,
+    );
+    if (isResponse(operationIdOrErr)) return operationIdOrErr;
+    const operationId = operationIdOrErr;
+
     perf.mark("validation");
     const parseResult = BookingFormSchema.safeParse(raw);
     perf.endStage("validationMs", "validation");
     if (!parseResult.success) {
       return jsonError(parseResult.error.issues[0]?.message || "Invalid input", 400);
     }
-    const body = parseResult.data;
+    const body = {
+      ...parseResult.data,
+      client_request_id: operationId,
+      operation_id: operationId,
+    };
     perf.setItemCount(Array.isArray(body.items) ? body.items.length : 0);
     perf.mark("tx");
     const result = await createBookingWithSideEffects(body, user, {}, {

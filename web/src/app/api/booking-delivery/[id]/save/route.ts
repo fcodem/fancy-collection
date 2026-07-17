@@ -1,12 +1,20 @@
 import { NextRequest, after } from "next/server";
 import { saveDelivery } from "@/lib/services/operations";
-import { jsonError, jsonOk, requireUser, isResponse, requireJsonContentType } from "@/lib/api";
+import {
+  jsonError,
+  jsonOk,
+  requireUser,
+  isResponse,
+  requireJsonContentType,
+  requireOperationId,
+} from "@/lib/api";
 import { finalizeSlipTrigger } from "@/lib/services/whatsapp/slipDebounce";
 import { processWhatsAppJobQueue } from "@/lib/services/whatsapp/jobQueue";
 import { createPerfTimer, withServerTiming } from "@/lib/perfTiming";
 import {
   MutationIdempotencyError,
-  runIdempotentMutation,
+  runIdempotentMutationInTx,
+  toPublicErrorPayload,
 } from "@/lib/mutationReceipt";
 
 export const maxDuration = 60;
@@ -27,10 +35,9 @@ export async function POST(req: NextRequest, { params }: { params: Promise<{ id:
     const body = await req.json();
     perf.endStage("parseMs", "parse");
 
-    const operationId =
-      typeof body.operation_id === "string" && body.operation_id.trim()
-        ? body.operation_id.trim()
-        : "";
+    const operationIdOrErr = requireOperationId(body.operation_id);
+    if (isResponse(operationIdOrErr)) return operationIdOrErr;
+    const operationId = operationIdOrErr;
 
     const canonicalPayload = {
       bookingId,
@@ -43,7 +50,35 @@ export async function POST(req: NextRequest, { params }: { params: Promise<{ id:
       items: body.items,
     };
 
-    const { result: payload, reused } = await runIdempotentMutation(
+    const deliveryInput = {
+      remaining_collected: Number(body.remaining_collected || 0),
+      security_collected: Number(body.security_collected || 0),
+      delivery_notes: body.delivery_notes || "",
+      mark_delivered: Boolean(body.mark_delivered),
+      payment_mode:
+        body.payment_mode === "online"
+          ? ("online" as const)
+          : body.payment_mode === "cash"
+            ? ("cash" as const)
+            : undefined,
+      security_payment_mode:
+        body.security_payment_mode === "online"
+          ? ("online" as const)
+          : body.security_payment_mode === "cash"
+            ? ("cash" as const)
+            : undefined,
+      items: Array.isArray(body.items)
+        ? body.items.map((it: Record<string, unknown>) => ({
+            booking_item_id: Number(it.booking_item_id),
+            remaining_collected: Number(it.remaining_collected || 0),
+            security_collected: Number(it.security_collected || 0),
+            delivery_notes: String(it.delivery_notes || ""),
+            mark_delivered: Boolean(it.mark_delivered),
+          }))
+        : undefined,
+    };
+
+    const { result: payload, reused } = await runIdempotentMutationInTx(
       {
         operationId,
         operationType: "delivery_save",
@@ -51,71 +86,25 @@ export async function POST(req: NextRequest, { params }: { params: Promise<{ id:
         actorUserId: user.id,
         payload: canonicalPayload,
       },
-      async () => {
+      async (tx) => {
         perf.mark("tx");
-        const booking = await saveDelivery(
-          bookingId,
-          {
-            remaining_collected: Number(body.remaining_collected || 0),
-            security_collected: Number(body.security_collected || 0),
-            delivery_notes: body.delivery_notes || "",
-            mark_delivered: Boolean(body.mark_delivered),
-            payment_mode:
-              body.payment_mode === "online"
-                ? "online"
-                : body.payment_mode === "cash"
-                  ? "cash"
-                  : undefined,
-            security_payment_mode:
-              body.security_payment_mode === "online"
-                ? "online"
-                : body.security_payment_mode === "cash"
-                  ? "cash"
-                  : undefined,
-            items: Array.isArray(body.items)
-              ? body.items.map((it: Record<string, unknown>) => ({
-                  booking_item_id: Number(it.booking_item_id),
-                  remaining_collected: Number(it.remaining_collected || 0),
-                  security_collected: Number(it.security_collected || 0),
-                  delivery_notes: String(it.delivery_notes || ""),
-                  mark_delivered: Boolean(it.mark_delivered),
-                }))
-              : undefined,
-          },
-          user.username,
-        );
+        const booking = await saveDelivery(bookingId, deliveryInput, user.username, { tx });
         perf.endStage("transactionMs", "tx");
 
-        const deliveryItemIds =
-          (booking as { newlyDeliveredItemIds?: number[] }).newlyDeliveredItemIds ?? [];
-
+        const deliveryItemIds = booking.newlyDeliveredItemIds ?? [];
         let slipQueued = false;
+
         if (deliveryItemIds.length > 0) {
-          perf.mark("job");
-          try {
-            await finalizeSlipTrigger(bookingId, "delivery", {
-              requestOrigin: req.nextUrl.origin,
-              createdBy: user.username,
-              deliveryItemIds,
-            });
-            slipQueued = true;
-            after(async () => {
-              try {
-                await processWhatsAppJobQueue(2, { bookingId });
-              } catch (e) {
-                console.error("[delivery save] whatsapp queue error:", e);
-              }
-            });
-          } catch (e) {
-            console.error("[delivery save] WhatsApp slip error:", e);
-          }
-          perf.endStage("jobEnqueueMs", "job");
+          // Durable slip enqueue stays outside Chromium/WhatsApp send; queue row is best-effort
+          // after commit via after(). Receipt already stores slip_queued intent.
+          slipQueued = true;
         }
 
         return {
           ok: true,
           id: booking.id,
           status: booking.status,
+          newly_delivered_item_ids: deliveryItemIds,
           items: (booking.bookingItems || []).map((bi) => ({
             id: bi.id,
             isDelivered: bi.isDelivered,
@@ -127,13 +116,37 @@ export async function POST(req: NextRequest, { params }: { params: Promise<{ id:
         };
       },
     );
+    perf.endStage("transactionMs", "tx");
+
+    if (!reused && payload.slip_queued && Array.isArray(payload.newly_delivered_item_ids)) {
+      const deliveryItemIds = payload.newly_delivered_item_ids as number[];
+      if (deliveryItemIds.length > 0) {
+        try {
+          await finalizeSlipTrigger(bookingId, "delivery", {
+            requestOrigin: req.nextUrl.origin,
+            createdBy: user.username,
+            deliveryItemIds,
+          });
+          after(async () => {
+            try {
+              await processWhatsAppJobQueue(2, { bookingId });
+            } catch (e) {
+              console.error("[delivery save] whatsapp queue error:", e);
+            }
+          });
+        } catch (e) {
+          console.error("[delivery save] WhatsApp slip error:", e);
+        }
+      }
+    }
 
     const timings = perf.finish({ kind: "mutation" });
     return withServerTiming(jsonOk({ ...payload, reused: reused || undefined }), timings);
   } catch (e) {
     perf.finish({ kind: "mutation", forceLog: true });
     if (e instanceof MutationIdempotencyError) {
-      return jsonError(e.message, e.httpStatus);
+      const pub = toPublicErrorPayload(e);
+      return jsonError(pub.error, e.httpStatus, { code: pub.code, retryable: pub.retryable });
     }
     return jsonError(e instanceof Error ? e.message : "Save failed");
   }

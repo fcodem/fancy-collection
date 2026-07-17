@@ -469,7 +469,7 @@ export default function ReturnDetailClient({
       if (!res.ok) {
         printWindow?.close();
         setReturnError(typeof data.error === "string" ? data.error : "Save failed");
-        op.fail({ clearId: res.status === 409 });
+        op.failFromApi(data);
         return;
       }
       op.succeed();
@@ -522,7 +522,7 @@ export default function ReturnDetailClient({
       if (!res.ok) {
         printWindow?.close();
         setReturnError(typeof data.error === "string" ? data.error : "Save failed");
-        op.fail({ clearId: res.status === 409 });
+        op.failFromApi(data);
         return;
       }
       op.succeed();
@@ -607,7 +607,7 @@ export default function ReturnDetailClient({
       const data = await res.json();
       if (!res.ok) {
         setIncompleteError(data.error || "Save failed");
-        op.fail({ clearId: res.status === 409 });
+        op.failFromApi(data);
         return;
       }
       op.succeed();

@@ -1,6 +1,10 @@
-import { revalidateTag } from "next/cache";
 import { emitShopEvent } from "./bus";
 import type { ShopEventType } from "./types";
+import {
+  invalidateBookingCaches,
+  invalidateDeliveryReturnCaches,
+  invalidateInventoryCaches,
+} from "@/lib/cacheInvalidation";
 
 type BroadcastOpts = {
   type: ShopEventType;
@@ -22,13 +26,16 @@ export function broadcastShopEvent(opts: BroadcastOpts) {
     opts.type === "inventory.changed"
   ) {
     emitShopEvent({ type: "nav.refresh", at: new Date().toISOString() });
-    try {
-      revalidateTag("dashboard-data");
-      revalidateTag("available-items");
-      revalidateTag("dashboard-free-items");
-      revalidateTag("booking-panel");
-    } catch {
-      /* ignore when cache API unavailable */
+    if (opts.type === "inventory.changed") {
+      invalidateInventoryCaches();
+    } else if (
+      opts.type === "booking.delivered" ||
+      opts.type === "booking.returned" ||
+      opts.type.includes("return")
+    ) {
+      invalidateDeliveryReturnCaches();
+    } else {
+      invalidateBookingCaches();
     }
   }
 }

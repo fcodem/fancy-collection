@@ -1118,39 +1118,65 @@ model AiRuntimeSetting {
 
 /** Idempotent mutation receipts for delivery/return (and similar) retries. */
 model MutationReceipt {
-  id            Int       @id @default(autoincrement())
-  operationId   String    @unique @map("operation_id")
-  operationType String    @map("operation_type")
-  bookingId     Int?      @map("booking_id")
-  actorUserId   Int?      @map("actor_user_id")
-  requestHash   String    @map("request_hash")
+  id             Int       @id @default(autoincrement())
+  operationId    String    @unique @map("operation_id")
+  operationType  String    @map("operation_type")
+  bookingId      Int?      @map("booking_id")
+  actorUserId    Int?      @map("actor_user_id")
+  requestHash    String    @map("request_hash")
   /** processing | completed | failed */
-  status        String    @default("processing")
-  resultJson    Json?     @map("result_json")
-  errorMessage  String?   @map("error_message")
-  createdAt     DateTime  @default(now()) @map("created_at")
-  completedAt   DateTime? @map("completed_at")
+  status         String    @default("processing")
+  resultJson     Json?     @map("result_json")
+  errorMessage   String?   @map("error_message")
+  errorCode      String?   @map("error_code")
+  claimedAt      DateTime? @map("claimed_at")
+  leaseExpiresAt DateTime? @map("lease_expires_at")
+  createdAt      DateTime  @default(now()) @map("created_at")
+  completedAt    DateTime? @map("completed_at")
 
   @@index([bookingId, operationType])
   @@index([status, createdAt])
+  @@index([status, leaseExpiresAt])
   @@map("mutation_receipts")
 }
 
 /** Deferred Blob deletions — never block business transactions. */
 model BlobCleanupJob {
-  id           Int       @id @default(autoincrement())
-  blobPath     String    @map("blob_path")
-  reason       String
-  bookingId    Int?      @map("booking_id")
-  status       String    @default("pending")
-  attempts     Int       @default(0)
-  maxAttempts  Int       @default(5) @map("max_attempts")
-  scheduledAt  DateTime  @default(now()) @map("scheduled_at")
-  lastError    String?   @map("last_error")
-  createdAt    DateTime  @default(now()) @map("created_at")
-  completedAt  DateTime? @map("completed_at")
+  id             Int       @id @default(autoincrement())
+  blobPath       String    @map("blob_path")
+  reason         String
+  bookingId      Int?      @map("booking_id")
+  status         String    @default("pending")
+  attempts       Int       @default(0)
+  maxAttempts    Int       @default(5) @map("max_attempts")
+  scheduledAt    DateTime  @default(now()) @map("scheduled_at")
+  claimedAt      DateTime? @map("claimed_at")
+  leaseExpiresAt DateTime? @map("lease_expires_at")
+  claimedBy      String?   @map("claimed_by")
+  lastError      String?   @map("last_error")
+  createdAt      DateTime  @default(now()) @map("created_at")
+  completedAt    DateTime? @map("completed_at")
 
   @@index([status, scheduledAt])
   @@index([bookingId])
+  @@index([status, leaseExpiresAt])
+  @@index([blobPath])
   @@map("blob_cleanup_jobs")
+}
+
+/** Prevents duplicate WhatsApp sends after worker timeouts. */
+model WhatsAppSendLedger {
+  id              Int       @id @default(autoincrement())
+  idempotencyKey  String    @unique @map("idempotency_key")
+  jobId           Int?      @map("job_id")
+  bookingId       Int?      @map("booking_id")
+  documentHash    String?   @map("document_hash")
+  recipientHash   String?   @map("recipient_hash")
+  providerMessageId String? @map("provider_message_id")
+  sendStartedAt   DateTime? @map("send_started_at")
+  sendConfirmedAt DateTime? @map("send_confirmed_at")
+  createdAt       DateTime  @default(now()) @map("created_at")
+
+  @@index([bookingId])
+  @@map("whatsapp_send_ledger")
 }

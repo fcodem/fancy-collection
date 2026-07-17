@@ -11,7 +11,7 @@ import { isStarBooking } from "../starBooking";
 import { getAvailableItemsApi, bookingUsesItem, findItemIdsStillInActiveBookings } from "../booking";
 import { broadcastShopEvent } from "../realtime/broadcast";
 import { logActivity, snapshotBooking } from "../activityLog";
-import { deleteUploads, saveIdProofUpload } from "../upload";
+import { saveIdProofUpload } from "../upload";
 import { syncBookingStatusFromItems } from "../syncBookingStatusFromItems";
 import { cachedQuery } from "../perfCache";
 import { serializeActiveOrders } from "../slipBookingData";
@@ -825,120 +825,125 @@ export async function savePackingItem(
   };
 }
 
-export async function saveDelivery(
-  bookingId: number,
-  data: {
-    remaining_collected?: number;
-    security_collected?: number;
-    delivery_notes?: string;
+type SaveDeliveryData = {
+  remaining_collected?: number;
+  security_collected?: number;
+  delivery_notes?: string;
+  mark_delivered?: boolean;
+  payment_mode?: "cash" | "online";
+  security_payment_mode?: "cash" | "online";
+  items?: Array<{
+    booking_item_id: number;
+    remaining_collected: number;
+    security_collected: number;
+    delivery_notes: string;
     mark_delivered?: boolean;
-    payment_mode?: "cash" | "online";
-    security_payment_mode?: "cash" | "online";
-    items?: Array<{
-      booking_item_id: number;
-      remaining_collected: number;
-      security_collected: number;
-      delivery_notes: string;
-      mark_delivered?: boolean;
-      update_only?: boolean;
-    }>;
-  },
-  by?: string,
-) {
-  const booking = await prisma.booking.findUnique({
+    update_only?: boolean;
+  }>;
+};
+
+type BookingWithItems = Prisma.BookingGetPayload<{ include: { bookingItems: true } }>;
+
+async function runSaveDeliveryInTx(
+  bookingId: number,
+  data: SaveDeliveryData,
+  tx: Prisma.TransactionClient,
+  newlyDeliveredItemIds: number[],
+): Promise<{ result: BookingWithItems; beforeSnapshot: Record<string, unknown> }> {
+  await tx.$executeRaw`SELECT id FROM bookings WHERE id = ${bookingId} FOR UPDATE`;
+
+  const locked = await tx.booking.findUnique({
     where: { id: bookingId },
     include: { bookingItems: true },
   });
-  if (!booking) throw new Error("Booking not found");
-  const beforeDelivery = snapshotBooking(booking as unknown as Record<string, unknown>);
+  if (!locked) throw new Error("Booking not found");
+  const beforeSnapshot = snapshotBooking(locked as unknown as Record<string, unknown>);
+
   const resolveRemainingPaymentMode = (totalRemainingCollected: number) =>
     totalRemainingCollected > 0
       ? data.payment_mode === "online"
         ? "online"
         : "cash"
-      : booking.remainingPaymentMode;
+      : locked.remainingPaymentMode;
 
   const resolveSecurityPaymentMode = (totalSecurityCollected: number) =>
     totalSecurityCollected > 0
       ? data.security_payment_mode === "online"
         ? "online"
         : "cash"
-      : booking.securityPaymentMode;
+      : locked.securityPaymentMode;
 
   if (data.items?.length) {
-    const newlyDeliveredItemIds: number[] = [];
-    const result = await prisma.$transaction(async (tx) => {
-      await tx.$executeRaw`SELECT id FROM bookings WHERE id = ${bookingId} FOR UPDATE`;
+    const itemById = new Map(locked.bookingItems.map((bi) => [bi.id, bi]));
+    const deliverIds: number[] = [];
 
-      const locked = await tx.booking.findUnique({
-        where: { id: bookingId },
-        include: { bookingItems: true },
+    for (const item of data.items) {
+      const bi = itemById.get(item.booking_item_id);
+      if (!bi) continue;
+      if (item.mark_delivered && !bi.isDelivered && !bi.isCancelled) {
+        deliverIds.push(bi.id);
+        newlyDeliveredItemIds.push(bi.id);
+      }
+    }
+
+    if (deliverIds.length) {
+      await tx.bookingItem.updateMany({
+        where: { id: { in: deliverIds } },
+        data: { isDelivered: true, deliveredAt: new Date() },
       });
-      if (!locked) throw new Error("Booking not found");
+    }
 
-      const itemById = new Map(locked.bookingItems.map((bi) => [bi.id, bi]));
-      const updates = data.items!.map((item) => {
+    await Promise.all(
+      data.items.map((item) => {
         const bi = itemById.get(item.booking_item_id);
         if (!bi) return null;
+        return tx.bookingItem.update({
+          where: { id: bi.id },
+          data: {
+            itemRemainingCollected: item.remaining_collected,
+            itemSecurityCollected: item.security_collected,
+            itemDeliveryNotes: item.delivery_notes?.trim() || null,
+          },
+        });
+      }).filter(Boolean),
+    );
 
-        const itemUpdate: {
-          itemRemainingCollected: number;
-          itemSecurityCollected: number;
-          itemDeliveryNotes: string | null;
-          isDelivered?: boolean;
-          deliveredAt?: Date;
-        } = {
-          itemRemainingCollected: item.remaining_collected,
-          itemSecurityCollected: item.security_collected,
-          itemDeliveryNotes: item.delivery_notes?.trim() || null,
-        };
+    const refreshed = await tx.booking.findUnique({
+      where: { id: bookingId },
+      include: { bookingItems: true },
+    });
+    if (!refreshed) throw new Error("Booking not found");
 
-        if (item.mark_delivered && !bi.isDelivered && !bi.isCancelled) {
-          itemUpdate.isDelivered = true;
-          itemUpdate.deliveredAt = new Date();
-          newlyDeliveredItemIds.push(bi.id);
-        }
+    const totalRemaining = refreshed.bookingItems.reduce((s, bi) => s + bi.itemRemainingCollected, 0);
+    const totalSecurity = refreshed.bookingItems.reduce((s, bi) => s + bi.itemSecurityCollected, 0);
+    const newNotes = refreshed.bookingItems
+      .map((bi) => (bi.itemDeliveryNotes ? `${bi.dressName}: ${bi.itemDeliveryNotes}` : null))
+      .filter(Boolean)
+      .join(" | ");
 
-        return tx.bookingItem.update({ where: { id: bi.id }, data: itemUpdate });
-      });
+    const dressIsOut =
+      refreshed.bookingItems.some((bi) => bi.isDelivered && !bi.isCancelled) ||
+      refreshed.status === "delivered";
+    const nextSecurityHeld =
+      locked.status === "incomplete_return"
+        ? locked.securityHeld
+        : totalSecurity > 0
+          ? totalSecurity
+          : dressIsOut && locked.securityDeposit > 0
+            ? locked.securityDeposit
+            : 0;
 
-      await Promise.all(updates.filter(Boolean));
+    const allActiveDelivered =
+      refreshed.status === "booked" &&
+      refreshed.bookingItems.filter((bi) => !bi.isCancelled).length > 0 &&
+      refreshed.bookingItems.filter((bi) => !bi.isCancelled).every((bi) => bi.isDelivered);
 
-      const refreshed = await tx.booking.findUnique({
-        where: { id: bookingId },
-        include: { bookingItems: true },
-      });
-      if (!refreshed) throw new Error("Booking not found");
+    const itemDeliveredAt = refreshed.bookingItems
+      .map((bi) => bi.deliveredAt)
+      .find((d): d is Date => d != null);
 
-      const totalRemaining = refreshed.bookingItems.reduce((s, bi) => s + bi.itemRemainingCollected, 0);
-      const totalSecurity = refreshed.bookingItems.reduce((s, bi) => s + bi.itemSecurityCollected, 0);
-      const newNotes = refreshed.bookingItems
-        .map((bi) => (bi.itemDeliveryNotes ? `${bi.dressName}: ${bi.itemDeliveryNotes}` : null))
-        .filter(Boolean)
-        .join(" | ");
-
-      const dressIsOut =
-        refreshed.bookingItems.some((bi) => bi.isDelivered && !bi.isCancelled) ||
-        refreshed.status === "delivered";
-      const nextSecurityHeld =
-        locked.status === "incomplete_return"
-          ? locked.securityHeld
-          : totalSecurity > 0
-            ? totalSecurity
-            : dressIsOut && locked.securityDeposit > 0
-              ? locked.securityDeposit
-              : 0;
-
-      const allActiveDelivered =
-        refreshed.status === "booked" &&
-        refreshed.bookingItems.filter((bi) => !bi.isCancelled).length > 0 &&
-        refreshed.bookingItems.filter((bi) => !bi.isCancelled).every((bi) => bi.isDelivered);
-
-      const itemDeliveredAt = refreshed.bookingItems
-        .map((bi) => bi.deliveredAt)
-        .find((d): d is Date => d != null);
-
-      const updated = await tx.booking.update({
+    return {
+      result: await tx.booking.update({
         where: { id: bookingId },
         data: {
           remainingCollected: totalRemaining,
@@ -955,85 +960,136 @@ export async function saveDelivery(
             : {}),
         },
         include: { bookingItems: true },
+      }),
+      beforeSnapshot,
+    };
+  }
+
+  if (data.mark_delivered && locked.status === "booked" && locked.bookingItems.length > 0) {
+    const toDeliver = locked.bookingItems
+      .filter((bi) => !bi.isDelivered && !bi.isCancelled)
+      .map((bi) => bi.id);
+    newlyDeliveredItemIds.push(...toDeliver);
+    if (toDeliver.length) {
+      await tx.bookingItem.updateMany({
+        where: { id: { in: toDeliver } },
+        data: { isDelivered: true, deliveredAt: new Date() },
       });
-
-      return updated;
-    });
-
-    broadcastShopEvent({ type: "booking.delivered", bookingId, status: result.status, by });
-    const deliveryDresses =
-      booking.bookingItems.map((bi) => bi.dressName).filter(Boolean).join(", ") || booking.dressName || "";
-    void logActivity({
-      username: by || "system",
-      action: "delivered",
-      entity: "booking",
-      entityId: bookingId,
-      label: `Delivery — Booking #${String(booking.monthlySerial).padStart(2, "0")} — ${booking.customerName}${deliveryDresses ? ` (${deliveryDresses})` : ""}`,
-      before: beforeDelivery,
-      after: snapshotBooking(result as unknown as Record<string, unknown>),
-    });
-    return Object.assign(result, { newlyDeliveredItemIds });
+    }
   }
 
-  if (data.mark_delivered && booking.status === "booked" && booking.bookingItems.length > 0) {
-    await prisma.bookingItem.updateMany({
-      where: { bookingId },
-      data: { isDelivered: true, deliveredAt: new Date() },
-    });
-  }
-
-  const secCollected = data.security_collected ?? booking.securityCollected;
-  const dressIsOut = data.mark_delivered || booking.status === "delivered";
+  const secCollected = data.security_collected ?? locked.securityCollected;
+  const dressIsOut = data.mark_delivered || locked.status === "delivered";
   const nextSecurityHeld =
-    booking.status === "incomplete_return"
-      ? booking.securityHeld
+    locked.status === "incomplete_return"
+      ? locked.securityHeld
       : secCollected > 0
         ? secCollected
-        : dressIsOut && booking.securityDeposit > 0
-          ? booking.securityDeposit
+        : dressIsOut && locked.securityDeposit > 0
+          ? locked.securityDeposit
           : 0;
 
-  const totalRemainingCollected = data.remaining_collected ?? booking.remainingCollected;
+  const totalRemainingCollected = data.remaining_collected ?? locked.remainingCollected;
 
   const bookingFields = {
     remainingCollected: totalRemainingCollected,
     securityCollected: secCollected,
     securityHeld: nextSecurityHeld,
-    deliveryNotes: data.delivery_notes ?? booking.deliveryNotes,
+    deliveryNotes: data.delivery_notes ?? locked.deliveryNotes,
     remainingPaymentMode: resolveRemainingPaymentMode(totalRemainingCollected),
     securityPaymentMode: resolveSecurityPaymentMode(secCollected),
   };
 
-  if (data.mark_delivered && booking.status === "booked" && booking.bookingItems.length === 0) {
-    await prisma.booking.update({
-      where: { id: bookingId },
-      data: {
-        ...bookingFields,
-        status: "delivered",
-        deliveredAt: booking.deliveredAt || new Date(),
-      },
-    });
-  } else {
-    await prisma.booking.update({
-      where: { id: bookingId },
-      data: bookingFields,
-    });
+  if (data.mark_delivered && locked.status === "booked" && locked.bookingItems.length === 0) {
+    return {
+      result: await tx.booking.update({
+        where: { id: bookingId },
+        data: {
+          ...bookingFields,
+          status: "delivered",
+          deliveredAt: locked.deliveredAt || new Date(),
+        },
+        include: { bookingItems: true },
+      }),
+      beforeSnapshot,
+    };
   }
 
-  const result = (await syncBookingStatusFromItems(bookingId))!;
+  const updated = await tx.booking.update({
+    where: { id: bookingId },
+    data: bookingFields,
+    include: { bookingItems: true },
+  });
+
+  if (updated.status !== "booked") {
+    return { result: updated, beforeSnapshot };
+  }
+
+  const activeItems = updated.bookingItems.filter((bi) => !bi.isCancelled);
+  if (!activeItems.length || !activeItems.every((bi) => bi.isDelivered)) {
+    return { result: updated, beforeSnapshot };
+  }
+
+  const itemDeliveredAt = activeItems.map((bi) => bi.deliveredAt).find((d): d is Date => d != null);
+  return {
+    result: await tx.booking.update({
+      where: { id: bookingId },
+      data: {
+        status: "delivered",
+        deliveredAt: updated.deliveredAt || itemDeliveredAt || new Date(),
+      },
+      include: { bookingItems: true },
+    }),
+    beforeSnapshot,
+  };
+}
+
+export async function saveDelivery(
+  bookingId: number,
+  data: SaveDeliveryData,
+  by?: string,
+  options?: { tx?: Prisma.TransactionClient },
+) {
+  let beforeDelivery: Record<string, unknown> | null = null;
+  let labelBooking: BookingWithItems | null = null;
+
+  if (!options?.tx) {
+    const pre = await prisma.booking.findUnique({
+      where: { id: bookingId },
+      include: { bookingItems: true },
+    });
+    if (!pre) throw new Error("Booking not found");
+    beforeDelivery = snapshotBooking(pre as unknown as Record<string, unknown>);
+    labelBooking = pre;
+  }
+
+  const newlyDeliveredItemIds: number[] = [];
+
+  const execute = async (tx: Prisma.TransactionClient) =>
+    runSaveDeliveryInTx(bookingId, data, tx, newlyDeliveredItemIds);
+
+  const { result, beforeSnapshot: txBefore } = options?.tx
+    ? await execute(options.tx)
+    : await prisma.$transaction(execute);
+
+  if (!beforeDelivery) beforeDelivery = txBefore;
+  if (!labelBooking) labelBooking = result;
+
   broadcastShopEvent({ type: "booking.delivered", bookingId, status: result.status, by });
-  const deliveryDresses2 =
-    booking.bookingItems.map((bi) => bi.dressName).filter(Boolean).join(", ") || booking.dressName || "";
+  const deliveryDresses =
+    labelBooking.bookingItems.map((bi) => bi.dressName).filter(Boolean).join(", ") ||
+    labelBooking.dressName ||
+    "";
   void logActivity({
     username: by || "system",
     action: "delivered",
     entity: "booking",
     entityId: bookingId,
-    label: `Delivery — Booking #${String(booking.monthlySerial).padStart(2, "0")} — ${booking.customerName}${deliveryDresses2 ? ` (${deliveryDresses2})` : ""}`,
-    before: beforeDelivery,
+    label: `Delivery — Booking #${String(labelBooking.monthlySerial).padStart(2, "0")} — ${labelBooking.customerName}${deliveryDresses ? ` (${deliveryDresses})` : ""}`,
+    before: beforeDelivery ?? snapshotBooking(result as unknown as Record<string, unknown>),
     after: snapshotBooking(result as unknown as Record<string, unknown>),
   });
-  return result;
+  return Object.assign(result, { newlyDeliveredItemIds });
 }
 
 export async function saveDeliveryIdPhotos(
@@ -1046,6 +1102,7 @@ export async function saveDeliveryIdPhotos(
 
   let idPhoto1 = booking.idPhoto1;
   let idPhoto2 = booking.idPhoto2;
+  const pathsToCleanup: string[] = [];
 
   const file1 = data.id_photo_1;
   const file2 = data.id_photo_2;
@@ -1053,11 +1110,11 @@ export async function saveDeliveryIdPhotos(
     Boolean(f) && typeof f === "object" && "size" in (f as object) && (f as File).size > 0;
 
   if (isUpload(file1)) {
-    if (idPhoto1) await deleteUploads([idPhoto1]);
+    if (idPhoto1) pathsToCleanup.push(idPhoto1);
     idPhoto1 = await saveIdProofUpload(file1);
   }
   if (isUpload(file2)) {
-    if (idPhoto2) await deleteUploads([idPhoto2]);
+    if (idPhoto2) pathsToCleanup.push(idPhoto2);
     idPhoto2 = await saveIdProofUpload(file2);
   }
 
@@ -1069,6 +1126,11 @@ export async function saveDeliveryIdPhotos(
     where: { id: bookingId },
     data: { idPhoto1, idPhoto2 },
   });
+
+  if (pathsToCleanup.length) {
+    const { enqueueBlobCleanup } = await import("@/lib/blobCleanup");
+    await enqueueBlobCleanup(pathsToCleanup, { reason: "replace_id_photos", bookingId });
+  }
 
   logActivity({
     username: by || "system",
@@ -1083,42 +1145,202 @@ export async function saveDeliveryIdPhotos(
   return result;
 }
 
-export async function saveReturn(
-  bookingId: number,
-  action: string,
-  data: {
-    booking_item_id?: number;
-    booking_item_ids?: number[];
+type SaveReturnData = {
+  booking_item_id?: number;
+  booking_item_ids?: number[];
+  incomplete_notes?: string;
+  security_held?: number;
+  incomplete_photo?: string;
+  items?: Array<{
+    booking_item_id: number;
+    is_incomplete: boolean;
     incomplete_notes?: string;
     security_held?: number;
     incomplete_photo?: string;
-    items?: Array<{
-      booking_item_id: number;
-      is_incomplete: boolean;
-      incomplete_notes?: string;
-      security_held?: number;
-      incomplete_photo?: string;
-    }>;
-  },
-  by?: string,
+  }>;
+};
+
+async function runInReturnTx<T>(
+  tx: Prisma.TransactionClient | undefined,
+  fn: (client: Prisma.TransactionClient) => Promise<T>,
+): Promise<T> {
+  if (tx) return fn(tx);
+  return prisma.$transaction(fn);
+}
+
+function validateReturnableItem(
+  bi: BookingWithItems["bookingItems"][number],
+  label?: string,
 ) {
-  const booking = await prisma.booking.findUnique({
+  const name = label ?? `"${bi.dressName}"`;
+  if (!bi.isDelivered) throw new Error(`${name} must be delivered before it can be returned.`);
+  if (bi.isCancelled) throw new Error(`${name} is cancelled and cannot be returned.`);
+  if (bi.isReturned && !bi.isIncompleteReturn) {
+    throw new Error(`${name} is already marked returned.`);
+  }
+}
+
+async function runMarkItemReturnedInTx(
+  bookingId: number,
+  itemId: number,
+  tx: Prisma.TransactionClient,
+): Promise<{
+  booking: BookingWithItems | null;
+  newlyReturnedItemIds: number[];
+  pathsToCleanup: string[];
+}> {
+  await tx.$executeRaw`SELECT id FROM bookings WHERE id = ${bookingId} FOR UPDATE`;
+  const locked = await tx.booking.findUnique({
     where: { id: bookingId },
     include: { bookingItems: true },
   });
-  if (!booking) throw new Error("Booking not found");
+  if (!locked) throw new Error("Booking not found");
+
+  const bi = locked.bookingItems.find((row) => row.id === itemId);
+  if (!bi) throw new Error("Dress not found on this booking.");
+  validateReturnableItem(bi, "Dress");
+
+  const pathsToCleanup: string[] = [];
+  if (bi.isIncompleteReturn && bi.itemIncompletePhoto) {
+    pathsToCleanup.push(bi.itemIncompletePhoto);
+  }
+
+  if (bi.isIncompleteReturn) {
+    await tx.bookingItem.updateMany({
+      where: { id: bi.id },
+      data: {
+        isReturned: true,
+        isIncompleteReturn: false,
+        itemIncompleteNotes: null,
+        itemIncompletePhoto: null,
+        itemSecurityHeld: 0,
+      },
+    });
+    await syncIncompleteReturnStatus(bookingId, tx);
+  } else {
+    await tx.bookingItem.updateMany({
+      where: { id: bi.id },
+      data: { isReturned: true, isIncompleteReturn: false },
+    });
+    await finalizeFullReturnIfComplete(bookingId, tx);
+  }
+
+  if (bi.itemId != null) {
+    await tx.clothingItem.updateMany({
+      where: { id: bi.itemId },
+      data: { status: "available" },
+    });
+  }
+
+  const booking = await tx.booking.findUnique({
+    where: { id: bookingId },
+    include: { bookingItems: true },
+  });
+  return { booking, newlyReturnedItemIds: [bi.id], pathsToCleanup };
+}
+
+async function runMarkItemsReturnedInTx(
+  bookingId: number,
+  ids: number[],
+  tx: Prisma.TransactionClient,
+): Promise<{
+  booking: BookingWithItems | null;
+  newlyReturnedItemIds: number[];
+  pathsToCleanup: string[];
+}> {
+  await tx.$executeRaw`SELECT id FROM bookings WHERE id = ${bookingId} FOR UPDATE`;
+  const locked = await tx.booking.findUnique({
+    where: { id: bookingId },
+    include: { bookingItems: true },
+  });
+  if (!locked) throw new Error("Booking not found");
+
+  const itemById = new Map(locked.bookingItems.map((bi) => [bi.id, bi]));
+  const toReturn: BookingWithItems["bookingItems"] = [];
+  for (const id of ids) {
+    const bi = itemById.get(id);
+    if (!bi) throw new Error("Dress not found on this booking.");
+    validateReturnableItem(bi);
+    toReturn.push(bi);
+  }
+
+  const pathsToCleanup = toReturn
+    .filter((bi) => bi.isIncompleteReturn && bi.itemIncompletePhoto)
+    .map((bi) => bi.itemIncompletePhoto as string);
+
+  const incompleteIds = toReturn.filter((bi) => bi.isIncompleteReturn).map((bi) => bi.id);
+  const normalIds = toReturn.filter((bi) => !bi.isIncompleteReturn).map((bi) => bi.id);
+
+  if (incompleteIds.length) {
+    await tx.bookingItem.updateMany({
+      where: { id: { in: incompleteIds } },
+      data: {
+        isReturned: true,
+        isIncompleteReturn: false,
+        itemIncompleteNotes: null,
+        itemIncompletePhoto: null,
+        itemSecurityHeld: 0,
+      },
+    });
+  }
+  if (normalIds.length) {
+    await tx.bookingItem.updateMany({
+      where: { id: { in: normalIds } },
+      data: { isReturned: true, isIncompleteReturn: false },
+    });
+  }
+
+  const clothingIds = toReturn
+    .map((bi) => bi.itemId)
+    .filter((id): id is number => id != null);
+  if (clothingIds.length) {
+    await tx.clothingItem.updateMany({
+      where: { id: { in: clothingIds } },
+      data: { status: "available" },
+    });
+  }
+
+  await syncIncompleteReturnStatus(bookingId, tx);
+  await finalizeFullReturnIfComplete(bookingId, tx);
+
+  const booking = await tx.booking.findUnique({
+    where: { id: bookingId },
+    include: { bookingItems: true },
+  });
+  return { booking, newlyReturnedItemIds: toReturn.map((bi) => bi.id), pathsToCleanup };
+}
+
+export async function saveReturn(
+  bookingId: number,
+  action: string,
+  data: SaveReturnData,
+  by?: string,
+  options?: { tx?: Prisma.TransactionClient },
+) {
+  let booking: BookingWithItems | null = null;
+  let newlyReturnedItemIds: number[] = [];
+  const loadBooking = async (): Promise<BookingWithItems> => {
+    if (booking) return booking;
+    const row = await prisma.booking.findUnique({
+      where: { id: bookingId },
+      include: { bookingItems: true },
+    });
+    if (!row) throw new Error("Booking not found");
+    booking = row;
+    return row;
+  };
+
+  if (!options?.tx) {
+    booking = await loadBooking();
+  }
 
   if (action === "mark_returned") {
-    if (booking.status === "incomplete_return") {
+    const pre = await loadBooking();
+    if (pre.status === "incomplete_return") {
       return resolveIncompleteReturn(bookingId, by);
     }
-    const undelivered = booking.bookingItems.filter((bi) => !bi.isDelivered);
-    const closeBooking = undelivered.length === 0;
-    const photosToClear = closeBooking
-      ? [booking.incompletePhoto, booking.idPhoto1, booking.idPhoto2]
-      : [];
 
-    const result = await prisma.$transaction(async (tx) => {
+    const txResult = await runInReturnTx(options?.tx, async (tx) => {
       await tx.$executeRaw`SELECT id FROM bookings WHERE id = ${bookingId} FOR UPDATE`;
       const locked = await tx.booking.findUnique({
         where: { id: bookingId },
@@ -1148,8 +1370,14 @@ export async function saveReturn(
       }
 
       const stillUndelivered = locked.bookingItems.filter((bi) => !bi.isDelivered && !bi.isCancelled);
+      const photosToClear =
+        stillUndelivered.length === 0
+          ? [locked.incompletePhoto, locked.idPhoto1, locked.idPhoto2]
+          : [];
+
+      let result: BookingWithItems | null;
       if (stillUndelivered.length === 0) {
-        return tx.booking.update({
+        result = await tx.booking.update({
           where: { id: bookingId },
           data: {
             status: "returned",
@@ -1162,173 +1390,127 @@ export async function saveReturn(
           },
           include: { bookingItems: true },
         });
+      } else {
+        result = await tx.booking.findUnique({
+          where: { id: bookingId },
+          include: { bookingItems: true },
+        });
       }
-      return tx.booking.findUnique({
-        where: { id: bookingId },
-        include: { bookingItems: true },
-      });
+
+      return { result, newlyReturnedItemIds: ids, photosToClear };
     });
 
-    if (photosToClear.length) {
+    if (txResult.photosToClear.length) {
       const { enqueueBlobCleanup } = await import("@/lib/blobCleanup");
-      await enqueueBlobCleanup(photosToClear, { reason: "full_return", bookingId });
+      await enqueueBlobCleanup(txResult.photosToClear, { reason: "full_return", bookingId });
     }
-    // fall through to common post-handling below via returning early with activity
-    const finalBooking =
-      result ||
-      (await prisma.booking.findUnique({
-        where: { id: bookingId },
-        include: { bookingItems: true },
-      }));
-    if (finalBooking) {
+
+    const finalBooking = txResult.result;
+    const labelBooking = booking ?? finalBooking;
+    if (finalBooking && labelBooking) {
       broadcastShopEvent({ type: "booking.returned", bookingId, status: finalBooking.status, by });
       void logActivity({
         username: by || "system",
         action: "returned",
         entity: "booking",
         entityId: bookingId,
-        label: `Return — Booking #${String(booking.monthlySerial).padStart(2, "0")}`,
+        label: `Return — Booking #${String(labelBooking.monthlySerial).padStart(2, "0")}`,
       });
     }
-    return finalBooking;
-  } else if (action === "mark_item_returned") {
-    if (!booking.bookingItems.length) {
-      await clearBookingIdPhotos(booking);
-      await prisma.$transaction(async (tx) => {
-        await tx.booking.update({
-          where: { id: bookingId },
-          data: {
-            status: "returned",
-            returnedAt: new Date(),
-            securityHeld: 0,
-            idPhoto1: null,
-            idPhoto2: null,
-          },
-        });
-        if (booking.itemId) {
-          await tx.clothingItem.update({ where: { id: booking.itemId }, data: { status: "available" } });
-        }
-      });
-    } else {
-      const itemId = data.booking_item_id;
-      if (!itemId) throw new Error("Dress not specified.");
-      const bi = booking.bookingItems.find((row) => row.id === itemId);
-      if (!bi) throw new Error("Dress not found on this booking.");
-      if (!bi.isDelivered) throw new Error("Dress must be delivered before it can be returned.");
-      if (bi.isReturned) throw new Error("This dress is already marked returned.");
+    return finalBooking
+      ? Object.assign(finalBooking, { newlyReturnedItemIds: txResult.newlyReturnedItemIds })
+      : finalBooking;
+  }
 
-      if (bi.isIncompleteReturn && bi.itemIncompletePhoto) {
-        await deleteUploads([bi.itemIncompletePhoto]);
-      }
-
-      await prisma.$transaction(async (tx) => {
-        if (bi.isIncompleteReturn) {
-          await tx.bookingItem.update({
-            where: { id: bi.id },
+  if (action === "mark_item_returned") {
+    if (!data.booking_item_id) {
+      const b = await loadBooking();
+      if (!b.bookingItems.length) {
+        await clearBookingIdPhotos(b);
+        await runInReturnTx(options?.tx, async (tx) => {
+          await tx.$executeRaw`SELECT id FROM bookings WHERE id = ${bookingId} FOR UPDATE`;
+          await tx.booking.update({
+            where: { id: bookingId },
             data: {
-              isReturned: true,
-              isIncompleteReturn: false,
-              itemIncompleteNotes: null,
-              itemIncompletePhoto: null,
-              itemSecurityHeld: 0,
+              status: "returned",
+              returnedAt: new Date(),
+              securityHeld: 0,
+              idPhoto1: null,
+              idPhoto2: null,
             },
           });
-          if (bi.itemId != null) {
-            await tx.clothingItem.update({
-              where: { id: bi.itemId },
+          if (b.itemId) {
+            await tx.clothingItem.updateMany({
+              where: { id: b.itemId },
               data: { status: "available" },
             });
           }
-          await syncIncompleteReturnStatus(bookingId, tx);
-          return;
-        }
-
-        await tx.bookingItem.update({
-          where: { id: bi.id },
-          data: { isReturned: true, isIncompleteReturn: false },
         });
-        if (bi.itemId != null) {
-          await tx.clothingItem.update({
-            where: { id: bi.itemId },
-            data: { status: "available" },
-          });
-        }
-        await finalizeFullReturnIfComplete(bookingId, tx);
-      });
+      } else {
+        throw new Error("Dress not specified.");
+      }
+    } else {
+      const itemId = data.booking_item_id;
+
+      const txResult = await runInReturnTx(options?.tx, (tx) =>
+        runMarkItemReturnedInTx(bookingId, itemId, tx),
+      );
+
+      if (txResult.pathsToCleanup.length) {
+        const { enqueueBlobCleanup } = await import("@/lib/blobCleanup");
+        await enqueueBlobCleanup(txResult.pathsToCleanup, {
+          reason: "clear_incomplete_item_photo",
+          bookingId,
+        });
+      }
+
+      newlyReturnedItemIds = txResult.newlyReturnedItemIds;
     }
   } else if (action === "mark_items_returned") {
     const ids = [...new Set((data.booking_item_ids ?? []).map(Number).filter((id) => id > 0))];
     if (!ids.length) throw new Error("Select at least one dress to return.");
 
-    const photosToDelete: string[] = [];
-    for (const itemId of ids) {
-      const bi = booking.bookingItems.find((row) => row.id === itemId);
-      if (!bi) throw new Error("Dress not found on this booking.");
-      if (!bi.isDelivered) throw new Error(`"${bi.dressName}" must be delivered before it can be returned.`);
-      if (bi.isReturned && !bi.isIncompleteReturn) {
-        throw new Error(`"${bi.dressName}" is already marked returned.`);
-      }
-      if (bi.isIncompleteReturn && bi.itemIncompletePhoto) {
-        photosToDelete.push(bi.itemIncompletePhoto);
-      }
+    const txResult = await runInReturnTx(options?.tx, (tx) =>
+      runMarkItemsReturnedInTx(bookingId, ids, tx),
+    );
+
+    if (txResult.pathsToCleanup.length) {
+      const { enqueueBlobCleanup } = await import("@/lib/blobCleanup");
+      await enqueueBlobCleanup(txResult.pathsToCleanup, {
+        reason: "clear_incomplete_item_photo",
+        bookingId,
+      });
     }
 
-    if (photosToDelete.length) await deleteUploads(photosToDelete);
-
-    await prisma.$transaction(async (tx) => {
-      for (const itemId of ids) {
-        const bi = booking.bookingItems.find((row) => row.id === itemId)!;
-        if (bi.isIncompleteReturn) {
-          await tx.bookingItem.update({
-            where: { id: bi.id },
-            data: {
-              isReturned: true,
-              isIncompleteReturn: false,
-              itemIncompleteNotes: null,
-              itemIncompletePhoto: null,
-              itemSecurityHeld: 0,
-            },
-          });
-        } else {
-          await tx.bookingItem.update({
-            where: { id: bi.id },
-            data: { isReturned: true, isIncompleteReturn: false },
-          });
-        }
-        if (bi.itemId != null) {
-          await tx.clothingItem.update({
-            where: { id: bi.itemId },
-            data: { status: "available" },
-          });
-        }
-      }
-      await syncIncompleteReturnStatus(bookingId, tx);
-      await finalizeFullReturnIfComplete(bookingId, tx);
-    });
+    newlyReturnedItemIds = txResult.newlyReturnedItemIds;
   } else if (action === "resolve_incomplete_return") {
     const resolved = await resolveIncompleteReturn(bookingId, by);
     if (!resolved) throw new Error("Booking is not an incomplete return or could not be resolved.");
     return resolved;
   } else if (action === "incomplete_return") {
+    const b = await loadBooking();
     // Keep customer ID photos until the booking is fully returned — staff need them on return.
 
-    if (!booking.bookingItems.length) {
-      await prisma.booking.update({
-        where: { id: bookingId },
-        data: {
-          status: "incomplete_return",
-          incompleteNotes: data.incomplete_notes || "",
-          incompletePhoto: data.incomplete_photo || null,
-          securityHeld: data.security_held || 0,
-          returnedAt: new Date(),
-        },
-      });
-      if (booking.itemId) {
-        await prisma.clothingItem.update({
-          where: { id: booking.itemId },
-          data: { status: "rented" },
+    if (!b.bookingItems.length) {
+      await runInReturnTx(options?.tx, async (tx) => {
+        await tx.$executeRaw`SELECT id FROM bookings WHERE id = ${bookingId} FOR UPDATE`;
+        await tx.booking.update({
+          where: { id: bookingId },
+          data: {
+            status: "incomplete_return",
+            incompleteNotes: data.incomplete_notes || "",
+            incompletePhoto: data.incomplete_photo || null,
+            securityHeld: data.security_held || 0,
+            returnedAt: new Date(),
+          },
         });
-      }
+        if (b.itemId) {
+          await tx.clothingItem.updateMany({
+            where: { id: b.itemId },
+            data: { status: "rented" },
+          });
+        }
+      });
     } else {
       const itemPayload = data.items || [];
       const incompleteIds = new Set(
@@ -1339,12 +1521,19 @@ export async function saveReturn(
         throw new Error("Select at least one dress for incomplete return.");
       }
 
-      await prisma.$transaction(async (tx) => {
+      await runInReturnTx(options?.tx, async (tx) => {
+        await tx.$executeRaw`SELECT id FROM bookings WHERE id = ${bookingId} FOR UPDATE`;
+        const locked = await tx.booking.findUnique({
+          where: { id: bookingId },
+          include: { bookingItems: true },
+        });
+        if (!locked) throw new Error("Booking not found");
+
         let totalSecurityHeld = 0;
         const noteParts: string[] = [];
         let firstPhoto = data.incomplete_photo || null;
 
-        for (const bi of booking.bookingItems) {
+        for (const bi of locked.bookingItems) {
           if (!bi.isDelivered) continue;
 
           const row = itemPayload.find((i) => i.booking_item_id === bi.id);
@@ -1379,7 +1568,7 @@ export async function saveReturn(
               },
             });
             if (bi.itemId != null) {
-              await tx.clothingItem.update({
+              await tx.clothingItem.updateMany({
                 where: { id: bi.itemId },
                 data: { status: "available" },
               });
@@ -1402,22 +1591,27 @@ export async function saveReturn(
       });
     }
   }
+  const b = await loadBooking();
   const updated = await prisma.booking.findUnique({ where: { id: bookingId } });
   if (updated) {
     broadcastShopEvent({ type: "booking.returned", bookingId, status: updated.status, by });
     const returnDresses =
-      booking.bookingItems.map((bi) => bi.dressName).filter(Boolean).join(", ") || booking.dressName || "";
+      b.bookingItems.map((bi) => bi.dressName).filter(Boolean).join(", ") || b.dressName || "";
     logActivity({
       username: by || "system",
       action: "returned",
       entity: "booking",
       entityId: bookingId,
-      label: `Return (${action}) — Booking #${String(booking.monthlySerial).padStart(2, "0")} — ${booking.customerName}${returnDresses ? ` (${returnDresses})` : ""}`,
-      before: snapshotBooking(booking as unknown as Record<string, unknown>),
+      label: `Return (${action}) — Booking #${String(b.monthlySerial).padStart(2, "0")} — ${b.customerName}${returnDresses ? ` (${returnDresses})` : ""}`,
+      before: snapshotBooking(b as unknown as Record<string, unknown>),
       after: snapshotBooking(updated as unknown as Record<string, unknown>),
     });
   }
-  return updated;
+  return updated
+    ? Object.assign(updated, {
+        newlyReturnedItemIds: newlyReturnedItemIds.length ? newlyReturnedItemIds : [],
+      })
+    : updated;
 }
 
 export async function resolveIncompleteReturn(bookingId: number, by?: string) {
