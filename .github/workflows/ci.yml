@@ -80,13 +80,8 @@ jobs:
           DIRECT_URL: postgresql://test:test@127.0.0.1:5432/fancy_test?sslmode=disable
       - name: Unit tests
         run: npm run test:unit
-      - name: Integration harness placeholder
-        run: |
-          if [ -f scripts/run-integration-tests.mjs ]; then
-            node scripts/run-integration-tests.mjs
-          else
-            echo "Integration harness not yet present — unit gates remain required."
-          fi
+      - name: Integration tests
+        run: npm run test:integration
         env:
           DATABASE_URL: postgresql://test:test@127.0.0.1:5432/fancy_test?sslmode=disable
           DIRECT_URL: postgresql://test:test@127.0.0.1:5432/fancy_test?sslmode=disable

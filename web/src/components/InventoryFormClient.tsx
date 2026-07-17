@@ -4,10 +4,23 @@ import { useRouter } from "next/navigation";
 import { useCallback, useEffect, useState } from "react";
 import { type CatalogPhotoItem } from "@/lib/catalogPhotoUrl";
 import { compressImageForUpload } from "@/lib/clientImageCompress";
-import { BASE_MENS, BASE_WOMENS, BASE_JEWELLERY, BASE_ACCESSORY, SIZES, MENS_CATEGORIES, JEWELLERY_CATEGORIES } from "@/lib/constants";
+import {
+  BASE_MENS,
+  BASE_WOMENS,
+  BASE_JEWELLERY,
+  BASE_ACCESSORY,
+  SIZES,
+  MENS_CATEGORIES,
+  JEWELLERY_CATEGORIES,
+} from "@/lib/constants";
 import { formatJewelleryPartsLabel, partsPresentOnItem } from "@/lib/jewelleryParts";
 import { useToast } from "@/components/ui/Toast";
 import { SaveConfirmedBanner } from "@/components/SaveConfirmedBanner";
+import {
+  fetchWithOperationInProgressRetry,
+  useMutationOperationId,
+  type MutationApiError,
+} from "@/lib/useMutationOperationId";
 
 type InventoryFormItem = CatalogPhotoItem & {
   id?: number;
@@ -32,6 +45,53 @@ type SaveConfirmed = {
   count: number;
 };
 
+async function hashFileSha256(file: File): Promise<string> {
+  const buf = await file.arrayBuffer();
+  const digest = await crypto.subtle.digest("SHA-256", buf);
+  return Array.from(new Uint8Array(digest))
+    .map((b) => b.toString(16).padStart(2, "0"))
+    .join("");
+}
+
+function buildPayloadKey(form: FormData, photoHash: string | null): string {
+  const sizes = form.getAll("sizes[]").map(String).sort();
+  return JSON.stringify({
+    name: String(form.get("name") || "").trim(),
+    category: String(form.get("category") || ""),
+    sizes,
+    size: String(form.get("size") || ""),
+    color: String(form.get("color") || ""),
+    quantity: String(form.get("quantity") || "1"),
+    daily_rate: String(form.get("daily_rate") || "0"),
+    deposit: String(form.get("deposit") || "0"),
+    sub_category: String(form.get("sub_category") || "Normal"),
+    has_necklace: form.get("has_necklace") === "1",
+    has_earrings: form.get("has_earrings") === "1",
+    has_teeka: form.get("has_teeka") === "1",
+    has_pasa: form.get("has_pasa") === "1",
+    status: String(form.get("status") || ""),
+    remove_photo: form.get("remove_photo") === "1",
+    photo_content_hash: photoHash,
+  });
+}
+
+function messageForApiError(err: MutationApiError | null, fallback: string): string {
+  switch (err?.code) {
+    case "OPERATION_IN_PROGRESS":
+      return "Still processing — retrying safely…";
+    case "OPERATION_PAYLOAD_MISMATCH":
+      return "This save was already used with different details. Change the form or refresh and try again.";
+    case "OPERATION_PREVIOUSLY_FAILED":
+      return "A previous attempt with this save ID failed. Change a field or refresh, then try again.";
+    case "INVALID_OPERATION_ID":
+      return "Save could not start. Refresh the page and try again.";
+    case "OPERATION_SCHEMA_UNAVAILABLE":
+      return "Inventory save is temporarily unavailable. Try again shortly.";
+    default:
+      return err?.error || fallback;
+  }
+}
+
 export default function InventoryFormClient({
   item,
   initialPhotoUrl = "",
@@ -43,6 +103,7 @@ export default function InventoryFormClient({
 }) {
   const router = useRouter();
   const toast = useToast();
+  const op = useMutationOperationId();
   const [category, setCategory] = useState(item?.category || "");
   const [name, setName] = useState(item?.name || "");
   const [selectedSizes, setSelectedSizes] = useState<string[]>([]);
@@ -52,6 +113,7 @@ export default function InventoryFormClient({
   const [hasPasa, setHasPasa] = useState(Boolean(item?.hasPasa));
   const [saving, setSaving] = useState(false);
   const [checkingDuplicate, setCheckingDuplicate] = useState(false);
+  const [statusMessage, setStatusMessage] = useState("");
   const [duplicateWarning, setDuplicateWarning] = useState<{
     sku: string;
     name: string;
@@ -103,6 +165,7 @@ export default function InventoryFormClient({
     setPhotoUrl("");
     setDuplicateWarning(null);
     setPendingForm(null);
+    setStatusMessage("");
   }, []);
 
   async function prepareFormForUpload(form: FormData): Promise<FormData> {
@@ -114,32 +177,63 @@ export default function InventoryFormClient({
     return form;
   }
 
-  async function readApiError(res: Response): Promise<string> {
+  async function readApiError(res: Response): Promise<MutationApiError> {
     const text = await res.text().catch(() => "");
     try {
-      const data = text ? (JSON.parse(text) as { error?: string }) : {};
-      if (data.error) return data.error;
+      return text ? (JSON.parse(text) as MutationApiError) : { error: `HTTP ${res.status}` };
     } catch {
-      /* not JSON — platform body limit / timeout / HTML error page */
+      /* not JSON */
     }
     if (res.status === 413 || /request entity too large|payload too large/i.test(text)) {
-      return "Photo is too large for upload. Please choose a smaller image and try again.";
+      return { error: "Photo is too large for upload. Please choose a smaller image and try again." };
     }
-    if (res.status === 401) return "Please log in again, then save the item.";
-    if (res.status === 403) return "Only the owner can add inventory.";
+    if (res.status === 401) {
+      return { error: "Please log in again, then save the item.", code: "STALE_RECORD" };
+    }
+    if (res.status === 403) return { error: "Only the owner can add inventory." };
     if (res.status >= 500) {
-      return "Server error while saving. On Vercel, confirm BLOB_READ_WRITE_TOKEN is set, then try again.";
+      return {
+        error:
+          "Server error while saving. On Vercel, confirm BLOB_READ_WRITE_TOKEN is set, then try again.",
+      };
     }
-    return text?.trim()?.slice(0, 280) || `Save failed (HTTP ${res.status}). Check Vercel logs for /api/inventory.`;
+    return { error: text?.trim()?.slice(0, 280) || `Save failed (HTTP ${res.status}).` };
   }
 
   async function saveForm(form: FormData, url: string, method: string) {
     setSaving(true);
+    setStatusMessage("Saving record…");
     try {
       const uploadForm = await prepareFormForUpload(form);
-      const res = await fetch(url, { method, body: uploadForm, credentials: "same-origin" });
+      const photo = uploadForm.get("photo");
+      let photoHash: string | null = null;
+      if (photo instanceof File && photo.size > 0) {
+        setStatusMessage("Preparing image…");
+        photoHash = await hashFileSha256(photo);
+        uploadForm.set("photo_content_hash", photoHash);
+      }
+
+      const payloadKey = buildPayloadKey(uploadForm, photoHash);
+      const operationId = op.begin(payloadKey);
+      if (!operationId) {
+        setStatusMessage("");
+        return;
+      }
+      uploadForm.set("operation_id", operationId);
+
+      setStatusMessage(photoHash ? "Uploading…" : "Saving record…");
+      const res = await fetchWithOperationInProgressRetry(
+        url,
+        { method, body: uploadForm, credentials: "same-origin" },
+        {
+          onRetry: () => setStatusMessage("Still processing — retrying safely…"),
+        },
+      );
       if (!res.ok) {
-        alert(await readApiError(res));
+        const err = await readApiError(res);
+        op.failFromApi(err);
+        alert(messageForApiError(err, "Save failed"));
+        setStatusMessage("");
         return;
       }
       const data = (await res.json().catch(() => ({}))) as {
@@ -149,9 +243,13 @@ export default function InventoryFormClient({
         original_photo_url?: string;
         display_photo_url?: string;
       };
+      op.succeed();
+      setStatusMessage("Completed");
       await finishSaveSuccess(uploadForm, data);
     } catch {
+      op.fail();
       alert("Could not reach the server. Check your connection and try again.");
+      setStatusMessage("");
     } finally {
       setSaving(false);
     }
@@ -167,7 +265,6 @@ export default function InventoryFormClient({
       display_photo_url?: string;
     },
   ) {
-
     if (!isEdit) {
       const count = Number(data.count) || 1;
       const sku = String(data.sku || "");
@@ -178,7 +275,6 @@ export default function InventoryFormClient({
       if (sku) params.set("sku", sku);
       if (savedName) params.set("name", savedName);
       router.replace(`/inventory/add?${params.toString()}`);
-      router.refresh();
       window.scrollTo(0, 0);
       return;
     }
@@ -214,6 +310,7 @@ export default function InventoryFormClient({
 
     if (!isEdit && photo instanceof File && photo.size > 0 && category) {
       setCheckingDuplicate(true);
+      setStatusMessage("Checking for duplicates…");
       try {
         const prepared = await prepareFormForUpload(form);
         const checkPhoto = prepared.get("photo");
@@ -234,6 +331,7 @@ export default function InventoryFormClient({
           });
           setPendingForm(prepared);
           setCheckingDuplicate(false);
+          setStatusMessage("");
           return;
         }
         await saveForm(prepared, url, method);
@@ -250,9 +348,8 @@ export default function InventoryFormClient({
 
   async function confirmDuplicateSave() {
     if (!pendingForm) return;
-    const url = "/api/inventory";
     setDuplicateWarning(null);
-    await saveForm(pendingForm, url, "POST");
+    await saveForm(pendingForm, "/api/inventory", "POST");
     setPendingForm(null);
   }
 
@@ -269,9 +366,12 @@ export default function InventoryFormClient({
           hint="Enter the next item below."
         />
       )}
-      <div className="card-header"><h3 className="card-title">{isEdit ? "Edit Item" : "Add Item"}</h3></div>
+      <div className="card-header">
+        <h3 className="card-title">{isEdit ? "Edit Item" : "Add Item"}</h3>
+      </div>
       <div className="card-body" style={{ display: "grid", gap: 16, maxWidth: 600 }}>
-        <div><label className="form-label">Name *</label>
+        <div>
+          <label className="form-label">Name *</label>
           <input
             type="text"
             name="name"
@@ -282,20 +382,44 @@ export default function InventoryFormClient({
             onChange={(e) => setName(e.target.value)}
           />
         </div>
-        <div><label className="form-label">Category *</label>
-          <select id="invCategory" name="category" className="form-control" required value={category} onChange={(e) => setCategory(e.target.value)}>
+        <div>
+          <label className="form-label">Category *</label>
+          <select
+            id="invCategory"
+            name="category"
+            className="form-control"
+            required
+            value={category}
+            onChange={(e) => setCategory(e.target.value)}
+          >
             <option value="">Select…</option>
             <optgroup label="Men's">
-              {BASE_MENS.map((c) => <option key={c} value={c}>{c}</option>)}
+              {BASE_MENS.map((c) => (
+                <option key={c} value={c}>
+                  {c}
+                </option>
+              ))}
             </optgroup>
             <optgroup label="Women's">
-              {BASE_WOMENS.map((c) => <option key={c} value={c}>{c}</option>)}
+              {BASE_WOMENS.map((c) => (
+                <option key={c} value={c}>
+                  {c}
+                </option>
+              ))}
             </optgroup>
             <optgroup label="Jewellery">
-              {BASE_JEWELLERY.map((c) => <option key={c} value={c}>{c}</option>)}
+              {BASE_JEWELLERY.map((c) => (
+                <option key={c} value={c}>
+                  {c}
+                </option>
+              ))}
             </optgroup>
             <optgroup label="Accessories">
-              {BASE_ACCESSORY.map((c) => <option key={c} value={c}>{c}</option>)}
+              {BASE_ACCESSORY.map((c) => (
+                <option key={c} value={c}>
+                  {c}
+                </option>
+              ))}
             </optgroup>
           </select>
         </div>
@@ -304,11 +428,19 @@ export default function InventoryFormClient({
             <label className="form-label">Set includes (tick what is present in this jewellery)</label>
             <div style={{ display: "flex", flexWrap: "wrap", gap: 16, marginTop: 8 }}>
               <label style={{ display: "flex", gap: 6, alignItems: "center" }}>
-                <input type="checkbox" checked={hasNecklace} onChange={(e) => setHasNecklace(e.target.checked)} />
+                <input
+                  type="checkbox"
+                  checked={hasNecklace}
+                  onChange={(e) => setHasNecklace(e.target.checked)}
+                />
                 Necklace present
               </label>
               <label style={{ display: "flex", gap: 6, alignItems: "center" }}>
-                <input type="checkbox" checked={hasEarrings} onChange={(e) => setHasEarrings(e.target.checked)} />
+                <input
+                  type="checkbox"
+                  checked={hasEarrings}
+                  onChange={(e) => setHasEarrings(e.target.checked)}
+                />
                 Earrings present
               </label>
               <label style={{ display: "flex", gap: 6, alignItems: "center" }}>
@@ -323,57 +455,95 @@ export default function InventoryFormClient({
             <small className="text-muted" style={{ display: "block", marginTop: 8 }}>
               Parts can be booked separately to different customers.{" "}
               {partsPresentOnItem({ hasNecklace, hasEarrings, hasTeeka, hasPasa }).length > 0 && (
-                <span>Set: {formatJewelleryPartsLabel(partsPresentOnItem({ hasNecklace, hasEarrings, hasTeeka, hasPasa }))}</span>
+                <span>
+                  Set:{" "}
+                  {formatJewelleryPartsLabel(
+                    partsPresentOnItem({ hasNecklace, hasEarrings, hasTeeka, hasPasa }),
+                  )}
+                </span>
               )}
             </small>
           </div>
         )}
         {isMens && !isEdit ? (
-          <div><label className="form-label">Sizes *</label>
+          <div>
+            <label className="form-label">Sizes *</label>
             <div style={{ display: "flex", flexWrap: "wrap", gap: 8 }}>
               {SIZES.map((s) => (
                 <label key={s} style={{ display: "flex", gap: 4, alignItems: "center" }}>
-                  <input type="checkbox" checked={selectedSizes.includes(s)} onChange={(e) => setSelectedSizes(e.target.checked ? [...selectedSizes, s] : selectedSizes.filter((x) => x !== s))} />{s}
+                  <input
+                    type="checkbox"
+                    checked={selectedSizes.includes(s)}
+                    onChange={(e) =>
+                      setSelectedSizes(
+                        e.target.checked
+                          ? [...selectedSizes, s]
+                          : selectedSizes.filter((x) => x !== s),
+                      )
+                    }
+                  />
+                  {s}
                 </label>
               ))}
             </div>
           </div>
         ) : (
-          <div><label className="form-label">Size</label><input name="size" className="form-control" defaultValue={item?.size ?? ""} /></div>
-        )}
-        <div><label className="form-label">Color</label><input name="color" className="form-control" defaultValue={item?.color ?? ""} /></div>
-        {!isEdit && (
-          <div><label className="form-label">Quantity</label>
-            <input name="quantity" type="number" min={1} max={50} defaultValue={1} className="form-control" />
-            <small className="text-muted">Each unit is a separate bookable item (named #1, #2, … when quantity &gt; 1).</small>
+          <div>
+            <label className="form-label">Size</label>
+            <input name="size" className="form-control" defaultValue={item?.size ?? ""} />
           </div>
         )}
-        <div><label className="form-label">Daily Rate (₹)</label><input name="daily_rate" type="number" className="form-control" defaultValue={item?.dailyRate} /></div>
-        <div><label className="form-label">Deposit (₹)</label><input name="deposit" type="number" className="form-control" defaultValue={item?.deposit} /></div>
-        <div><label className="form-label">Sub-Category</label>
+        <div>
+          <label className="form-label">Color</label>
+          <input name="color" className="form-control" defaultValue={item?.color ?? ""} />
+        </div>
+        {!isEdit && (
+          <div>
+            <label className="form-label">Quantity</label>
+            <input name="quantity" type="number" min={1} max={50} defaultValue={1} className="form-control" />
+            <small className="text-muted">
+              Each unit is a separate bookable item (named #1, #2, … when quantity &gt; 1).
+            </small>
+          </div>
+        )}
+        <div>
+          <label className="form-label">Daily Rate (₹)</label>
+          <input name="daily_rate" type="number" className="form-control" defaultValue={item?.dailyRate} />
+        </div>
+        <div>
+          <label className="form-label">Deposit (₹)</label>
+          <input name="deposit" type="number" className="form-control" defaultValue={item?.deposit} />
+        </div>
+        <div>
+          <label className="form-label">Sub-Category</label>
           <select name="sub_category" className="form-control" defaultValue={item?.subCategory ?? "Normal"}>
-            {subCategories.map((s) => <option key={s} value={s}>{s}</option>)}
+            {subCategories.map((s) => (
+              <option key={s} value={s}>
+                {s}
+              </option>
+            ))}
           </select>
         </div>
         {isEdit && (
-          <div><label className="form-label">Status</label>
+          <div>
+            <label className="form-label">Status</label>
             <select name="status" className="form-control" defaultValue={item?.status}>
-              <option value="available">Available</option><option value="rented">Rented</option><option value="maintenance">Maintenance</option>
+              <option value="available">Available</option>
+              <option value="rented">Rented</option>
+              <option value="maintenance">Maintenance</option>
             </select>
           </div>
         )}
-        <div><label className="form-label">Condition Notes</label><textarea name="condition_notes" className="form-control" defaultValue={item?.conditionNotes ?? ""} /></div>
+        <div>
+          <label className="form-label">Condition Notes</label>
+          <textarea name="condition_notes" className="form-control" defaultValue={item?.conditionNotes ?? ""} />
+        </div>
         <div>
           <label className="form-label">Photo</label>
           <input name="photo" type="file" accept="image/*" className="form-control" onChange={handlePhotoChange} />
           {displayPhoto ? (
             <div className="inv-form-photo-preview">
-              <img
-                key={displayPhoto}
-                src={displayPhoto}
-                alt="Stock preview"
-                className="inv-form-photo-img"
-              />
+              <img key={displayPhoto} src={displayPhoto} alt="Stock preview" className="inv-form-photo-img" />
               <span className="inv-form-photo-label">Uploaded image</span>
             </div>
           ) : (
@@ -382,6 +552,9 @@ export default function InventoryFormClient({
             </p>
           )}
         </div>
+        {statusMessage ? (
+          <p style={{ fontSize: 13, color: "var(--text-muted)", margin: 0 }}>{statusMessage}</p>
+        ) : null}
         <button className="btn btn-primary" disabled={saving || checkingDuplicate}>
           {checkingDuplicate ? "Checking for duplicates…" : saving ? "Saving…" : isEdit ? "Update" : "Add Item"}
         </button>

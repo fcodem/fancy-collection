@@ -98,6 +98,7 @@ async function claimPendingWhatsAppJobs(
     payload: unknown;
     attempts: number;
     maxAttempts: number;
+    idempotencyKey: string | null;
   }>
 > {
   const workerId = `w-${process.env.VERCEL_REGION || "local"}-${Date.now().toString(36)}`;
@@ -112,6 +113,7 @@ async function claimPendingWhatsAppJobs(
       payload: unknown;
       attempts: number;
       maxAttempts: number;
+      idempotencyKey: string | null;
     };
     if (options?.bookingId != null) {
       const bookingId = options.bookingId;
@@ -134,7 +136,8 @@ async function claimPendingWhatsAppJobs(
           LIMIT ${limit}
         )
         RETURNING j.id, j.job_type AS "jobType", j.booking_id AS "bookingId",
-                  j.payload, j.attempts, j.max_attempts AS "maxAttempts"
+                  j.payload, j.attempts, j.max_attempts AS "maxAttempts",
+                  j.idempotency_key AS "idempotencyKey"
       `;
     }
     return await prisma.$queryRaw<ClaimRow[]>`
@@ -155,7 +158,8 @@ async function claimPendingWhatsAppJobs(
         LIMIT ${limit}
       )
       RETURNING j.id, j.job_type AS "jobType", j.booking_id AS "bookingId",
-                j.payload, j.attempts, j.max_attempts AS "maxAttempts"
+                j.payload, j.attempts, j.max_attempts AS "maxAttempts",
+                j.idempotency_key AS "idempotencyKey"
     `;
   } catch {
     const primary = await prisma.whatsAppJob.findMany({
@@ -174,6 +178,7 @@ async function claimPendingWhatsAppJobs(
       payload: unknown;
       attempts: number;
       maxAttempts: number;
+      idempotencyKey: string | null;
     }> = [];
     for (const job of primary) {
       const updated = await prisma.whatsAppJob.updateMany({
@@ -192,6 +197,7 @@ async function claimPendingWhatsAppJobs(
           payload: job.payload,
           attempts: job.attempts + 1,
           maxAttempts: job.maxAttempts,
+          idempotencyKey: job.idempotencyKey ?? null,
         });
       }
     }
@@ -298,17 +304,40 @@ export async function scheduleReturnReceipt(
   createdBy?: string,
 ) {
   if (isWhatsAppReceiptsDisabled()) return null;
+
+  const { buildWhatsAppIdempotencyKey } = await import("@/lib/mutationIdempotency");
+  const idempotencyKey = buildWhatsAppIdempotencyKey("return_receipt", bookingId);
+
+  const existing = await prisma.whatsAppJob.findFirst({
+    where: { idempotencyKey, status: { in: [...ACTIVE_WA_JOB_STATUSES] } },
+  });
+  if (existing) return existing;
+
   await cancelPendingJobs(bookingId, "return_receipt");
 
-  return prisma.whatsAppJob.create({
-    data: {
-      jobType: "return_receipt",
-      bookingId,
-      scheduledAt: new Date(),
-      createdBy: createdBy ?? null,
-      payload: { requestOrigin: requestOrigin ?? null },
-    },
-  });
+  try {
+    return await prisma.whatsAppJob.create({
+      data: {
+        jobType: "return_receipt",
+        bookingId,
+        idempotencyKey,
+        scheduledAt: new Date(),
+        createdBy: createdBy ?? null,
+        payload: { requestOrigin: requestOrigin ?? null },
+      },
+    });
+  } catch (e) {
+    const msg = e instanceof Error ? e.message : "";
+    const code = (e as { code?: string })?.code;
+    if (code === "P2002" || /idempotency|Unique constraint/i.test(msg)) {
+      const raced = await prisma.whatsAppJob.findFirst({ where: { idempotencyKey } });
+      if (raced) return raced;
+    }
+    if (/does not exist|Unknown arg|P2021/i.test(msg)) {
+      throw new Error("WhatsApp job idempotency schema unavailable");
+    }
+    throw e;
+  }
 }
 
 export async function scheduleDeliverySlip(
@@ -579,7 +608,71 @@ export async function processWhatsAppJobQueue(
 
   for (const job of jobs) {
     try {
+      const idempotencyKey = job.idempotencyKey;
+
+      if (idempotencyKey) {
+        try {
+          const ledger = await prisma.whatsAppSendLedger.findUnique({
+            where: { idempotencyKey },
+          });
+          if (ledger?.sendConfirmedAt && ledger.providerMessageId) {
+            await prisma.whatsAppJob.update({
+              where: { id: job.id },
+              data: {
+                status: "done",
+                completedAt: new Date(),
+                failedReason: null,
+                claimedAt: null,
+                leaseExpiresAt: null,
+                claimedBy: null,
+              },
+            });
+            results.push({ jobId: job.id, jobType: job.jobType, ok: true });
+            continue;
+          }
+          await prisma.whatsAppSendLedger.upsert({
+            where: { idempotencyKey },
+            create: {
+              idempotencyKey,
+              jobId: job.id,
+              bookingId: job.bookingId,
+              sendStartedAt: new Date(),
+            },
+            update: {
+              jobId: job.id,
+              sendStartedAt: new Date(),
+            },
+          });
+        } catch (ledgerErr) {
+          const msg = ledgerErr instanceof Error ? ledgerErr.message : "";
+          if (!/does not exist|P2021|Unknown arg/i.test(msg)) throw ledgerErr;
+        }
+      }
+
       const sendMeta = await withJobTimeout(executeJob(job), job.id, job.jobType);
+
+      if (idempotencyKey && sendMeta.messageId) {
+        try {
+          await prisma.whatsAppSendLedger.upsert({
+            where: { idempotencyKey },
+            create: {
+              idempotencyKey,
+              jobId: job.id,
+              bookingId: job.bookingId,
+              providerMessageId: sendMeta.messageId,
+              sendStartedAt: new Date(),
+              sendConfirmedAt: new Date(),
+            },
+            update: {
+              providerMessageId: sendMeta.messageId,
+              sendConfirmedAt: new Date(),
+            },
+          });
+        } catch {
+          /* ledger optional until migration */
+        }
+      }
+
       await prisma.whatsAppJob.update({
         where: { id: job.id },
         data: {

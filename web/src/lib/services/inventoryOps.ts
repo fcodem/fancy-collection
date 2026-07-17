@@ -7,13 +7,14 @@ import {
   ACCESSORY_CATEGORIES,
 } from "../constants";
 import { dressDisplayName, formatUnitName } from "../dress";
-import { deleteUploads, saveFastInventoryPhoto } from "../upload";
+import { saveFastInventoryPhoto } from "../upload";
 import { broadcastShopEvent } from "../realtime/broadcast";
 import { logActivity, snapshotInventory } from "../activityLog";
 import { onInventoryPhotoRemoved } from "../dressCheckerIndexing";
 import { enqueueInventoryPhotoJobsDurable } from "../inventoryPhotoPipeline";
+import { enqueueBlobCleanup } from "../blobCleanup";
+import { generateUuidV4 } from "../clientUuid";
 import { mapConfidence } from "../siglipMath";
-// Durable AI enqueue lives in enqueueInventoryPhotoJobsDurable (awaited after save).
 
 export type InventoryPhotoSearchFilters = {
   category?: string;
@@ -34,93 +35,123 @@ function itemTypeForCategory(category: string) {
   return "clothing";
 }
 
-export async function generateItemSku() {
-  const last = await prisma.clothingItem.findFirst({ orderBy: { id: "desc" } });
-  const next = (last?.id || 0) + 1;
-  return `ITM-${String(next).padStart(4, "0")}`;
+type DbClient = Prisma.TransactionClient | typeof prisma;
+
+/** Atomically reserve `count` SKU numbers and return formatted ITM-#### values. */
+export async function allocateInventorySkus(
+  count: number,
+  client: DbClient = prisma,
+): Promise<string[]> {
+  const n = Math.max(1, Math.min(Math.floor(count), 500));
+  const rows = await client.$queryRaw<Array<{ start_value: bigint }>>`
+    UPDATE inventory_sku_counter
+    SET next_value = next_value + ${n}
+    WHERE id = 1
+    RETURNING (next_value - ${n}) AS start_value
+  `;
+  const start = Number(rows[0]?.start_value ?? 1);
+  return Array.from({ length: n }, (_, i) => `ITM-${String(start + i).padStart(4, "0")}`);
 }
 
-async function createInventoryUnits(
-  base: {
-    name: string;
-    category: string;
-    size: string;
-    color: string;
-    daily_rate?: number;
-    deposit?: number;
-    condition_notes?: string;
-    itemType: string;
-    photo: string;
-    subCategory: string;
-    hasNecklace?: boolean;
-    hasEarrings?: boolean;
-    hasTeeka?: boolean;
-    hasPasa?: boolean;
-  },
-  quantity: number
-) {
-  const created = [];
+/** @deprecated Prefer allocateInventorySkus for concurrency safety. */
+export async function generateItemSku() {
+  const [sku] = await allocateInventorySkus(1);
+  return sku;
+}
+
+type UnitBase = {
+  name: string;
+  category: string;
+  size: string;
+  color: string;
+  daily_rate?: number;
+  deposit?: number;
+  condition_notes?: string;
+  itemType: string;
+  photo: string;
+  subCategory: string;
+  inventoryGroupId: string;
+  hasNecklace?: boolean;
+  hasEarrings?: boolean;
+  hasTeeka?: boolean;
+  hasPasa?: boolean;
+};
+
+function buildUnitRows(base: UnitBase, quantity: number, skus: string[]) {
   const baseName = base.name.trim();
   const count = Math.max(1, Math.min(quantity, 50));
-  const last = await prisma.clothingItem.findFirst({ orderBy: { id: "desc" } });
-  let nextSkuNum = (last?.id || 0) + 1;
-  for (let unit = 1; unit <= count; unit++) {
-    const sku = `ITM-${String(nextSkuNum).padStart(4, "0")}`;
-    nextSkuNum += 1;
-    const item = await prisma.clothingItem.create({
-      data: {
-        name: formatUnitName(baseName, unit),
-        sku,
-        category: base.category,
-        size: base.size,
-        color: base.color,
-        dailyRate: base.daily_rate || 0,
-        deposit: base.deposit || 0,
-        conditionNotes: base.condition_notes || "",
-        itemType: base.itemType,
-        // Pipeline 1 only while enhancement is paused: store the upload as-is.
-        // Metadata / recognition still run via scheduleInventoryPhotoPipeline.
-        photo: base.photo,
-        originalPhoto: base.photo || null,
-        subCategory: base.subCategory,
-        hasNecklace: base.hasNecklace ?? false,
-        hasEarrings: base.hasEarrings ?? false,
-        hasTeeka: base.hasTeeka ?? false,
-        hasPasa: base.hasPasa ?? false,
-      },
-    });
-    created.push(item);
-  }
-  return created;
+  if (skus.length < count) throw new Error("Insufficient SKUs reserved");
+  return Array.from({ length: count }, (_, idx) => {
+    const unit = idx + 1;
+    return {
+      name: formatUnitName(baseName, unit),
+      sku: skus[idx]!,
+      category: base.category,
+      size: base.size,
+      color: base.color,
+      dailyRate: base.daily_rate || 0,
+      deposit: base.deposit || 0,
+      conditionNotes: base.condition_notes || "",
+      itemType: base.itemType,
+      photo: base.photo || null,
+      originalPhoto: base.photo || null,
+      subCategory: base.subCategory,
+      hasNecklace: base.hasNecklace ?? false,
+      hasEarrings: base.hasEarrings ?? false,
+      hasTeeka: base.hasTeeka ?? false,
+      hasPasa: base.hasPasa ?? false,
+    };
+  });
 }
 
-export async function createInventoryItem(
-  form: {
-    name: string;
-    category: string;
-    sizes?: string[];
-    size?: string;
-    color?: string;
-    daily_rate?: number;
-    deposit?: number;
-    condition_notes?: string;
-    sub_category?: string;
-    photo?: File | null;
-    quantity?: number;
-    has_necklace?: boolean;
-    has_earrings?: boolean;
-    has_teeka?: boolean;
-    has_pasa?: boolean;
-  },
-  by?: string,
-): Promise<{ items: Awaited<ReturnType<typeof createInventoryUnits>>; ai_queue_warning: string | null }> {
-  let photoFilename = "";
-  if (form.photo) {
-    photoFilename = await saveFastInventoryPhoto(form.photo);
-  }
+async function createInventoryUnitsInTx(
+  tx: Prisma.TransactionClient,
+  base: UnitBase,
+  quantity: number,
+) {
+  const count = Math.max(1, Math.min(quantity, 50));
+  const skus = await allocateInventorySkus(count, tx);
+  const rows = buildUnitRows(base, count, skus);
+  await tx.clothingItem.createMany({ data: rows });
+  return tx.clothingItem.findMany({
+    where: { sku: { in: skus } },
+    orderBy: { sku: "asc" },
+  });
+}
+
+export type CreateInventoryForm = {
+  name: string;
+  category: string;
+  sizes?: string[];
+  size?: string;
+  color?: string;
+  daily_rate?: number;
+  deposit?: number;
+  condition_notes?: string;
+  sub_category?: string;
+  /** Pre-uploaded photo path — preferred for transactional creates. */
+  photoPath?: string | null;
+  photo?: File | null;
+  quantity?: number;
+  has_necklace?: boolean;
+  has_earrings?: boolean;
+  has_teeka?: boolean;
+  has_pasa?: boolean;
+};
+
+/**
+ * Create inventory rows inside an existing transaction (no broadcast/side effects).
+ * Upload photo BEFORE calling this.
+ */
+export async function createInventoryItemInTx(
+  tx: Prisma.TransactionClient,
+  form: CreateInventoryForm,
+  photoFilename: string,
+): Promise<{ items: Awaited<ReturnType<typeof createInventoryUnitsInTx>>; inventoryGroupId: string }> {
   const itemType = itemTypeForCategory(form.category);
   const subCategory = form.sub_category || "Normal";
   const quantity = Math.max(1, Math.min(Number(form.quantity) || 1, 50));
+  const inventoryGroupId = generateUuidV4();
   const partFlags = {
     hasNecklace: !!form.has_necklace,
     hasEarrings: !!form.has_earrings,
@@ -133,7 +164,8 @@ export async function createInventoryItem(
     if (!sizes.length) throw new Error("Please select at least one size for men's clothing.");
     const created = [];
     for (const sz of sizes) {
-      const units = await createInventoryUnits(
+      const units = await createInventoryUnitsInTx(
+        tx,
         {
           name: form.name,
           category: form.category,
@@ -145,41 +177,18 @@ export async function createInventoryItem(
           itemType,
           photo: photoFilename,
           subCategory,
+          inventoryGroupId,
           ...partFlags,
         },
-        quantity
+        quantity,
       );
       created.push(...units);
     }
-    broadcastShopEvent({ type: "inventory.changed", itemIds: created.map((i) => i.id), by });
-    for (const item of created) {
-      void logActivity({
-        username: by || "system",
-        action: "created",
-        entity: "inventory",
-        entityId: item.id,
-        label: `Added ${item.name} (${item.category}, ${item.size || "—"})`,
-        after: snapshotInventory(item as unknown as Record<string, unknown>),
-      });
-    }
-    let ai_queue_warning: string | null = null;
-    if (photoFilename && created.length) {
-      try {
-        const queued = await enqueueInventoryPhotoJobsDurable(
-          created.map((i) => i.id),
-          "photo_created",
-        );
-        ai_queue_warning = queued.warning;
-      } catch (e) {
-        console.error("[inventory] durable AI enqueue failed (items kept):", e);
-        ai_queue_warning =
-          "Inventory saved but AI queue could not be written. Retry from AI indexing.";
-      }
-    }
-    return { items: created, ai_queue_warning };
+    return { items: created, inventoryGroupId };
   }
 
-  const units = await createInventoryUnits(
+  const units = await createInventoryUnitsInTx(
+    tx,
     {
       name: form.name,
       category: form.category,
@@ -191,12 +200,38 @@ export async function createInventoryItem(
       itemType,
       photo: photoFilename,
       subCategory,
+      inventoryGroupId,
       ...partFlags,
     },
-    quantity
+    quantity,
   );
-  broadcastShopEvent({ type: "inventory.changed", itemIds: units.map((i) => i.id), by });
-  for (const item of units) {
+  return { items: units, inventoryGroupId };
+}
+
+export async function createInventoryItem(
+  form: CreateInventoryForm,
+  by?: string,
+): Promise<{ items: Awaited<ReturnType<typeof createInventoryUnitsInTx>>; ai_queue_warning: string | null }> {
+  let photoFilename = form.photoPath || "";
+  if (!photoFilename && form.photo) {
+    photoFilename = await saveFastInventoryPhoto(form.photo);
+  }
+
+  let created: Awaited<ReturnType<typeof createInventoryUnitsInTx>> = [];
+  try {
+    created = await prisma.$transaction(async (tx) => {
+      const { items } = await createInventoryItemInTx(tx, form, photoFilename);
+      return items;
+    });
+  } catch (e) {
+    if (photoFilename) {
+      await enqueueBlobCleanup([photoFilename], { reason: "orphan_inventory_create_upload" });
+    }
+    throw e;
+  }
+
+  broadcastShopEvent({ type: "inventory.changed", itemIds: created.map((i) => i.id), by });
+  for (const item of created) {
     void logActivity({
       username: by || "system",
       action: "created",
@@ -206,11 +241,12 @@ export async function createInventoryItem(
       after: snapshotInventory(item as unknown as Record<string, unknown>),
     });
   }
+
   let ai_queue_warning: string | null = null;
-  if (photoFilename && units.length) {
+  if (photoFilename && created.length) {
     try {
       const queued = await enqueueInventoryPhotoJobsDurable(
-        units.map((i) => i.id),
+        created.map((i) => i.id),
         "photo_created",
       );
       ai_queue_warning = queued.warning;
@@ -220,7 +256,7 @@ export async function createInventoryItem(
         "Inventory saved but AI queue could not be written. Retry from AI indexing.";
     }
   }
-  return { items: units, ai_queue_warning };
+  return { items: created, ai_queue_warning };
 }
 
 export async function updateInventoryItem(
@@ -317,7 +353,7 @@ export async function updateInventoryItem(
     },
   });
   if (uploadsToDelete.length) {
-    void deleteUploads(uploadsToDelete);
+    await enqueueBlobCleanup(uploadsToDelete, { reason: "inventory_photo_replaced", bookingId: undefined });
   }
   broadcastShopEvent({ type: "inventory.changed", itemIds: [id], by });
   void logActivity({
@@ -364,7 +400,7 @@ export async function deleteInventoryItem(id: number, by?: string) {
 
   await prisma.clothingItem.delete({ where: { id } });
 
-  void deleteUploads(uploadPaths);
+  await enqueueBlobCleanup(uploadPaths, { reason: "inventory_deleted" });
   broadcastShopEvent({ type: "inventory.changed", itemIds: [id], by });
   logActivity({
     username: by || "system",

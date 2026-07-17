@@ -1164,6 +1164,14 @@ model BlobCleanupJob {
   @@map("blob_cleanup_jobs")
 }
 
+/** Single-row allocator for concurrency-safe inventory SKUs. */
+model InventorySkuCounter {
+  id        Int  @id @default(1)
+  nextValue BigInt @default(1) @map("next_value")
+
+  @@map("inventory_sku_counter")
+}
+
 /** Prevents duplicate WhatsApp sends after worker timeouts. */
 model WhatsAppSendLedger {
   id              Int       @id @default(autoincrement())

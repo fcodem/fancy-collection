@@ -1321,7 +1321,8 @@ export async function saveReturn(
   let newlyReturnedItemIds: number[] = [];
   const loadBooking = async (): Promise<BookingWithItems> => {
     if (booking) return booking;
-    const row = await prisma.booking.findUnique({
+    const client = options?.tx ?? prisma;
+    const row = await client.booking.findUnique({
       where: { id: bookingId },
       include: { bookingItems: true },
     });
@@ -1337,7 +1338,7 @@ export async function saveReturn(
   if (action === "mark_returned") {
     const pre = await loadBooking();
     if (pre.status === "incomplete_return") {
-      return resolveIncompleteReturn(bookingId, by);
+      return resolveIncompleteReturn(bookingId, by, options);
     }
 
     const txResult = await runInReturnTx(options?.tx, async (tx) => {
@@ -1484,7 +1485,7 @@ export async function saveReturn(
 
     newlyReturnedItemIds = txResult.newlyReturnedItemIds;
   } else if (action === "resolve_incomplete_return") {
-    const resolved = await resolveIncompleteReturn(bookingId, by);
+    const resolved = await resolveIncompleteReturn(bookingId, by, options);
     if (!resolved) throw new Error("Booking is not an incomplete return or could not be resolved.");
     return resolved;
   } else if (action === "incomplete_return") {
@@ -1614,33 +1615,39 @@ export async function saveReturn(
     : updated;
 }
 
-export async function resolveIncompleteReturn(bookingId: number, by?: string) {
-  const booking = await prisma.booking.findUnique({
-    where: { id: bookingId },
-    include: { bookingItems: true },
-  });
-  if (!booking || booking.status !== "incomplete_return") return null;
-
-  const beforeSnapshot = snapshotBooking(booking as unknown as Record<string, unknown>);
-
-  await clearIncompletePhotos(booking);
-  await clearBookingIdPhotos(booking);
-
-  await prisma.$transaction(async (tx) => {
-    await tx.booking.update({
+export async function resolveIncompleteReturn(
+  bookingId: number,
+  by?: string,
+  options?: { tx?: Prisma.TransactionClient },
+) {
+  const run = async (tx: Prisma.TransactionClient) => {
+    await tx.$executeRaw`SELECT id FROM bookings WHERE id = ${bookingId} FOR UPDATE`;
+    const locked = await tx.booking.findUnique({
       where: { id: bookingId },
-      data: {
-        status: "returned",
-        securityHeld: 0,
-        incompletePhoto: null,
-        incompleteNotes: null,
-        idPhoto1: null,
-        idPhoto2: null,
-      },
+      include: { bookingItems: true },
     });
-    for (const bi of booking.bookingItems) {
-      await tx.bookingItem.update({
-        where: { id: bi.id },
+    if (!locked || locked.status !== "incomplete_return") {
+      return null;
+    }
+
+    const eligible = locked.bookingItems.filter(
+      (bi) => bi.isDelivered && !bi.isCancelled && (bi.isIncompleteReturn || !bi.isReturned),
+    );
+    const eligibleIds = eligible.map((bi) => bi.id);
+    const clothingIds = eligible
+      .map((bi) => bi.itemId)
+      .filter((id): id is number => id != null);
+
+    const blobPaths = [
+      locked.incompletePhoto,
+      locked.idPhoto1,
+      locked.idPhoto2,
+      ...eligible.map((bi) => bi.itemIncompletePhoto),
+    ].filter((p): p is string => !!p);
+
+    if (eligibleIds.length) {
+      await tx.bookingItem.updateMany({
+        where: { id: { in: eligibleIds } },
         data: {
           isReturned: true,
           isIncompleteReturn: false,
@@ -1649,34 +1656,93 @@ export async function resolveIncompleteReturn(bookingId: number, by?: string) {
           itemSecurityHeld: 0,
         },
       });
-      if (bi.itemId != null) {
-        await tx.clothingItem.update({
-          where: { id: bi.itemId },
-          data: { status: "available" },
-        });
-      }
     }
-    if (booking.itemId && !booking.bookingItems.length) {
-      await tx.clothingItem.update({
-        where: { id: booking.itemId },
+    if (clothingIds.length) {
+      await tx.clothingItem.updateMany({
+        where: { id: { in: clothingIds } },
         data: { status: "available" },
       });
     }
+
+    if (locked.itemId && !locked.bookingItems.length) {
+      await tx.clothingItem.update({
+        where: { id: locked.itemId },
+        data: { status: "available" },
+      });
+    }
+
+    const refreshed = await tx.booking.findUnique({
+      where: { id: bookingId },
+      include: { bookingItems: true },
+    });
+    if (!refreshed) return null;
+
+    const deliveredActive = refreshed.bookingItems.filter(
+      (bi) => bi.isDelivered && !bi.isCancelled,
+    );
+    const allReturned =
+      deliveredActive.length === 0 ||
+      deliveredActive.every((bi) => bi.isReturned && !bi.isIncompleteReturn);
+
+    const updated = await tx.booking.update({
+      where: { id: bookingId },
+      data: {
+        ...(allReturned
+          ? {
+              status: "returned" as const,
+              returnedAt: refreshed.returnedAt || new Date(),
+              securityHeld: 0,
+              incompletePhoto: null,
+              incompleteNotes: null,
+              idPhoto1: null,
+              idPhoto2: null,
+            }
+          : {
+              securityHeld: refreshed.bookingItems
+                .filter((bi) => bi.isIncompleteReturn)
+                .reduce((s, bi) => s + (bi.itemSecurityHeld || 0), 0),
+            }),
+      },
+      include: { bookingItems: true },
+    });
+
+    return Object.assign(updated, {
+      newlyReturnedItemIds: eligibleIds,
+      blobPathsToCleanup: blobPaths,
+      beforeSnapshot: snapshotBooking(locked as unknown as Record<string, unknown>),
+    });
+  };
+
+  if (options?.tx) {
+    return run(options.tx);
+  }
+
+  const result = await prisma.$transaction(run);
+  if (!result) return null;
+
+  const paths = result.blobPathsToCleanup ?? [];
+  if (paths.length) {
+    const { enqueueBlobCleanup } = await import("@/lib/blobCleanup");
+    await enqueueBlobCleanup(paths, { reason: "resolve_incomplete_return", bookingId });
+  }
+
+  broadcastShopEvent({
+    type: "booking.returned",
+    bookingId,
+    status: result.status,
+    by,
+  });
+  void logActivity({
+    username: by || "system",
+    action: "returned",
+    entity: "booking",
+    entityId: bookingId,
+    label: `Resolved incomplete return — Booking #${String(result.monthlySerial).padStart(2, "0")}`,
+    before: result.beforeSnapshot,
+    after: snapshotBooking(result as unknown as Record<string, unknown>),
   });
 
-  const updated = await prisma.booking.findUnique({ where: { id: bookingId } });
-  if (updated) {
-    logActivity({
-      username: by || "system",
-      action: "returned",
-      entity: "booking",
-      entityId: bookingId,
-      label: `Resolved incomplete return — Booking #${String(booking.monthlySerial).padStart(2, "0")} — ${booking.customerName}`,
-      before: beforeSnapshot,
-      after: snapshotBooking(updated as unknown as Record<string, unknown>),
-    });
-  }
-  return updated;
+  return result;
 }
 
 function alternateBookingSide(
