@@ -1,15 +1,9 @@
+/**
+ * Dashboard data — consolidated SQL round-trips + tagged unstable_cache.
+ */
 import { cache } from "react";
-import { NextRequest, NextResponse } from "next/server";
+import { NextRequest } from "next/server";
 import prisma, { todayStartQ, dateQ } from "../prisma";
-import {
-  whereDeliveryInRange,
-  whereReturnBefore,
-  whereReturnInRange,
-  whereRemainingToDeliver,
-  whereOverduePendingDelivery,
-} from "../bookingDateQuery";
-import { repairAllBookingStatuses } from "./operations";
-import bcrypt from "bcryptjs";
 import {
   BASE_ACCESSORY,
   BASE_JEWELLERY,
@@ -18,9 +12,14 @@ import {
   SIZES,
   todayIso,
   formatDate,
+  monthStartIso,
 } from "../constants";
 import { getAllSubCategories } from "../subCategories";
-import { memoryCachedQuery } from "../perfCache";
+import { cachedQuery, memoryCachedQuery } from "../perfCache";
+import { Prisma } from "@prisma/client";
+import bcrypt from "bcryptjs";
+import { whereOverduePendingDelivery } from "../bookingDateQuery";
+
 
 const SEED_ITEMS = [
   { name: "Red Bridal Lehenga", sku: "LRG-001", category: "Lehenga", itemType: "clothing", size: "M", color: "Red", dailyRate: 2500, deposit: 10000 },
@@ -82,63 +81,127 @@ export async function getOverdueDeliveryCount() {
   return prisma.booking.count({ where });
 }
 
+type BookingStatsRow = {
+  late_return_count: number;
+  today_delivery_total: number;
+  today_delivered: number;
+  today_remaining_delivery: number;
+  today_returning: number;
+  undelivered_count: number;
+};
+
+type BusinessStatsRow = {
+  total_items: number;
+  available_items: number;
+  rented_items: number;
+  total_customers: number;
+  active_rentals: number;
+  overdue_rentals: number;
+};
+
+type FinanceStatsRow = {
+  monthly_revenue: number;
+  outstanding: number;
+};
+
 const _getDashboardDataRaw = async () => {
+  const t0 = Date.now();
   const today = todayStartQ();
   const todayStr = todayIso();
-  const now = new Date();
-  const monthStart = dateQ(new Date(Date.UTC(now.getFullYear(), now.getMonth(), 1)));
-  // Orders due within the next 3 days (plus any overdue, uncollected orders).
+  const monthStart = dateQ(new Date(`${monthStartIso()}`));
   const ordersDueEnd = dateQ(
-    new Date(Date.UTC(now.getUTCFullYear(), now.getUTCMonth(), now.getUTCDate() + 4)),
+    new Date(Date.UTC(
+      Number(todayStr.slice(0, 4)),
+      Number(todayStr.slice(5, 7)) - 1,
+      Number(todayStr.slice(8, 10)) + 4,
+    )),
   );
 
-  const [
-    deliveryTodayWhere,
-    returnTodayWhere,
-    undeliveredWhere,
-    lateReturnWhere,
-  ] = await Promise.all([
-    whereDeliveryInRange(todayStr, todayStr),
-    whereReturnInRange(todayStr, todayStr),
-    whereRemainingToDeliver(todayStr),
-    whereReturnBefore(todayStr),
-  ]);
+  const tBooking = Date.now();
+  const bookingStats = await prisma.$queryRaw<BookingStatsRow[]>`
+    SELECT
+      COUNT(*) FILTER (
+        WHERE status = 'delivered'
+          AND return_date < ${today}::timestamptz
+      )::int AS late_return_count,
+      COUNT(*) FILTER (
+        WHERE delivery_date >= ${today}::timestamptz
+          AND delivery_date < (${today}::timestamptz + interval '1 day')
+      )::int AS today_delivery_total,
+      COUNT(*) FILTER (
+        WHERE status = 'delivered'
+          AND delivery_date >= ${today}::timestamptz
+          AND delivery_date < (${today}::timestamptz + interval '1 day')
+      )::int AS today_delivered,
+      COUNT(*) FILTER (
+        WHERE status = 'booked'
+          AND delivery_date >= ${today}::timestamptz
+          AND delivery_date < (${today}::timestamptz + interval '1 day')
+      )::int AS today_remaining_delivery,
+      COUNT(*) FILTER (
+        WHERE status IN ('booked', 'delivered')
+          AND return_date >= ${today}::timestamptz
+          AND return_date < (${today}::timestamptz + interval '1 day')
+      )::int AS today_returning,
+      COUNT(*) FILTER (
+        WHERE status = 'booked'
+          AND delivery_date < (${today}::timestamptz + interval '1 day')
+          AND (
+            NOT EXISTS (SELECT 1 FROM booking_items bi WHERE bi.booking_id = bookings.id)
+            OR EXISTS (
+              SELECT 1 FROM booking_items bi
+              WHERE bi.booking_id = bookings.id
+                AND bi.is_delivered = false
+                AND bi.is_cancelled = false
+            )
+          )
+      )::int AS undelivered_count
+    FROM bookings
+    WHERE status NOT IN ('cancelled', 'postponed')
+  `;
+  const bookingStatsMs = Date.now() - tBooking;
+  const b = bookingStats[0] || {
+    late_return_count: 0,
+    today_delivery_total: 0,
+    today_delivered: 0,
+    today_remaining_delivery: 0,
+    today_returning: 0,
+    undelivered_count: 0,
+  };
 
-  // One parallel batch — fewer round-trips to the pooler.
-  const [
-    itemStatusCounts,
-    totalCustomers,
-    lateReturnCount,
-    activeRentals,
-    overdueRentals,
-    monthlyRevenueAgg,
-    outstandingAgg,
-    todayDeliveryTotal,
-    todayDelivered,
-    todayRemainingDelivery,
-    todayReturning,
-    undeliveredCount,
-    overdueList,
-    subCategories,
-    ordersDueSoonList,
-  ] = await Promise.all([
-    prisma.clothingItem.groupBy({ by: ["status"], _count: { _all: true } }),
-    prisma.customer.count(),
-    prisma.booking.count({ where: { ...lateReturnWhere, status: "delivered" } }),
-    prisma.rental.count({ where: { status: { in: ["active", "overdue"] } } }),
-    prisma.rental.count({ where: { status: "active", endDate: { lt: today } } }),
-    prisma.payment.aggregate({ _sum: { amount: true }, where: { paidAt: { gte: monthStart } } }),
-    prisma.invoice.aggregate({
-      _sum: { total: true, amountPaid: true },
-      where: { status: { in: ["unpaid", "partial"] } },
-    }),
-    prisma.booking.count({ where: deliveryTodayWhere }),
-    prisma.booking.count({ where: { ...deliveryTodayWhere, status: "delivered" } }),
-    prisma.booking.count({ where: { ...deliveryTodayWhere, status: "booked" } }),
-    prisma.booking.count({
-      where: { ...returnTodayWhere, status: { in: ["booked", "delivered"] } },
-    }),
-    prisma.booking.count({ where: undeliveredWhere }),
+  const tBusiness = Date.now();
+  const businessStats = await prisma.$queryRaw<BusinessStatsRow[]>`
+    SELECT
+      (SELECT COUNT(*)::int FROM clothing_items) AS total_items,
+      (SELECT COUNT(*)::int FROM clothing_items WHERE status = 'available') AS available_items,
+      (SELECT COUNT(*)::int FROM clothing_items WHERE status = 'rented') AS rented_items,
+      (SELECT COUNT(*)::int FROM customers) AS total_customers,
+      (SELECT COUNT(*)::int FROM rentals WHERE status IN ('active', 'overdue')) AS active_rentals,
+      (SELECT COUNT(*)::int FROM rentals WHERE status = 'active' AND end_date < ${today}::timestamptz) AS overdue_rentals
+  `;
+  const businessStatsMs = Date.now() - tBusiness;
+  const biz = businessStats[0] || {
+    total_items: 0,
+    available_items: 0,
+    rented_items: 0,
+    total_customers: 0,
+    active_rentals: 0,
+    overdue_rentals: 0,
+  };
+
+  const tFinance = Date.now();
+  const financeStats = await prisma.$queryRaw<FinanceStatsRow[]>`
+    SELECT
+      COALESCE((SELECT SUM(amount) FROM payments WHERE paid_at >= ${monthStart}::timestamptz), 0)::float AS monthly_revenue,
+      COALESCE((
+        SELECT SUM(total - amount_paid) FROM invoices WHERE status IN ('unpaid', 'partial')
+      ), 0)::float AS outstanding
+  `;
+  const financeStatsMs = Date.now() - tFinance;
+  const fin = financeStats[0] || { monthly_revenue: 0, outstanding: 0 };
+
+  const tLists = Date.now();
+  const [overdueList, subCategories, ordersDueSoonList] = await Promise.all([
     prisma.rental.findMany({
       where: { status: "active", endDate: { lt: today } },
       select: {
@@ -175,32 +238,32 @@ const _getDashboardDataRaw = async () => {
       },
     }),
   ]);
-
-  const statusMap = Object.fromEntries(itemStatusCounts.map((row) => [row.status, row._count._all]));
-  const totalItems = itemStatusCounts.reduce((sum, row) => sum + row._count._all, 0);
-  const outstanding =
-    (outstandingAgg._sum.total || 0) - (outstandingAgg._sum.amountPaid || 0);
+  const listsMs = Date.now() - tLists;
+  const totalMs = Date.now() - t0;
+  console.log(
+    `[perf] dashboard authMs=0 bookingStatsMs=${bookingStatsMs} businessStatsMs=${businessStatsMs} financeStatsMs=${financeStatsMs} listsMs=${listsMs} totalMs=${totalMs}`,
+  );
 
   return {
     stats: {
-      total_items: totalItems,
-      available_items: statusMap.available || 0,
-      rented_items: statusMap.rented || 0,
-      total_customers: totalCustomers,
-      active_rentals: activeRentals,
-      overdue_rentals: overdueRentals,
-      monthly_revenue: monthlyRevenueAgg._sum.amount || 0,
-      outstanding,
+      total_items: biz.total_items,
+      available_items: biz.available_items,
+      rented_items: biz.rented_items,
+      total_customers: biz.total_customers,
+      active_rentals: biz.active_rentals,
+      overdue_rentals: biz.overdue_rentals,
+      monthly_revenue: Number(fin.monthly_revenue) || 0,
+      outstanding: Number(fin.outstanding) || 0,
     },
     today_stats: {
-      total_orders: todayDeliveryTotal,
-      delivered: todayDelivered,
-      remaining_delivery: todayRemainingDelivery,
-      returning: todayReturning,
-      all_undelivered: undeliveredCount,
+      total_orders: b.today_delivery_total,
+      delivered: b.today_delivered,
+      remaining_delivery: b.today_remaining_delivery,
+      returning: b.today_returning,
+      all_undelivered: b.undelivered_count,
     },
     overdue_list: overdueList,
-    late_return_count: lateReturnCount,
+    late_return_count: b.late_return_count,
     orders_due_soon_list: ordersDueSoonList,
     orders_due_soon_count: ordersDueSoonList.length,
     categories: {
@@ -217,16 +280,6 @@ const _getDashboardDataRaw = async () => {
 };
 
 const _getDashboardDataDeduped = cache(_getDashboardDataRaw);
-
-/** Cached dashboard payload — in-memory TTL (Next.js data cache rejects entries > 2MB). */
-export async function getDashboardData() {
-  return memoryCachedQuery(["dashboard-data"], () => _getDashboardDataDeduped(), 90);
-}
-
-/** Uncached dashboard payload for live refresh (API + realtime). */
-export async function getDashboardDataFresh() {
-  return _getDashboardDataRaw();
-}
 
 function iso(d: Date | string | null | undefined) {
   if (d == null) return null;
@@ -271,6 +324,26 @@ export function serializeDashboardData(raw: Awaited<ReturnType<typeof _getDashbo
 
 export type SerializedDashboardData = ReturnType<typeof serializeDashboardData>;
 
+/** Tagged Next.js cache (survives across isolates) + in-process TTL. */
+export async function getDashboardData(): Promise<SerializedDashboardData> {
+  return cachedQuery(
+    ["dashboard-data"],
+    async () => {
+      const raw = await memoryCachedQuery(
+        ["dashboard-data-mem"],
+        () => _getDashboardDataDeduped(),
+        45,
+      );
+      return serializeDashboardData(raw);
+    },
+    60,
+  );
+}
+
+export async function getDashboardDataFresh(): Promise<SerializedDashboardData> {
+  return serializeDashboardData(await _getDashboardDataRaw());
+}
+
 export function readJsonBody<T = Record<string, unknown>>(req: NextRequest): Promise<T> {
   return req.json() as Promise<T>;
 }
@@ -278,3 +351,6 @@ export function readJsonBody<T = Record<string, unknown>>(req: NextRequest): Pro
 export function readFormBody(req: NextRequest): Promise<FormData> {
   return req.formData();
 }
+
+// Keep Prisma import used for typed raw results in some tooling.
+void Prisma;

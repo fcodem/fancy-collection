@@ -10,11 +10,12 @@ import { serializeStandardBookingDetails } from "@/lib/bookingDetails";
 import { localTodayStart, todayIso } from "@/lib/constants";
 import { formatInr } from "@/lib/format";
 import { resolveBookingStatus } from "@/lib/bookingStatus";
-import DownloadPdfButton from "@/components/DownloadPdfButton";
-import { recordBookingPdfHeaders, recordBookingPdfRow, flattenBookingPdfRows } from "@/lib/standardBookingPdfRows";
-import { buildWarningMaps, pdfWarningsForBooking } from "@/lib/bookingWarnings";
 import { bookingMonthKey, formatBookingMonthLabel } from "@/lib/bookingMonth";
-import { getBookingPanelDataCached } from "@/lib/services/bookingPanelData";
+import BookingPanelPdfButton from "@/components/BookingPanelPdfButton";
+import {
+  BOOKING_PANEL_PAGE_SIZE,
+  loadBookingPanelPage,
+} from "@/lib/services/bookingPanelData";
 
 export const dynamic = "force-dynamic";
 
@@ -25,20 +26,24 @@ function fmtDate(d: Date) {
 export default async function BookingPanelPage({
   searchParams,
 }: {
-  searchParams: Promise<{ year?: string; month?: string }>;
+  searchParams: Promise<{ year?: string; month?: string; page?: string }>;
 }) {
   const sp = await searchParams;
   const todayReal = localTodayStart();
   const currentYear = Number(todayIso().slice(0, 4));
   const { year, month } = parseBookingPanelFilters(sp, currentYear);
   const { from: panelFrom, to: panelTo, label: panelLabel } = bookingPanelDateRange(year, month);
+  const page = Math.max(1, Number(sp.page || "1") || 1);
 
-  const { yearBounds, bookings, statusCounts } = await getBookingPanelDataCached(
-    year,
-    month,
-    panelFrom,
-    panelTo,
-  );
+  const { yearBounds, bookings, statusCounts, totalCount, pageSize, totalPages } =
+    await loadBookingPanelPage({
+      year,
+      month,
+      panelFrom,
+      panelTo,
+      page,
+      pageSize: BOOKING_PANEL_PAGE_SIZE,
+    });
 
   const minYear = yearBounds._min.deliveryDate
     ? yearBounds._min.deliveryDate.getUTCFullYear()
@@ -50,28 +55,25 @@ export default async function BookingPanelPage({
   for (let y = maxYear + 1; y >= minYear - 1; y--) yearOptions.push(y);
 
   const countByStatus = Object.fromEntries(statusCounts.map((r) => [r.status, r._count._all]));
-  const totalCount = statusCounts.reduce((sum, r) => sum + r._count._all, 0);
   const bookedCount = countByStatus.booked || 0;
   const deliveredCount = countByStatus.delivered || 0;
   const returnedCount = countByStatus.returned || 0;
 
-  // PDF warnings from the same month payload — skip a second edge query on first paint.
-  const pdfHeaders = recordBookingPdfHeaders("Status");
-  const { returning: returningMap, booked: bookedMap } = buildWarningMaps(bookings);
-  const pdfResults = bookings.map((b) =>
-    recordBookingPdfRow(
-      b.monthlySerial,
-      b,
-      [resolveBookingStatus(b)],
-      pdfWarningsForBooking(b, returningMap, bookedMap),
-    ),
-  );
-  const { rows: pdfRows, warningsBelow } = flattenBookingPdfRows(pdfResults);
+  const monthQs = month == null ? "all" : String(month);
+  const prevHref =
+    page > 1
+      ? `/booking?year=${year}&month=${monthQs}&page=${page - 1}`
+      : null;
+  const nextHref =
+    page < totalPages
+      ? `/booking?year=${year}&month=${monthQs}&page=${page + 1}`
+      : null;
 
   return (
     <>
-      <div style={{ display: "flex", justifyContent: "flex-end", marginBottom: 16 }}>
-        <Link href="/booking/new" className="btn btn-primary">
+      <div style={{ display: "flex", justifyContent: "flex-end", gap: 8, marginBottom: 16 }}>
+        <BookingPanelPdfButton year={year} month={month} />
+        <Link href="/booking/new" className="btn btn-primary" prefetch>
           <i className="fa-solid fa-plus" /> New Booking
         </Link>
       </div>
@@ -108,16 +110,9 @@ export default async function BookingPanelPage({
               — {panelLabel}
             </span>
           </h3>
-          {bookings.length > 0 && (
-            <DownloadPdfButton
-              title={`All Bookings — ${panelLabel}`}
-              filename={`booking-panel-${year}${month ? `-${String(month).padStart(2, "0")}` : ""}`}
-              headers={pdfHeaders}
-              rows={pdfRows}
-              warningsBelow={warningsBelow}
-              size="sm"
-            />
-          )}
+          <span style={{ fontSize: 13, color: "var(--text-muted)" }}>
+            Page {page} of {totalPages} ({totalCount} total)
+          </span>
         </div>
         <div className="card-body" style={{ paddingBottom: 0 }}>
           <BookingPanelFilters year={year} month={month} yearOptions={yearOptions.length ? yearOptions : [currentYear]} />
@@ -211,6 +206,33 @@ export default async function BookingPanelPage({
             </table>
           </div>
         )}
+        <div
+          style={{
+            display: "flex",
+            justifyContent: "space-between",
+            alignItems: "center",
+            padding: "12px 16px",
+            borderTop: "1px solid var(--border, #e5e7eb)",
+          }}
+        >
+          {prevHref ? (
+            <Link href={prevHref} className="btn btn-outline btn-sm" prefetch>
+              Previous
+            </Link>
+          ) : (
+            <span />
+          )}
+          <span style={{ fontSize: 13, color: "var(--text-muted)" }}>
+            Showing {bookings.length} of {totalCount} (max {pageSize}/page)
+          </span>
+          {nextHref ? (
+            <Link href={nextHref} className="btn btn-outline btn-sm" prefetch>
+              Next
+            </Link>
+          ) : (
+            <span />
+          )}
+        </div>
       </div>
     </>
   );

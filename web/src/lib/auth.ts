@@ -14,7 +14,19 @@ export interface SessionData {
   userId?: number;
   sessionId?: string;
   pendingLoginToken?: string;
+  /** Cached on login for fast layout auth (no Prisma on navigation). */
+  username?: string;
+  role?: string;
+  staffId?: number | null;
 }
+
+export type SessionIdentity = {
+  id: number;
+  username: string;
+  role: string;
+  staffId: number | null;
+  staff: null;
+};
 
 function readEnv(name: string): string {
   // Dynamic key access avoids Next.js build-time inlining of empty env values.
@@ -139,12 +151,56 @@ async function createUserSessionRecord(userId: number) {
   return sessionId;
 }
 
+async function loadUserIdentityFields(userId: number) {
+  return prisma.user.findUnique({
+    where: { id: userId },
+    select: { username: true, role: true, staffId: true },
+  });
+}
+
+async function writeSessionIdentity(
+  session: Awaited<ReturnType<typeof getSession>> | SessionData,
+  userId: number,
+  sessionId: string,
+) {
+  const user = await loadUserIdentityFields(userId);
+  session.userId = userId;
+  session.sessionId = sessionId;
+  session.username = user?.username;
+  session.role = user?.role;
+  session.staffId = user?.staffId ?? null;
+  delete session.pendingLoginToken;
+}
+
+/**
+ * Fast cookie-only identity for protected layouts / shells.
+ * Decrypts Iron Session only — no Prisma. Falls back to null if identity fields missing
+ * (e.g. sessions established before this field was stored).
+ */
+export async function getSessionIdentityFromCookie(): Promise<SessionIdentity | null> {
+  const session = await getSession();
+  if (!session.userId || !session.sessionId) return null;
+  if (!session.username || !session.role) return null;
+  return {
+    id: session.userId,
+    username: session.username,
+    role: session.role,
+    staffId: session.staffId ?? null,
+    staff: null,
+  };
+}
+
+/** Layout/shell: prefer cookie identity; DB only when cookie lacks identity fields. */
+export const getCurrentUserForLayout = cache(async () => {
+  const fromCookie = await getSessionIdentityFromCookie();
+  if (fromCookie) return fromCookie;
+  return resolveSessionUser(false);
+});
+
 export async function establishUserLogin(userId: number) {
   const session = await getSession();
   const sessionId = await createUserSessionRecord(userId);
-  session.userId = userId;
-  session.sessionId = sessionId;
-  delete session.pendingLoginToken;
+  await writeSessionIdentity(session, userId, sessionId);
   await session.save();
 }
 
@@ -158,9 +214,7 @@ export async function establishUserLoginWithRedirect(
   const response = NextResponse.redirect(url);
   const sessionId = await createUserSessionRecord(userId);
   const session = await getIronSession<SessionData>(req, response, getSessionOptions());
-  session.userId = userId;
-  session.sessionId = sessionId;
-  delete session.pendingLoginToken;
+  await writeSessionIdentity(session, userId, sessionId);
   await session.save();
   return response;
 }
@@ -175,9 +229,7 @@ export async function establishUserLoginWithJson<T>(
   const response = NextResponse.json(body, { status });
   const sessionId = await createUserSessionRecord(userId);
   const session = await getIronSession<SessionData>(req, response, getSessionOptions());
-  session.userId = userId;
-  session.sessionId = sessionId;
-  delete session.pendingLoginToken;
+  await writeSessionIdentity(session, userId, sessionId);
   await session.save();
   return response;
 }
@@ -367,6 +419,6 @@ export async function getActiveStaffSessions() {
 
 export type AuthUser = NonNullable<Awaited<ReturnType<typeof getCurrentUser>>>;
 
-export function isOwner(user: AuthUser | null): boolean {
+export function isOwner(user: { role?: string } | null): boolean {
   return user?.role === "owner";
 }

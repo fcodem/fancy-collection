@@ -1,10 +1,9 @@
 import { redirect } from "next/navigation";
 import { after } from "next/server";
 import Link from "next/link";
-import { getCurrentUser } from "@/lib/auth";
+import { getCurrentUserForLayout, getPendingStaffLoginRequests, getActiveStaffSessions, isOwner } from "@/lib/auth";
 import DashboardView from "@/components/DashboardView";
-import { getDashboardData, serializeDashboardData } from "@/lib/services/core";
-import { getPendingStaffLoginRequests, getActiveStaffSessions, isOwner } from "@/lib/auth";
+import { getDashboardData } from "@/lib/services/core";
 import { isWhatsAppConfigured } from "@/lib/services/whatsapp/metaApi";
 
 export const dynamic = "force-dynamic";
@@ -12,7 +11,7 @@ export const dynamic = "force-dynamic";
 export const maxDuration = 30;
 
 export default async function DashboardPage() {
-  const user = await getCurrentUser();
+  const user = await getCurrentUserForLayout();
   if (!user) redirect("/login");
 
   const owner = isOwner(user);
@@ -32,7 +31,7 @@ export default async function DashboardPage() {
   try {
     // Load dashboard + owner widgets together when pool allows — one round-trip wait.
     const [data, pendingStaff, activeStaff] = await Promise.all([
-      getDashboardData().then(serializeDashboardData),
+      getDashboardData(),
       owner ? getPendingStaffLoginRequests() : Promise.resolve([]),
       owner ? getActiveStaffSessions() : Promise.resolve([]),
     ]);

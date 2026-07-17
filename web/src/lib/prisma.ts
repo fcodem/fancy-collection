@@ -1,4 +1,5 @@
 import { PrismaClient } from "@prisma/client";
+import { logSafeDatabaseConfig } from "./dbConfigLog";
 
 /**
  * Date helpers for Prisma queries.
@@ -37,6 +38,9 @@ function applyRuntimeSupabaseEnvAliases() {
 }
 
 applyRuntimeSupabaseEnvAliases();
+if (process.env.VERCEL === "1" || process.env.NODE_ENV === "production") {
+  logSafeDatabaseConfig("prisma-init");
+}
 
 export function nowISO(): string {
   return new Date().toISOString();
@@ -130,9 +134,9 @@ export function normalizeDatabaseUrl(raw: string | undefined): string | undefine
       if (port === "6543" && !parsed.searchParams.has("pgbouncer")) {
         parsed.searchParams.set("pgbouncer", "true");
       }
-      // 2 keeps each serverless isolate light on Supabase pooler;
-      // dashboard uses memory cache so parallel bursts are rarer.
-      parsed.searchParams.set("connection_limit", "2");
+      // 3 = dashboard lists Promise.all (overdue + subcats + orders) after consolidated stats;
+      // keep ≤3 for Supabase pooler; do not raise without measuring P2024 under load.
+      parsed.searchParams.set("connection_limit", "3");
       parsed.searchParams.set("connect_timeout", "10");
       parsed.searchParams.set("pool_timeout", "15");
       if (!parsed.searchParams.has("sslmode")) {

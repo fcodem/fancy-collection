@@ -152,6 +152,10 @@ export default function AppShell({
 
   const title = useMemo(() => pageTitle(pathname), [pathname]);
 
+  function startNavProgress() {
+    setNavigating(true);
+  }
+
   useEffect(() => {
     try {
       setCollapsed(localStorage.getItem("fc_sidebar_collapsed") === "1");
@@ -176,8 +180,8 @@ export default function AppShell({
       skipNavProgress.current = false;
       return;
     }
-    setNavigating(true);
-    const t = window.setTimeout(() => setNavigating(false), 500);
+    // Keep bar visible briefly after route lands (click already started it).
+    const t = window.setTimeout(() => setNavigating(false), 350);
     return () => window.clearTimeout(t);
   }, [pathname, mounted]);
 
@@ -317,6 +321,7 @@ export default function AppShell({
         collapsed={collapsed}
         mobileOpen={mobileOpen}
         navigating={navigating}
+        onNavClick={startNavProgress}
         pathname={pathname}
         title={title}
         isOwner={isOwner}
@@ -366,6 +371,7 @@ function AppLayoutInner({
   collapsed,
   mobileOpen,
   navigating,
+  onNavClick,
   pathname,
   title,
   isOwner,
@@ -383,6 +389,7 @@ function AppLayoutInner({
   collapsed: boolean;
   mobileOpen: boolean;
   navigating: boolean;
+  onNavClick: () => void;
   pathname: string;
   title: string;
   isOwner: boolean;
@@ -395,6 +402,20 @@ function AppLayoutInner({
   onCloseMobile: () => void;
   onLogout: () => void;
 }) {
+  const PREFETCH = new Set([
+    "/",
+    "/booking",
+    "/booking/new",
+    "/booking-delivery",
+    "/return",
+    "/inventory",
+    "/packing-list",
+  ]);
+
+  function navClick() {
+    onNavClick();
+    onCloseMobile();
+  }
   return (
     <div className={`app-layout ${mounted && collapsed ? "sidebar-collapsed" : ""}`} suppressHydrationWarning>
       <div className={`route-progress ${mounted && navigating ? "active" : ""}`} aria-hidden>
@@ -424,7 +445,13 @@ function AppLayoutInner({
         <nav className="sidebar-nav">
           <div className="nav-section-label">Main Menu</div>
           {NAV_MAIN.map((item) => (
-            <Link key={item.href} href={item.href} className={`nav-item ${pathname === item.href ? "active" : ""}`} onClick={onCloseMobile}>
+            <Link
+              key={item.href}
+              href={item.href}
+              prefetch={PREFETCH.has(item.href) || undefined}
+              className={`nav-item ${pathname === item.href ? "active" : ""}`}
+              onClick={navClick}
+            >
               <i className={`fa-solid ${item.icon}`} /> <span className="nav-label">{item.label}</span>
               {item.badgeKey === "overdue_delivery" && overdueDelivery > 0 && (
                 <span className="nav-badge">{overdueDelivery}</span>
@@ -436,6 +463,7 @@ function AppLayoutInner({
             <Link
               key={item.href}
               href={item.href}
+              prefetch={PREFETCH.has(item.href) || undefined}
               className={`nav-item ${
                 pathname === item.href ||
                 pathname.startsWith(item.href + "/") ||
@@ -443,7 +471,7 @@ function AppLayoutInner({
                   ? "active"
                   : ""
               }`}
-              onClick={onCloseMobile}
+              onClick={navClick}
             >
               <i className={`fa-solid ${item.icon}`} /> <span className="nav-label">{item.label}</span>
             </Link>
@@ -452,13 +480,13 @@ function AppLayoutInner({
             <>
               <div className="nav-section-label" style={{ marginTop: 8 }}>Finance</div>
               {NAV_FINANCE.map((item) => (
-                <Link key={item.href} href={item.href} className={`nav-item ${pathname === item.href || pathname.startsWith(item.href + "/") ? "active" : ""}`} onClick={onCloseMobile}>
+                <Link key={item.href} href={item.href} className={`nav-item ${pathname === item.href || pathname.startsWith(item.href + "/") ? "active" : ""}`} onClick={navClick}>
                   <i className={`fa-solid ${item.icon}`} /> <span className="nav-label">{item.label}</span>
                 </Link>
               ))}
               <div className="nav-section-label" style={{ marginTop: 8 }}>Admin</div>
               {NAV_OWNER.map((item) => (
-                <Link key={item.href} href={item.href} className={`nav-item ${pathname === item.href ? "active" : ""}`} style={item.danger ? { color: "#fc8181" } : undefined} onClick={onCloseMobile}>
+                <Link key={item.href} href={item.href} className={`nav-item ${pathname === item.href ? "active" : ""}`} style={item.danger ? { color: "#fc8181" } : undefined} onClick={navClick}>
                   <i className={`fa-solid ${item.icon}`} /> <span className="nav-label">{item.label}</span>
                 </Link>
               ))}
@@ -468,7 +496,7 @@ function AppLayoutInner({
                   key={item.href}
                   href={item.href}
                   className={`nav-item ${pathname === item.href || pathname.startsWith(item.href + "/") ? "active" : ""}`}
-                  onClick={onCloseMobile}
+                  onClick={navClick}
                 >
                   <i className={`fa-solid ${item.icon}`} />
                   <span className="nav-label">{item.label}</span>
@@ -486,7 +514,7 @@ function AppLayoutInner({
               href={item.href}
               prefetch
               className={`nav-item ${pathname === item.href ? "active" : ""}`}
-              onClick={onCloseMobile}
+              onClick={navClick}
             >
               <i className={`fa-solid ${item.icon}`} /> <span className="nav-label">{item.label}</span>
             </Link>
@@ -506,7 +534,7 @@ function AppLayoutInner({
                 ? "active"
                 : ""
             }`}
-            onClick={onCloseMobile}
+            onClick={navClick}
           >
             <i className={`fa-solid ${NAV_AI_FEATURES.icon}`} />{" "}
             <span className="nav-label">{NAV_AI_FEATURES.label}</span>
