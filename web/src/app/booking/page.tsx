@@ -1,7 +1,5 @@
 import Link from "next/link";
-import { activeBookingWhere } from "@/lib/bookingActiveStatus";
 import type { ReactNode } from "react";
-import prisma from "@/lib/prisma";
 import BookingPanelFilters from "@/components/BookingPanelFilters";
 import { bookingPanelDateRange, parseBookingPanelFilters } from "@/lib/bookingPanelFilter";
 import {
@@ -10,33 +8,15 @@ import {
 } from "@/components/BookingDetailsColumns";
 import { serializeStandardBookingDetails } from "@/lib/bookingDetails";
 import { localTodayStart, todayIso } from "@/lib/constants";
-import { whereDeliveryInRange } from "@/lib/bookingDateQuery";
 import { formatInr } from "@/lib/format";
 import { resolveBookingStatus } from "@/lib/bookingStatus";
 import DownloadPdfButton from "@/components/DownloadPdfButton";
 import { recordBookingPdfHeaders, recordBookingPdfRow, flattenBookingPdfRows } from "@/lib/standardBookingPdfRows";
-import {
-  buildWarningMaps,
-  dateSpanFromBookings,
-  fetchWarningEdgeBookings,
-  pdfWarningsForBooking,
-} from "@/lib/bookingWarnings";
+import { buildWarningMaps, pdfWarningsForBooking } from "@/lib/bookingWarnings";
 import { bookingMonthKey, formatBookingMonthLabel } from "@/lib/bookingMonth";
-export const dynamic = "force-dynamic";
+import { getBookingPanelDataCached } from "@/lib/services/bookingPanelData";
 
-const bookingPanelInclude = {
-  bookingItems: {
-    select: {
-      itemId: true,
-      dressName: true,
-      category: true,
-      size: true,
-      notes: true,
-      isDelivered: true,
-    },
-  },
-  legacyItem: { select: { size: true, category: true } },
-} as const;
+export const dynamic = "force-dynamic";
 
 function fmtDate(d: Date) {
   return d.toISOString().slice(0, 10);
@@ -52,25 +32,14 @@ export default async function BookingPanelPage({
   const currentYear = Number(todayIso().slice(0, 4));
   const { year, month } = parseBookingPanelFilters(sp, currentYear);
   const { from: panelFrom, to: panelTo, label: panelLabel } = bookingPanelDateRange(year, month);
-  const panelDeliveryWhere = await whereDeliveryInRange(panelFrom, panelTo);
 
-  const [yearBounds, bookings, statusCounts] = await Promise.all([
-    prisma.booking.aggregate({
-      where: activeBookingWhere(),
-      _min: { deliveryDate: true },
-      _max: { deliveryDate: true },
-    }),
-    prisma.booking.findMany({
-      where: { ...activeBookingWhere(), ...panelDeliveryWhere },
-      include: bookingPanelInclude,
-      orderBy: [{ deliveryDate: "asc" }, { monthlySerial: "asc" }],
-    }),
-    prisma.booking.groupBy({
-      by: ["status"],
-      where: { ...activeBookingWhere(), ...panelDeliveryWhere },
-      _count: { _all: true },
-    }),
-  ]);
+  const { yearBounds, bookings, statusCounts } = await getBookingPanelDataCached(
+    year,
+    month,
+    panelFrom,
+    panelTo,
+  );
+
   const minYear = yearBounds._min.deliveryDate
     ? yearBounds._min.deliveryDate.getUTCFullYear()
     : currentYear - 2;
@@ -86,11 +55,9 @@ export default async function BookingPanelPage({
   const deliveredCount = countByStatus.delivered || 0;
   const returnedCount = countByStatus.returned || 0;
 
+  // PDF warnings from the same month payload — skip a second edge query on first paint.
   const pdfHeaders = recordBookingPdfHeaders("Status");
-  const span = dateSpanFromBookings(bookings);
-  const edgeBookings =
-    month == null && span.from ? await fetchWarningEdgeBookings(span.from, span.to) : bookings;
-  const { returning: returningMap, booked: bookedMap } = buildWarningMaps(edgeBookings);
+  const { returning: returningMap, booked: bookedMap } = buildWarningMaps(bookings);
   const pdfResults = bookings.map((b) =>
     recordBookingPdfRow(
       b.monthlySerial,

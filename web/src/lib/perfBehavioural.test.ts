@@ -112,13 +112,16 @@ describe("booking create isolation", () => {
         },
         processWhatsAppJobQueue: async () => ({ processed: 0 }),
         findByClientRequestId: async () => null,
-        after: () => {},
+        after: (fn) => {
+          void Promise.resolve().then(() => fn()).catch(() => {});
+        },
       },
     );
     assert.equal(result.id, 42);
     assert.equal(result.serial, 7);
     assert.equal(created, 1);
     assert.equal(result.reused, false);
+    await new Promise((r) => setTimeout(r, 20));
   });
 
   it("succeeds when WhatsApp/PDF processing throws after response", async () => {
@@ -189,13 +192,16 @@ describe("booking create isolation", () => {
       },
       processWhatsAppJobQueue: async () => ({ processed: 0 }),
       findByClientRequestId: async (k: string) => store.get(k) ?? null,
-      after: () => {},
+      after: (fn) => {
+        void Promise.resolve().then(() => fn()).catch(() => {});
+      },
     };
     const user = { id: 1, username: "owner" };
     const payload = { ...sampleInput, client_request_id: key };
 
     const first = await createBookingWithSideEffectsCore(payload, user, deps);
     const second = await createBookingWithSideEffectsCore(payload, user, deps);
+    await new Promise((r) => setTimeout(r, 30));
 
     assert.equal(first.id, 101);
     assert.equal(second.id, 101);
@@ -249,7 +255,9 @@ describe("booking create isolation", () => {
       scheduleBookingBill: store.scheduleBookingBill,
       processWhatsAppJobQueue: async () => ({ processed: 0 }),
       findByClientRequestId: store.findByClientRequestId,
-      after: () => {},
+      after: (fn) => {
+        void Promise.resolve().then(() => fn()).catch(() => {});
+      },
     };
     const user = { id: 1, username: "owner" };
     const payload = { ...sampleInput, client_request_id: key };
@@ -258,6 +266,7 @@ describe("booking create isolation", () => {
       createBookingWithSideEffectsCore(payload, user, deps),
       createBookingWithSideEffectsCore(payload, user, deps),
     ]);
+    await new Promise((r) => setTimeout(r, 40));
 
     assert.equal(first.id, second.id, "both responses share the same booking id");
     assert.equal(store.bookings.length, 1, "exactly one booking row");

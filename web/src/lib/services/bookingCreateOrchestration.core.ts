@@ -84,13 +84,13 @@ export async function createBookingWithSideEffectsCore(
     throw e;
   }
 
-  try {
-    await d.scheduleBookingBill(booking.id, "", user.username);
-  } catch (e) {
-    console.error("[booking] scheduleBookingBill failed (booking kept):", e);
-  }
-
+  // Defer WhatsApp job insert + PDF/send so the HTTP response returns after DB create only.
   d.after(async () => {
+    try {
+      await d.scheduleBookingBill(booking.id, "", user.username);
+    } catch (e) {
+      console.error("[booking] scheduleBookingBill failed (booking kept):", e);
+    }
     try {
       await d.processWhatsAppJobQueue(2, { bookingId: booking.id });
     } catch (e) {

@@ -281,20 +281,23 @@ export async function shouldSkipCustomerCreate(contact: string, whatsapp?: strin
   const searchTails = [...new Set(newKeys.filter((k) => k.length >= 10).map((k) => k.slice(-10)))];
   if (!searchTails.length) return false;
 
-  const bookingPhoneOr = searchTails.flatMap((t) => [
-    { contact1: { contains: t } },
-    { contact2: { contains: t } },
-    { whatsappNo: { contains: t } },
-  ]);
-
+  // Match last-10 digits without full-table LIKE %x% mid-string scans.
   const [bookings, customers] = await Promise.all([
     prisma.booking.findMany({
-      where: { OR: bookingPhoneOr },
+      where: {
+        OR: searchTails.flatMap((t) => [
+          { contact1: { endsWith: t } },
+          { contact2: { endsWith: t } },
+          { whatsappNo: { endsWith: t } },
+        ]),
+      },
       select: { contact1: true, contact2: true, whatsappNo: true },
+      take: 40,
     }),
     prisma.customer.findMany({
-      where: { OR: searchTails.map((t) => ({ phone: { contains: t } })) },
+      where: { OR: searchTails.map((t) => ({ phone: { endsWith: t } })) },
       select: { phone: true },
+      take: 40,
     }),
   ]);
 

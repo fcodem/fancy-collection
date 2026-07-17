@@ -220,7 +220,7 @@ const _getDashboardDataDeduped = cache(_getDashboardDataRaw);
 
 /** Cached dashboard payload — in-memory TTL (Next.js data cache rejects entries > 2MB). */
 export async function getDashboardData() {
-  return memoryCachedQuery(["dashboard-data"], () => _getDashboardDataDeduped(), 60);
+  return memoryCachedQuery(["dashboard-data"], () => _getDashboardDataDeduped(), 90);
 }
 
 /** Uncached dashboard payload for live refresh (API + realtime). */
