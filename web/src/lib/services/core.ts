@@ -3,7 +3,7 @@
  */
 import { cache } from "react";
 import { NextRequest } from "next/server";
-import prisma, { todayStartQ, dateQ } from "../prisma";
+import prisma, { dateQ } from "../prisma";
 import {
   BASE_ACCESSORY,
   BASE_JEWELLERY,
@@ -13,6 +13,7 @@ import {
   todayIso,
   formatDate,
   monthStartIso,
+  localTodayStart,
 } from "../constants";
 import { getAllSubCategories } from "../subCategories";
 import { cachedQuery, memoryCachedQuery } from "../perfCache";
@@ -106,7 +107,7 @@ type FinanceStatsRow = {
 
 const _getDashboardDataRaw = async () => {
   const t0 = Date.now();
-  const today = todayStartQ();
+  const today = localTodayStart();
   const todayStr = todayIso();
   const monthStart = dateQ(new Date(`${monthStartIso()}`));
   const ordersDueEnd = dateQ(
@@ -260,6 +261,7 @@ const _getDashboardDataRaw = async () => {
       },
     }),
   ]);
+  // After the two DB list queries — subcats are cached and usually free.
   const subCategories = await getAllSubCategories();
   const listsMs = Date.now() - tLists;
   const totalMs = Date.now() - t0;
@@ -355,7 +357,7 @@ export async function getDashboardData(): Promise<SerializedDashboardData> {
       const raw = await memoryCachedQuery(
         ["dashboard-data-mem"],
         () => _getDashboardDataDeduped(),
-        45,
+        90,
       );
       return serializeDashboardData(raw);
     },

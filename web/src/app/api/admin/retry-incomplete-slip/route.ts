@@ -41,6 +41,7 @@ export async function POST(req: NextRequest) {
       },
       req.nextUrl.origin,
       user.username,
+      { forceResend: true },
     );
 
     let queueSummary;

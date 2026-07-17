@@ -44,8 +44,13 @@ const JOB_TIMEOUT_MS = 120_000;
 const STUCK_PROCESSING_MS = 180_000;
 const LEASE_MS = JOB_TIMEOUT_MS + 60_000;
 
-/** Canonical active statuses for idempotency short-circuit (worker writes `done`). */
-const ACTIVE_WA_JOB_STATUSES = ["pending", "processing", "done"] as const;
+/** Open jobs that block a normal (non-force) schedule for the same key. */
+const OPEN_WA_JOB_STATUSES = ["pending", "processing"] as const;
+
+export type WhatsAppScheduleOptions = {
+  /** Create a new idempotency key so a completed slip can be resent. */
+  forceResend?: boolean;
+};
 
 function withJobTimeout<T>(promise: Promise<T>, jobId: number, jobType: string): Promise<T> {
   return Promise.race([
@@ -255,47 +260,71 @@ export async function schedulePostponementNotice(
   });
 }
 
-export async function scheduleBookingBill(
+export async function scheduleBookingBillInTx(
+  tx: Prisma.TransactionClient,
   bookingId: number,
   requestOrigin?: string,
   createdBy?: string,
+  opts?: WhatsAppScheduleOptions,
 ) {
   if (isWhatsAppReceiptsDisabled()) return null;
 
   const { buildWhatsAppIdempotencyKey } = await import("@/lib/mutationIdempotency");
-  const idempotencyKey = buildWhatsAppIdempotencyKey("booking_bill", bookingId);
+  const version = opts?.forceResend ? `resend-${Date.now()}` : "v1";
+  const idempotencyKey = buildWhatsAppIdempotencyKey("booking_bill", bookingId, [], version);
 
-  // Never cancel the keyed job we are about to reuse.
-  const existing = await prisma.whatsAppJob.findFirst({
-    where: { idempotencyKey, status: { in: [...ACTIVE_WA_JOB_STATUSES] } },
-  });
-  if (existing) return existing;
-
-  await cancelPendingJobs(bookingId, "booking_bill");
+  if (!opts?.forceResend) {
+    const existing = await tx.whatsAppJob.findFirst({
+      where: { idempotencyKey, status: { in: [...OPEN_WA_JOB_STATUSES] } },
+    });
+    if (existing) return existing;
+  }
 
   try {
-    return await prisma.whatsAppJob.create({
+    return await tx.whatsAppJob.create({
       data: {
         jobType: "booking_bill",
         bookingId,
         idempotencyKey,
         scheduledAt: new Date(),
         createdBy: createdBy ?? null,
-        payload: { requestOrigin: requestOrigin ?? null },
+        payload: {
+          requestOrigin: requestOrigin ?? null,
+          ...(opts?.forceResend ? { forceResend: true } : {}),
+        },
       },
     });
   } catch (e) {
     const msg = e instanceof Error ? e.message : "";
     const code = (e as { code?: string })?.code;
     if (code === "P2002" || /idempotency|Unique constraint/i.test(msg)) {
-      const raced = await prisma.whatsAppJob.findFirst({ where: { idempotencyKey } });
+      const raced = await tx.whatsAppJob.findFirst({ where: { idempotencyKey } });
       if (raced) return raced;
-    }
-    if (/does not exist|Unknown arg|P2021/i.test(msg)) {
-      throw new Error("WhatsApp job idempotency schema unavailable");
     }
     throw e;
   }
+}
+
+export async function scheduleBookingBill(
+  bookingId: number,
+  requestOrigin?: string,
+  createdBy?: string,
+  opts?: WhatsAppScheduleOptions,
+) {
+  if (isWhatsAppReceiptsDisabled()) return null;
+  if (!opts?.forceResend) {
+    // Fast path outside a booking create TX
+    const { buildWhatsAppIdempotencyKey } = await import("@/lib/mutationIdempotency");
+    const idempotencyKey = buildWhatsAppIdempotencyKey("booking_bill", bookingId);
+    const existing = await prisma.whatsAppJob.findFirst({
+      where: { idempotencyKey, status: { in: [...OPEN_WA_JOB_STATUSES] } },
+    });
+    if (existing) return existing;
+    await cancelPendingJobs(bookingId, "booking_bill");
+  }
+  return prisma.$transaction((tx) =>
+    scheduleBookingBillInTx(tx, bookingId, requestOrigin, createdBy, opts),
+  );
 }
 
 export async function scheduleReturnReceipt(
@@ -309,7 +338,7 @@ export async function scheduleReturnReceipt(
   const idempotencyKey = buildWhatsAppIdempotencyKey("return_receipt", bookingId);
 
   const existing = await prisma.whatsAppJob.findFirst({
-    where: { idempotencyKey, status: { in: [...ACTIVE_WA_JOB_STATUSES] } },
+    where: { idempotencyKey, status: { in: [...OPEN_WA_JOB_STATUSES] } },
   });
   if (existing) return existing;
 
@@ -350,6 +379,7 @@ export async function scheduleDeliverySlipInTx(
   },
   requestOrigin?: string,
   createdBy?: string,
+  opts?: WhatsAppScheduleOptions,
 ) {
   if (isWhatsAppReceiptsDisabled()) return null;
 
@@ -361,17 +391,22 @@ export async function scheduleDeliverySlipInTx(
         : [];
 
   const { buildWhatsAppIdempotencyKey } = await import("@/lib/mutationIdempotency");
+  const version = opts?.forceResend
+    ? `${payload.scope}:resend-${Date.now()}`
+    : payload.scope;
   const idempotencyKey = buildWhatsAppIdempotencyKey(
     "delivery_slip",
     bookingId,
     itemIds,
-    payload.scope,
+    version,
   );
 
-  const existing = await tx.whatsAppJob.findFirst({
-    where: { idempotencyKey, status: { in: [...ACTIVE_WA_JOB_STATUSES] } },
-  });
-  if (existing) return existing;
+  if (!opts?.forceResend) {
+    const existing = await tx.whatsAppJob.findFirst({
+      where: { idempotencyKey, status: { in: [...OPEN_WA_JOB_STATUSES] } },
+    });
+    if (existing) return existing;
+  }
 
   try {
     return await tx.whatsAppJob.create({
@@ -381,7 +416,11 @@ export async function scheduleDeliverySlipInTx(
         idempotencyKey,
         scheduledAt: new Date(),
         createdBy: createdBy ?? null,
-        payload: { ...payload, requestOrigin: requestOrigin ?? null },
+        payload: {
+          ...payload,
+          requestOrigin: requestOrigin ?? null,
+          ...(opts?.forceResend ? { forceResend: true } : {}),
+        },
       },
     });
   } catch (e) {
@@ -404,9 +443,10 @@ export async function scheduleDeliverySlip(
   },
   requestOrigin?: string,
   createdBy?: string,
+  opts?: WhatsAppScheduleOptions,
 ) {
   return prisma.$transaction((tx) =>
-    scheduleDeliverySlipInTx(tx, bookingId, payload, requestOrigin, createdBy),
+    scheduleDeliverySlipInTx(tx, bookingId, payload, requestOrigin, createdBy, opts),
   );
 }
 
@@ -420,6 +460,7 @@ export async function scheduleReturnSlipInTx(
   },
   requestOrigin?: string,
   createdBy?: string,
+  opts?: WhatsAppScheduleOptions,
 ) {
   return scheduleKeyedSlipJobInTx(
     tx,
@@ -428,6 +469,7 @@ export async function scheduleReturnSlipInTx(
     payload,
     requestOrigin,
     createdBy,
+    opts,
   );
 }
 
@@ -441,6 +483,7 @@ export async function scheduleIncompleteSlipInTx(
   },
   requestOrigin?: string,
   createdBy?: string,
+  opts?: WhatsAppScheduleOptions,
 ) {
   return scheduleKeyedSlipJobInTx(
     tx,
@@ -449,6 +492,7 @@ export async function scheduleIncompleteSlipInTx(
     payload,
     requestOrigin,
     createdBy,
+    opts,
   );
 }
 
@@ -463,6 +507,7 @@ async function scheduleKeyedSlipJobInTx(
   },
   requestOrigin?: string,
   createdBy?: string,
+  opts?: WhatsAppScheduleOptions,
 ) {
   if (isWhatsAppReceiptsDisabled()) return null;
 
@@ -474,12 +519,17 @@ async function scheduleKeyedSlipJobInTx(
         : [];
 
   const { buildWhatsAppIdempotencyKey } = await import("@/lib/mutationIdempotency");
-  const idempotencyKey = buildWhatsAppIdempotencyKey(jobType, bookingId, itemIds, payload.scope);
+  const version = opts?.forceResend
+    ? `${payload.scope}:resend-${Date.now()}`
+    : payload.scope;
+  const idempotencyKey = buildWhatsAppIdempotencyKey(jobType, bookingId, itemIds, version);
 
-  const existing = await tx.whatsAppJob.findFirst({
-    where: { idempotencyKey, status: { in: [...ACTIVE_WA_JOB_STATUSES] } },
-  });
-  if (existing) return existing;
+  if (!opts?.forceResend) {
+    const existing = await tx.whatsAppJob.findFirst({
+      where: { idempotencyKey, status: { in: [...OPEN_WA_JOB_STATUSES] } },
+    });
+    if (existing) return existing;
+  }
 
   try {
     return await tx.whatsAppJob.create({
@@ -494,6 +544,7 @@ async function scheduleKeyedSlipJobInTx(
           bookingItemId: payload.bookingItemId ?? null,
           bookingItemIds: itemIds,
           requestOrigin: requestOrigin ?? null,
+          ...(opts?.forceResend ? { forceResend: true } : {}),
         },
       },
     });
@@ -517,9 +568,10 @@ export async function scheduleReturnSlip(
   },
   requestOrigin?: string,
   createdBy?: string,
+  opts?: WhatsAppScheduleOptions,
 ) {
   return prisma.$transaction((tx) =>
-    scheduleReturnSlipInTx(tx, bookingId, payload, requestOrigin, createdBy),
+    scheduleReturnSlipInTx(tx, bookingId, payload, requestOrigin, createdBy, opts),
   );
 }
 
@@ -532,9 +584,10 @@ export async function scheduleIncompleteSlip(
   },
   requestOrigin?: string,
   createdBy?: string,
+  opts?: WhatsAppScheduleOptions,
 ) {
   return prisma.$transaction((tx) =>
-    scheduleIncompleteSlipInTx(tx, bookingId, payload, requestOrigin, createdBy),
+    scheduleIncompleteSlipInTx(tx, bookingId, payload, requestOrigin, createdBy, opts),
   );
 }
 

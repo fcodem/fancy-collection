@@ -8,6 +8,7 @@ import {
   type MutationErrorCode,
   toPublicErrorPayload,
 } from "@/lib/mutationErrors";
+import { enqueueBlobCleanup } from "@/lib/blobCleanup";
 
 export {
   MutationIdempotencyError,
@@ -235,6 +236,74 @@ export async function failMutationReceipt(
   } catch {
     /* ignore */
   }
+}
+
+function collectStagingPaths(resultJson: unknown): string[] {
+  if (!resultJson || typeof resultJson !== "object") return [];
+  const obj = resultJson as Record<string, unknown>;
+  const paths: string[] = [];
+  if (typeof obj.staging_photo === "string" && obj.staging_photo) {
+    paths.push(obj.staging_photo);
+  }
+  if (Array.isArray(obj.staging_photos)) {
+    for (const p of obj.staging_photos) {
+      if (typeof p === "string" && p) paths.push(p);
+    }
+  } else if (obj.staging_photos && typeof obj.staging_photos === "object") {
+    for (const p of Object.values(obj.staging_photos as Record<string, unknown>)) {
+      if (typeof p === "string" && p) paths.push(p);
+    }
+  }
+  if (Array.isArray(obj.staging_paths)) {
+    for (const p of obj.staging_paths) {
+      if (typeof p === "string" && p) paths.push(p);
+    }
+  }
+  return [...new Set(paths)];
+}
+
+/**
+ * Reclaim Blob paths left on abandoned processing receipts (expired lease, >48h old)
+ * and mark those receipts failed so they cannot be retried forever.
+ */
+export async function cleanupAbandonedMutationStaging(
+  limit = 25,
+): Promise<{ cleaned: number; paths: number }> {
+  const now = new Date();
+  const olderThan = new Date(now.getTime() - 48 * 60 * 60 * 1000);
+  let cleaned = 0;
+  let pathCount = 0;
+
+  try {
+    const rows = await prisma.mutationReceipt.findMany({
+      where: {
+        status: "processing",
+        leaseExpiresAt: { lt: now },
+        createdAt: { lt: olderThan },
+      },
+      select: { operationId: true, resultJson: true },
+      take: Math.max(1, Math.min(limit, 100)),
+      orderBy: { createdAt: "asc" },
+    });
+
+    for (const row of rows) {
+      const paths = collectStagingPaths(row.resultJson);
+      if (!paths.length) continue;
+      await enqueueBlobCleanup(paths, { reason: "abandoned_mutation_staging" });
+      pathCount += paths.length;
+      await failMutationReceipt(
+        row.operationId,
+        "Abandoned staging cleaned after lease expiry",
+        "ABANDONED_STAGING",
+      );
+      cleaned += 1;
+    }
+  } catch (e) {
+    if (isSchemaUnavailable(e)) return { cleaned: 0, paths: 0 };
+    throw e;
+  }
+
+  return { cleaned, paths: pathCount };
 }
 
 /**

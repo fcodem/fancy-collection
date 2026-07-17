@@ -30,7 +30,9 @@ export async function POST(req: NextRequest) {
     const jobIds: number[] = [];
 
     if (kinds.includes("booking")) {
-      const job = await scheduleBookingBill(bookingId, origin, user.username);
+      const job = await scheduleBookingBill(bookingId, origin, user.username, {
+        forceResend: true,
+      });
       results.booking = { ok: Boolean(job?.id), job_id: job?.id ?? null };
       if (job?.id) jobIds.push(job.id);
     }
@@ -55,6 +57,7 @@ export async function POST(req: NextRequest) {
         },
         origin,
         user.username,
+        { forceResend: true },
       );
       results.delivery = { ok: Boolean(job?.id), job_id: job?.id ?? null };
       if (job?.id) jobIds.push(job.id);
@@ -82,6 +85,7 @@ export async function POST(req: NextRequest) {
         },
         origin,
         user.username,
+        { forceResend: true },
       );
       results.return = { ok: Boolean(job?.id), job_id: job?.id ?? null };
       if (job?.id) jobIds.push(job.id);
@@ -111,6 +115,7 @@ export async function POST(req: NextRequest) {
           },
           origin,
           user.username,
+          { forceResend: true },
         );
         results.incomplete = { ok: Boolean(job?.id), job_id: job?.id ?? null };
         if (job?.id) jobIds.push(job.id);

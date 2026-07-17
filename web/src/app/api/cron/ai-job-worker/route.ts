@@ -2,6 +2,8 @@ import { NextRequest } from "next/server";
 import * as Sentry from "@sentry/nextjs";
 import { jsonError, jsonOk } from "@/lib/api";
 import { drainAiJobQueue } from "@/lib/dressChecker/aiJobWorker";
+import { recoverStuckAiJobs } from "@/lib/dressChecker/deploymentSafety";
+import { resumeFailedAiJobs } from "@/lib/dressChecker/aiJobQueue";
 
 export const dynamic = "force-dynamic";
 export const maxDuration = 60;
@@ -14,7 +16,8 @@ function authorizeCron(req: NextRequest): boolean {
 }
 
 /**
- * Serverless-safe: drain one small batch and exit. Never starts setInterval.
+ * Serverless-safe: recover stuck/failed jobs, drain a small batch, exit.
+ * Never starts setInterval.
  */
 export async function GET(req: NextRequest) {
   if (!authorizeCron(req)) {
@@ -23,13 +26,19 @@ export async function GET(req: NextRequest) {
 
   const started = Date.now();
   try {
-    const result = await drainAiJobQueue(1, { source: "cron" });
+    const stuck = await recoverStuckAiJobs().catch(() => ({ recovered: 0, itemIds: [] as number[] }));
+    const resumed = await resumeFailedAiJobs().catch(() => 0);
+    const result = await drainAiJobQueue(2, { source: "cron" });
     const totalMs = Date.now() - started;
     if (totalMs > 2_000) {
-      console.log(`[perf] route=/api/cron/ai-job-worker totalMs=${totalMs} processed=${result.processed}`);
+      console.log(
+        `[perf] route=/api/cron/ai-job-worker totalMs=${totalMs} recovered=${stuck.recovered} resumed=${resumed} processed=${result.processed}`,
+      );
     }
     return jsonOk({
       ok: true,
+      recovered: stuck.recovered,
+      resumed,
       ...result,
       totalMs,
     });

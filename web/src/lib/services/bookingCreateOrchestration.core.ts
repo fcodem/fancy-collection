@@ -4,7 +4,9 @@
  * Sequential retries: look up client_request_id before createBooking so dress
  * conflict validation is not re-run after a lost response.
  * Simultaneous races: unique client_request_id inside createBooking's transaction
- * + P2002 recovery; WhatsApp/PDF only for the actual create winner.
+ * + P2002 recovery; WhatsApp bill job must be inserted in the same transaction as
+ * the booking (see createBooking scheduleBillInTx) so create cannot succeed without
+ * a durable outbox row.
  */
 
 export type BookingCreateResult = {
@@ -19,15 +21,14 @@ export type BookingFormLike = {
 };
 
 export type BookingCreateCoreDeps = {
+  /**
+   * Must schedule the booking-bill WhatsApp job inside the same DB transaction
+   * as the booking insert (or fail the whole create).
+   */
   createBooking: (
     input: BookingFormLike,
     by?: string,
   ) => Promise<{ id: number; monthlySerial: number }>;
-  scheduleBookingBill: (
-    bookingId: number,
-    origin: string,
-    createdBy?: string,
-  ) => Promise<unknown>;
   processWhatsAppJobQueue: (
     limit?: number,
     opts?: { bookingId?: number },
@@ -43,7 +44,7 @@ export function isPrismaClientRequestIdConflict(err: unknown): boolean {
   const e = err as { code?: string; meta?: { target?: string[] | string } };
   if (e.code !== "P2002") return false;
   const target = e.meta?.target;
-  if (!target) return true; // unique conflict — assume client request when caller expects it
+  if (!target) return true;
   const parts = Array.isArray(target) ? target : [String(target)];
   return parts.some((t) =>
     /client_request_id|clientRequestId/i.test(String(t)),
@@ -58,7 +59,6 @@ export async function createBookingWithSideEffectsCore(
   const key = typeof input.client_request_id === "string" ? input.client_request_id.trim() : "";
   const detectConflict = d.isClientRequestIdConflict ?? isPrismaClientRequestIdConflict;
 
-  // Sequential retry / lost-response: reuse before createBooking (availability checks).
   if (key) {
     const existing = await d.findByClientRequestId(key);
     if (existing) {
@@ -77,18 +77,10 @@ export async function createBookingWithSideEffectsCore(
     if (key && detectConflict(e)) {
       const existing = await d.findByClientRequestId(key);
       if (existing) {
-        // Losing race txn rolled back by DB — do not schedule WhatsApp/PDF.
         return { id: existing.id, serial: existing.monthlySerial, reused: true };
       }
     }
     throw e;
-  }
-
-  // Durable outbox: enqueue before HTTP success. PDF/WhatsApp run only in after()/cron.
-  try {
-    await d.scheduleBookingBill(booking.id, "", user.username);
-  } catch (e) {
-    console.error("[booking] scheduleBookingBill failed (booking kept):", e);
   }
 
   d.after(async () => {

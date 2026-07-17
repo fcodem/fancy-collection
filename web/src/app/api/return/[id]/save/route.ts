@@ -26,14 +26,34 @@ import {
   MutationIdempotencyError,
   claimMutationReceipt,
   completeMutationReceiptInTx,
-  failMutationReceipt,
+  readMutationStaging,
   runIdempotentMutationInTx,
+  storeMutationStaging,
   toPublicErrorPayload,
 } from "@/lib/mutationReceipt";
 import { enqueueBlobCleanup } from "@/lib/blobCleanup";
 import { broadcastShopEvent } from "@/lib/realtime/broadcast";
 
 export const maxDuration = 60;
+
+/** Upload concurrency limiter (server-safe; mirrors client mapPool). */
+async function mapPool<T, R>(
+  items: T[],
+  concurrency: number,
+  fn: (item: T, index: number) => Promise<R>,
+): Promise<R[]> {
+  const results: R[] = new Array(items.length);
+  let next = 0;
+  async function worker() {
+    while (next < items.length) {
+      const i = next++;
+      results[i] = await fn(items[i]!, i);
+    }
+  }
+  const n = Math.max(1, Math.min(concurrency, items.length || 1));
+  await Promise.all(Array.from({ length: n }, () => worker()));
+  return results;
+}
 
 type IncompleteItemPayload = {
   booking_item_id: number;
@@ -222,20 +242,68 @@ export async function POST(req: NextRequest, { params }: { params: Promise<{ id:
         );
       }
 
+      const staging = await readMutationStaging(operationId);
+      const stagedMain =
+        typeof staging?.staging_photo === "string" ? staging.staging_photo : null;
+      const stagedByItem =
+        staging?.staging_photos && typeof staging.staging_photos === "object"
+          ? (staging.staging_photos as Record<string, string>)
+          : {};
+
       const uploadedPaths: string[] = [];
       try {
         perf.mark("photo");
-        let incomplete_photo: string | undefined;
-        if (photoFile) {
-          incomplete_photo = await saveUpload(photoFile);
-          uploadedPaths.push(incomplete_photo);
+        let incomplete_photo: string | undefined = stagedMain || undefined;
+        if (incomplete_photo) uploadedPaths.push(incomplete_photo);
+
+        type UploadJob =
+          | { kind: "main"; file: File }
+          | { kind: "item"; bookingItemId: number; file: File };
+        const jobs: UploadJob[] = [];
+        if (photoFile && !incomplete_photo) {
+          jobs.push({ kind: "main", file: photoFile });
         }
         for (const item of items) {
-          const f = itemPhotoFiles.get(item.booking_item_id);
-          if (f) {
-            item.incomplete_photo = await saveUpload(f);
-            uploadedPaths.push(item.incomplete_photo);
+          if (!item.is_incomplete) continue;
+          const key = String(item.booking_item_id);
+          const staged = stagedByItem[key];
+          if (staged) {
+            item.incomplete_photo = staged;
+            uploadedPaths.push(staged);
+            continue;
           }
+          const f = itemPhotoFiles.get(item.booking_item_id);
+          if (f) jobs.push({ kind: "item", bookingItemId: item.booking_item_id, file: f });
+        }
+
+        if (jobs.length) {
+          const uploaded = await mapPool(jobs, 2, async (job) => {
+            const path = await saveUpload(job.file);
+            return { job, path };
+          });
+          const nextItemPhotos: Record<string, string> = { ...stagedByItem };
+          for (const { job, path } of uploaded) {
+            uploadedPaths.push(path);
+            if (job.kind === "main") {
+              incomplete_photo = path;
+            } else {
+              const target = items.find((i) => i.booking_item_id === job.bookingItemId);
+              if (target) target.incomplete_photo = path;
+              nextItemPhotos[String(job.bookingItemId)] = path;
+            }
+          }
+          await storeMutationStaging(operationId, {
+            staging_photo: incomplete_photo ?? stagedMain ?? null,
+            staging_photos: nextItemPhotos,
+            photo_content_hash: photoHash,
+          });
+        } else if (incomplete_photo || Object.keys(stagedByItem).length) {
+          // Ensure staging is present for reclaim after lease expiry.
+          await storeMutationStaging(operationId, {
+            staging_photo: incomplete_photo ?? null,
+            staging_photos: stagedByItem,
+            photo_content_hash: photoHash,
+          });
         }
         perf.endStage("photoUploadMs", "photo");
 
@@ -321,15 +389,18 @@ export async function POST(req: NextRequest, { params }: { params: Promise<{ id:
         });
         return withServerTiming(jsonOk(publicResult), timings);
       } catch (e) {
-        await failMutationReceipt(
-          operationId,
-          e instanceof Error ? e.message : "mutation failed",
-        );
-        if (uploadedPaths.length) {
-          await enqueueBlobCleanup(uploadedPaths, {
-            reason: "orphan_incomplete_return_upload",
-            bookingId,
+        // Keep receipt reclaimable with staging photos intact — do not mark failed
+        // and do not delete staged uploads (retry reuses them).
+        try {
+          await prisma.mutationReceipt.update({
+            where: { operationId },
+            data: {
+              leaseExpiresAt: new Date(0),
+              errorMessage: (e instanceof Error ? e.message : "mutation failed").slice(0, 500),
+            },
           });
+        } catch {
+          /* ignore */
         }
         throw e;
       }

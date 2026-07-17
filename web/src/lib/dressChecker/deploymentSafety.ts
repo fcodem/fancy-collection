@@ -22,7 +22,7 @@ import {
   CURRENT_RECOGNITION_VERSION,
 } from "./profileReadiness";
 
-export const STUCK_JOB_THRESHOLD_MS = 15 * 60 * 1000;
+export const STUCK_JOB_THRESHOLD_MS = 8 * 60 * 1000;
 export const WORKER_STALE_THRESHOLD_MS = 5 * 60 * 1000;
 
 export type EnvCheck = {

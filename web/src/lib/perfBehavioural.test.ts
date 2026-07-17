@@ -29,6 +29,7 @@ type BookingRow = { id: number; monthlySerial: number; clientRequestId: string }
  * Reproduces Postgres unique-constraint race on client_request_id:
  * concurrent create txns both start; exactly one INSERT commits; the other
  * throws P2002 and leaves no booking / activity / WhatsApp side effects.
+ * WhatsApp bill is scheduled inside createBooking (atomic with the booking).
  */
 function createAtomicClientRequestStore(opts?: { concurrentBarrier?: boolean }) {
   const bookings: BookingRow[] = [];
@@ -78,6 +79,7 @@ function createAtomicClientRequestStore(opts?: { concurrentBarrier?: boolean }) 
         };
         bookings.push(row);
         activities.push(row.id); // audit written only on successful commit
+        whatsappJobs.push(row.id); // bill job in same txn as booking
         resolve(row);
       });
     });
@@ -90,38 +92,32 @@ function createAtomicClientRequestStore(opts?: { concurrentBarrier?: boolean }) 
     createBooking,
     findByClientRequestId: async (key: string) =>
       bookings.find((b) => b.clientRequestId === key) ?? null,
-    scheduleBookingBill: async (bookingId: number) => {
-      whatsappJobs.push(bookingId);
-    },
   };
 }
 
 describe("booking create isolation", () => {
-  it("succeeds when scheduleBookingBill throws", async () => {
+  it("fails when createBooking throws (bill schedule failure)", async () => {
     let created = 0;
-    const result = await createBookingWithSideEffectsCore(
-      sampleInput,
-      { id: 9, username: "owner" },
-      {
-        createBooking: async () => {
-          created += 1;
-          return { id: 42, monthlySerial: 7 };
-        },
-        scheduleBookingBill: async () => {
-          throw new Error("whatsapp schedule boom");
-        },
-        processWhatsAppJobQueue: async () => ({ processed: 0 }),
-        findByClientRequestId: async () => null,
-        after: (fn) => {
-          void Promise.resolve().then(() => fn()).catch(() => {});
-        },
-      },
+    await assert.rejects(
+      () =>
+        createBookingWithSideEffectsCore(
+          sampleInput,
+          { id: 9, username: "owner" },
+          {
+            createBooking: async () => {
+              created += 1;
+              throw new Error("bill schedule boom");
+            },
+            processWhatsAppJobQueue: async () => ({ processed: 0 }),
+            findByClientRequestId: async () => null,
+            after: (fn) => {
+              void Promise.resolve().then(() => fn()).catch(() => {});
+            },
+          },
+        ),
+      /bill schedule boom/,
     );
-    assert.equal(result.id, 42);
-    assert.equal(result.serial, 7);
     assert.equal(created, 1);
-    assert.equal(result.reused, false);
-    await new Promise((r) => setTimeout(r, 20));
   });
 
   it("succeeds when WhatsApp/PDF processing throws after response", async () => {
@@ -130,8 +126,10 @@ describe("booking create isolation", () => {
       sampleInput,
       { id: 9, username: "owner" },
       {
-        createBooking: async () => ({ id: 43, monthlySerial: 8 }),
-        scheduleBookingBill: async () => undefined as never,
+        createBooking: async () => {
+          // Atomic bill schedule happens inside createBooking.
+          return { id: 43, monthlySerial: 8 };
+        },
         processWhatsAppJobQueue: async () => {
           afterRan = true;
           throw new Error("pdf/meta boom");
@@ -183,12 +181,10 @@ describe("booking create isolation", () => {
           );
         }
         activityCalls += 1;
+        whatsappCalls += 1; // bill scheduled inside create
         const row = { id: 101, monthlySerial: 12 };
         store.set(key, row);
         return row;
-      },
-      scheduleBookingBill: async () => {
-        whatsappCalls += 1;
       },
       processWhatsAppJobQueue: async () => ({ processed: 0 }),
       findByClientRequestId: async (k: string) => store.get(k) ?? null,
@@ -227,12 +223,10 @@ describe("booking create isolation", () => {
       {
         createBooking: async () => {
           createCalls += 1;
+          whatsappCalls += 1;
           throw new Error(
             "createBooking must not run for a sequential retry because real availability validation could reject it",
           );
-        },
-        scheduleBookingBill: async () => {
-          whatsappCalls += 1;
         },
         processWhatsAppJobQueue: async () => ({ processed: 0 }),
         findByClientRequestId: async (k: string) => store.get(k) ?? null,
@@ -252,7 +246,6 @@ describe("booking create isolation", () => {
     const key = "22222222-2222-4222-8222-222222222222";
     const deps = {
       createBooking: store.createBooking,
-      scheduleBookingBill: store.scheduleBookingBill,
       processWhatsAppJobQueue: async () => ({ processed: 0 }),
       findByClientRequestId: store.findByClientRequestId,
       after: (fn) => {

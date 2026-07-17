@@ -1,6 +1,7 @@
 import { NextRequest } from "next/server";
 import { jsonError, jsonOk } from "@/lib/api";
 import { processBlobCleanupJobs } from "@/lib/blobCleanup";
+import { cleanupAbandonedMutationStaging } from "@/lib/mutationReceipt";
 
 export const maxDuration = 60;
 
@@ -14,8 +15,12 @@ function authorizeCron(req: NextRequest): boolean {
 export async function GET(req: NextRequest) {
   if (!authorizeCron(req)) return jsonError("Unauthorized", 401);
   try {
+    const abandoned = await cleanupAbandonedMutationStaging(25).catch((e) => {
+      console.error("[cron/blob-cleanup] abandoned staging:", e instanceof Error ? e.message : e);
+      return { cleaned: 0, paths: 0 };
+    });
     const summary = await processBlobCleanupJobs(25);
-    return jsonOk({ ok: true, ...summary });
+    return jsonOk({ ok: true, abandoned_staging: abandoned, ...summary });
   } catch (e) {
     console.error("[cron/blob-cleanup]", e instanceof Error ? e.message : e);
     return jsonError("Blob cleanup failed", 500);

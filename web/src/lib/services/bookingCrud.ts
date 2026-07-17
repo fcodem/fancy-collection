@@ -1,4 +1,5 @@
 import prisma, { parseDateQ } from "../prisma";
+import { Prisma } from "@prisma/client";
 import {
   findFirstItemConflict,
   findItemIdsStillInActiveBookings,
@@ -76,7 +77,17 @@ function throwIfConflict(
   );
 }
 
-export async function createBooking(input: BookingFormInput, by?: string) {
+export async function createBooking(
+  input: BookingFormInput,
+  by?: string,
+  opts?: {
+    /** Insert booking-bill job in the same transaction (required for atomic outbox). */
+    scheduleBillInTx?: (
+      tx: Prisma.TransactionClient,
+      bookingId: number,
+    ) => Promise<unknown>;
+  },
+) {
   assertBookingDatesNotPast(input.delivery_date, input.return_date);
   const deliveryDate = parseDate(input.delivery_date);
   const returnDate = parseDate(input.return_date);
@@ -195,10 +206,17 @@ export async function createBooking(input: BookingFormInput, by?: string) {
     const qrToken = generateBookingQrToken();
     const publicAccessToken = newPublicAccessToken();
     const publicAccessExpiresAt = new Date(Date.now() + 90 * 24 * 60 * 60 * 1000);
-    return tx.booking.update({
+    const updated = await tx.booking.update({
       where: { id: b.id },
       data: { publicBookingId, qrToken, publicAccessToken, publicAccessExpiresAt },
     });
+
+    // Atomic outbox: bill job commits with the booking or the booking rolls back.
+    if (opts?.scheduleBillInTx) {
+      await opts.scheduleBillInTx(tx, updated.id);
+    }
+
+    return updated;
   });
 
   broadcastShopEvent({ type: "booking.created", bookingId: booking.id, status: booking.status, by });

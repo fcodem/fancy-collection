@@ -163,28 +163,39 @@ export async function createInventoryItemInTx(
   if (MENS_CATEGORIES.includes(form.category)) {
     const sizes = form.sizes || [];
     if (!sizes.length) throw new Error("Please select at least one size for men's clothing.");
-    const created = [];
+    const total = sizes.length * quantity;
+    const skus = await allocateInventorySkus(total, tx);
+    const rows: ReturnType<typeof buildUnitRows> = [];
+    let skuOffset = 0;
     for (const sz of sizes) {
-      const units = await createInventoryUnitsInTx(
-        tx,
-        {
-          name: form.name,
-          category: form.category,
-          size: sz,
-          color: "",
-          daily_rate: form.daily_rate,
-          deposit: form.deposit,
-          condition_notes: form.condition_notes,
-          itemType,
-          photo: photoFilename,
-          subCategory,
-          inventoryGroupId,
-          ...partFlags,
-        },
-        quantity,
+      const sizeSkus = skus.slice(skuOffset, skuOffset + quantity);
+      skuOffset += quantity;
+      rows.push(
+        ...buildUnitRows(
+          {
+            name: form.name,
+            category: form.category,
+            size: sz,
+            color: "",
+            daily_rate: form.daily_rate,
+            deposit: form.deposit,
+            condition_notes: form.condition_notes,
+            itemType,
+            photo: photoFilename,
+            subCategory,
+            inventoryGroupId,
+            ...partFlags,
+          },
+          quantity,
+          sizeSkus,
+        ),
       );
-      created.push(...units);
     }
+    await tx.clothingItem.createMany({ data: rows });
+    const created = await tx.clothingItem.findMany({
+      where: { sku: { in: skus } },
+      orderBy: { sku: "asc" },
+    });
     return { items: created, inventoryGroupId };
   }
 

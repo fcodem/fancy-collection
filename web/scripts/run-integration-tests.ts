@@ -54,32 +54,41 @@ async function main() {
     const key = buildWhatsAppIdempotencyKey("return_receipt", 42);
     assert(key.startsWith("return_receipt:42:"), "return_receipt key shape");
 
-    // Concurrent mutation_receipt claims: one wins, second sees existing row.
+    // Concurrent mutation_receipt claims: one wins, second sees existing row / P2002.
     const opId = `itest-claim-${Date.now()}-${Math.random().toString(16).slice(2)}`;
     const payload = { v: 1, note: "concurrency" };
     const requestHash = hashPayload(payload);
     const lease = new Date(Date.now() + 60_000);
 
-    const claimOnce = () =>
-      prisma.$transaction(async (tx) => {
-        const rows = await tx.$queryRaw<Array<{ status: string }>>`
-          SELECT status FROM mutation_receipts
-          WHERE operation_id = ${opId}
-          FOR UPDATE
-        `;
-        if (rows[0]) return { won: false as const, status: rows[0].status };
-        await tx.mutationReceipt.create({
-          data: {
-            operationId: opId,
-            operationType: "integration_test",
-            requestHash,
-            status: "processing",
-            claimedAt: new Date(),
-            leaseExpiresAt: lease,
-          },
+    const claimOnce = async () => {
+      try {
+        return await prisma.$transaction(async (tx) => {
+          const rows = await tx.$queryRaw<Array<{ status: string }>>`
+            SELECT status FROM mutation_receipts
+            WHERE operation_id = ${opId}
+            FOR UPDATE
+          `;
+          if (rows[0]) return { won: false as const, status: rows[0].status };
+          await tx.mutationReceipt.create({
+            data: {
+              operationId: opId,
+              operationType: "integration_test",
+              requestHash,
+              status: "processing",
+              claimedAt: new Date(),
+              leaseExpiresAt: lease,
+            },
+          });
+          return { won: true as const, status: "processing" };
         });
-        return { won: true as const, status: "processing" };
-      });
+      } catch (e) {
+        // Concurrent create race: unique violation means the other claim won.
+        if ((e as { code?: string })?.code === "P2002") {
+          return { won: false as const, status: "processing" };
+        }
+        throw e;
+      }
+    };
 
     const [c1, c2] = await Promise.all([claimOnce(), claimOnce()]);
     assert(c1.won !== c2.won, "exactly one concurrent claim should win");

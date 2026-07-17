@@ -1,5 +1,6 @@
 import { PrismaClient } from "@prisma/client";
 import { logSafeDatabaseConfig } from "./dbConfigLog";
+import { localTodayEnd, localTodayStart } from "./constants";
 
 /**
  * Date helpers for Prisma queries.
@@ -84,13 +85,11 @@ export function deliveryRangeFilter(fromStr: string, toStr: string): { gte: Date
 }
 
 export function todayStartQ(): Date {
-  const now = new Date();
-  return new Date(Date.UTC(now.getFullYear(), now.getMonth(), now.getDate()));
+  return localTodayStart();
 }
 
 export function todayEndQ(): Date {
-  const now = new Date();
-  return new Date(Date.UTC(now.getFullYear(), now.getMonth(), now.getDate() + 1));
+  return localTodayEnd();
 }
 
 export function startOfMonthQ(d: Date): Date {

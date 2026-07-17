@@ -1,4 +1,4 @@
-import prisma, { parseDateQ } from "./prisma";
+import prisma, { parseDateQ, isSqliteDb } from "./prisma";
 import {
   whereBookingOverlapsPeriod,
   whereDeliveryInRange,
@@ -346,55 +346,152 @@ export async function getAvailableItemsApi(
   const dIso = formatDate(dDate, "iso");
   const rIso = formatDate(rDate, "iso");
   const exclude = excludeBookingId ? { id: { not: excludeBookingId } } : {};
-
-  // Date filters first (may use SQLite helpers), then limit parallel DB fan-out
-  // so connection_limit=3 pools are less likely to stall under load.
-  const overlapWhere = await whereBookingOverlapsPeriod(deliveryDateStr, returnDateStr);
-  const returnOnDeliveryWhere = await whereReturnInRange(deliveryDateStr, deliveryDateStr);
-  const deliveryOnReturnWhere = await whereDeliveryInRange(returnDateStr, returnDateStr);
   const activeStatus = { status: { in: ["booked", "delivered"] } };
 
-  // Peak concurrency ≤2 under connection_limit=3.
-  const [allItems, overlappingBookings] = await Promise.all([
+  const busyItemIds = new Set<number>();
+  const returningPairs: Array<{ itemId: number; bookingId: number }> = [];
+  const bookedPairs: Array<{ itemId: number; bookingId: number }> = [];
+  /** SQLite path may already hold full warning bookings; Postgres fetches slim later. */
+  let sqliteWarningBookings: BookingWithItems[] | null = null;
+
+  if (!isSqliteDb()) {
+    const excludeId = excludeBookingId ?? null;
+    const [y, m, d] = rIso.split("-").map(Number);
+    const rEnd = new Date(Date.UTC(y!, m! - 1, d! + 1));
+    const occupancy = await prisma.$queryRaw<
+      Array<{ item_id: number; booking_id: number; kind: string }>
+    >`
+      WITH item_rows AS (
+        SELECT
+          b.id AS booking_id,
+          items.item_id,
+          (b.return_date AT TIME ZONE 'UTC')::date AS return_day,
+          (b.delivery_date AT TIME ZONE 'UTC')::date AS delivery_day
+        FROM bookings b
+        CROSS JOIN LATERAL (
+          SELECT bi.item_id
+          FROM booking_items bi
+          WHERE bi.booking_id = b.id AND bi.item_id IS NOT NULL
+          UNION
+          SELECT b.item_id WHERE b.item_id IS NOT NULL
+        ) items
+        WHERE b.status IN ('booked', 'delivered')
+          AND (${excludeId}::int IS NULL OR b.id <> ${excludeId})
+          AND b.delivery_date < ${rEnd}
+          AND b.return_date >= ${dDate}
+      )
+      SELECT
+        item_id,
+        booking_id,
+        CASE
+          WHEN return_day = ${dIso}::date THEN 'returning'
+          WHEN delivery_day = ${rIso}::date THEN 'booked'
+          ELSE 'busy'
+        END AS kind
+      FROM item_rows
+    `;
+    for (const row of occupancy) {
+      if (row.kind === "returning") {
+        returningPairs.push({ itemId: row.item_id, bookingId: row.booking_id });
+      } else if (row.kind === "booked") {
+        bookedPairs.push({ itemId: row.item_id, bookingId: row.booking_id });
+      } else {
+        busyItemIds.add(row.item_id);
+      }
+    }
+  } else {
+    // SQLite: keep Prisma date helpers (no Postgres raw SQL).
+    const overlapWhere = await whereBookingOverlapsPeriod(deliveryDateStr, returnDateStr);
+    const returnOnDeliveryWhere = await whereReturnInRange(deliveryDateStr, deliveryDateStr);
+    const deliveryOnReturnWhere = await whereDeliveryInRange(returnDateStr, returnDateStr);
+    const [overlappingBookings, returningOnDeliveryBookings, bookedOnReturnBookings] =
+      await Promise.all([
+        prisma.booking.findMany({
+          where: { ...exclude, ...overlapWhere, ...activeStatus },
+          include: bookingWarningInclude,
+        }),
+        prisma.booking.findMany({
+          where: { ...exclude, ...returnOnDeliveryWhere, ...activeStatus },
+          include: bookingWarningInclude,
+        }),
+        prisma.booking.findMany({
+          where: { ...exclude, ...deliveryOnReturnWhere, ...activeStatus },
+          include: bookingWarningInclude,
+        }),
+      ]);
+
+    const byId = new Map<number, BookingWithItems>();
+    for (const b of overlappingBookings) {
+      byId.set(b.id, b as BookingWithItems);
+      for (const itemId of bookingItemIds(b)) {
+        const bD = formatDate(b.deliveryDate, "iso");
+        const bR = formatDate(b.returnDate, "iso");
+        if (bR === dIso) returningPairs.push({ itemId, bookingId: b.id });
+        else if (bD === rIso) bookedPairs.push({ itemId, bookingId: b.id });
+        else busyItemIds.add(itemId);
+      }
+    }
+    for (const b of returningOnDeliveryBookings) {
+      byId.set(b.id, b as BookingWithItems);
+      for (const itemId of bookingItemIds(b)) {
+        if (!returningPairs.some((p) => p.itemId === itemId && p.bookingId === b.id)) {
+          returningPairs.push({ itemId, bookingId: b.id });
+        }
+      }
+    }
+    for (const b of bookedOnReturnBookings) {
+      byId.set(b.id, b as BookingWithItems);
+      for (const itemId of bookingItemIds(b)) {
+        if (!bookedPairs.some((p) => p.itemId === itemId && p.bookingId === b.id)) {
+          bookedPairs.push({ itemId, bookingId: b.id });
+        }
+      }
+    }
+    sqliteWarningBookings = [...byId.values()];
+  }
+
+  const warningBookingIds = [
+    ...new Set([...returningPairs, ...bookedPairs].map((p) => p.bookingId)),
+  ];
+  const busyList = [...busyItemIds];
+  const itemWhere: Prisma.ClothingItemWhereInput = {
+    status: { not: "maintenance" },
+    ...(categoryFilter ? { category: categoryFilter } : {}),
+    ...(busyList.length ? { id: { notIn: busyList } } : {}),
+  };
+
+  const itemSelect = {
+    id: true,
+    name: true,
+    sku: true,
+    category: true,
+    color: true,
+    size: true,
+    itemType: true,
+    subCategory: true,
+    photo: true,
+    originalPhoto: true,
+    enhancedPhoto: true,
+    hasNecklace: true,
+    hasEarrings: true,
+    hasTeeka: true,
+    hasPasa: true,
+  } as const;
+
+  const [allItems, warningBookings] = await Promise.all([
     prisma.clothingItem.findMany({
-      where: {
-        status: { not: "maintenance" },
-        ...(categoryFilter ? { category: categoryFilter } : {}),
-      },
-      select: {
-        id: true,
-        name: true,
-        sku: true,
-        category: true,
-        color: true,
-        size: true,
-        itemType: true,
-        subCategory: true,
-        photo: true,
-        originalPhoto: true,
-        enhancedPhoto: true,
-        hasNecklace: true,
-        hasEarrings: true,
-        hasTeeka: true,
-        hasPasa: true,
-      },
+      where: itemWhere,
+      select: itemSelect,
       orderBy: [{ category: "asc" }, { name: "asc" }],
     }),
-    prisma.booking.findMany({
-      where: { ...exclude, ...overlapWhere, ...activeStatus },
-      include: bookingWarningInclude,
-    }),
-  ]);
-
-  const [returningOnDeliveryBookings, bookedOnReturnBookings] = await Promise.all([
-    prisma.booking.findMany({
-      where: { ...exclude, ...returnOnDeliveryWhere, ...activeStatus },
-      include: bookingWarningInclude,
-    }),
-    prisma.booking.findMany({
-      where: { ...exclude, ...deliveryOnReturnWhere, ...activeStatus },
-      include: bookingWarningInclude,
-    }),
+    sqliteWarningBookings
+      ? Promise.resolve(sqliteWarningBookings)
+      : warningBookingIds.length
+        ? prisma.booking.findMany({
+            where: { id: { in: warningBookingIds } },
+            include: bookingWarningInclude,
+          })
+        : Promise.resolve([] as Array<BookingWithItems>),
   ]);
 
   const [overlappingRentals, overlappingJewellery] = await Promise.all([
@@ -428,28 +525,29 @@ export async function getAvailableItemsApi(
     }),
   ]);
 
-  const busyItemIds = new Set<number>();
-  const returningInfo: Record<number, ReturnType<typeof warningRecordFromBooking> & { customer?: string; contact?: string }> = {};
-  const bookedOnReturnInfo: Record<number, ReturnType<typeof warningRecordFromBooking> & { customer?: string; contact?: string }> = {};
+  const bookingById = new Map(warningBookings.map((b) => [b.id, b as BookingWithItems]));
+  const returningInfo: Record<
+    number,
+    ReturnType<typeof warningRecordFromBooking> & { customer?: string; contact?: string }
+  > = {};
+  const bookedOnReturnInfo: Record<
+    number,
+    ReturnType<typeof warningRecordFromBooking> & { customer?: string; contact?: string }
+  > = {};
 
-  for (const b of overlappingBookings) {
-    for (const itemId of bookingItemIds(b)) {
-      const bD = formatDate(b.deliveryDate, "iso");
-      const bR = formatDate(b.returnDate, "iso");
-      if (bR === dIso) {
-        if (!returningInfo[itemId]) {
-          const rec = warningRecordFromBooking(b as BookingWithItems);
-          returningInfo[itemId] = { ...rec, customer: rec.customer_name, contact: rec.contact_1 };
-        }
-      } else if (bD === rIso) {
-        if (!bookedOnReturnInfo[itemId]) {
-          const rec = warningRecordFromBooking(b as BookingWithItems);
-          bookedOnReturnInfo[itemId] = { ...rec, customer: rec.customer_name, contact: rec.contact_1 };
-        }
-      } else {
-        busyItemIds.add(itemId);
-      }
-    }
+  for (const { itemId, bookingId } of returningPairs) {
+    if (returningInfo[itemId]) continue;
+    const b = bookingById.get(bookingId);
+    if (!b) continue;
+    const rec = warningRecordFromBooking(b);
+    returningInfo[itemId] = { ...rec, customer: rec.customer_name, contact: rec.contact_1 };
+  }
+  for (const { itemId, bookingId } of bookedPairs) {
+    if (bookedOnReturnInfo[itemId]) continue;
+    const b = bookingById.get(bookingId);
+    if (!b) continue;
+    const rec = warningRecordFromBooking(b);
+    bookedOnReturnInfo[itemId] = { ...rec, customer: rec.customer_name, contact: rec.contact_1 };
   }
 
   const rentedItemIds = new Set<number>();
@@ -460,7 +558,13 @@ export async function getAvailableItemsApi(
   }
 
   // Jewellery part-level availability from Jewellery Selection records.
-  type JewPick = { itemId: number | null; pickNecklace: boolean; pickEarrings: boolean; pickTeeka: boolean; pickPasa: boolean };
+  type JewPick = {
+    itemId: number | null;
+    pickNecklace: boolean;
+    pickEarrings: boolean;
+    pickTeeka: boolean;
+    pickPasa: boolean;
+  };
   const jewInteriorByItem = new Map<number, JewPick[]>();
   for (const js of overlappingJewellery) {
     if (js.itemId == null) continue;
@@ -474,7 +578,11 @@ export async function getAvailableItemsApi(
     } else if (bD === rIso) {
       if (!bookedOnReturnInfo[js.itemId]) {
         const rec = warningRecordFromBooking(js.booking as unknown as BookingWithItems);
-        bookedOnReturnInfo[js.itemId] = { ...rec, customer: rec.customer_name, contact: rec.contact_1 };
+        bookedOnReturnInfo[js.itemId] = {
+          ...rec,
+          customer: rec.customer_name,
+          contact: rec.contact_1,
+        };
       }
     } else {
       const arr = jewInteriorByItem.get(js.itemId) || [];
@@ -545,19 +653,17 @@ export async function getAvailableItemsApi(
       };
     });
 
-  const returning_on_delivery = returningOnDeliveryBookings.flatMap((b) =>
-    bookingItemIds(b).map((itemId) => ({
-      item_id: itemId,
-      ...warningRecordFromBooking(b as BookingWithItems),
-    }))
-  );
+  const returning_on_delivery = returningPairs.flatMap(({ itemId, bookingId }) => {
+    const b = bookingById.get(bookingId);
+    if (!b) return [];
+    return [{ item_id: itemId, ...warningRecordFromBooking(b) }];
+  });
 
-  const booked_on_return = bookedOnReturnBookings.flatMap((b) =>
-    bookingItemIds(b).map((itemId) => ({
-      item_id: itemId,
-      ...warningRecordFromBooking(b as BookingWithItems),
-    }))
-  );
+  const booked_on_return = bookedPairs.flatMap(({ itemId, bookingId }) => {
+    const b = bookingById.get(bookingId);
+    if (!b) return [];
+    return [{ item_id: itemId, ...warningRecordFromBooking(b) }];
+  });
 
   return { free_items, returning_on_delivery, booked_on_return };
 }

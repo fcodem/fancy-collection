@@ -144,7 +144,9 @@ export async function POST(req: NextRequest, { params }: { params: Promise<{ id:
 
   if (resend) {
     // Always go through the durable queue so send-ledger duplicate protection applies.
-    const job = await scheduleBookingBill(bookingId, req.nextUrl.origin, user.username);
+    const job = await scheduleBookingBill(bookingId, req.nextUrl.origin, user.username, {
+      forceResend: true,
+    });
     let queueSummary;
     try {
       queueSummary = await processWhatsAppJobQueue(3, { bookingId });

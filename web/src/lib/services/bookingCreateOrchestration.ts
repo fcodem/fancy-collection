@@ -3,7 +3,7 @@ import "server-only";
 import prisma from "@/lib/prisma";
 import { createBooking, type BookingFormInput } from "@/lib/services/bookingCrud";
 import {
-  scheduleBookingBill,
+  scheduleBookingBillInTx,
   processWhatsAppJobQueue,
 } from "@/lib/services/whatsapp/jobQueue";
 import {
@@ -23,9 +23,11 @@ export async function createBookingWithSideEffects(
 ): Promise<BookingCreateResult> {
   const origin = opts?.origin || "";
   const deps: BookingCreateCoreDeps = {
-    createBooking: (form, by) => createBooking(form as BookingFormInput, by),
-    scheduleBookingBill: (bookingId, _o, createdBy) =>
-      scheduleBookingBill(bookingId, origin || _o, createdBy),
+    createBooking: (form, by) =>
+      createBooking(form as BookingFormInput, by, {
+        scheduleBillInTx: (tx, bookingId) =>
+          scheduleBookingBillInTx(tx, bookingId, origin, by),
+      }),
     processWhatsAppJobQueue,
     findByClientRequestId: async (key) => {
       const row = await prisma.booking.findUnique({
