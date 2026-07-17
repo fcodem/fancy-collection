@@ -3,15 +3,17 @@ import prisma from "@/lib/prisma";
 import { saveReturn } from "@/lib/services/operations";
 import { saveUpload } from "@/lib/upload";
 import { jsonError, jsonOk, requireUser, isResponse, requireJsonContentType } from "@/lib/api";
-import {
-  finalizeSlipTrigger,
-} from "@/lib/services/whatsapp/slipDebounce";
+import { finalizeSlipTrigger } from "@/lib/services/whatsapp/slipDebounce";
 import {
   newlyReturnedItemIdsFromAction,
   newlyIncompleteItemIdsFromAction,
 } from "@/lib/slipDelta";
 import { processWhatsAppJobQueue } from "@/lib/services/whatsapp/jobQueue";
 import { createPerfTimer, withServerTiming } from "@/lib/perfTiming";
+import {
+  MutationIdempotencyError,
+  runIdempotentMutation,
+} from "@/lib/mutationReceipt";
 
 export const maxDuration = 60;
 
@@ -89,13 +91,11 @@ async function triggerReturnSlipIfNeeded(
       action === "mark_items_returned" ||
       IMMEDIATE_RETURN_SLIP_ACTIONS.has(action)
     ) {
-      // Always finalize for full return actions — even if delta IDs are empty
-      // (e.g. race), scheduleReturnSlipsForBooking can still pick unsent items.
       if (
         !slip.hasWork &&
         (action === "mark_item_returned" || action === "mark_items_returned")
       ) {
-        return;
+        return false;
       }
       await finalizeSlipTrigger(bookingId, "return", baseOpts);
       after(async () => {
@@ -105,10 +105,12 @@ async function triggerReturnSlipIfNeeded(
           console.error("[return save] whatsapp queue error:", e);
         }
       });
+      return true;
     }
   } catch (e) {
     console.error("[return save] WhatsApp slip error:", e);
   }
+  return false;
 }
 
 export async function POST(req: NextRequest, { params }: { params: Promise<{ id: string }> }) {
@@ -128,6 +130,7 @@ export async function POST(req: NextRequest, { params }: { params: Promise<{ id:
       const form = await req.formData();
       perf.endStage("parseMs", "parse");
       const action = String(form.get("action") || "");
+      const operationId = String(form.get("operation_id") || "").trim();
       const incomplete_notes = String(form.get("incomplete_notes") || "");
       const security_held = Number(form.get("security_held") || 0);
       let incomplete_photo: string | undefined;
@@ -157,39 +160,64 @@ export async function POST(req: NextRequest, { params }: { params: Promise<{ id:
         }
       }
 
-      perf.mark("read");
-      const beforeItems = await loadBookingItemsBefore(bookingId);
-      perf.endStage("initialReadMs", "read");
-      perf.mark("tx");
-      const booking = await saveReturn(
+      const canonicalPayload = {
         bookingId,
         action,
+        incomplete_notes,
+        security_held,
+        incomplete_photo: incomplete_photo || null,
+        items,
+      };
+
+      const { result, reused } = await runIdempotentMutation(
         {
-          incomplete_notes,
-          security_held,
-          incomplete_photo,
-          items: items.length ? items : undefined,
+          operationId,
+          operationType: `return_${action || "multipart"}`,
+          bookingId,
+          actorUserId: user.id,
+          payload: canonicalPayload,
         },
-        user.username,
+        async () => {
+          const beforeItems = await loadBookingItemsBefore(bookingId);
+          perf.mark("tx");
+          const booking = await saveReturn(
+            bookingId,
+            action,
+            {
+              incomplete_notes,
+              security_held,
+              incomplete_photo,
+              items: items.length ? items : undefined,
+            },
+            user.username,
+          );
+          perf.endStage("transactionMs", "tx");
+          const slip = slipOptsForReturnAction(
+            action,
+            { items: items.length ? items : undefined },
+            beforeItems,
+            req.nextUrl.origin,
+            user.username,
+          );
+          let slipQueued = false;
+          if (slip.hasWork || IMMEDIATE_RETURN_SLIP_ACTIONS.has(action)) {
+            perf.mark("job");
+            slipQueued = Boolean(await triggerReturnSlipIfNeeded(bookingId, action, slip));
+            perf.endStage("jobEnqueueMs", "job");
+          }
+          return {
+            ok: true,
+            id: booking?.id,
+            status: booking?.status,
+            slip_queued: slipQueued,
+          };
+        },
       );
-      perf.endStage("transactionMs", "tx");
-      const slip = slipOptsForReturnAction(
-        action,
-        { items: items.length ? items : undefined },
-        beforeItems,
-        req.nextUrl.origin,
-        user.username,
-      );
-      if (slip.hasWork || IMMEDIATE_RETURN_SLIP_ACTIONS.has(action)) {
-        perf.mark("job");
-        await triggerReturnSlipIfNeeded(bookingId, action, slip);
-        perf.endStage("jobEnqueueMs", "job");
-      }
-      const timings = perf.finish({ kind: incomplete_photo || items.some((i) => i.incomplete_photo) ? "photo" : "mutation" });
-      return withServerTiming(
-        jsonOk({ ok: true, id: booking?.id, status: booking?.status, slip_queued: true }),
-        timings,
-      );
+
+      const timings = perf.finish({
+        kind: incomplete_photo || items.some((i) => i.incomplete_photo) ? "photo" : "mutation",
+      });
+      return withServerTiming(jsonOk({ ...result, reused: reused || undefined }), timings);
     }
 
     const _ct = requireJsonContentType(req);
@@ -198,50 +226,82 @@ export async function POST(req: NextRequest, { params }: { params: Promise<{ id:
     const body = await req.json();
     perf.endStage("parseMs", "parse");
     const action = String(body.action || "");
-    perf.mark("read");
-    const beforeItems = await loadBookingItemsBefore(bookingId);
-    perf.endStage("initialReadMs", "read");
-    perf.mark("tx");
-    const booking = await saveReturn(
+    const operationId =
+      typeof body.operation_id === "string" ? body.operation_id.trim() : "";
+
+    const canonicalPayload = {
       bookingId,
-      String(body.action || ""),
-      {
-        booking_item_id: body.booking_item_id ? Number(body.booking_item_id) : undefined,
-        booking_item_ids: Array.isArray(body.booking_item_ids)
-          ? body.booking_item_ids.map(Number).filter((n: number) => n > 0)
-          : undefined,
-        incomplete_notes: body.incomplete_notes,
-        security_held: Number(body.security_held || 0),
-        items: Array.isArray(body.items) ? body.items : undefined,
-      },
-      user.username,
-    );
-    perf.endStage("transactionMs", "tx");
-    const slip = slipOptsForReturnAction(
       action,
+      booking_item_id: body.booking_item_id ? Number(body.booking_item_id) : undefined,
+      booking_item_ids: Array.isArray(body.booking_item_ids)
+        ? body.booking_item_ids.map(Number).filter((n: number) => n > 0)
+        : undefined,
+      incomplete_notes: body.incomplete_notes,
+      security_held: Number(body.security_held || 0),
+      items: Array.isArray(body.items) ? body.items : undefined,
+    };
+
+    const { result, reused } = await runIdempotentMutation(
       {
-        booking_item_id: body.booking_item_id ? Number(body.booking_item_id) : undefined,
-        booking_item_ids: Array.isArray(body.booking_item_ids)
-          ? body.booking_item_ids.map(Number).filter((n: number) => n > 0)
-          : undefined,
-        items: Array.isArray(body.items) ? body.items : undefined,
+        operationId,
+        operationType: `return_${action || "json"}`,
+        bookingId,
+        actorUserId: user.id,
+        payload: canonicalPayload,
       },
-      beforeItems,
-      req.nextUrl.origin,
-      user.username,
+      async () => {
+        const beforeItems = await loadBookingItemsBefore(bookingId);
+        perf.mark("tx");
+        const booking = await saveReturn(
+          bookingId,
+          action,
+          {
+            booking_item_id: body.booking_item_id ? Number(body.booking_item_id) : undefined,
+            booking_item_ids: Array.isArray(body.booking_item_ids)
+              ? body.booking_item_ids.map(Number).filter((n: number) => n > 0)
+              : undefined,
+            incomplete_notes: body.incomplete_notes,
+            security_held: Number(body.security_held || 0),
+            items: Array.isArray(body.items) ? body.items : undefined,
+          },
+          user.username,
+        );
+        perf.endStage("transactionMs", "tx");
+        const slip = slipOptsForReturnAction(
+          action,
+          {
+            booking_item_id: body.booking_item_id ? Number(body.booking_item_id) : undefined,
+            booking_item_ids: Array.isArray(body.booking_item_ids)
+              ? body.booking_item_ids.map(Number).filter((n: number) => n > 0)
+              : undefined,
+            items: Array.isArray(body.items) ? body.items : undefined,
+          },
+          beforeItems,
+          req.nextUrl.origin,
+          user.username,
+        );
+        let slipQueued = false;
+        if (slip.hasWork || IMMEDIATE_RETURN_SLIP_ACTIONS.has(action)) {
+          perf.mark("job");
+          slipQueued = Boolean(await triggerReturnSlipIfNeeded(bookingId, action, slip));
+          perf.endStage("jobEnqueueMs", "job");
+        }
+        return {
+          ok: true,
+          id: booking?.id,
+          status: booking?.status,
+          slip_queued: slipQueued,
+        };
+      },
     );
-    if (slip.hasWork || IMMEDIATE_RETURN_SLIP_ACTIONS.has(action)) {
-      perf.mark("job");
-      await triggerReturnSlipIfNeeded(bookingId, action, slip);
-      perf.endStage("jobEnqueueMs", "job");
-    }
+
     const timings = perf.finish({ kind: "mutation" });
-    return withServerTiming(
-      jsonOk({ ok: true, id: booking?.id, status: booking?.status, slip_queued: true }),
-      timings,
-    );
+    return withServerTiming(jsonOk({ ...result, reused: reused || undefined }), timings);
   } catch (e) {
     perf.finish({ kind: "mutation", forceLog: true });
+    if (e instanceof MutationIdempotencyError) {
+      return jsonError(e.message, e.httpStatus);
+    }
     return jsonError(e instanceof Error ? e.message : "Save failed");
   }
 }

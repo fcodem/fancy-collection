@@ -34,11 +34,20 @@ export async function repairAllBookingStatuses() {
   return fixed;
 }
 
-async function clearBookingIdPhotos(booking: { idPhoto1?: string | null; idPhoto2?: string | null }) {
-  await deleteUploads([booking.idPhoto1, booking.idPhoto2]);
+async function clearBookingIdPhotos(booking: {
+  id: number;
+  idPhoto1?: string | null;
+  idPhoto2?: string | null;
+}) {
+  const { enqueueBlobCleanup } = await import("@/lib/blobCleanup");
+  await enqueueBlobCleanup([booking.idPhoto1, booking.idPhoto2], {
+    reason: "clear_id_photos",
+    bookingId: booking.id,
+  });
 }
 
 async function clearIncompletePhotos(booking: {
+  id: number;
   incompletePhoto?: string | null;
   bookingItems?: Array<{ itemIncompletePhoto?: string | null }>;
 }) {
@@ -46,7 +55,8 @@ async function clearIncompletePhotos(booking: {
     booking.incompletePhoto,
     ...(booking.bookingItems?.map((bi) => bi.itemIncompletePhoto) ?? []),
   ];
-  await deleteUploads(paths);
+  const { enqueueBlobCleanup } = await import("@/lib/blobCleanup");
+  await enqueueBlobCleanup(paths, { reason: "clear_incomplete_photos", bookingId: booking.id });
 }
 
 /** When every delivered dress is returned (none incomplete), close the booking. */
@@ -858,12 +868,15 @@ export async function saveDelivery(
   if (data.items?.length) {
     const newlyDeliveredItemIds: number[] = [];
     const result = await prisma.$transaction(async (tx) => {
-      await tx.$executeRawUnsafe(
-        `SELECT id FROM bookings WHERE id = $1 FOR UPDATE`,
-        bookingId,
-      );
+      await tx.$executeRaw`SELECT id FROM bookings WHERE id = ${bookingId} FOR UPDATE`;
 
-      const itemById = new Map(booking.bookingItems.map((bi) => [bi.id, bi]));
+      const locked = await tx.booking.findUnique({
+        where: { id: bookingId },
+        include: { bookingItems: true },
+      });
+      if (!locked) throw new Error("Booking not found");
+
+      const itemById = new Map(locked.bookingItems.map((bi) => [bi.id, bi]));
       const updates = data.items!.map((item) => {
         const bi = itemById.get(item.booking_item_id);
         if (!bi) return null;
@@ -908,12 +921,12 @@ export async function saveDelivery(
         refreshed.bookingItems.some((bi) => bi.isDelivered && !bi.isCancelled) ||
         refreshed.status === "delivered";
       const nextSecurityHeld =
-        booking.status === "incomplete_return"
-          ? booking.securityHeld
+        locked.status === "incomplete_return"
+          ? locked.securityHeld
           : totalSecurity > 0
             ? totalSecurity
-            : dressIsOut && booking.securityDeposit > 0
-              ? booking.securityDeposit
+            : dressIsOut && locked.securityDeposit > 0
+              ? locked.securityDeposit
               : 0;
 
       const allActiveDelivered =
@@ -931,7 +944,7 @@ export async function saveDelivery(
           remainingCollected: totalRemaining,
           securityCollected: totalSecurity,
           securityHeld: nextSecurityHeld,
-          deliveryNotes: newNotes || data.delivery_notes || booking.deliveryNotes,
+          deliveryNotes: newNotes || data.delivery_notes || locked.deliveryNotes,
           remainingPaymentMode: resolveRemainingPaymentMode(totalRemaining),
           securityPaymentMode: resolveSecurityPaymentMode(totalSecurity),
           ...(allActiveDelivered
@@ -1101,13 +1114,42 @@ export async function saveReturn(
     }
     const undelivered = booking.bookingItems.filter((bi) => !bi.isDelivered);
     const closeBooking = undelivered.length === 0;
-    if (closeBooking) {
-      await clearIncompletePhotos(booking);
-      await clearBookingIdPhotos(booking);
-    }
-    await prisma.$transaction(async (tx) => {
-      if (closeBooking) {
-        await tx.booking.update({
+    const photosToClear = closeBooking
+      ? [booking.incompletePhoto, booking.idPhoto1, booking.idPhoto2]
+      : [];
+
+    const result = await prisma.$transaction(async (tx) => {
+      await tx.$executeRaw`SELECT id FROM bookings WHERE id = ${bookingId} FOR UPDATE`;
+      const locked = await tx.booking.findUnique({
+        where: { id: bookingId },
+        include: { bookingItems: true },
+      });
+      if (!locked) throw new Error("Booking not found");
+
+      const toReturn = locked.bookingItems.filter(
+        (bi) => bi.isDelivered && !bi.isReturned && !bi.isCancelled,
+      );
+      const ids = toReturn.map((bi) => bi.id);
+      const clothingIds = toReturn
+        .map((bi) => bi.itemId)
+        .filter((id): id is number => id != null);
+
+      if (ids.length) {
+        await tx.bookingItem.updateMany({
+          where: { id: { in: ids } },
+          data: { isReturned: true },
+        });
+      }
+      if (clothingIds.length) {
+        await tx.clothingItem.updateMany({
+          where: { id: { in: clothingIds } },
+          data: { status: "available" },
+        });
+      }
+
+      const stillUndelivered = locked.bookingItems.filter((bi) => !bi.isDelivered && !bi.isCancelled);
+      if (stillUndelivered.length === 0) {
+        return tx.booking.update({
           where: { id: bookingId },
           data: {
             status: "returned",
@@ -1118,16 +1160,37 @@ export async function saveReturn(
             idPhoto1: null,
             idPhoto2: null,
           },
+          include: { bookingItems: true },
         });
       }
-      for (const bi of booking.bookingItems) {
-        if (!bi.isDelivered || bi.isReturned) continue;
-        await tx.bookingItem.update({ where: { id: bi.id }, data: { isReturned: true } });
-        if (bi.itemId != null) {
-          await tx.clothingItem.update({ where: { id: bi.itemId }, data: { status: "available" } });
-        }
-      }
+      return tx.booking.findUnique({
+        where: { id: bookingId },
+        include: { bookingItems: true },
+      });
     });
+
+    if (photosToClear.length) {
+      const { enqueueBlobCleanup } = await import("@/lib/blobCleanup");
+      await enqueueBlobCleanup(photosToClear, { reason: "full_return", bookingId });
+    }
+    // fall through to common post-handling below via returning early with activity
+    const finalBooking =
+      result ||
+      (await prisma.booking.findUnique({
+        where: { id: bookingId },
+        include: { bookingItems: true },
+      }));
+    if (finalBooking) {
+      broadcastShopEvent({ type: "booking.returned", bookingId, status: finalBooking.status, by });
+      void logActivity({
+        username: by || "system",
+        action: "returned",
+        entity: "booking",
+        entityId: bookingId,
+        label: `Return — Booking #${String(booking.monthlySerial).padStart(2, "0")}`,
+      });
+    }
+    return finalBooking;
   } else if (action === "mark_item_returned") {
     if (!booking.bookingItems.length) {
       await clearBookingIdPhotos(booking);

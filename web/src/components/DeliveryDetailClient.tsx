@@ -1,7 +1,7 @@
 "use client";
 
 import Link from "next/link";
-import { useEffect, useRef, useState } from "react";
+import { useEffect, useState } from "react";
 import { BookingRecordDetails } from "@/components/BookingRecordDetails";
 import BookingItemWarningsBlock, {
   BookingItemWarningsSection,
@@ -17,7 +17,7 @@ import { idProofUrl, photoUrl } from "@/lib/photoUrl";
 import ZoomableImage from "@/components/ZoomableImage";
 import { deliverySlipHref, hasPartialDelivery } from "@/lib/bookingStatus";
 import { navigatePrintTab, openBlankPrintTab, withSlipPrintQuery } from "@/lib/slipPrintUrl";
-import { generateUuidV4 } from "@/lib/clientUuid";
+import { useMutationOperationId } from "@/lib/useMutationOperationId";
 import { useToast } from "@/components/ui/Toast";
 
 type ItemRow = {
@@ -130,7 +130,7 @@ export default function DeliveryDetailClient({
     return init;
   });
   const [saving, setSaving] = useState(false);
-  const submittingRef = useRef(false);
+  const op = useMutationOperationId();
   const toast = useToast();
   const [error, setError] = useState("");
   const [editingDelivered, setEditingDelivered] = useState<Record<number, boolean>>({});
@@ -303,29 +303,25 @@ export default function DeliveryDetailClient({
   }
 
   async function saveItem(itemId: number, opts?: { openPrintSlip?: boolean }) {
-    if (submittingRef.current || saving) return;
-    submittingRef.current = true;
+    const it = localItems.find((i) => i.id === itemId);
+    if (!it) return;
+    const payloadKey = `edit:${itemId}:${itemForms[itemId]?.remaining}:${itemForms[itemId]?.security}`;
+    const operationId = op.begin(payloadKey);
+    if (!operationId) return;
     setSaving(true);
     setError("");
     const printWindow = opts?.openPrintSlip ? openBlankPrintTab() : null;
-    const it = localItems.find((i) => i.id === itemId);
-    if (!it) {
-      printWindow?.close();
-      setSaving(false);
-      submittingRef.current = false;
-      return;
-    }
 
     if (!(await flushPendingIdPhotos())) {
       printWindow?.close();
       setSaving(false);
-      submittingRef.current = false;
+      op.fail();
       setError("Could not save ID photos. Try Save ID Photos, then deliver again.");
       return;
     }
 
     const payload = {
-      operation_id: generateUuidV4(),
+      operation_id: operationId,
       payment_mode: paymentMode,
       security_payment_mode: securityPaymentMode,
       items: [{
@@ -339,41 +335,46 @@ export default function DeliveryDetailClient({
     };
 
     try {
-    const res = await fetch(`/api/booking-delivery/${booking.id}/save`, {
-      method: "POST",
-      headers: { "Content-Type": "application/json" },
-      body: JSON.stringify(payload),
-      credentials: "same-origin",
-    });
-    const data = await res.json();
-    if (!res.ok) {
-      printWindow?.close();
-      setError(data.error || "Save failed");
-      return;
-    }
-    applySaveResponse(data);
-    if (data.slip_queued) toast("Delivery saved — receipt queued for WhatsApp", "success");
-    if (opts?.openPrintSlip) {
-      const updatedItems = localItems.map((row) => {
-        const saved = data.items?.find((s: SaveItemResponse) => s.id === row.id);
-        if (!saved) return row;
-        return { ...row, isDelivered: saved.isDelivered };
+      const res = await fetch(`/api/booking-delivery/${booking.id}/save`, {
+        method: "POST",
+        headers: { "Content-Type": "application/json" },
+        body: JSON.stringify(payload),
+        credentials: "same-origin",
       });
-      const merged = updatedItems.map((row) =>
-        row.id === itemId ? { ...row, isDelivered: true } : row,
-      );
-      navigatePrintTab(
-        printWindow,
-        deliverySlipHref(
-          booking.id,
-          { status: data.status ?? booking.status, bookingItems: merged },
-          itemId,
-        ),
-      );
-    }
+      const data = await res.json();
+      if (!res.ok) {
+        printWindow?.close();
+        setError(data.error || "Save failed");
+        op.fail({ clearId: res.status === 409 });
+        return;
+      }
+      applySaveResponse(data);
+      op.succeed();
+      if (data.slip_queued) toast("Delivery saved — receipt queued for WhatsApp", "success");
+      if (opts?.openPrintSlip) {
+        const updatedItems = localItems.map((row) => {
+          const saved = data.items?.find((s: SaveItemResponse) => s.id === row.id);
+          if (!saved) return row;
+          return { ...row, isDelivered: saved.isDelivered };
+        });
+        const merged = updatedItems.map((row) =>
+          row.id === itemId ? { ...row, isDelivered: true } : row,
+        );
+        navigatePrintTab(
+          printWindow,
+          deliverySlipHref(
+            booking.id,
+            { status: data.status ?? booking.status, bookingItems: merged },
+            itemId,
+          ),
+        );
+      }
+    } catch (e) {
+      printWindow?.close();
+      setError(e instanceof Error ? e.message : "Network error — tap again to retry");
+      op.fail();
     } finally {
       setSaving(false);
-      submittingRef.current = false;
     }
   }
 
@@ -384,8 +385,9 @@ export default function DeliveryDetailClient({
       setError("Select at least one dress to deliver, then press Save.");
       return;
     }
-    if (submittingRef.current || saving) return;
-    submittingRef.current = true;
+    const payloadKey = `deliver:${ids.slice().sort((a, b) => a - b).join(",")}`;
+    const operationId = op.begin(payloadKey);
+    if (!operationId) return;
     setSaving(true);
     setError("");
     const printWindow = opts?.openPrintSlip ? openBlankPrintTab() : null;
@@ -393,13 +395,13 @@ export default function DeliveryDetailClient({
     if (!(await flushPendingIdPhotos())) {
       printWindow?.close();
       setSaving(false);
-      submittingRef.current = false;
+      op.fail();
       setError("Could not save ID photos. Try Save ID Photos, then deliver again.");
       return;
     }
 
     const payload = {
-      operation_id: generateUuidV4(),
+      operation_id: operationId,
       slip_finalize: true,
       payment_mode: paymentMode,
       security_payment_mode: securityPaymentMode,
@@ -413,45 +415,50 @@ export default function DeliveryDetailClient({
     };
 
     try {
-    const res = await fetch(`/api/booking-delivery/${booking.id}/save`, {
-      method: "POST",
-      headers: { "Content-Type": "application/json" },
-      body: JSON.stringify(payload),
-      credentials: "same-origin",
-    });
-    const data = await res.json();
-    if (!res.ok) {
-      printWindow?.close();
-      setError(data.error || "Save failed");
-      return;
-    }
-    applySaveResponse(data);
-    if (data.slip_queued) toast("Delivery saved — receipt queued for WhatsApp", "success");
-    setSelectedToDeliver((prev) => {
-      const next = { ...prev };
-      for (const id of ids) delete next[id];
-      return next;
-    });
-    if (opts?.openPrintSlip) {
-      const merged = localItems.map((row) => {
-        const saved = data.items?.find((s: SaveItemResponse) => s.id === row.id);
-        if (saved) return { ...row, isDelivered: saved.isDelivered };
-        if (ids.includes(row.id)) return { ...row, isDelivered: true };
-        return row;
+      const res = await fetch(`/api/booking-delivery/${booking.id}/save`, {
+        method: "POST",
+        headers: { "Content-Type": "application/json" },
+        body: JSON.stringify(payload),
+        credentials: "same-origin",
       });
-      navigatePrintTab(
-        printWindow,
-        deliverySlipHref(
-          booking.id,
-          { status: data.status ?? booking.status, bookingItems: merged },
-          ids.length === 1 ? ids[0] : undefined,
-          ids,
-        ),
-      );
-    }
+      const data = await res.json();
+      if (!res.ok) {
+        printWindow?.close();
+        setError(data.error || "Save failed");
+        op.fail({ clearId: res.status === 409 });
+        return;
+      }
+      applySaveResponse(data);
+      op.succeed();
+      if (data.slip_queued) toast("Delivery saved — receipt queued for WhatsApp", "success");
+      setSelectedToDeliver((prev) => {
+        const next = { ...prev };
+        for (const id of ids) delete next[id];
+        return next;
+      });
+      if (opts?.openPrintSlip) {
+        const merged = localItems.map((row) => {
+          const saved = data.items?.find((s: SaveItemResponse) => s.id === row.id);
+          if (saved) return { ...row, isDelivered: saved.isDelivered };
+          if (ids.includes(row.id)) return { ...row, isDelivered: true };
+          return row;
+        });
+        navigatePrintTab(
+          printWindow,
+          deliverySlipHref(
+            booking.id,
+            { status: data.status ?? booking.status, bookingItems: merged },
+            ids.length === 1 ? ids[0] : undefined,
+            ids,
+          ),
+        );
+      }
+    } catch (e) {
+      printWindow?.close();
+      setError(e instanceof Error ? e.message : "Network error — tap again to retry");
+      op.fail();
     } finally {
       setSaving(false);
-      submittingRef.current = false;
     }
   }
 
@@ -462,12 +469,13 @@ export default function DeliveryDetailClient({
       setError("Select at least one dress to save payment details.");
       return;
     }
-    if (submittingRef.current || saving) return;
-    submittingRef.current = true;
+    const payloadKey = `details:${ids.slice().sort((a, b) => a - b).join(",")}`;
+    const operationId = op.begin(payloadKey);
+    if (!operationId) return;
     setSaving(true);
     setError("");
     const payload = {
-      operation_id: generateUuidV4(),
+      operation_id: operationId,
       payment_mode: paymentMode,
       security_payment_mode: securityPaymentMode,
       items: ids.map((id) => ({
@@ -488,13 +496,17 @@ export default function DeliveryDetailClient({
       const data = await res.json();
       if (!res.ok) {
         setError(data.error || "Save failed");
+        op.fail({ clearId: res.status === 409 });
         return;
       }
       applySaveResponse(data);
+      op.succeed();
       toast("Payment details saved (not delivered yet)", "success");
+    } catch (e) {
+      setError(e instanceof Error ? e.message : "Network error — tap again to retry");
+      op.fail();
     } finally {
       setSaving(false);
-      submittingRef.current = false;
     }
   }
 

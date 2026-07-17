@@ -2,7 +2,7 @@ name: CI
 
 on:
   push:
-    branches: [main, performance-optimization]
+    branches: [main, performance-optimization, fix/**]
   pull_request:
     branches: [main]
 

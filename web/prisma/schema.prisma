@@ -610,10 +610,14 @@ model WhatsAppJob {
   /** Prevents duplicate slip/WhatsApp work for the same operation. */
   idempotencyKey  String?   @unique @map("idempotency_key")
   scheduledAt     DateTime  @map("scheduled_at")
+  /** pending | processing | done | failed | cancelled */
   status          String    @default("pending")
   attempts        Int       @default(0)
   maxAttempts     Int       @default(3) @map("max_attempts")
   lastAttemptAt   DateTime? @map("last_attempt_at")
+  claimedAt       DateTime? @map("claimed_at")
+  leaseExpiresAt  DateTime? @map("lease_expires_at")
+  claimedBy       String?   @map("claimed_by")
   completedAt     DateTime? @map("completed_at")
   failedReason    String?   @map("failed_reason")
   createdAt       DateTime  @default(now()) @map("created_at")
@@ -622,6 +626,7 @@ model WhatsAppJob {
 
   @@index([status, scheduledAt])
   @@index([bookingId])
+  @@index([status, leaseExpiresAt])
   @@map("whatsapp_jobs")
 }
 
@@ -1119,11 +1124,33 @@ model MutationReceipt {
   bookingId     Int?      @map("booking_id")
   actorUserId   Int?      @map("actor_user_id")
   requestHash   String    @map("request_hash")
-  status        String    @default("completed")
+  /** processing | completed | failed */
+  status        String    @default("processing")
   resultJson    Json?     @map("result_json")
+  errorMessage  String?   @map("error_message")
   createdAt     DateTime  @default(now()) @map("created_at")
   completedAt   DateTime? @map("completed_at")
 
   @@index([bookingId, operationType])
+  @@index([status, createdAt])
   @@map("mutation_receipts")
+}
+
+/** Deferred Blob deletions — never block business transactions. */
+model BlobCleanupJob {
+  id           Int       @id @default(autoincrement())
+  blobPath     String    @map("blob_path")
+  reason       String
+  bookingId    Int?      @map("booking_id")
+  status       String    @default("pending")
+  attempts     Int       @default(0)
+  maxAttempts  Int       @default(5) @map("max_attempts")
+  scheduledAt  DateTime  @default(now()) @map("scheduled_at")
+  lastError    String?   @map("last_error")
+  createdAt    DateTime  @default(now()) @map("created_at")
+  completedAt  DateTime? @map("completed_at")
+
+  @@index([status, scheduledAt])
+  @@index([bookingId])
+  @@map("blob_cleanup_jobs")
 }

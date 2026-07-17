@@ -3,6 +3,9 @@
 import Link from "next/link";
 import { useRouter } from "next/navigation";
 import { useEffect, useMemo, useState } from "react";
+import { useMutationOperationId } from "@/lib/useMutationOperationId";
+import { compressImageFile, mapPool } from "@/lib/clientImageCompress";
+import { useToast } from "@/components/ui/Toast";
 import { BookingRecordDetails } from "@/components/BookingRecordDetails";
 import BookingItemWarningsBlock, {
   BookingItemWarningsSection,
@@ -281,6 +284,9 @@ export default function ReturnDetailClient({
     });
   }, [returnableItems]);
   const [saving, setSaving] = useState(false);
+  const op = useMutationOperationId();
+  const toast = useToast();
+  const [photoProgress, setPhotoProgress] = useState("");
   const [showCancel, setShowCancel] = useState(false);
   const [incompleteError, setIncompleteError] = useState("");
   const [cancellingId, setCancellingId] = useState<number | null>(null);
@@ -444,6 +450,8 @@ export default function ReturnDetailClient({
   }
 
   async function act(action: string, bookingItemId?: number, opts?: { openPrintSlip?: boolean }) {
+    const operationId = op.begin(`return:${action}:${bookingItemId || "all"}`);
+    if (!operationId) return;
     setReturnError("");
     setSaving(true);
     const printWindow = opts?.openPrintSlip ? openBlankPrintTab() : null;
@@ -453,6 +461,7 @@ export default function ReturnDetailClient({
         headers: { "Content-Type": "application/json" },
         body: JSON.stringify({
           action,
+          operation_id: operationId,
           ...(bookingItemId ? { booking_item_id: bookingItemId } : {}),
         }),
       });
@@ -460,8 +469,11 @@ export default function ReturnDetailClient({
       if (!res.ok) {
         printWindow?.close();
         setReturnError(typeof data.error === "string" ? data.error : "Save failed");
+        op.fail({ clearId: res.status === 409 });
         return;
       }
+      op.succeed();
+      if (data.slip_queued) toast("Return saved — receipt queued for WhatsApp", "success");
       if (opts?.openPrintSlip) {
         const href = bookingItemId
           ? returnSlipHref(booking.id, returnSlipSource, bookingItemId)
@@ -475,6 +487,10 @@ export default function ReturnDetailClient({
         navigatePrintTab(printWindow, href);
       }
       router.refresh();
+    } catch (e) {
+      printWindow?.close();
+      setReturnError(e instanceof Error ? e.message : "Network error — tap again to retry");
+      op.fail();
     } finally {
       setSaving(false);
     }
@@ -487,6 +503,8 @@ export default function ReturnDetailClient({
       setReturnError("Select at least one dress to return, then press Save.");
       return;
     }
+    const operationId = op.begin(`return:selected:${ids.slice().sort((a, b) => a - b).join(",")}`);
+    if (!operationId) return;
     setReturnError("");
     setSaving(true);
     const printWindow = opts?.openPrintSlip ? openBlankPrintTab() : null;
@@ -496,6 +514,7 @@ export default function ReturnDetailClient({
         headers: { "Content-Type": "application/json" },
         body: JSON.stringify({
           action: "mark_items_returned",
+          operation_id: operationId,
           booking_item_ids: ids,
         }),
       });
@@ -503,8 +522,12 @@ export default function ReturnDetailClient({
       if (!res.ok) {
         printWindow?.close();
         setReturnError(typeof data.error === "string" ? data.error : "Save failed");
+        op.fail({ clearId: res.status === 409 });
         return;
       }
+      op.succeed();
+      if (data.slip_queued) toast("Return saved — receipt queued for WhatsApp", "success");
+      setSelectedToReturn({});
       if (opts?.openPrintSlip) {
         const mergedSource = {
           status: data.status ?? booking.status,
@@ -525,6 +548,10 @@ export default function ReturnDetailClient({
         );
       }
       router.refresh();
+    } catch (e) {
+      printWindow?.close();
+      setReturnError(e instanceof Error ? e.message : "Network error — tap again to retry");
+      op.fail();
     } finally {
       setSaving(false);
     }
@@ -536,17 +563,24 @@ export default function ReturnDetailClient({
       return;
     }
 
+    const operationId = op.begin(`return:incomplete:${booking.id}`);
+    if (!operationId) return;
     setIncompleteError("");
+    setPhotoProgress("Compressing photos…");
     setSaving(true);
     try {
-        const form = new FormData();
+      const form = new FormData();
       form.append("action", "incomplete_return");
+      form.append("operation_id", operationId);
 
       if (returnableItems.length === 1 && returnableItems[0].id === 0) {
         const f = incompleteForms[0];
         form.append("incomplete_notes", f?.notes || "");
         form.append("security_held", String(Number(f?.securityHeld) || 0));
-        if (f?.photoFile) form.append("incomplete_photo", f.photoFile);
+        if (f?.photoFile) {
+          const compressed = await compressImageFile(f.photoFile);
+          form.append("incomplete_photo", compressed);
+        }
       } else {
         const items = returnableItems.map((row) => ({
           booking_item_id: row.id,
@@ -555,23 +589,37 @@ export default function ReturnDetailClient({
           security_held: Number(incompleteForms[row.id]?.securityHeld) || 0,
         }));
         form.append("items", JSON.stringify(items));
-        for (const row of returnableItems) {
-          const f = incompleteForms[row.id];
-          if (f?.selected && f.photoFile) {
-            form.append(`item_photo_${row.id}`, f.photoFile);
-          }
+        const photoRows = returnableItems.filter(
+          (row) => incompleteForms[row.id]?.selected && incompleteForms[row.id]?.photoFile,
+        );
+        setPhotoProgress("Uploading photos…");
+        const compressedFiles = await mapPool(photoRows, 2, async (row) => {
+          const file = incompleteForms[row.id]!.photoFile!;
+          return { rowId: row.id, file: await compressImageFile(file) };
+        });
+        for (const { rowId, file } of compressedFiles) {
+          form.append(`item_photo_${rowId}`, file);
         }
       }
 
+      setPhotoProgress("Saving return…");
       const res = await fetch(`/api/return/${booking.id}/save`, { method: "POST", body: form });
       const data = await res.json();
       if (!res.ok) {
         setIncompleteError(data.error || "Save failed");
+        op.fail({ clearId: res.status === 409 });
         return;
       }
+      op.succeed();
+      setPhotoProgress("Return completed");
+      if (data.slip_queued) toast("Incomplete return saved — slip queued", "success");
       router.refresh();
+    } catch (e) {
+      setIncompleteError(e instanceof Error ? e.message : "Network error — tap again to retry");
+      op.fail();
     } finally {
       setSaving(false);
+      setTimeout(() => setPhotoProgress(""), 1500);
     }
   }
 
@@ -827,7 +875,7 @@ export default function ReturnDetailClient({
                                 disabled={cancelBusy}
                                 onClick={() => void cancelDress(d.id, true)}
                               >
-                                Advance Amount Refunded
+                                Refunded
                               </button>
                               <button
                                 type="button"
@@ -836,7 +884,7 @@ export default function ReturnDetailClient({
                                 onClick={() => void cancelDress(d.id, false)}
                                 style={{ borderColor: "var(--danger)", color: "var(--danger)" }}
                               >
-                                Advance Not Refunded
+                                Not Refunded
                               </button>
                               <button
                                 type="button"
@@ -1368,10 +1416,10 @@ export default function ReturnDetailClient({
               {saving
                 ? "Saving…"
                 : selectedReturnCount === 0
-                  ? "Save (select dresses)"
+                  ? "Select dresses to return"
                   : selectedReturnCount === 1
-                    ? "Save — 1 dress + slip"
-                    : `Save — ${selectedReturnCount} dresses + combined slip`}
+                    ? "Return Selected + Send Slip"
+                    : `Return Selected (${selectedReturnCount}) + Combined Slip`}
             </button>
             <button
               type="button"
@@ -1381,7 +1429,7 @@ export default function ReturnDetailClient({
               style={{ color: "#b8860b", borderColor: "#c9a84c" }}
             >
               <i className="fa-solid fa-print" style={{ marginRight: 6 }} />
-              Save &amp; Print A4
+              Return &amp; Print A4
             </button>
             {multiDress && pendingReturnCount > 1 && (
               <button
@@ -1424,6 +1472,9 @@ export default function ReturnDetailClient({
 
               {incompleteError && (
                 <div className="alert alert-error" style={{ marginBottom: 16 }}>{incompleteError}</div>
+              )}
+              {photoProgress && (
+                <div className="alert" style={{ marginBottom: 16 }}>{photoProgress}</div>
               )}
 
               {returnableItems.length === 0 ? (
