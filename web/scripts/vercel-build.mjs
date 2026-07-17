@@ -185,7 +185,12 @@ if (process.env.SKIP_PRISMA_MIGRATE === "1") {
 }
 
 // --- Quality gates (required before next build) ---
-run("typecheck", bin("tsc"), ["--noEmit"]);
+// On Vercel, `next build` already typechecks — skip duplicate tsc to shorten deploy.
+if (process.env.VERCEL === "1") {
+  log("typecheck skipped on Vercel (covered by next build)");
+} else {
+  run("typecheck", bin("tsc"), ["--noEmit"]);
+}
 run("lint", bin("next"), ["lint", "--quiet"]);
 // Do not run the full test suite on Vercel: several *.integration.test.ts files
 // and vitest-only suites need local fixtures / packages that are not in the deploy image.

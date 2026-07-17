@@ -29,17 +29,28 @@ const nextConfig: NextConfig = {
     "onnxruntime-node",
     "sharp",
   ],
-  // Ensure Prisma engines + Chromium binary pack are traced into Vercel functions.
+  // Trace Prisma everywhere; Chromium only into PDF/WhatsApp API routes (not every page).
+  // Bundling chromium into `/*` bloated deploy uploads and timed out at 45m on Vercel.
   outputFileTracingIncludes: {
     "/api/**/*": [
       "./node_modules/.prisma/client/**/*",
       "./node_modules/@prisma/client/**/*",
+    ],
+    "/api/cron/whatsapp-jobs": [
+      "./node_modules/@sparticuz/chromium/**/*",
+    ],
+    "/api/booking/*/whatsapp": [
+      "./node_modules/@sparticuz/chromium/**/*",
+    ],
+    "/api/booking/*/return-slip/whatsapp": [
+      "./node_modules/@sparticuz/chromium/**/*",
+    ],
+    "/api/booking/*/delivery-slip/whatsapp": [
       "./node_modules/@sparticuz/chromium/**/*",
     ],
     "/*": [
       "./node_modules/.prisma/client/**/*",
       "./node_modules/@prisma/client/**/*",
-      "./node_modules/@sparticuz/chromium/**/*",
     ],
   },
   compress: true,
