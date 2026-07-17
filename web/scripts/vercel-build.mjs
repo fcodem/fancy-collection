@@ -1,14 +1,15 @@
 /**
  * Vercel build: generate Prisma client → migrate (required when DB configured) → next build.
  *
- * Preview/Production MUST have real DATABASE_URL + DIRECT_URL (preferably a separate
- * Supabase preview/test project — never the live business DB for Preview).
- * Missing DB credentials or failed migrate must fail the build so the preview
- * cannot appear healthy without the required schema (e.g. booking client_request_id).
+ * Preview/Production need real DATABASE_URL + DIRECT_URL (or Supabase POSTGRES_*).
+ * Free-tier: same Supabase DB is OK for Preview — enable those vars for Preview in
+ * Vercel (Production-only scope is why builds keep failing). Missing credentials or
+ * failed migrate must fail the build so Preview cannot look healthy without schema.
  */
 import { spawnSync } from "child_process";
 import { existsSync } from "fs";
 import { join } from "path";
+import { applySupabaseEnvAliases } from "./apply-supabase-env.mjs";
 import { ensureDirectUrl } from "./ensure-direct-url.mjs";
 
 const root = process.cwd();
@@ -77,8 +78,9 @@ function extractFailedMigrationNames(text) {
 function failMigrate(reason) {
   console.error(`[vercel-build] BLOCKED: ${reason}`);
   console.error(
-    "[vercel-build] Preview/Production must set DATABASE_URL and DIRECT_URL " +
-      "(recommend a separate Supabase preview/test database — not the live business DB). " +
+    "[vercel-build] Set DATABASE_URL and DIRECT_URL for this Vercel environment " +
+      "(Preview checkbox in Environment Variables — same free Supabase DB is fine). " +
+      "Or rely on Supabase integration POSTGRES_URL / POSTGRES_PRISMA_URL for Preview. " +
       "Do not claim this deployment is testable until migrate deploy succeeds.",
   );
   process.exit(1);
@@ -86,6 +88,9 @@ function failMigrate(reason) {
 
 // --- Env bootstrap ---
 log(`node=${process.version} vercel=${process.env.VERCEL || "0"} env=${process.env.VERCEL_ENV || "local"}`);
+
+// Supabase Vercel integration often sets POSTGRES_* only — map before the missing check.
+applySupabaseEnvAliases({ label: "vercel-build" });
 
 const isVercel = process.env.VERCEL === "1";
 const vercelEnv = process.env.VERCEL_ENV || "";
@@ -99,7 +104,10 @@ if (!rawDatabaseUrl) {
   process.env.DATABASE_URL = placeholder;
   process.env.DIRECT_URL = process.env.DIRECT_URL || placeholder;
   console.warn(
-    "[vercel-build] DATABASE_URL is missing. Using a local-only placeholder for prisma generate.",
+    "[vercel-build] DATABASE_URL is missing (and no POSTGRES_* alias). " +
+      "Using a local-only placeholder for prisma generate. " +
+      "In Vercel → Environment Variables, enable DATABASE_URL + DIRECT_URL for Preview " +
+      "(same Supabase project is OK on the free plan — check Preview, not only Production).",
   );
 } else {
   // Rewrites db.*.supabase.co DIRECT_URL → Session pooler when DATABASE_URL is pooler.
