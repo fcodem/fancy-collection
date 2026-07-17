@@ -134,8 +134,8 @@ export function normalizeDatabaseUrl(raw: string | undefined): string | undefine
       if (port === "6543" && !parsed.searchParams.has("pgbouncer")) {
         parsed.searchParams.set("pgbouncer", "true");
       }
-      // 3 = dashboard lists Promise.all (overdue + subcats + orders) after consolidated stats;
-      // keep ≤3 for Supabase pooler; do not raise without measuring P2024 under load.
+      // Hot paths are capped at ≤2 concurrent Prisma queries; limit=3 leaves headroom.
+      // Do not raise without measuring P2024 under load on the transaction pooler.
       parsed.searchParams.set("connection_limit", "3");
       parsed.searchParams.set("connect_timeout", "10");
       parsed.searchParams.set("pool_timeout", "15");

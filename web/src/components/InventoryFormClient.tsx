@@ -65,6 +65,7 @@ function buildPayloadKey(form: FormData, photoHash: string | null): string {
     daily_rate: String(form.get("daily_rate") || "0"),
     deposit: String(form.get("deposit") || "0"),
     sub_category: String(form.get("sub_category") || "Normal"),
+    condition_notes: String(form.get("condition_notes") || ""),
     has_necklace: form.get("has_necklace") === "1",
     has_earrings: form.get("has_earrings") === "1",
     has_teeka: form.get("has_teeka") === "1",

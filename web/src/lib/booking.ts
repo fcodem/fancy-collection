@@ -347,98 +347,86 @@ export async function getAvailableItemsApi(
   const rIso = formatDate(rDate, "iso");
   const exclude = excludeBookingId ? { id: { not: excludeBookingId } } : {};
 
-  const [overlapWhere, returnOnDeliveryWhere, deliveryOnReturnWhere] = await Promise.all([
-    whereBookingOverlapsPeriod(deliveryDateStr, returnDateStr),
-    whereReturnInRange(deliveryDateStr, deliveryDateStr),
-    whereDeliveryInRange(returnDateStr, returnDateStr),
+  // Date filters first (may use SQLite helpers), then limit parallel DB fan-out
+  // so connection_limit=3 pools are less likely to stall under load.
+  const overlapWhere = await whereBookingOverlapsPeriod(deliveryDateStr, returnDateStr);
+  const returnOnDeliveryWhere = await whereReturnInRange(deliveryDateStr, deliveryDateStr);
+  const deliveryOnReturnWhere = await whereDeliveryInRange(returnDateStr, returnDateStr);
+  const activeStatus = { status: { in: ["booked", "delivered"] } };
+
+  // Peak concurrency ≤2 under connection_limit=3.
+  const [allItems, overlappingBookings] = await Promise.all([
+    prisma.clothingItem.findMany({
+      where: {
+        status: { not: "maintenance" },
+        ...(categoryFilter ? { category: categoryFilter } : {}),
+      },
+      select: {
+        id: true,
+        name: true,
+        sku: true,
+        category: true,
+        color: true,
+        size: true,
+        itemType: true,
+        subCategory: true,
+        photo: true,
+        originalPhoto: true,
+        enhancedPhoto: true,
+        hasNecklace: true,
+        hasEarrings: true,
+        hasTeeka: true,
+        hasPasa: true,
+      },
+      orderBy: [{ category: "asc" }, { name: "asc" }],
+    }),
+    prisma.booking.findMany({
+      where: { ...exclude, ...overlapWhere, ...activeStatus },
+      include: bookingWarningInclude,
+    }),
   ]);
 
-  const [
-    allItems,
-    overlappingBookings,
-    returningOnDeliveryBookings,
-    bookedOnReturnBookings,
-    overlappingRentals,
-    overlappingJewellery,
-  ] =
-    await Promise.all([
-      prisma.clothingItem.findMany({
-        where: {
-          status: { not: "maintenance" },
-          ...(categoryFilter ? { category: categoryFilter } : {}),
-        },
-        select: {
-          id: true,
-          name: true,
-          sku: true,
-          category: true,
-          color: true,
-          size: true,
-          itemType: true,
-          subCategory: true,
-          photo: true,
-          originalPhoto: true,
-          enhancedPhoto: true,
-          hasNecklace: true,
-          hasEarrings: true,
-          hasTeeka: true,
-          hasPasa: true,
-        },
-        orderBy: [{ category: "asc" }, { name: "asc" }],
-      }),
-      prisma.booking.findMany({
-        where: {
+  const [returningOnDeliveryBookings, bookedOnReturnBookings] = await Promise.all([
+    prisma.booking.findMany({
+      where: { ...exclude, ...returnOnDeliveryWhere, ...activeStatus },
+      include: bookingWarningInclude,
+    }),
+    prisma.booking.findMany({
+      where: { ...exclude, ...deliveryOnReturnWhere, ...activeStatus },
+      include: bookingWarningInclude,
+    }),
+  ]);
+
+  const [overlappingRentals, overlappingJewellery] = await Promise.all([
+    prisma.rental.findMany({
+      where: {
+        status: { in: ["active", "overdue"] },
+        startDate: { lte: rDate },
+        endDate: { gte: dDate },
+      },
+      include: { items: true },
+    }),
+    prisma.bookingJewellery.findMany({
+      where: {
+        status: "active",
+        itemId: { not: null },
+        booking: {
           ...exclude,
-          ...overlapWhere,
           status: { in: ["booked", "delivered"] },
+          deliveryDate: { lte: rDate },
+          returnDate: { gte: dDate },
         },
-        include: bookingWarningInclude,
-      }),
-      prisma.booking.findMany({
-        where: {
-          ...exclude,
-          ...returnOnDeliveryWhere,
-          status: { in: ["booked", "delivered"] },
-        },
-        include: bookingWarningInclude,
-      }),
-      prisma.booking.findMany({
-        where: {
-          ...exclude,
-          ...deliveryOnReturnWhere,
-          status: { in: ["booked", "delivered"] },
-        },
-        include: bookingWarningInclude,
-      }),
-      prisma.rental.findMany({
-        where: {
-          status: { in: ["active", "overdue"] },
-          startDate: { lte: rDate },
-          endDate: { gte: dDate },
-        },
-        include: { items: true },
-      }),
-      prisma.bookingJewellery.findMany({
-        where: {
-          status: "active",
-          itemId: { not: null },
-          booking: {
-            ...exclude,
-            status: { in: ["booked", "delivered"] },
-            deliveryDate: { lte: rDate },
-            returnDate: { gte: dDate },
-          },
-        },
-        select: {
-          itemId: true,
-          pickNecklace: true,
-          pickEarrings: true,
-          pickTeeka: true,
-          pickPasa: true,
-          booking: { include: bookingWarningInclude },
-        },
-      }),
-    ]);
+      },
+      select: {
+        itemId: true,
+        pickNecklace: true,
+        pickEarrings: true,
+        pickTeeka: true,
+        pickPasa: true,
+        booking: { include: bookingWarningInclude },
+      },
+    }),
+  ]);
 
   const busyItemIds = new Set<number>();
   const returningInfo: Record<number, ReturnType<typeof warningRecordFromBooking> & { customer?: string; contact?: string }> = {};

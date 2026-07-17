@@ -150,7 +150,7 @@ export async function runQueueWatchdog(opts: { drainLimit?: number } = {}): Prom
   drained: number;
   warning?: string;
 }> {
-  const drainLimit = opts.drainLimit ?? 5;
+  const drainLimit = opts.drainLimit ?? 2;
   let stuckRecovered = 0;
   try {
     const stuck = await recoverStuckAiJobs();
@@ -413,7 +413,7 @@ export async function runStartupHealthCheck(): Promise<DeploymentAuditReport> {
 
   // Self-heal: continue pending jobs after interrupted deploy
   if (report.queue.pendingJobs > 0 || report.queue.retrying > 0) {
-    const drained = await drainAiJobQueue(10);
+    const drained = await drainAiJobQueue(2);
     console.log(`[startup] drained ${drained.processed} pending AI jobs`);
   }
 

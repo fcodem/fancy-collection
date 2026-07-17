@@ -100,6 +100,7 @@ function buildUnitRows(base: UnitBase, quantity: number, skus: string[]) {
       hasEarrings: base.hasEarrings ?? false,
       hasTeeka: base.hasTeeka ?? false,
       hasPasa: base.hasPasa ?? false,
+      inventoryGroupId: base.inventoryGroupId,
     };
   });
 }
@@ -259,54 +260,68 @@ export async function createInventoryItem(
   return { items: created, ai_queue_warning };
 }
 
-export async function updateInventoryItem(
+export type UpdateInventoryForm = {
+  name: string;
+  category: string;
+  size?: string;
+  color?: string;
+  daily_rate?: number;
+  deposit?: number;
+  condition_notes?: string;
+  status?: string;
+  sub_category?: string;
+  photo?: File | null;
+  /** Pre-uploaded photo path (preferred for idempotent routes). */
+  photoPath?: string | null;
+  remove_photo?: boolean;
+  has_necklace?: boolean;
+  has_earrings?: boolean;
+  has_teeka?: boolean;
+  has_pasa?: boolean;
+};
+
+/**
+ * Update clothing row inside an existing transaction (no broadcast / blob cleanup).
+ * Upload photo BEFORE calling this and pass `photoPath`.
+ */
+export async function updateInventoryItemInTx(
+  tx: Prisma.TransactionClient,
   id: number,
-  form: {
-    name: string;
-    category: string;
-    size?: string;
-    color?: string;
-    daily_rate?: number;
-    deposit?: number;
-    condition_notes?: string;
-    status?: string;
-    sub_category?: string;
-    photo?: File | null;
-    remove_photo?: boolean;
-    has_necklace?: boolean;
-    has_earrings?: boolean;
-    has_teeka?: boolean;
-    has_pasa?: boolean;
-  },
-  by?: string,
-) {
-  const existing = await prisma.clothingItem.findUnique({ where: { id } });
+  form: UpdateInventoryForm,
+  photoFilename: string | null,
+): Promise<{
+  updated: Awaited<ReturnType<typeof prisma.clothingItem.update>>;
+  uploadsToDelete: string[];
+  beforeSnapshot: Record<string, unknown>;
+  photoReplaced: boolean;
+  photoRemoved: boolean;
+}> {
+  const existing = await tx.clothingItem.findUnique({ where: { id } });
   if (!existing) throw new Error("Item not found");
   const beforeSnapshot = snapshotInventory(existing as unknown as Record<string, unknown>);
 
   let photo = existing.photo;
-  let newOriginalPhoto: string | null | undefined = undefined; // undefined = don't change
+  let newOriginalPhoto: string | null | undefined = undefined;
   const uploadsToDelete: string[] = [];
+  const photoRemoved = !!form.remove_photo;
+  const photoReplaced = Boolean(photoFilename && !photoRemoved);
 
-  if (form.remove_photo) {
+  if (photoRemoved) {
     if (existing.photo) uploadsToDelete.push(existing.photo);
     photo = null;
-    // Keep originalPhoto on record for legal reference — don't delete it
   }
-  if (form.photo) {
-    // Replace both photo and originalPhoto with the new upload so list/detail
-    // never keep showing a different older picture of the same dress.
+  if (photoReplaced && photoFilename) {
     if (existing.photo) uploadsToDelete.push(existing.photo);
     if (existing.originalPhoto && existing.originalPhoto !== existing.photo) {
       uploadsToDelete.push(existing.originalPhoto);
     }
     if (existing.enhancedPhoto) uploadsToDelete.push(existing.enhancedPhoto);
     if (existing.marketingPhoto) uploadsToDelete.push(existing.marketingPhoto);
-    photo = await saveFastInventoryPhoto(form.photo);
-    newOriginalPhoto = photo;
+    photo = photoFilename;
+    newOriginalPhoto = photoFilename;
   }
 
-  const updated = await prisma.clothingItem.update({
+  const updated = await tx.clothingItem.update({
     where: { id },
     data: {
       name: form.name.trim(),
@@ -320,7 +335,7 @@ export async function updateInventoryItem(
       subCategory: form.sub_category || existing.subCategory,
       photo,
       ...(newOriginalPhoto !== undefined ? { originalPhoto: newOriginalPhoto } : {}),
-      ...(form.photo
+      ...(photoReplaced
         ? {
             enhancedPhoto: null,
             enhancementStatus: "none",
@@ -338,7 +353,7 @@ export async function updateInventoryItem(
       hasEarrings: form.has_earrings ?? existing.hasEarrings,
       hasTeeka: form.has_teeka ?? existing.hasTeeka,
       hasPasa: form.has_pasa ?? existing.hasPasa,
-      ...(form.remove_photo
+      ...(photoRemoved
         ? {
             aiFingerprint: null,
             aiIndexedAt: null,
@@ -352,8 +367,31 @@ export async function updateInventoryItem(
         : {}),
     },
   });
+
+  return { updated, uploadsToDelete, beforeSnapshot, photoReplaced, photoRemoved };
+}
+
+export async function updateInventoryItem(id: number, form: UpdateInventoryForm, by?: string) {
+  let photoFilename: string | null = form.photoPath ?? null;
+  if (!photoFilename && form.photo && !form.remove_photo) {
+    photoFilename = await saveFastInventoryPhoto(form.photo);
+  }
+
+  let result: Awaited<ReturnType<typeof updateInventoryItemInTx>>;
+  try {
+    result = await prisma.$transaction((tx) =>
+      updateInventoryItemInTx(tx, id, form, photoFilename),
+    );
+  } catch (e) {
+    if (photoFilename && form.photo && !form.photoPath) {
+      await enqueueBlobCleanup([photoFilename], { reason: "orphan_inventory_update_upload" });
+    }
+    throw e;
+  }
+
+  const { updated, uploadsToDelete, beforeSnapshot, photoReplaced, photoRemoved } = result;
   if (uploadsToDelete.length) {
-    await enqueueBlobCleanup(uploadsToDelete, { reason: "inventory_photo_replaced", bookingId: undefined });
+    await enqueueBlobCleanup(uploadsToDelete, { reason: "inventory_photo_replaced" });
   }
   broadcastShopEvent({ type: "inventory.changed", itemIds: [id], by });
   void logActivity({
@@ -365,9 +403,9 @@ export async function updateInventoryItem(
     before: beforeSnapshot,
     after: snapshotInventory(updated as unknown as Record<string, unknown>),
   });
-  if (form.remove_photo) {
+  if (photoRemoved) {
     onInventoryPhotoRemoved(id);
-  } else if (updated.photo && form.photo) {
+  } else if (updated.photo && photoReplaced) {
     try {
       await enqueueInventoryPhotoJobsDurable([updated.id], "photo_replaced");
     } catch (e) {

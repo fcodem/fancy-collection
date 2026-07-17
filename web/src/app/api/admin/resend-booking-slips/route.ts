@@ -2,15 +2,16 @@ import { NextRequest } from "next/server";
 import prisma from "@/lib/prisma";
 import { jsonError, jsonOk, requireOwner, isResponse } from "@/lib/api";
 import {
-  sendBookingBillWhatsApp,
-  sendDeliverySlipWhatsApp,
-  sendPartialReturnSlipWhatsApp,
-  sendIncompleteSlipWhatsApp,
-} from "@/lib/services/whatsapp/automatedMessages";
+  processWhatsAppJobQueue,
+  scheduleBookingBill,
+  scheduleDeliverySlip,
+  scheduleIncompleteSlip,
+  scheduleReturnSlip,
+} from "@/lib/services/whatsapp/jobQueue";
 
 type SlipKind = "booking" | "delivery" | "return" | "incomplete";
 
-/** Owner-only: resend slip PDF(s) on WhatsApp for a booking. */
+/** Owner-only: resend slip PDF(s) via durable WA job queue (send ledger protected). */
 export async function POST(req: NextRequest) {
   const user = await requireOwner();
   if (isResponse(user)) return user;
@@ -26,9 +27,12 @@ export async function POST(req: NextRequest) {
 
     const origin = req.nextUrl.origin;
     const results: Record<string, unknown> = {};
+    const jobIds: number[] = [];
 
     if (kinds.includes("booking")) {
-      results.booking = await sendBookingBillWhatsApp(bookingId, origin);
+      const job = await scheduleBookingBill(bookingId, origin, user.username);
+      results.booking = { ok: Boolean(job?.id), job_id: job?.id ?? null };
+      if (job?.id) jobIds.push(job.id);
     }
 
     if (kinds.includes("delivery")) {
@@ -36,11 +40,24 @@ export async function POST(req: NextRequest) {
         where: { bookingId, isDelivered: true },
         data: { deliverySlipNotifiedAt: null },
       });
-      results.delivery = await sendDeliverySlipWhatsApp(
+      const deliveredIds = (
+        await prisma.bookingItem.findMany({
+          where: { bookingId, isDelivered: true, isCancelled: false },
+          select: { id: true },
+        })
+      ).map((r) => r.id);
+      const job = await scheduleDeliverySlip(
         bookingId,
-        { scope: "full", bookingItemIds: [] },
+        {
+          scope: deliveredIds.length <= 1 ? "single" : "combined",
+          bookingItemId: deliveredIds.length === 1 ? deliveredIds[0] : undefined,
+          bookingItemIds: deliveredIds,
+        },
         origin,
+        user.username,
       );
+      results.delivery = { ok: Boolean(job?.id), job_id: job?.id ?? null };
+      if (job?.id) jobIds.push(job.id);
     }
 
     if (kinds.includes("return")) {
@@ -56,7 +73,7 @@ export async function POST(req: NextRequest) {
       ).map((r) => r.id);
       const scope =
         returnedIds.length <= 1 ? "single" : returnedIds.length > 1 ? "combined" : "full";
-      results.return = await sendPartialReturnSlipWhatsApp(
+      const job = await scheduleReturnSlip(
         bookingId,
         {
           scope: returnedIds.length === 0 ? "full" : scope,
@@ -64,7 +81,10 @@ export async function POST(req: NextRequest) {
           bookingItemIds: returnedIds,
         },
         origin,
+        user.username,
       );
+      results.return = { ok: Boolean(job?.id), job_id: job?.id ?? null };
+      if (job?.id) jobIds.push(job.id);
     }
 
     if (kinds.includes("incomplete")) {
@@ -82,7 +102,7 @@ export async function POST(req: NextRequest) {
         results.incomplete = { ok: false, error: "No incomplete items on this booking" };
       } else {
         const scope = incompleteIds.length === 1 ? "single" : "combined";
-        results.incomplete = await sendIncompleteSlipWhatsApp(
+        const job = await scheduleIncompleteSlip(
           bookingId,
           {
             scope,
@@ -90,7 +110,21 @@ export async function POST(req: NextRequest) {
             bookingItemIds: incompleteIds,
           },
           origin,
+          user.username,
         );
+        results.incomplete = { ok: Boolean(job?.id), job_id: job?.id ?? null };
+        if (job?.id) jobIds.push(job.id);
+      }
+    }
+
+    let queueSummary: { succeeded?: number } | undefined;
+    if (jobIds.length) {
+      try {
+        queueSummary = await processWhatsAppJobQueue(Math.min(jobIds.length + 1, 4), {
+          bookingId,
+        });
+      } catch (e) {
+        console.error("[admin resend-booking-slips] queue error:", e);
       }
     }
 
@@ -98,7 +132,13 @@ export async function POST(req: NextRequest) {
       (r) => r && typeof r === "object" && "ok" in r && (r as { ok: boolean }).ok,
     );
 
-    return jsonOk({ ok: anyOk, bookingId, results });
+    return jsonOk({
+      ok: anyOk,
+      bookingId,
+      results,
+      queued: jobIds.length,
+      processed: queueSummary?.succeeded ?? 0,
+    });
   } catch (e) {
     return jsonError(e instanceof Error ? e.message : "Resend failed", 500);
   }

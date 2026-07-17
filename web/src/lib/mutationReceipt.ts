@@ -163,6 +163,40 @@ export async function claimMutationReceipt(opts: IdempotentMutationOpts): Promis
   }
 }
 
+/** Persist staging fields (e.g. uploaded photo path) on a processing receipt for retry reuse. */
+export async function storeMutationStaging(
+  operationId: string,
+  staging: Record<string, unknown>,
+): Promise<void> {
+  try {
+    await prisma.mutationReceipt.update({
+      where: { operationId },
+      data: {
+        resultJson: staging as object,
+      },
+    });
+  } catch {
+    /* ignore */
+  }
+}
+
+export async function readMutationStaging(
+  operationId: string,
+): Promise<Record<string, unknown> | null> {
+  try {
+    const row = await prisma.mutationReceipt.findUnique({
+      where: { operationId },
+      select: { status: true, resultJson: true },
+    });
+    if (!row || row.status !== "processing" || !row.resultJson || typeof row.resultJson !== "object") {
+      return null;
+    }
+    return row.resultJson as Record<string, unknown>;
+  } catch {
+    return null;
+  }
+}
+
 /** Must be called on the same transaction client as the business mutation, before commit. */
 export async function completeMutationReceiptInTx(
   tx: Prisma.TransactionClient,

@@ -217,7 +217,7 @@ export async function getDashboardFreeItems(deliveryDateStr: string, returnDateS
   const dDate = parseDateQ(deliveryDateStr);
   const rDate = parseDateQ(returnDateStr);
 
-  const [allItems, overlapWhere, returningOnDeliveryWhere, deliveryOnReturnWhere] = await Promise.all([
+  const [allItems, overlapWhere] = await Promise.all([
     prisma.clothingItem.findMany({
       where: {
         status: { not: "maintenance" },
@@ -226,16 +226,12 @@ export async function getDashboardFreeItems(deliveryDateStr: string, returnDateS
       select: { id: true, name: true, category: true, color: true, size: true },
     }),
     whereBookingOverlapsPeriod(deliveryDateStr, returnDateStr),
-    whereReturnInRange(deliveryDateStr, deliveryDateStr),
-    whereDeliveryInRange(returnDateStr, returnDateStr),
   ]);
+  const returningOnDeliveryWhere = await whereReturnInRange(deliveryDateStr, deliveryDateStr);
+  const deliveryOnReturnWhere = await whereDeliveryInRange(returnDateStr, returnDateStr);
 
-  const [
-    overlappingBookings,
-    overlappingRentals,
-    returningOnDeliveryBookings,
-    bookingsOnReturnDate,
-  ] = await Promise.all([
+  // Peak concurrency ≤2 under connection_limit=3.
+  const [overlappingBookings, overlappingRentals] = await Promise.all([
     prisma.booking.findMany({
       where: {
         status: { in: ["booked", "delivered"] },
@@ -254,6 +250,8 @@ export async function getDashboardFreeItems(deliveryDateStr: string, returnDateS
       },
       include: { items: true },
     }),
+  ]);
+  const [returningOnDeliveryBookings, bookingsOnReturnDate] = await Promise.all([
     prisma.booking.findMany({
       where: { status: { in: ["booked", "delivered"] }, ...returningOnDeliveryWhere },
       select: {
@@ -424,13 +422,12 @@ export async function bookingDateCheck(
   const excludeId = bookingId > 0 ? bookingId : undefined;
   const uniqueIds = [...new Set(itemIds)];
 
-  const [returnOnDeliveryWhere, deliveryOnReturnWhere, overlapWhere] = await Promise.all([
-    whereReturnInRange(dIso, dIso),
-    whereDeliveryInRange(rIso, rIso),
-    whereBookingOverlapsPeriod(dIso, rIso),
-  ]);
+  const returnOnDeliveryWhere = await whereReturnInRange(dIso, dIso);
+  const deliveryOnReturnWhere = await whereDeliveryInRange(rIso, rIso);
+  const overlapWhere = await whereBookingOverlapsPeriod(dIso, rIso);
 
-  const [items, overlapBookings, retWarnBookings, delWarnBookings] = await Promise.all([
+  // Peak concurrency ≤2 under connection_limit=3.
+  const [items, overlapBookings] = await Promise.all([
     prisma.clothingItem.findMany({ where: { id: { in: uniqueIds } } }),
     prisma.booking.findMany({
       where: {
@@ -444,6 +441,8 @@ export async function bookingDateCheck(
       },
       include: { bookingItems: true },
     }),
+  ]);
+  const [retWarnBookings, delWarnBookings] = await Promise.all([
     prisma.booking.findMany({
       where: {
         ...(excludeId ? { id: { not: excludeId } } : {}),
@@ -1075,6 +1074,14 @@ export async function saveDelivery(
   if (!beforeDelivery) beforeDelivery = txBefore;
   if (!labelBooking) labelBooking = result;
 
+  // Nested in outer mutation tx — caller owns post-commit side effects.
+  if (options?.tx) {
+    return Object.assign(result, {
+      newlyDeliveredItemIds,
+      deferSideEffects: true as const,
+    });
+  }
+
   broadcastShopEvent({ type: "booking.delivered", bookingId, status: result.status, by });
   const deliveryDresses =
     labelBooking.bookingItems.map((bi) => bi.dressName).filter(Boolean).join(", ") ||
@@ -1401,13 +1408,22 @@ export async function saveReturn(
       return { result, newlyReturnedItemIds: ids, photosToClear };
     });
 
-    if (txResult.photosToClear.length) {
+    if (!options?.tx && txResult.photosToClear.length) {
       const { enqueueBlobCleanup } = await import("@/lib/blobCleanup");
       await enqueueBlobCleanup(txResult.photosToClear, { reason: "full_return", bookingId });
     }
 
     const finalBooking = txResult.result;
     const labelBooking = booking ?? finalBooking;
+    if (options?.tx) {
+      return finalBooking
+        ? Object.assign(finalBooking, {
+            newlyReturnedItemIds: txResult.newlyReturnedItemIds,
+            deferSideEffects: true as const,
+            photosToClear: txResult.photosToClear,
+          })
+        : finalBooking;
+    }
     if (finalBooking && labelBooking) {
       broadcastShopEvent({ type: "booking.returned", bookingId, status: finalBooking.status, by });
       void logActivity({
@@ -1457,6 +1473,16 @@ export async function saveReturn(
         runMarkItemReturnedInTx(bookingId, itemId, tx),
       );
 
+      newlyReturnedItemIds = txResult.newlyReturnedItemIds;
+      if (options?.tx) {
+        if (!txResult.booking) throw new Error("Booking not found");
+        return Object.assign(txResult.booking, {
+          newlyReturnedItemIds,
+          deferSideEffects: true as const,
+          pathsToCleanup: txResult.pathsToCleanup,
+        });
+      }
+
       if (txResult.pathsToCleanup.length) {
         const { enqueueBlobCleanup } = await import("@/lib/blobCleanup");
         await enqueueBlobCleanup(txResult.pathsToCleanup, {
@@ -1464,8 +1490,6 @@ export async function saveReturn(
           bookingId,
         });
       }
-
-      newlyReturnedItemIds = txResult.newlyReturnedItemIds;
     }
   } else if (action === "mark_items_returned") {
     const ids = [...new Set((data.booking_item_ids ?? []).map(Number).filter((id) => id > 0))];
@@ -1475,6 +1499,16 @@ export async function saveReturn(
       runMarkItemsReturnedInTx(bookingId, ids, tx),
     );
 
+    newlyReturnedItemIds = txResult.newlyReturnedItemIds;
+    if (options?.tx) {
+      if (!txResult.booking) throw new Error("Booking not found");
+      return Object.assign(txResult.booking, {
+        newlyReturnedItemIds,
+        deferSideEffects: true as const,
+        pathsToCleanup: txResult.pathsToCleanup,
+      });
+    }
+
     if (txResult.pathsToCleanup.length) {
       const { enqueueBlobCleanup } = await import("@/lib/blobCleanup");
       await enqueueBlobCleanup(txResult.pathsToCleanup, {
@@ -1482,8 +1516,6 @@ export async function saveReturn(
         bookingId,
       });
     }
-
-    newlyReturnedItemIds = txResult.newlyReturnedItemIds;
   } else if (action === "resolve_incomplete_return") {
     const resolved = await resolveIncompleteReturn(bookingId, by, options);
     if (!resolved) throw new Error("Booking is not an incomplete return or could not be resolved.");
@@ -1534,8 +1566,17 @@ export async function saveReturn(
         const noteParts: string[] = [];
         let firstPhoto = data.incomplete_photo || null;
 
+        const incompleteUpdates: Array<{
+          id: number;
+          notes: string | null;
+          photo: string | null;
+          held: number;
+        }> = [];
+        const returnedIds: number[] = [];
+        const availableClothingIds: number[] = [];
+
         for (const bi of locked.bookingItems) {
-          if (!bi.isDelivered) continue;
+          if (!bi.isDelivered || bi.isCancelled) continue;
 
           const row = itemPayload.find((i) => i.booking_item_id === bi.id);
           const isIncomplete = itemPayload.length === 0 ? true : Boolean(row?.is_incomplete);
@@ -1546,35 +1587,52 @@ export async function saveReturn(
             const notes = row?.incomplete_notes?.trim() || "";
             if (notes) noteParts.push(`${bi.dressName}: ${notes}`);
             if (row?.incomplete_photo && !firstPhoto) firstPhoto = row.incomplete_photo;
-
-            await tx.bookingItem.update({
-              where: { id: bi.id },
-              data: {
-                isIncompleteReturn: true,
-                isReturned: false,
-                itemIncompleteNotes: notes || null,
-                itemIncompletePhoto: row?.incomplete_photo || null,
-                itemSecurityHeld: held,
-              },
+            incompleteUpdates.push({
+              id: bi.id,
+              notes: notes || null,
+              photo: row?.incomplete_photo || null,
+              held,
             });
           } else {
-            await tx.bookingItem.update({
-              where: { id: bi.id },
-              data: {
-                isReturned: true,
-                isIncompleteReturn: false,
-                itemIncompleteNotes: null,
-                itemIncompletePhoto: null,
-                itemSecurityHeld: 0,
-              },
-            });
-            if (bi.itemId != null) {
-              await tx.clothingItem.updateMany({
-                where: { id: bi.itemId },
-                data: { status: "available" },
-              });
-            }
+            returnedIds.push(bi.id);
+            if (bi.itemId != null) availableClothingIds.push(bi.itemId);
           }
+        }
+
+        if (returnedIds.length) {
+          await tx.bookingItem.updateMany({
+            where: { id: { in: returnedIds } },
+            data: {
+              isReturned: true,
+              isIncompleteReturn: false,
+              itemIncompleteNotes: null,
+              itemIncompletePhoto: null,
+              itemSecurityHeld: 0,
+            },
+          });
+        }
+        if (availableClothingIds.length) {
+          await tx.clothingItem.updateMany({
+            where: { id: { in: availableClothingIds } },
+            data: { status: "available" },
+          });
+        }
+        if (incompleteUpdates.length) {
+          const values = incompleteUpdates.map(
+            (r) =>
+              Prisma.sql`(${r.id}::int, ${r.notes}, ${r.photo}, ${r.held}::double precision)`,
+          );
+          await tx.$executeRaw`
+            UPDATE booking_items AS bi
+            SET
+              is_incomplete_return = true,
+              is_returned = false,
+              item_incomplete_notes = v.notes,
+              item_incomplete_photo = v.photo,
+              item_security_held = v.held
+            FROM (VALUES ${Prisma.join(values)}) AS v(id, notes, photo, held)
+            WHERE bi.id = v.id
+          `;
         }
 
         await tx.booking.update({
@@ -1592,8 +1650,26 @@ export async function saveReturn(
       });
     }
   }
+
+  // When nested in an outer transaction, reread with that client and defer broadcasts.
+  if (options?.tx) {
+    const updated = await options.tx.booking.findUnique({
+      where: { id: bookingId },
+      include: { bookingItems: true },
+    });
+    return updated
+      ? Object.assign(updated, {
+          newlyReturnedItemIds: newlyReturnedItemIds.length ? newlyReturnedItemIds : [],
+          deferSideEffects: true as const,
+        })
+      : updated;
+  }
+
   const b = await loadBooking();
-  const updated = await prisma.booking.findUnique({ where: { id: bookingId } });
+  const updated = await prisma.booking.findUnique({
+    where: { id: bookingId },
+    include: { bookingItems: true },
+  });
   if (updated) {
     broadcastShopEvent({ type: "booking.returned", bookingId, status: updated.status, by });
     const returnDresses =

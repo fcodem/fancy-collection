@@ -99,6 +99,8 @@ model ClothingItem {
   hasEarrings     Boolean  @default(false) @map("has_earrings")
   hasTeeka        Boolean  @default(false) @map("has_teeka")
   hasPasa         Boolean  @default(false) @map("has_pasa")
+  /** Shared id for variants created in one inventory save (sizes × qty). */
+  inventoryGroupId String?  @map("inventory_group_id")
   aiFingerprint   String?  @map("ai_fingerprint")
   aiIndexedAt     DateTime? @map("ai_indexed_at")
   siglipEmbedding Json?    @map("siglip_embedding")
@@ -138,6 +140,7 @@ model ClothingItem {
   @@index([subCategory])
   @@index([category, subCategory])
   @@index([category, status])
+  @@index([inventoryGroupId])
   @@map("clothing_items")
 }
 
@@ -223,6 +226,7 @@ model Invoice {
   rental   Rental    @relation(fields: [rentalId], references: [id])
   payments Payment[]
 
+  @@index([status])
   @@map("invoices")
 }
 
@@ -237,6 +241,7 @@ model Payment {
 
   invoice Invoice @relation(fields: [invoiceId], references: [id], onDelete: Cascade)
 
+  @@index([paidAt])
   @@map("payments")
 }
 

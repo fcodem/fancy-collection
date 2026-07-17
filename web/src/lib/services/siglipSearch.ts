@@ -57,11 +57,33 @@ export async function loadPhotoBuffer(photo: string): Promise<Buffer | null> {
     if (photo.startsWith("http://") || photo.startsWith("https://")) {
       const res = await fetch(photo);
       if (!res.ok) return null;
-      return Buffer.from(await res.arrayBuffer());
+      const lenHeader = res.headers.get("content-length");
+      if (lenHeader) {
+        const declared = Number(lenHeader);
+        if (Number.isFinite(declared) && declared > PHOTO_SEARCH_MAX_BYTES) {
+          console.warn(
+            `[loadPhotoBuffer] reject oversized remote photo content-length=${declared}`,
+          );
+          return null;
+        }
+      }
+      const buf = Buffer.from(await res.arrayBuffer());
+      if (buf.length > PHOTO_SEARCH_MAX_BYTES) {
+        console.warn(`[loadPhotoBuffer] reject oversized remote photo bytes=${buf.length}`);
+        return null;
+      }
+      return buf;
     }
     const { readFile } = await import("fs/promises");
     const { join } = await import("path");
-    return await readFile(join(process.cwd(), "public", "uploads", photo.replace(/^uploads\//, "")));
+    const buf = await readFile(
+      join(process.cwd(), "public", "uploads", photo.replace(/^uploads\//, "")),
+    );
+    if (buf.length > PHOTO_SEARCH_MAX_BYTES) {
+      console.warn(`[loadPhotoBuffer] reject oversized local photo bytes=${buf.length}`);
+      return null;
+    }
+    return buf;
   } catch {
     return null;
   }

@@ -6,12 +6,15 @@ import { InventoryItemSchema } from "@/lib/validation";
 import { photoUrl } from "@/lib/photoUrl";
 import { computePipelineStatus, enqueueInventoryPhotoJobsDurable } from "@/lib/inventoryPhotoPipeline";
 import { saveFastInventoryPhoto } from "@/lib/upload";
-import { enqueueBlobCleanup } from "@/lib/blobCleanup";
 import { broadcastShopEvent } from "@/lib/realtime/broadcast";
 import { logActivity, snapshotInventory } from "@/lib/activityLog";
+import prisma from "@/lib/prisma";
 import {
   MutationIdempotencyError,
-  runIdempotentMutationInTx,
+  claimMutationReceipt,
+  completeMutationReceiptInTx,
+  readMutationStaging,
+  storeMutationStaging,
   toPublicErrorPayload,
 } from "@/lib/mutationReceipt";
 
@@ -28,6 +31,9 @@ export async function POST(req: NextRequest) {
   if (isResponse(user)) return user;
 
   let uploadedPhotoPath: string | null = null;
+  let claimedOperationId: string | null = null;
+  let committed = false;
+
   try {
     let form: FormData;
     try {
@@ -79,6 +85,7 @@ export async function POST(req: NextRequest) {
       deposit: Number(form.get("deposit") || 0),
       quantity: Number(form.get("quantity") || 1),
       sub_category: String(form.get("sub_category") || "Normal"),
+      condition_notes: String(form.get("condition_notes") || ""),
       has_necklace: form.get("has_necklace") === "1",
       has_earrings: form.get("has_earrings") === "1",
       has_teeka: form.get("has_teeka") === "1",
@@ -86,9 +93,32 @@ export async function POST(req: NextRequest) {
       photo_content_hash: photoHash,
     };
 
-    // Upload before the authoritative DB transaction (stable content hash already claimed).
+    // Claim BEFORE upload so completed retries never create orphan Blob files.
+    const claim = await claimMutationReceipt({
+      operationId,
+      operationType: "inventory_create",
+      actorUserId: user.id,
+      payload: canonicalPayload,
+    });
+    if (claim.kind === "reuse") {
+      return jsonOk({ ...(claim.result as object), reused: true });
+    }
+    claimedOperationId = claim.operationId;
+
+    const staging = await readMutationStaging(operationId);
+    const stagedPhoto =
+      typeof staging?.staging_photo === "string" ? staging.staging_photo : null;
+
     if (hasPhoto) {
-      uploadedPhotoPath = await saveFastInventoryPhoto(photo as File);
+      if (stagedPhoto) {
+        uploadedPhotoPath = stagedPhoto;
+      } else {
+        uploadedPhotoPath = await saveFastInventoryPhoto(photo as File);
+        await storeMutationStaging(operationId, {
+          staging_photo: uploadedPhotoPath,
+          photo_content_hash: photoHash,
+        });
+      }
     }
 
     const formInput = {
@@ -108,96 +138,99 @@ export async function POST(req: NextRequest) {
       has_pasa: form.get("has_pasa") === "1",
     };
 
-    const { result, reused } = await runIdempotentMutationInTx(
-      {
-        operationId,
-        operationType: "inventory_create",
-        actorUserId: user.id,
-        payload: canonicalPayload,
-      },
-      async (tx) => {
-        const { items } = await createInventoryItemInTx(tx, formInput, uploadedPhotoPath || "");
-        const primary = items[0];
-        const pipeline = primary ? computePipelineStatus(primary) : null;
-        return {
-          ok: true as const,
-          count: items.length,
-          ids: items.map((i) => i.id),
-          id: primary?.id,
-          sku: primary?.sku ?? "",
-          name: primary?.name ?? "",
-          original_photo_url: primary ? photoUrl(primary.photo) : "",
-          display_photo_url: pipeline?.display_photo_url || "",
-          pipeline,
-          _hasPhoto: Boolean(uploadedPhotoPath),
-          _itemSnapshots: items.map((i) => ({
-            id: i.id,
-            name: i.name,
-            category: i.category,
-            size: i.size,
-          })),
-        };
-      },
-    );
+    const result = await prisma.$transaction(async (tx) => {
+      const { items, inventoryGroupId } = await createInventoryItemInTx(
+        tx,
+        formInput,
+        uploadedPhotoPath || "",
+      );
+      const primary = items[0];
+      const pipeline = primary ? computePipelineStatus(primary) : null;
+      const publicPayload = {
+        ok: true as const,
+        count: items.length,
+        ids: items.map((i) => i.id),
+        id: primary?.id,
+        sku: primary?.sku ?? "",
+        name: primary?.name ?? "",
+        inventory_group_id: inventoryGroupId,
+        original_photo_url: primary ? photoUrl(primary.photo) : "",
+        display_photo_url: pipeline?.display_photo_url || "",
+        pipeline,
+      };
+      await completeMutationReceiptInTx(tx, operationId, publicPayload);
+      return {
+        ...publicPayload,
+        _hasPhoto: Boolean(uploadedPhotoPath),
+        _itemSnapshots: items.map((i) => ({
+          id: i.id,
+          name: i.name,
+          category: i.category,
+          size: i.size,
+        })),
+      };
+    });
+    committed = true;
 
-    if (!reused) {
-      broadcastShopEvent({
-        type: "inventory.changed",
-        itemIds: result.ids,
-        by: user.username,
+    broadcastShopEvent({
+      type: "inventory.changed",
+      itemIds: result.ids,
+      by: user.username,
+    });
+    for (const snap of result._itemSnapshots || []) {
+      void logActivity({
+        username: user.username,
+        action: "created",
+        entity: "inventory",
+        entityId: snap.id,
+        label: `Added ${snap.name} (${snap.category}, ${snap.size || "—"})`,
+        after: snapshotInventory(snap as unknown as Record<string, unknown>),
       });
-      for (const snap of result._itemSnapshots || []) {
-        void logActivity({
-          username: user.username,
-          action: "created",
-          entity: "inventory",
-          entityId: snap.id,
-          label: `Added ${snap.name} (${snap.category}, ${snap.size || "—"})`,
-          after: snapshotInventory(snap as unknown as Record<string, unknown>),
+    }
+
+    let ai_queue_warning: string | undefined;
+    if (result._hasPhoto && result.ids.length) {
+      try {
+        const queued = await enqueueInventoryPhotoJobsDurable(result.ids, "photo_created");
+        ai_queue_warning = queued.warning || undefined;
+      } catch (e) {
+        console.error("[inventory POST] AI enqueue failed:", e);
+        ai_queue_warning =
+          "Inventory saved but AI queue could not be written. Retry from AI indexing.";
+      }
+      if (!ai_queue_warning) {
+        after(async () => {
+          try {
+            const { drainAiJobQueue } = await import("@/lib/dressChecker/aiJobWorker");
+            await drainAiJobQueue(1, { source: "inventory_save" });
+          } catch (err) {
+            console.error("[inventory POST] after() AI drain:", err);
+          }
         });
       }
-
-      let ai_queue_warning: string | undefined;
-      if (result._hasPhoto && result.ids.length) {
-        try {
-          const queued = await enqueueInventoryPhotoJobsDurable(result.ids, "photo_created");
-          ai_queue_warning = queued.warning || undefined;
-        } catch (e) {
-          console.error("[inventory POST] AI enqueue failed:", e);
-          ai_queue_warning =
-            "Inventory saved but AI queue could not be written. Retry from AI indexing.";
-        }
-        if (!ai_queue_warning) {
-          after(async () => {
-            try {
-              const { drainAiJobQueue } = await import("@/lib/dressChecker/aiJobWorker");
-              await drainAiJobQueue(1, { source: "inventory_save" });
-            } catch (err) {
-              console.error("[inventory POST] after() AI drain:", err);
-            }
-          });
-        }
-      }
-
-      const {
-        _hasPhoto: _a,
-        _itemSnapshots: _b,
-        ...publicResult
-      } = result;
-      return jsonOk({ ...publicResult, ai_queue_warning });
     }
 
     const { _hasPhoto: _a, _itemSnapshots: _b, ...publicResult } = result;
-    return jsonOk({ ...publicResult, reused: true });
+    return jsonOk({ ...publicResult, ai_queue_warning });
   } catch (e) {
-    if (uploadedPhotoPath) {
-      await enqueueBlobCleanup([uploadedPhotoPath], {
-        reason: "orphan_inventory_create_upload",
-      });
-    }
     if (e instanceof MutationIdempotencyError) {
       const pub = toPublicErrorPayload(e);
       return jsonError(pub.error, e.httpStatus, { code: pub.code, retryable: pub.retryable });
+    }
+    if (claimedOperationId && !committed) {
+      // Keep receipt reclaimable with staging_photo intact — do not mark failed
+      // and do not delete the staged upload (retry reuses it).
+      try {
+        await prisma.mutationReceipt.update({
+          where: { operationId: claimedOperationId },
+          data: {
+            leaseExpiresAt: new Date(0),
+            errorMessage: (e instanceof Error ? e.message : "mutation failed").slice(0, 500),
+          },
+        });
+      } catch {
+        /* ignore */
+      }
     }
     const message = e instanceof Error ? e.message : "Failed to add item";
     console.error("[api/inventory POST]", message.slice(0, 200));

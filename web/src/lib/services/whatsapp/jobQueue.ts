@@ -340,7 +340,8 @@ export async function scheduleReturnReceipt(
   }
 }
 
-export async function scheduleDeliverySlip(
+export async function scheduleDeliverySlipInTx(
+  tx: Prisma.TransactionClient,
   bookingId: number,
   payload: {
     scope: "full" | "single" | "combined";
@@ -359,20 +360,21 @@ export async function scheduleDeliverySlip(
         ? [payload.bookingItemId]
         : [];
 
-  try {
-    const { buildWhatsAppIdempotencyKey } = await import("@/lib/mutationIdempotency");
-    const idempotencyKey = buildWhatsAppIdempotencyKey(
-      "delivery_slip",
-      bookingId,
-      itemIds,
-      payload.scope,
-    );
-    const existing = await prisma.whatsAppJob.findFirst({
-      where: { idempotencyKey, status: { in: [...ACTIVE_WA_JOB_STATUSES] } },
-    });
-    if (existing) return existing;
+  const { buildWhatsAppIdempotencyKey } = await import("@/lib/mutationIdempotency");
+  const idempotencyKey = buildWhatsAppIdempotencyKey(
+    "delivery_slip",
+    bookingId,
+    itemIds,
+    payload.scope,
+  );
 
-    return await prisma.whatsAppJob.create({
+  const existing = await tx.whatsAppJob.findFirst({
+    where: { idempotencyKey, status: { in: [...ACTIVE_WA_JOB_STATUSES] } },
+  });
+  if (existing) return existing;
+
+  try {
+    return await tx.whatsAppJob.create({
       data: {
         jobType: "delivery_slip",
         bookingId,
@@ -386,24 +388,72 @@ export async function scheduleDeliverySlip(
     const msg = e instanceof Error ? e.message : "";
     const code = (e as { code?: string })?.code;
     if (code === "P2002" || /idempotency|Unique constraint/i.test(msg)) {
-      const { buildWhatsAppIdempotencyKey } = await import("@/lib/mutationIdempotency");
-      const idempotencyKey = buildWhatsAppIdempotencyKey(
-        "delivery_slip",
-        bookingId,
-        itemIds,
-        payload.scope,
-      );
-      const raced = await prisma.whatsAppJob.findFirst({ where: { idempotencyKey } });
+      const raced = await tx.whatsAppJob.findFirst({ where: { idempotencyKey } });
       if (raced) return raced;
-    }
-    if (/does not exist|Unknown arg|P2021/i.test(msg)) {
-      throw new Error("WhatsApp job idempotency schema unavailable");
     }
     throw e;
   }
 }
 
-async function scheduleKeyedSlipJob(
+export async function scheduleDeliverySlip(
+  bookingId: number,
+  payload: {
+    scope: "full" | "single" | "combined";
+    bookingItemId?: number;
+    bookingItemIds?: number[];
+  },
+  requestOrigin?: string,
+  createdBy?: string,
+) {
+  return prisma.$transaction((tx) =>
+    scheduleDeliverySlipInTx(tx, bookingId, payload, requestOrigin, createdBy),
+  );
+}
+
+export async function scheduleReturnSlipInTx(
+  tx: Prisma.TransactionClient,
+  bookingId: number,
+  payload: {
+    scope: "full" | "single" | "combined";
+    bookingItemId?: number;
+    bookingItemIds?: number[];
+  },
+  requestOrigin?: string,
+  createdBy?: string,
+) {
+  return scheduleKeyedSlipJobInTx(
+    tx,
+    "return_slip",
+    bookingId,
+    payload,
+    requestOrigin,
+    createdBy,
+  );
+}
+
+export async function scheduleIncompleteSlipInTx(
+  tx: Prisma.TransactionClient,
+  bookingId: number,
+  payload: {
+    scope: "full" | "single" | "combined";
+    bookingItemId?: number;
+    bookingItemIds?: number[];
+  },
+  requestOrigin?: string,
+  createdBy?: string,
+) {
+  return scheduleKeyedSlipJobInTx(
+    tx,
+    "incomplete_slip",
+    bookingId,
+    payload,
+    requestOrigin,
+    createdBy,
+  );
+}
+
+async function scheduleKeyedSlipJobInTx(
+  tx: Prisma.TransactionClient,
   jobType: "return_slip" | "incomplete_slip",
   bookingId: number,
   payload: {
@@ -426,13 +476,13 @@ async function scheduleKeyedSlipJob(
   const { buildWhatsAppIdempotencyKey } = await import("@/lib/mutationIdempotency");
   const idempotencyKey = buildWhatsAppIdempotencyKey(jobType, bookingId, itemIds, payload.scope);
 
-  const existing = await prisma.whatsAppJob.findFirst({
+  const existing = await tx.whatsAppJob.findFirst({
     where: { idempotencyKey, status: { in: [...ACTIVE_WA_JOB_STATUSES] } },
   });
   if (existing) return existing;
 
   try {
-    return await prisma.whatsAppJob.create({
+    return await tx.whatsAppJob.create({
       data: {
         jobType,
         bookingId,
@@ -451,11 +501,8 @@ async function scheduleKeyedSlipJob(
     const msg = e instanceof Error ? e.message : "";
     const code = (e as { code?: string })?.code;
     if (code === "P2002" || /idempotency|Unique constraint/i.test(msg)) {
-      const raced = await prisma.whatsAppJob.findFirst({ where: { idempotencyKey } });
+      const raced = await tx.whatsAppJob.findFirst({ where: { idempotencyKey } });
       if (raced) return raced;
-    }
-    if (/does not exist|Unknown arg|P2021/i.test(msg)) {
-      throw new Error("WhatsApp job idempotency schema unavailable");
     }
     throw e;
   }
@@ -471,7 +518,9 @@ export async function scheduleReturnSlip(
   requestOrigin?: string,
   createdBy?: string,
 ) {
-  return scheduleKeyedSlipJob("return_slip", bookingId, payload, requestOrigin, createdBy);
+  return prisma.$transaction((tx) =>
+    scheduleReturnSlipInTx(tx, bookingId, payload, requestOrigin, createdBy),
+  );
 }
 
 export async function scheduleIncompleteSlip(
@@ -484,7 +533,9 @@ export async function scheduleIncompleteSlip(
   requestOrigin?: string,
   createdBy?: string,
 ) {
-  return scheduleKeyedSlipJob("incomplete_slip", bookingId, payload, requestOrigin, createdBy);
+  return prisma.$transaction((tx) =>
+    scheduleIncompleteSlipInTx(tx, bookingId, payload, requestOrigin, createdBy),
+  );
 }
 
 async function executeJob(job: {
@@ -640,7 +691,7 @@ export async function processWhatsAppJobQueue(
             },
             update: {
               jobId: job.id,
-              sendStartedAt: new Date(),
+              // Do not refresh sendStartedAt — preserves first-send fence for unknown outcomes.
             },
           });
         } catch (ledgerErr) {
@@ -691,13 +742,46 @@ export async function processWhatsAppJobQueue(
       results.push({ jobId: job.id, jobType: job.jobType, ok: true });
     } catch (e) {
       const error = e instanceof Error ? e.message : "Job failed";
+      let providerUnknown = false;
+
+      // Any failure after sendStartedAt without confirmation must not auto-resend.
+      if (job.idempotencyKey) {
+        try {
+          const ledger = await prisma.whatsAppSendLedger.findUnique({
+            where: { idempotencyKey: job.idempotencyKey },
+          });
+          if (ledger?.sendConfirmedAt && ledger.providerMessageId) {
+            await prisma.whatsAppJob.update({
+              where: { id: job.id },
+              data: {
+                status: "done",
+                completedAt: new Date(),
+                failedReason: null,
+                claimedAt: null,
+                leaseExpiresAt: null,
+                claimedBy: null,
+              },
+            });
+            results.push({ jobId: job.id, jobType: job.jobType, ok: true });
+            continue;
+          }
+          if (ledger?.sendStartedAt && !ledger.sendConfirmedAt) {
+            providerUnknown = true;
+          }
+        } catch {
+          /* ledger optional */
+        }
+      }
+
       const attempts = job.attempts;
-      const failed = attempts >= job.maxAttempts;
+      const failed = providerUnknown || attempts >= job.maxAttempts;
       await prisma.whatsAppJob.update({
         where: { id: job.id },
         data: {
           status: failed ? "failed" : "pending",
-          failedReason: error,
+          failedReason: providerUnknown
+            ? `PROVIDER_OUTCOME_UNKNOWN: ${error}`.slice(0, 500)
+            : error,
           claimedAt: null,
           leaseExpiresAt: null,
           claimedBy: null,

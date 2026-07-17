@@ -11,8 +11,16 @@ import {
   requireJsonContentType,
   requireOperationId,
 } from "@/lib/api";
-import { finalizeSlipTrigger } from "@/lib/services/whatsapp/slipDebounce";
-import { processWhatsAppJobQueue } from "@/lib/services/whatsapp/jobQueue";
+import {
+  processWhatsAppJobQueue,
+  scheduleReturnSlipInTx,
+  scheduleIncompleteSlipInTx,
+} from "@/lib/services/whatsapp/jobQueue";
+import { isWhatsAppReceiptsDisabled } from "@/lib/services/whatsapp/metaApi";
+import {
+  resolvePartialReturnScope,
+  resolveIncompleteScope,
+} from "@/lib/slipDelta";
 import { createPerfTimer, withServerTiming } from "@/lib/perfTiming";
 import {
   MutationIdempotencyError,
@@ -23,6 +31,7 @@ import {
   toPublicErrorPayload,
 } from "@/lib/mutationReceipt";
 import { enqueueBlobCleanup } from "@/lib/blobCleanup";
+import { broadcastShopEvent } from "@/lib/realtime/broadcast";
 
 export const maxDuration = 60;
 
@@ -41,48 +50,93 @@ async function fileContentHash(file: File): Promise<string> {
   return createHash("sha256").update(buf).digest("hex");
 }
 
-const IMMEDIATE_RETURN_SLIP_ACTIONS = new Set([
-  "mark_returned",
-  "incomplete_return",
-  "resolve_incomplete_return",
-]);
-
-async function triggerReturnSlip(
-  bookingId: number,
-  action: string,
-  opts: {
-    requestOrigin: string;
-    createdBy: string;
-    returnItemIds?: number[];
-    incompleteItemIds?: number[];
-  },
-) {
-  try {
-    await finalizeSlipTrigger(bookingId, "return", {
-      requestOrigin: opts.requestOrigin,
-      createdBy: opts.createdBy,
-      ...(opts.returnItemIds?.length ? { returnItemIds: opts.returnItemIds } : {}),
-      ...(opts.incompleteItemIds?.length
-        ? { incompleteItemIds: opts.incompleteItemIds }
-        : {}),
-    });
-    after(async () => {
-      try {
-        await processWhatsAppJobQueue(2, { bookingId });
-      } catch (e) {
-        console.error("[return save] whatsapp queue error:", e);
-      }
-    });
-    return true;
-  } catch (e) {
-    console.error("[return save] WhatsApp slip error:", e);
-    return false;
-  }
-}
-
 function idempotencyErrorResponse(e: MutationIdempotencyError) {
   const pub = toPublicErrorPayload(e);
   return jsonError(pub.error, e.httpStatus, { code: pub.code, retryable: pub.retryable });
+}
+
+async function scheduleReturnSlipsInTx(
+  tx: Parameters<typeof scheduleReturnSlipInTx>[0],
+  booking: {
+    bookingItems?: Array<{
+      id: number;
+      isDelivered?: boolean;
+      isReturned?: boolean;
+      isIncompleteReturn?: boolean;
+      isCancelled?: boolean;
+      returnSlipNotifiedAt?: Date | null;
+    }>;
+  },
+  opts: {
+    bookingId: number;
+    requestOrigin: string;
+    createdBy: string;
+    returnItemIds: number[];
+    incompleteItemIds: number[];
+  },
+): Promise<{ slipQueued: boolean; slipDisabled: boolean; slipJobIds: number[] }> {
+  if (isWhatsAppReceiptsDisabled()) {
+    return { slipQueued: false, slipDisabled: true, slipJobIds: [] };
+  }
+
+  const slipJobIds: number[] = [];
+  let slipQueued = false;
+
+  const partial = resolvePartialReturnScope(
+    booking,
+    opts.returnItemIds.length ? opts.returnItemIds : undefined,
+  );
+  if (partial) {
+    const job = await scheduleReturnSlipInTx(
+      tx,
+      opts.bookingId,
+      {
+        scope: partial.scope,
+        bookingItemId: partial.bookingItemId,
+        bookingItemIds: partial.bookingItemIds,
+      },
+      opts.requestOrigin,
+      opts.createdBy,
+    );
+    if (job?.id) {
+      slipQueued = true;
+      slipJobIds.push(job.id);
+    }
+  }
+
+  const incomplete = resolveIncompleteScope(
+    booking,
+    opts.incompleteItemIds.length ? opts.incompleteItemIds : undefined,
+  );
+  if (incomplete) {
+    const job = await scheduleIncompleteSlipInTx(
+      tx,
+      opts.bookingId,
+      {
+        scope: incomplete.scope,
+        bookingItemId: incomplete.bookingItemId,
+        bookingItemIds: incomplete.bookingItemIds,
+      },
+      opts.requestOrigin,
+      opts.createdBy,
+    );
+    if (job?.id) {
+      slipQueued = true;
+      slipJobIds.push(job.id);
+    }
+  }
+
+  return { slipQueued, slipDisabled: false, slipJobIds };
+}
+
+function drainQueueAfter(bookingId: number) {
+  after(async () => {
+    try {
+      await processWhatsAppJobQueue(2, { bookingId });
+    } catch (e) {
+      console.error("[return save] whatsapp queue error:", e);
+    }
+  });
 }
 
 export async function POST(req: NextRequest, { params }: { params: Promise<{ id: string }> }) {
@@ -206,6 +260,19 @@ export async function POST(req: NextRequest, { params }: { params: Promise<{ id:
           const incompleteItemIds = items
             .filter((i) => i.is_incomplete)
             .map((i) => i.booking_item_id);
+          const deferredPaths = [
+            ...(((booking as { pathsToCleanup?: string[] }).pathsToCleanup) ?? []),
+            ...(((booking as { photosToClear?: Array<string | null> }).photosToClear) ?? []),
+            ...(((booking as { blobPathsToCleanup?: string[] }).blobPathsToCleanup) ?? []),
+          ].filter((p): p is string => Boolean(p));
+
+          const slips = await scheduleReturnSlipsInTx(tx, booking ?? { bookingItems: [] }, {
+            bookingId,
+            requestOrigin: req.nextUrl.origin,
+            createdBy: user.username,
+            returnItemIds,
+            incompleteItemIds,
+          });
 
           const payload = {
             ok: true,
@@ -213,28 +280,46 @@ export async function POST(req: NextRequest, { params }: { params: Promise<{ id:
             status: booking?.status,
             newly_returned_item_ids: returnItemIds,
             newly_incomplete_item_ids: incompleteItemIds,
-            slip_queued:
-              returnItemIds.length > 0 ||
-              incompleteItemIds.length > 0 ||
-              IMMEDIATE_RETURN_SLIP_ACTIONS.has(action),
+            slip_queued: slips.slipQueued,
+            slip_job_ids: slips.slipJobIds,
+            ...(slips.slipDisabled ? { slip_disabled: true } : {}),
+            _deferredPaths: deferredPaths,
+            _status: booking?.status,
           };
-          await completeMutationReceiptInTx(tx, operationId, payload);
+          await completeMutationReceiptInTx(tx, operationId, {
+            ok: true,
+            id: payload.id,
+            status: payload.status,
+            newly_returned_item_ids: payload.newly_returned_item_ids,
+            newly_incomplete_item_ids: payload.newly_incomplete_item_ids,
+            slip_queued: payload.slip_queued,
+            slip_job_ids: payload.slip_job_ids,
+            ...(slips.slipDisabled ? { slip_disabled: true } : {}),
+          });
           return payload;
         });
 
-        if (result.slip_queued) {
-          await triggerReturnSlip(bookingId, action, {
-            requestOrigin: req.nextUrl.origin,
-            createdBy: user.username,
-            returnItemIds: result.newly_returned_item_ids,
-            incompleteItemIds: result.newly_incomplete_item_ids,
+        if (result._deferredPaths.length) {
+          await enqueueBlobCleanup(result._deferredPaths, {
+            reason: "return_post_commit_cleanup",
+            bookingId,
           });
         }
+        broadcastShopEvent({
+          type: "booking.returned",
+          bookingId,
+          status: result._status,
+          by: user.username,
+        });
+        if (result.slip_queued) {
+          drainQueueAfter(bookingId);
+        }
 
+        const { _deferredPaths: _a, _status: _b, ...publicResult } = result;
         const timings = perf.finish({
           kind: uploadedPaths.length ? "photo" : "mutation",
         });
-        return withServerTiming(jsonOk(result), timings);
+        return withServerTiming(jsonOk(publicResult), timings);
       } catch (e) {
         await failMutationReceipt(
           operationId,
@@ -272,6 +357,7 @@ export async function POST(req: NextRequest, { params }: { params: Promise<{ id:
       items: Array.isArray(body.items) ? body.items : undefined,
     };
 
+    let deferredPaths: string[] = [];
     const { result, reused } = await runIdempotentMutationInTx(
       {
         operationId,
@@ -301,24 +387,54 @@ export async function POST(req: NextRequest, { params }: { params: Promise<{ id:
 
         const returnItemIds =
           (booking as { newlyReturnedItemIds?: number[] }).newlyReturnedItemIds ?? [];
+        const incompleteItemIds = Array.isArray(body.items)
+          ? (body.items as IncompleteItemPayload[])
+              .filter((i) => i.is_incomplete)
+              .map((i) => Number(i.booking_item_id))
+              .filter((n) => n > 0)
+          : [];
+        deferredPaths = [
+          ...(((booking as { pathsToCleanup?: string[] }).pathsToCleanup) ?? []),
+          ...(((booking as { photosToClear?: Array<string | null> }).photosToClear) ?? []),
+          ...(((booking as { blobPathsToCleanup?: string[] }).blobPathsToCleanup) ?? []),
+        ].filter((p): p is string => Boolean(p));
+
+        const slips = await scheduleReturnSlipsInTx(tx, booking ?? { bookingItems: [] }, {
+          bookingId,
+          requestOrigin: req.nextUrl.origin,
+          createdBy: user.username,
+          returnItemIds,
+          incompleteItemIds,
+        });
 
         return {
           ok: true,
           id: booking?.id,
           status: booking?.status,
           newly_returned_item_ids: returnItemIds,
-          slip_queued:
-            returnItemIds.length > 0 || IMMEDIATE_RETURN_SLIP_ACTIONS.has(action),
+          slip_queued: slips.slipQueued,
+          slip_job_ids: slips.slipJobIds,
+          ...(slips.slipDisabled ? { slip_disabled: true } : {}),
         };
       },
     );
 
-    if (!reused && result.slip_queued) {
-      await triggerReturnSlip(bookingId, action, {
-        requestOrigin: req.nextUrl.origin,
-        createdBy: user.username,
-        returnItemIds: result.newly_returned_item_ids as number[],
+    if (!reused) {
+      if (deferredPaths.length) {
+        await enqueueBlobCleanup(deferredPaths, {
+          reason: "return_post_commit_cleanup",
+          bookingId,
+        });
+      }
+      broadcastShopEvent({
+        type: "booking.returned",
+        bookingId,
+        status: result.status,
+        by: user.username,
       });
+      if (result.slip_queued) {
+        drainQueueAfter(bookingId);
+      }
     }
 
     const timings = perf.finish({ kind: "mutation" });

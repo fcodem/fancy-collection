@@ -29,12 +29,11 @@ export default async function DashboardPage() {
   }
 
   try {
-    // Load dashboard + owner widgets together when pool allows — one round-trip wait.
-    const [data, pendingStaff, activeStaff] = await Promise.all([
-      getDashboardData(),
-      owner ? getPendingStaffLoginRequests() : Promise.resolve([]),
-      owner ? getActiveStaffSessions() : Promise.resolve([]),
-    ]);
+    // Dashboard first (uses up to 2 pool slots), then owner widgets — avoids stacking to P2024.
+    const data = await getDashboardData();
+    const [pendingStaff, activeStaff] = owner
+      ? await Promise.all([getPendingStaffLoginRequests(), getActiveStaffSessions()])
+      : [[], []];
 
     return (
       <DashboardView

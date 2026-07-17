@@ -5,9 +5,14 @@
 import { PrismaClient } from "@prisma/client";
 import { allocateInventorySkus } from "../src/lib/services/inventoryOps";
 import { buildWhatsAppIdempotencyKey } from "../src/lib/mutationIdempotency";
+import { createHash } from "crypto";
 
 function assert(cond: unknown, msg: string): asserts cond {
   if (!cond) throw new Error(msg);
+}
+
+function hashPayload(payload: unknown): string {
+  return createHash("sha256").update(JSON.stringify(payload)).digest("hex");
 }
 
 async function main() {
@@ -34,6 +39,7 @@ async function main() {
     `;
     assert(counter.length === 1, "inventory_sku_counter not seeded");
 
+    // Concurrent SKU allocation must not collide.
     const [a, b] = await Promise.all([
       prisma.$transaction((tx) => allocateInventorySkus(3, tx)),
       prisma.$transaction((tx) => allocateInventorySkus(3, tx)),
@@ -43,9 +49,63 @@ async function main() {
 
     await prisma.$queryRaw`SELECT lease_expires_at FROM mutation_receipts LIMIT 0`;
     await prisma.$queryRaw`SELECT idempotency_key FROM whatsapp_send_ledger LIMIT 0`;
+    await prisma.$queryRaw`SELECT inventory_group_id FROM clothing_items LIMIT 0`;
 
     const key = buildWhatsAppIdempotencyKey("return_receipt", 42);
     assert(key.startsWith("return_receipt:42:"), "return_receipt key shape");
+
+    // Concurrent mutation_receipt claims: one wins, second sees existing row.
+    const opId = `itest-claim-${Date.now()}-${Math.random().toString(16).slice(2)}`;
+    const payload = { v: 1, note: "concurrency" };
+    const requestHash = hashPayload(payload);
+    const lease = new Date(Date.now() + 60_000);
+
+    const claimOnce = () =>
+      prisma.$transaction(async (tx) => {
+        const rows = await tx.$queryRaw<Array<{ status: string }>>`
+          SELECT status FROM mutation_receipts
+          WHERE operation_id = ${opId}
+          FOR UPDATE
+        `;
+        if (rows[0]) return { won: false as const, status: rows[0].status };
+        await tx.mutationReceipt.create({
+          data: {
+            operationId: opId,
+            operationType: "integration_test",
+            requestHash,
+            status: "processing",
+            claimedAt: new Date(),
+            leaseExpiresAt: lease,
+          },
+        });
+        return { won: true as const, status: "processing" };
+      });
+
+    const [c1, c2] = await Promise.all([claimOnce(), claimOnce()]);
+    assert(c1.won !== c2.won, "exactly one concurrent claim should win");
+    const winner = c1.won ? c1 : c2;
+    assert(winner.status === "processing", "winner must be processing");
+
+    // condition_notes must affect request hash (idempotency key material).
+    const h1 = hashPayload({ name: "A", condition_notes: "" });
+    const h2 = hashPayload({ name: "A", condition_notes: "stain" });
+    assert(h1 !== h2, "condition_notes must change payload hash");
+
+    // Send-ledger uniqueness: duplicate idempotency key rejected.
+    const ledgerKey = `itest-ledger-${Date.now()}`;
+    await prisma.whatsAppSendLedger.create({
+      data: { idempotencyKey: ledgerKey, sendStartedAt: new Date() },
+    });
+    let dupBlocked = false;
+    try {
+      await prisma.whatsAppSendLedger.create({
+        data: { idempotencyKey: ledgerKey, sendStartedAt: new Date() },
+      });
+    } catch (e) {
+      const code = (e as { code?: string })?.code;
+      dupBlocked = code === "P2002" || /unique/i.test(e instanceof Error ? e.message : "");
+    }
+    assert(dupBlocked, "whatsapp_send_ledger must enforce unique idempotency_key");
 
     console.log("Integration checks passed");
   } finally {

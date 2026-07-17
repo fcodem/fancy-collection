@@ -26,6 +26,27 @@ export async function processOneAiJob(): Promise<boolean> {
 
   console.log(`[ai-worker] PROCESSING job=${job.id} item=${job.itemId} reason=${job.reason}`);
   try {
+    const { default: prisma } = await import("@/lib/prisma");
+    const { loadPhotoBuffer, PHOTO_SEARCH_MAX_BYTES } = await import("@/lib/services/siglipSearch");
+    const item = await prisma.clothingItem.findUnique({
+      where: { id: job.itemId },
+      select: { photo: true, originalPhoto: true },
+    });
+    const path = item?.originalPhoto || item?.photo;
+    if (path) {
+      const buf = await loadPhotoBuffer(path);
+      if (!buf) {
+        const outcome = await failOrRetryAiJob(job.id, "Photo unavailable or exceeds size limit", {
+          retryCount: job.maxRetries,
+          maxRetries: job.maxRetries,
+          itemId: job.itemId,
+        });
+        console.warn(
+          `[ai-worker] ${outcome} job=${job.id} item=${job.itemId} (preflight size>${PHOTO_SEARCH_MAX_BYTES})`,
+        );
+        return true;
+      }
+    }
     const ok = await processInventoryAiProfile(job.itemId, job.reason);
     if (ok) {
       await completeAiJob(job.id);
@@ -41,8 +62,13 @@ export async function processOneAiJob(): Promise<boolean> {
   } catch (err) {
     const message = err instanceof Error ? err.message : "Worker job failed";
     lastError = message;
+    // Native crashes / invalid-size patterns → dead-letter quickly to protect cron.
+    const fatalNative =
+      /invalid size|SIGABRT|heap|out of memory|ENOMEM|Input image exceeds|limitInputPixels/i.test(
+        message,
+      );
     const outcome = await failOrRetryAiJob(job.id, message, {
-      retryCount: job.retryCount,
+      retryCount: fatalNative ? job.maxRetries : job.retryCount,
       maxRetries: job.maxRetries,
       itemId: job.itemId,
     });

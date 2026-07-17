@@ -8,14 +8,19 @@ import {
   requireJsonContentType,
   requireOperationId,
 } from "@/lib/api";
-import { finalizeSlipTrigger } from "@/lib/services/whatsapp/slipDebounce";
-import { processWhatsAppJobQueue } from "@/lib/services/whatsapp/jobQueue";
+import {
+  processWhatsAppJobQueue,
+  scheduleDeliverySlipInTx,
+} from "@/lib/services/whatsapp/jobQueue";
 import { createPerfTimer, withServerTiming } from "@/lib/perfTiming";
 import {
   MutationIdempotencyError,
   runIdempotentMutationInTx,
   toPublicErrorPayload,
 } from "@/lib/mutationReceipt";
+import { isWhatsAppReceiptsDisabled } from "@/lib/services/whatsapp/metaApi";
+import { broadcastShopEvent } from "@/lib/realtime/broadcast";
+import { logActivity, snapshotBooking } from "@/lib/activityLog";
 
 export const maxDuration = 60;
 
@@ -78,6 +83,15 @@ export async function POST(req: NextRequest, { params }: { params: Promise<{ id:
         : undefined,
     };
 
+    const sideEffectBox: {
+      current: {
+        monthlySerial: number;
+        customerName: string;
+        deliveryDresses: string;
+        afterSnapshot: Record<string, unknown>;
+      } | null;
+    } = { current: null };
+
     const { result: payload, reused } = await runIdempotentMutationInTx(
       {
         operationId,
@@ -89,16 +103,41 @@ export async function POST(req: NextRequest, { params }: { params: Promise<{ id:
       async (tx) => {
         perf.mark("tx");
         const booking = await saveDelivery(bookingId, deliveryInput, user.username, { tx });
+        const deliveryItemIds = booking.newlyDeliveredItemIds ?? [];
+
+        let slipJobId: number | null = null;
+        let slipQueued = false;
+        let slipDisabled = false;
+
+        if (isWhatsAppReceiptsDisabled()) {
+          slipDisabled = true;
+        } else if (deliveryItemIds.length > 0) {
+          const job = await scheduleDeliverySlipInTx(
+            tx,
+            bookingId,
+            {
+              scope: deliveryItemIds.length === 1 ? "single" : "combined",
+              bookingItemIds: deliveryItemIds,
+            },
+            req.nextUrl.origin,
+            user.username,
+          );
+          if (job?.id) {
+            slipQueued = true;
+            slipJobId = job.id;
+          }
+        }
         perf.endStage("transactionMs", "tx");
 
-        const deliveryItemIds = booking.newlyDeliveredItemIds ?? [];
-        let slipQueued = false;
-
-        if (deliveryItemIds.length > 0) {
-          // Durable slip enqueue stays outside Chromium/WhatsApp send; queue row is best-effort
-          // after commit via after(). Receipt already stores slip_queued intent.
-          slipQueued = true;
-        }
+        sideEffectBox.current = {
+          monthlySerial: booking.monthlySerial,
+          customerName: booking.customerName,
+          deliveryDresses:
+            (booking.bookingItems || []).map((bi) => bi.dressName).filter(Boolean).join(", ") ||
+            booking.dressName ||
+            "",
+          afterSnapshot: snapshotBooking(booking as unknown as Record<string, unknown>),
+        };
 
         return {
           ok: true,
@@ -113,30 +152,36 @@ export async function POST(req: NextRequest, { params }: { params: Promise<{ id:
             itemDeliveryNotes: bi.itemDeliveryNotes,
           })),
           slip_queued: slipQueued,
+          slip_job_id: slipJobId,
+          ...(slipDisabled ? { slip_disabled: true } : {}),
         };
       },
     );
-    perf.endStage("transactionMs", "tx");
 
-    if (!reused && payload.slip_queued && Array.isArray(payload.newly_delivered_item_ids)) {
-      const deliveryItemIds = payload.newly_delivered_item_ids as number[];
-      if (deliveryItemIds.length > 0) {
-        try {
-          await finalizeSlipTrigger(bookingId, "delivery", {
-            requestOrigin: req.nextUrl.origin,
-            createdBy: user.username,
-            deliveryItemIds,
-          });
-          after(async () => {
-            try {
-              await processWhatsAppJobQueue(2, { bookingId });
-            } catch (e) {
-              console.error("[delivery save] whatsapp queue error:", e);
-            }
-          });
-        } catch (e) {
-          console.error("[delivery save] WhatsApp slip error:", e);
-        }
+    const deliverySideEffects = sideEffectBox.current;
+    if (!reused && deliverySideEffects) {
+      broadcastShopEvent({
+        type: "booking.delivered",
+        bookingId,
+        status: payload.status,
+        by: user.username,
+      });
+      void logActivity({
+        username: user.username,
+        action: "delivered",
+        entity: "booking",
+        entityId: bookingId,
+        label: `Delivery — Booking #${String(deliverySideEffects.monthlySerial).padStart(2, "0")} — ${deliverySideEffects.customerName}${deliverySideEffects.deliveryDresses ? ` (${deliverySideEffects.deliveryDresses})` : ""}`,
+        after: deliverySideEffects.afterSnapshot,
+      });
+      if (payload.slip_queued) {
+        after(async () => {
+          try {
+            await processWhatsAppJobQueue(2, { bookingId });
+          } catch (e) {
+            console.error("[delivery save] whatsapp queue error:", e);
+          }
+        });
       }
     }
 

@@ -1,9 +1,12 @@
 import { NextRequest } from "next/server";
 import prisma from "@/lib/prisma";
 import { jsonError, jsonOk, requireOwner, isResponse } from "@/lib/api";
-import { sendIncompleteSlipWhatsApp } from "@/lib/services/whatsapp/automatedMessages";
+import {
+  processWhatsAppJobQueue,
+  scheduleIncompleteSlip,
+} from "@/lib/services/whatsapp/jobQueue";
 
-/** Owner-only: resend incomplete slip for a booking (e.g. after filename fix). */
+/** Owner-only: resend incomplete slip via durable WA queue (send ledger protected). */
 export async function POST(req: NextRequest) {
   const user = await requireOwner();
   if (isResponse(user)) return user;
@@ -18,13 +21,41 @@ export async function POST(req: NextRequest) {
       data: { returnSlipNotifiedAt: null },
     });
 
-    const result = await sendIncompleteSlipWhatsApp(
+    const incompleteIds = (
+      await prisma.bookingItem.findMany({
+        where: { bookingId, isIncompleteReturn: true },
+        select: { id: true },
+      })
+    ).map((r) => r.id);
+
+    if (!incompleteIds.length) {
+      return jsonError("No incomplete items on this booking", 400);
+    }
+
+    const job = await scheduleIncompleteSlip(
       bookingId,
-      { scope: "combined", bookingItemIds: [] },
+      {
+        scope: incompleteIds.length === 1 ? "single" : "combined",
+        bookingItemId: incompleteIds.length === 1 ? incompleteIds[0] : undefined,
+        bookingItemIds: incompleteIds,
+      },
       req.nextUrl.origin,
+      user.username,
     );
 
-    return jsonOk({ ...result });
+    let queueSummary;
+    try {
+      queueSummary = await processWhatsAppJobQueue(2, { bookingId });
+    } catch (e) {
+      console.error("[admin retry-incomplete-slip] queue error:", e);
+    }
+
+    return jsonOk({
+      ok: Boolean(job?.id),
+      job_id: job?.id ?? null,
+      processed: queueSummary?.succeeded ?? 0,
+      delivered: Boolean(queueSummary?.succeeded),
+    });
   } catch (e) {
     return jsonError(e instanceof Error ? e.message : "Retry failed", 500);
   }

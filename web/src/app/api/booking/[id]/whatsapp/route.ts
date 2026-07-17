@@ -6,8 +6,6 @@ import { jsonError, jsonOk, requireUser, isResponse } from "@/lib/api";
 
 import { scheduleBookingBill, processWhatsAppJobQueue } from "@/lib/services/whatsapp/jobQueue";
 
-import { sendBookingBillWhatsApp } from "@/lib/services/whatsapp/automatedMessages";
-
 import { isWhatsAppConfigured, isWhatsAppReceiptsDisabled } from "@/lib/services/whatsapp/metaApi";
 
 import { buildWhatsAppUrl } from "@/lib/whatsapp";
@@ -145,15 +143,23 @@ export async function POST(req: NextRequest, { params }: { params: Promise<{ id:
   }
 
   if (resend) {
-    const result = await sendBookingBillWhatsApp(bookingId, req.nextUrl.origin);
-    if (!result.ok) {
-      return jsonError(result.error || "Failed to resend booking slip on WhatsApp", 500);
+    // Always go through the durable queue so send-ledger duplicate protection applies.
+    const job = await scheduleBookingBill(bookingId, req.nextUrl.origin, user.username);
+    let queueSummary;
+    try {
+      queueSummary = await processWhatsAppJobQueue(3, { bookingId });
+    } catch (e) {
+      console.error("[booking whatsapp POST] resend queue error:", e);
     }
     return jsonOk({
       ok: true,
-      delivered: true,
+      delivered: Boolean(queueSummary?.succeeded),
       resent: true,
-      message: "Booking slip PDF resent on WhatsApp.",
+      queued: true,
+      job_id: job?.id ?? null,
+      message: queueSummary?.succeeded
+        ? "Booking slip PDF resent on WhatsApp."
+        : "Booking slip resend queued — run the job queue if it was not sent.",
     });
   }
 

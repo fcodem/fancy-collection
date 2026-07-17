@@ -1,15 +1,23 @@
 import sharp from "sharp";
 import { RECOGNITION_IMAGE_SIZE } from "./constants";
 
+/** Cap decode work — oversized / corrupt inputs have SIGABRT'd native sharp in prod. */
+const SHARP_LIMIT_INPUT_PIXELS = 40_000_000;
+
 /**
  * Stage 1 — Image normalization before recognition.
  * Auto-rotate (EXIF), brightness, contrast, shadow reduction.
  * Preserves garment geometry; does not warp the dress shape.
  */
 export async function normalizeGarmentImage(buffer: Buffer): Promise<Buffer> {
-  const rotated = await sharp(buffer, { failOn: "none" }).rotate().toBuffer();
+  const rotated = await sharp(buffer, {
+    failOn: "none",
+    limitInputPixels: SHARP_LIMIT_INPUT_PIXELS,
+  })
+    .rotate()
+    .toBuffer();
 
-  return sharp(rotated)
+  return sharp(rotated, { failOn: "none", limitInputPixels: SHARP_LIMIT_INPUT_PIXELS })
     .normalize()
     .modulate({ brightness: 1.02, saturation: 1.04 })
     .linear(1.06, -(0.04 * 128))
@@ -32,7 +40,13 @@ export async function buildRotationVariants(buffer: Buffer): Promise<Array<{ sou
   for (const deg of [90, 180, 270]) {
     variants.push({
       source: `normalized_${deg}`,
-      buffer: await sharp(base).rotate(deg).jpeg({ quality: 94 }).toBuffer(),
+      buffer: await sharp(base, {
+        failOn: "none",
+        limitInputPixels: SHARP_LIMIT_INPUT_PIXELS,
+      })
+        .rotate(deg)
+        .jpeg({ quality: 94 })
+        .toBuffer(),
     });
   }
   return variants;

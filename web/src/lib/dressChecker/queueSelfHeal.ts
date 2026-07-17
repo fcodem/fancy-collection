@@ -34,7 +34,7 @@ export async function runAiQueueSelfHeal(opts: {
   resumeDeadLetters?: boolean;
 } = {}): Promise<SelfHealReport> {
   const source = opts.source || "self_heal";
-  const drainLimit = opts.drainLimit ?? 10;
+  const drainLimit = opts.drainLimit ?? 2;
   const repairLimit = opts.repairLimit ?? 200;
 
   startAiJobWorker({ skipImmediateDrain: true }); // no-op on Vercel

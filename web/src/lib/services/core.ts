@@ -117,36 +117,64 @@ const _getDashboardDataRaw = async () => {
     )),
   );
 
-  // Independent aggregates — run concurrently (connection_limit=3).
+  // Single aggregate round-trip — stays under connection_limit=3 headroom.
   const tAgg = Date.now();
-  const [bookingStats, businessStats, financeStats] = await Promise.all([
-    prisma.$queryRaw<BookingStatsRow[]>`
+  const dashboardAgg = await prisma.$queryRaw<
+    Array<{
+      late_return_count: number;
+      today_delivery_total: number;
+      today_delivered: number;
+      today_remaining_delivery: number;
+      today_returning: number;
+      undelivered_count: number;
+      total_items: number;
+      available_items: number;
+      rented_items: number;
+      total_customers: number;
+      active_rentals: number;
+      overdue_rentals: number;
+      monthly_revenue: number;
+      outstanding: number;
+    }>
+  >`
     SELECT
-      COUNT(*) FILTER (
-        WHERE status = 'delivered'
+      (
+        SELECT COUNT(*)::int FROM bookings
+        WHERE status NOT IN ('cancelled', 'postponed')
+          AND status = 'delivered'
           AND return_date < ${today}::timestamptz
-      )::int AS late_return_count,
-      COUNT(*) FILTER (
-        WHERE delivery_date >= ${today}::timestamptz
-          AND delivery_date < (${today}::timestamptz + interval '1 day')
-      )::int AS today_delivery_total,
-      COUNT(*) FILTER (
-        WHERE status = 'delivered'
+      ) AS late_return_count,
+      (
+        SELECT COUNT(*)::int FROM bookings
+        WHERE status NOT IN ('cancelled', 'postponed')
           AND delivery_date >= ${today}::timestamptz
           AND delivery_date < (${today}::timestamptz + interval '1 day')
-      )::int AS today_delivered,
-      COUNT(*) FILTER (
-        WHERE status = 'booked'
+      ) AS today_delivery_total,
+      (
+        SELECT COUNT(*)::int FROM bookings
+        WHERE status NOT IN ('cancelled', 'postponed')
+          AND status = 'delivered'
           AND delivery_date >= ${today}::timestamptz
           AND delivery_date < (${today}::timestamptz + interval '1 day')
-      )::int AS today_remaining_delivery,
-      COUNT(*) FILTER (
-        WHERE status IN ('booked', 'delivered')
+      ) AS today_delivered,
+      (
+        SELECT COUNT(*)::int FROM bookings
+        WHERE status NOT IN ('cancelled', 'postponed')
+          AND status = 'booked'
+          AND delivery_date >= ${today}::timestamptz
+          AND delivery_date < (${today}::timestamptz + interval '1 day')
+      ) AS today_remaining_delivery,
+      (
+        SELECT COUNT(*)::int FROM bookings
+        WHERE status NOT IN ('cancelled', 'postponed')
+          AND status IN ('booked', 'delivered')
           AND return_date >= ${today}::timestamptz
           AND return_date < (${today}::timestamptz + interval '1 day')
-      )::int AS today_returning,
-      COUNT(*) FILTER (
-        WHERE status = 'booked'
+      ) AS today_returning,
+      (
+        SELECT COUNT(*)::int FROM bookings
+        WHERE status NOT IN ('cancelled', 'postponed')
+          AND status = 'booked'
           AND delivery_date < (${today}::timestamptz + interval '1 day')
           AND (
             NOT EXISTS (SELECT 1 FROM booking_items bi WHERE bi.booking_id = bookings.id)
@@ -157,50 +185,46 @@ const _getDashboardDataRaw = async () => {
                 AND bi.is_cancelled = false
             )
           )
-      )::int AS undelivered_count
-    FROM bookings
-    WHERE status NOT IN ('cancelled', 'postponed')
-  `,
-    prisma.$queryRaw<BusinessStatsRow[]>`
-    SELECT
+      ) AS undelivered_count,
       (SELECT COUNT(*)::int FROM clothing_items) AS total_items,
       (SELECT COUNT(*)::int FROM clothing_items WHERE status = 'available') AS available_items,
       (SELECT COUNT(*)::int FROM clothing_items WHERE status = 'rented') AS rented_items,
       (SELECT COUNT(*)::int FROM customers) AS total_customers,
       (SELECT COUNT(*)::int FROM rentals WHERE status IN ('active', 'overdue')) AS active_rentals,
-      (SELECT COUNT(*)::int FROM rentals WHERE status = 'active' AND end_date < ${today}::timestamptz) AS overdue_rentals
-  `,
-    prisma.$queryRaw<FinanceStatsRow[]>`
-    SELECT
+      (SELECT COUNT(*)::int FROM rentals WHERE status = 'active' AND end_date < ${today}::timestamptz) AS overdue_rentals,
       COALESCE((SELECT SUM(amount) FROM payments WHERE paid_at >= ${monthStart}::timestamptz), 0)::float AS monthly_revenue,
       COALESCE((
         SELECT SUM(total - amount_paid) FROM invoices WHERE status IN ('unpaid', 'partial')
       ), 0)::float AS outstanding
-  `,
-  ]);
+  `;
   const bookingStatsMs = Date.now() - tAgg;
   const businessStatsMs = bookingStatsMs;
   const financeStatsMs = bookingStatsMs;
-  const b = bookingStats[0] || {
-    late_return_count: 0,
-    today_delivery_total: 0,
-    today_delivered: 0,
-    today_remaining_delivery: 0,
-    today_returning: 0,
-    undelivered_count: 0,
+  const agg = dashboardAgg[0];
+  const b = {
+    late_return_count: agg?.late_return_count ?? 0,
+    today_delivery_total: agg?.today_delivery_total ?? 0,
+    today_delivered: agg?.today_delivered ?? 0,
+    today_remaining_delivery: agg?.today_remaining_delivery ?? 0,
+    today_returning: agg?.today_returning ?? 0,
+    undelivered_count: agg?.undelivered_count ?? 0,
   };
-  const biz = businessStats[0] || {
-    total_items: 0,
-    available_items: 0,
-    rented_items: 0,
-    total_customers: 0,
-    active_rentals: 0,
-    overdue_rentals: 0,
+  const biz = {
+    total_items: agg?.total_items ?? 0,
+    available_items: agg?.available_items ?? 0,
+    rented_items: agg?.rented_items ?? 0,
+    total_customers: agg?.total_customers ?? 0,
+    active_rentals: agg?.active_rentals ?? 0,
+    overdue_rentals: agg?.overdue_rentals ?? 0,
   };
-  const fin = financeStats[0] || { monthly_revenue: 0, outstanding: 0 };
+  const fin = {
+    monthly_revenue: agg?.monthly_revenue ?? 0,
+    outstanding: agg?.outstanding ?? 0,
+  };
 
+  // Peak concurrency ≤2 (subcategories are unstable_cache — usually no DB).
   const tLists = Date.now();
-  const [overdueList, subCategories, ordersDueSoonList] = await Promise.all([
+  const [overdueList, ordersDueSoonList] = await Promise.all([
     prisma.rental.findMany({
       where: { status: "active", endDate: { lt: today } },
       select: {
@@ -214,7 +238,6 @@ const _getDashboardDataRaw = async () => {
       orderBy: { endDate: "asc" },
       take: 5,
     }),
-    getAllSubCategories(),
     prisma.bookingOrder.findMany({
       where: {
         status: "active",
@@ -237,6 +260,7 @@ const _getDashboardDataRaw = async () => {
       },
     }),
   ]);
+  const subCategories = await getAllSubCategories();
   const listsMs = Date.now() - tLists;
   const totalMs = Date.now() - t0;
   console.log(
