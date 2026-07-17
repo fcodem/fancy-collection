@@ -43,3 +43,4 @@ web/tmp-*.html
 # Runtime data / user uploads (not source code)
 web/public/uploads/
 db-backups/
+.vercel
