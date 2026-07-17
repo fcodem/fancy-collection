@@ -53,10 +53,19 @@ function modeDisplay(mode: WorkerMode | "UNKNOWN"): string {
   return "unknown";
 }
 
-function statusFromAge(ageMs: number | null): WorkerStatus {
+function statusFromAge(ageMs: number | null, mode: WorkerMode | "UNKNOWN"): WorkerStatus {
   if (ageMs == null || !Number.isFinite(ageMs)) return "OFFLINE";
-  if (ageMs < HEARTBEAT_HEALTHY_MS) return "HEALTHY";
-  if (ageMs < HEARTBEAT_DEGRADED_MS) return "DEGRADED";
+  // Vercel cron workers only heartbeat when cron runs — allow a full day + buffer.
+  const healthyMs =
+    mode === "SERVERLESS_WORKER" || mode === "CRON_WORKER"
+      ? 26 * 60 * 60 * 1000
+      : HEARTBEAT_HEALTHY_MS;
+  const degradedMs =
+    mode === "SERVERLESS_WORKER" || mode === "CRON_WORKER"
+      ? 30 * 60 * 60 * 1000
+      : HEARTBEAT_DEGRADED_MS;
+  if (ageMs < healthyMs) return "HEALTHY";
+  if (ageMs < degradedMs) return "DEGRADED";
   return "OFFLINE";
 }
 
@@ -198,7 +207,7 @@ export async function getDurableWorkerHealth(): Promise<DurableWorkerHealth> {
     const lastMs = new Date(row.last_heartbeat_at).getTime();
     const ageMs = Date.now() - lastMs;
     const mode = (row.mode as WorkerMode) || resolveMode(row.source);
-    const status = statusFromAge(ageMs);
+    const status = statusFromAge(ageMs, mode);
 
     return {
       status,

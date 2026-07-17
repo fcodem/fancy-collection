@@ -16,15 +16,19 @@
     },
     {
       "path": "/api/cron/ai-job-worker",
-      "schedule": "0 5 * * *"
+      "schedule": "*/15 * * * *"
     },
     {
       "path": "/api/cron/ai-queue-watchdog",
-      "schedule": "0 6 * * *"
+      "schedule": "5 */2 * * *"
     },
     {
       "path": "/api/cron/dress-checker-repair",
       "schedule": "0 7 * * *"
+    },
+    {
+      "path": "/api/cron/db-backup",
+      "schedule": "15 2 * * *"
     }
   ]
 }

@@ -155,7 +155,15 @@ export async function runAiSystemHealthAudit(opts: {
   if (profiles.FAILED > 0) blockers.push(`${profiles.FAILED} FAILED profiles`);
   if (profiles.STALE > 0) blockers.push(`${profiles.STALE} STALE profiles`);
   if (worker.status === "OFFLINE" && process.env.NODE_ENV === "production") {
-    blockers.push("AI job worker OFFLINE (no durable heartbeat within 10m)");
+    // Optional AI: empty queue + cron/serverless → do not block core rental health.
+    const pending = Number((queue as { pending?: number }).pending ?? 0);
+    const cronish =
+      worker.mode === "SERVERLESS_WORKER" ||
+      worker.mode === "CRON_WORKER" ||
+      process.env.VERCEL === "1";
+    if (!(cronish && pending === 0 && process.env.AI_WORKER_REQUIRED !== "1")) {
+      blockers.push("AI job worker OFFLINE (no durable heartbeat within window)");
+    }
   }
 
   const report: AiSystemHealthReport = {

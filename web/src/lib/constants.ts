@@ -44,6 +44,8 @@ export function formatDate(d: Date | string, style: "iso" | "display" = "iso"): 
   });
 }
 
+export const BUSINESS_TIMEZONE = "Asia/Kolkata";
+
 /** When the booking record was created (matches booking form clock style). */
 export function formatBookingDateTime(d: Date | string): { date: string; time: string } {
   const dt = typeof d === "string" ? new Date(d) : d;
@@ -52,31 +54,37 @@ export function formatBookingDateTime(d: Date | string): { date: string; time: s
       day: "2-digit",
       month: "short",
       year: "numeric",
+      timeZone: BUSINESS_TIMEZONE,
     }),
     time: dt.toLocaleTimeString("en-IN", {
       hour: "2-digit",
       minute: "2-digit",
       hour12: true,
+      timeZone: BUSINESS_TIMEZONE,
     }),
   };
 }
 
+/** Calendar YYYY-MM-DD in Asia/Kolkata (shop local date). */
+export function todayIso(): string {
+  return new Intl.DateTimeFormat("en-CA", {
+    timeZone: BUSINESS_TIMEZONE,
+    year: "numeric",
+    month: "2-digit",
+    day: "2-digit",
+  }).format(new Date());
+}
+
+/** Midnight UTC for the current India business calendar day (matches dateQ / formatDate iso). */
 export function localTodayStart(): Date {
-  const now = new Date();
-  return new Date(now.getFullYear(), now.getMonth(), now.getDate());
+  const iso = todayIso();
+  const [y, m, d] = iso.split("-").map(Number);
+  return new Date(Date.UTC(y!, m! - 1, d!));
 }
 
 export function localTodayEnd(): Date {
-  const end = localTodayStart();
-  end.setDate(end.getDate() + 1);
-  return end;
-}
-
-export function todayIso(): string {
-  const t = localTodayStart();
-  const m = String(t.getMonth() + 1).padStart(2, "0");
-  const d = String(t.getDate()).padStart(2, "0");
-  return `${t.getFullYear()}-${m}-${d}`;
+  const start = localTodayStart();
+  return new Date(start.getTime() + 24 * 60 * 60 * 1000);
 }
 
 /** True when calendar date (YYYY-MM-DD) is strictly before today (local). */

@@ -6,6 +6,7 @@ import {
   createBookingNumber,
   getNextMonthlySerial,
 } from "../booking";
+import { lockInventoryItemsForBooking } from "../bookingItemLocks";
 import { parseDate, assertBookingDatesNotPast } from "../constants";
 import { shouldSkipCustomerCreate } from "./customersOps";
 import { broadcastShopEvent } from "../realtime/broadcast";
@@ -102,6 +103,7 @@ export async function createBooking(input: BookingFormInput, by?: string) {
   }
 
   const booking = await prisma.$transaction(async (tx) => {
+    await lockInventoryItemsForBooking(tx, itemIds);
     throwIfConflict(
       await findFirstItemConflict(itemIds, input.delivery_date, input.return_date, undefined, tx),
       input.items,
@@ -259,6 +261,7 @@ export async function updateBooking(bookingId: number, input: BookingFormInput, 
   const staffNames = (input.staff_names || []).filter(Boolean).join(", ");
 
   await prisma.$transaction(async (tx) => {
+    await lockInventoryItemsForBooking(tx, itemIds);
     throwIfConflict(
       await findFirstItemConflict(itemIds, input.delivery_date, input.return_date, bookingId, tx),
       input.items,
