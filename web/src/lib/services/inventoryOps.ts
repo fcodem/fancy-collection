@@ -11,9 +11,9 @@ import { deleteUploads, saveFastInventoryPhoto } from "../upload";
 import { broadcastShopEvent } from "../realtime/broadcast";
 import { logActivity, snapshotInventory } from "../activityLog";
 import { onInventoryPhotoRemoved } from "../dressCheckerIndexing";
-import { scheduleInventoryPhotoPipeline } from "../inventoryPhotoPipeline";
+import { enqueueInventoryPhotoJobsDurable } from "../inventoryPhotoPipeline";
 import { mapConfidence } from "../siglipMath";
-import { ensurePendingAiProfile } from "../dressChecker/profileLifecycle";
+// Durable AI enqueue lives in enqueueInventoryPhotoJobsDurable (awaited after save).
 
 export type InventoryPhotoSearchFilters = {
   category?: string;
@@ -89,13 +89,6 @@ async function createInventoryUnits(
         hasPasa: base.hasPasa ?? false,
       },
     });
-    if (base.photo) {
-      try {
-        await ensurePendingAiProfile(item.id);
-      } catch (e) {
-        console.error("[inventory] ensurePendingAiProfile failed:", e);
-      }
-    }
     created.push(item);
   }
   return created;
@@ -120,7 +113,7 @@ export async function createInventoryItem(
     has_pasa?: boolean;
   },
   by?: string,
-) {
+): Promise<{ items: Awaited<ReturnType<typeof createInventoryUnits>>; ai_queue_warning: string | null }> {
   let photoFilename = "";
   if (form.photo) {
     photoFilename = await saveFastInventoryPhoto(form.photo);
@@ -168,11 +161,22 @@ export async function createInventoryItem(
         label: `Added ${item.name} (${item.category}, ${item.size || "—"})`,
         after: snapshotInventory(item as unknown as Record<string, unknown>),
       });
-      if (photoFilename) {
-        scheduleInventoryPhotoPipeline(item.id, item.category, "photo_created");
+    }
+    let ai_queue_warning: string | null = null;
+    if (photoFilename && created.length) {
+      try {
+        const queued = await enqueueInventoryPhotoJobsDurable(
+          created.map((i) => i.id),
+          "photo_created",
+        );
+        ai_queue_warning = queued.warning;
+      } catch (e) {
+        console.error("[inventory] durable AI enqueue failed (items kept):", e);
+        ai_queue_warning =
+          "Inventory saved but AI queue could not be written. Retry from AI indexing.";
       }
     }
-    return created;
+    return { items: created, ai_queue_warning };
   }
 
   const units = await createInventoryUnits(
@@ -201,11 +205,22 @@ export async function createInventoryItem(
       label: `Added ${item.name} (${item.category}, ${item.size || "—"})`,
       after: snapshotInventory(item as unknown as Record<string, unknown>),
     });
-    if (photoFilename) {
-      scheduleInventoryPhotoPipeline(item.id, item.category, "photo_created");
+  }
+  let ai_queue_warning: string | null = null;
+  if (photoFilename && units.length) {
+    try {
+      const queued = await enqueueInventoryPhotoJobsDurable(
+        units.map((i) => i.id),
+        "photo_created",
+      );
+      ai_queue_warning = queued.warning;
+    } catch (e) {
+      console.error("[inventory] durable AI enqueue failed (items kept):", e);
+      ai_queue_warning =
+        "Inventory saved but AI queue could not be written. Retry from AI indexing.";
     }
   }
-  return units;
+  return { items: units, ai_queue_warning };
 }
 
 export async function updateInventoryItem(
@@ -317,7 +332,11 @@ export async function updateInventoryItem(
   if (form.remove_photo) {
     onInventoryPhotoRemoved(id);
   } else if (updated.photo && form.photo) {
-    scheduleInventoryPhotoPipeline(updated.id, updated.category, "photo_replaced");
+    try {
+      await enqueueInventoryPhotoJobsDurable([updated.id], "photo_replaced");
+    } catch (e) {
+      console.error("[inventory] durable AI enqueue failed after photo replace (item kept):", e);
+    }
   }
   return updated;
 }

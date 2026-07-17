@@ -3,51 +3,76 @@
 import { useEffect } from "react";
 import { parseResponseJson } from "@/lib/fetchJson";
 import { usePathname, useRouter } from "next/navigation";
+import {
+  SESSION_HEARTBEAT_INITIAL_DELAY_MS,
+  SESSION_HEARTBEAT_INTERVAL_MS,
+  skipHeartbeat,
+} from "@/lib/sessionHeartbeat";
+
+export {
+  SESSION_HEARTBEAT_INTERVAL_MS,
+  SESSION_HEARTBEAT_INITIAL_DELAY_MS,
+  skipHeartbeat,
+} from "@/lib/sessionHeartbeat";
 
 let lastCheckedAt = 0;
-const INTERVAL_MS = 60_000;
-const INITIAL_DELAY_MS = 15_000;
+let inFlight: Promise<void> | null = null;
 
-function skipHeartbeat(pathname: string | null): boolean {
-  if (!pathname) return true;
-  if (pathname.startsWith("/login")) return true;
-  if (pathname === "/privacy" || pathname.startsWith("/privacy/")) return true;
-  if (pathname === "/data-deletion" || pathname.startsWith("/data-deletion/")) return true;
-  if (pathname === "/~offline") return true;
-  return false;
+async function checkSessionOnce(router: { replace: (href: string) => void }) {
+  const now = Date.now();
+  if (now - lastCheckedAt < SESSION_HEARTBEAT_INTERVAL_MS / 2) return;
+  if (inFlight) return inFlight;
+
+  inFlight = (async () => {
+    lastCheckedAt = Date.now();
+    try {
+      const res = await fetch("/api/session/check", { cache: "no-store" });
+      if (!res.ok) {
+        router.replace("/login");
+        return;
+      }
+      const data = await parseResponseJson<{ active?: boolean }>(res);
+      if (!data.active) router.replace("/login");
+    } catch {
+      // network error — do not redirect (user may be offline)
+    } finally {
+      inFlight = null;
+    }
+  })();
+
+  return inFlight;
 }
 
+/**
+ * Shell-level session probe.
+ * Timers start when entering the protected app (from login/public) and stop when leaving.
+ * Navigating between protected pages does not recreate timers (`shouldSkipHeartbeat` stays false).
+ */
 export default function SessionHeartbeat() {
   const router = useRouter();
   const pathname = usePathname();
+  const shouldSkipHeartbeat = skipHeartbeat(pathname);
 
   useEffect(() => {
-    if (skipHeartbeat(pathname)) return;
+    if (shouldSkipHeartbeat) return;
 
-    async function checkSession() {
-      const now = Date.now();
-      if (now - lastCheckedAt < INTERVAL_MS / 2) return;
-      lastCheckedAt = now;
-      try {
-        const res = await fetch("/api/session/check");
-        if (!res.ok) {
-          router.replace("/login");
-          return;
-        }
-        const data = await parseResponseJson<{ active?: boolean }>(res);
-        if (!data.active) router.replace("/login");
-      } catch {
-        // network error — do not redirect (user may be offline)
-      }
-    }
+    const initial = setTimeout(() => {
+      void checkSessionOnce(router);
+    }, SESSION_HEARTBEAT_INITIAL_DELAY_MS);
+    const id = setInterval(() => {
+      void checkSessionOnce(router);
+    }, SESSION_HEARTBEAT_INTERVAL_MS);
 
-    const initial = setTimeout(checkSession, INITIAL_DELAY_MS);
-    const id = setInterval(checkSession, INTERVAL_MS);
     return () => {
       clearTimeout(initial);
       clearInterval(id);
     };
-  }, [pathname, router]);
+  }, [router, shouldSkipHeartbeat]);
 
   return null;
+}
+
+/** Call after login / logout / password change to force a fresh check soon. */
+export function invalidateSessionHeartbeatCache() {
+  lastCheckedAt = 0;
 }

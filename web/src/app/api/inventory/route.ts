@@ -1,4 +1,4 @@
-import { NextRequest } from "next/server";
+import { NextRequest, after } from "next/server";
 import { createInventoryItem } from "@/lib/services/inventoryOps";
 import { jsonError, jsonOk, requireOwner, isResponse } from "@/lib/api";
 import { InventoryItemSchema } from "@/lib/validation";
@@ -41,7 +41,7 @@ export async function POST(req: NextRequest) {
       return jsonError(parseResult.error.issues[0]?.message || "Invalid input", 400);
     }
     const sizes = form.getAll("sizes[]").map(String);
-    const items = await createInventoryItem(
+    const { items, ai_queue_warning } = await createInventoryItem(
       {
         name: String(form.get("name") || ""),
         category: String(form.get("category") || ""),
@@ -61,6 +61,19 @@ export async function POST(req: NextRequest) {
       },
       user.username,
     );
+
+    // Bounded one-job attempt after durable queue write — cron recovers if this is cut short.
+    if (hasPhoto && !ai_queue_warning) {
+      after(async () => {
+        try {
+          const { drainAiJobQueue } = await import("@/lib/dressChecker/aiJobWorker");
+          await drainAiJobQueue(1, { source: "inventory_save" });
+        } catch (e) {
+          console.error("[inventory POST] after() AI drain:", e);
+        }
+      });
+    }
+
     const primary = items[0];
     const pipeline = primary ? computePipelineStatus(primary) : null;
     return jsonOk({
@@ -73,6 +86,7 @@ export async function POST(req: NextRequest) {
       original_photo_url: primary ? photoUrl(primary.photo) : "",
       display_photo_url: pipeline?.display_photo_url || "",
       pipeline,
+      ai_queue_warning: ai_queue_warning || undefined,
     });
   } catch (e) {
     const message = e instanceof Error ? e.message : "Failed to add item";

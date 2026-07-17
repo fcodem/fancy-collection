@@ -26,6 +26,7 @@ import { useCallback, useEffect, useMemo, useRef, useState } from "react";
 import DressNameSuggestInput from "@/components/DressNameSuggestInput";
 import PhotoCaptureButton from "@/components/PhotoCaptureButton";
 import TypeableDateInput from "@/components/TypeableDateInput";
+import { generateUuidV4 } from "@/lib/clientUuid";
 import { addDaysIso } from "@/lib/dateInput";
 import BookingConflictSummary from "@/components/BookingConflictSummary";
 import PaymentModePicker from "@/components/PaymentModePicker";
@@ -409,6 +410,9 @@ export default function BookingFormClient(props: Props) {
   const [loading, setLoading] = useState(false);
 
   const [saving, setSaving] = useState(false);
+  /** Synchronous lock — React state alone cannot stop double-clicks mid-await. */
+  const submittingRef = useRef(false);
+  const clientRequestIdRef = useRef<string | null>(null);
 
   const [error, setError] = useState("");
 
@@ -863,6 +867,7 @@ export default function BookingFormClient(props: Props) {
   /** Validates form, POST/PUT booking (or prospect lead), then redirects. */
   async function save(opts?: { openPrintSlip?: boolean; downloadSlipPdf?: boolean }) {
     if (readOnly) return;
+    if (submittingRef.current || saving) return;
 
     setError("");
 
@@ -908,13 +913,19 @@ export default function BookingFormClient(props: Props) {
       return;
     }
 
+    submittingRef.current = true;
     setSaving(true);
+
+    if (!props.editId && !isProspect && !clientRequestIdRef.current) {
+      clientRequestIdRef.current = generateUuidV4();
+    }
 
     const printWindow =
       opts?.openPrintSlip && !isProspect && !opts?.downloadSlipPdf
         ? window.open("about:blank", "_blank")
         : null;
 
+    try {
     const payload = {
 
       customer_name: customerName,
@@ -942,6 +953,9 @@ export default function BookingFormClient(props: Props) {
       staff_names: staffNames,
 
       ...(!props.editId ? { payment_mode: paymentMode } : {}),
+      ...(!props.editId && !isProspect && clientRequestIdRef.current
+        ? { client_request_id: clientRequestIdRef.current }
+        : {}),
 
       items: selectedDresses.map((d) => ({
 
@@ -984,9 +998,14 @@ export default function BookingFormClient(props: Props) {
 
     const res = await fetch(url, { method, headers: { "Content-Type": "application/json" }, body: JSON.stringify(payload), credentials: "same-origin" });
 
-    const data = await res.json();
-
-    setSaving(false);
+    let data: { error?: string; id?: number; serial?: number; monthly_serial?: number } = {};
+    try {
+      data = await res.json();
+    } catch {
+      printWindow?.close();
+      setError("Network error — could not read server response. Check connection and try again.");
+      return;
+    }
 
     if (!res.ok) {
       printWindow?.close();
@@ -1001,6 +1020,8 @@ export default function BookingFormClient(props: Props) {
       setError("Booking saved but could not open the record. Check the Booking Panel.");
       return;
     }
+
+    clientRequestIdRef.current = null;
 
     if (printWindow) {
       printWindow.location.href = `/booking/${bookingId}/slip?print=1`;
@@ -1050,6 +1071,17 @@ export default function BookingFormClient(props: Props) {
     }
     else router.replace(props.afterSaveHref || `/booking/${bookingId}`);
 
+    } catch (e) {
+      printWindow?.close();
+      setError(
+        e instanceof Error
+          ? `Network error: ${e.message}`
+          : "Network error — please check your connection and try again.",
+      );
+    } finally {
+      submittingRef.current = false;
+      setSaving(false);
+    }
   }
 
 

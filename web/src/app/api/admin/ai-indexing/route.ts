@@ -162,7 +162,13 @@ export async function POST(req: NextRequest) {
   };
 
   try {
-    startAiJobWorker();
+    // Resume via durable drain — no in-process interval on Vercel.
+    if (process.env.VERCEL !== "1") {
+      startAiJobWorker();
+    } else {
+      const { drainAiJobQueue } = await import("@/lib/dressChecker/aiJobWorker");
+      await drainAiJobQueue(3, { source: "admin" });
+    }
 
     if (body.action === "reindex_selected") {
       const ids = (body.itemIds || []).filter((n) => Number.isFinite(n));

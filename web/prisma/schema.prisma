@@ -294,6 +294,8 @@ model Booking {
   whatsappSentAt     DateTime? @map("whatsapp_sent_at")
   whatsappError      String?   @map("whatsapp_error")
   lateReminderSentAt DateTime? @map("late_reminder_sent_at")
+  /** Client UUID for create-once booking submits (double-click / retry safe). */
+  clientRequestId    String?   @unique @map("client_request_id") @db.VarChar(64)
 
   legacyItem            ClothingItem?          @relation("LegacyBookingItem", fields: [itemId], references: [id], onDelete: SetNull)
   bookingItems          BookingItem[]

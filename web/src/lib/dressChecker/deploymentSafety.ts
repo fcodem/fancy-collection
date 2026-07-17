@@ -168,8 +168,11 @@ export async function runQueueWatchdog(opts: { drainLimit?: number } = {}): Prom
         ? "Queue worker heartbeat offline — restarting drain"
         : "Queue worker heartbeat degraded — draining now";
     console.warn(`[deployment-safety] ${warning}`);
-    startAiJobWorker({ skipImmediateDrain: true });
-    workerRestarted = true;
+    // Drain only — never start setInterval from a Vercel request.
+    workerRestarted = process.env.VERCEL !== "1";
+    if (workerRestarted) {
+      startAiJobWorker({ skipImmediateDrain: true });
+    }
   }
 
   let drained = 0;
@@ -392,8 +395,10 @@ export async function runDeploymentAudit(): Promise<DeploymentAuditReport> {
 export async function runStartupHealthCheck(): Promise<DeploymentAuditReport> {
   console.log("[startup] AI Dress Checker deployment safety check…");
 
-  // Start worker first so health sees it ticking
-  startAiJobWorker();
+  // Local long-lived processes may start the pump; Vercel relies on cron drains only.
+  if (process.env.VERCEL !== "1") {
+    startAiJobWorker();
+  }
 
   try {
     await markOutdatedProfilesStaleAndEnqueue();

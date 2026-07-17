@@ -37,7 +37,7 @@ export async function runAiQueueSelfHeal(opts: {
   const drainLimit = opts.drainLimit ?? 10;
   const repairLimit = opts.repairLimit ?? 200;
 
-  startAiJobWorker({ skipImmediateDrain: true });
+  startAiJobWorker({ skipImmediateDrain: true }); // no-op on Vercel
 
   const stuck = await recoverStuckAiJobs().catch(() => ({ recovered: 0 }));
   const repairEnqueued = await enqueueRepairJobs(repairLimit).catch(() => 0);

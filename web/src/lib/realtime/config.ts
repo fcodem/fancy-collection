@@ -22,4 +22,5 @@ export function getServerRealtimeMode(): RealtimeMode {
 }
 
 const pollMs = Number(process.env.NEXT_PUBLIC_REALTIME_POLL_MS);
-export const POLL_INTERVAL_MS = pollMs > 0 ? pollMs : 30_000;
+/** Default slower poll — badge freshness can lag a minute without hurting UX. */
+export const POLL_INTERVAL_MS = pollMs > 0 ? pollMs : 60_000;

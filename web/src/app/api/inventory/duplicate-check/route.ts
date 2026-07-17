@@ -16,6 +16,9 @@ export async function POST(req: NextRequest) {
     if (!(photo instanceof File) || photo.size === 0) {
       return jsonError("Photo is required", 400);
     }
+    if (photo.size > 8 * 1024 * 1024) {
+      return jsonError("Photo must be under 8 MB for duplicate check", 400);
+    }
 
     const buffer = Buffer.from(await photo.arrayBuffer());
     const validation = await validateDressCheckerImage(buffer, photo.type);
@@ -23,11 +26,20 @@ export async function POST(req: NextRequest) {
       return jsonError(validation.message || "Invalid image", 400);
     }
 
-    const result = await checkInventoryDuplicate(
-      buffer,
-      category || undefined,
-      excludeId ? Number(excludeId) : undefined,
-    );
+    let result;
+    try {
+      result = await checkInventoryDuplicate(
+        buffer,
+        category || undefined,
+        excludeId ? Number(excludeId) : undefined,
+      );
+    } catch (e) {
+      console.error("[duplicate-check] analysis failed (inventory save must continue independently):", e);
+      return jsonError(
+        "Duplicate check could not complete. You can still save the dress — retry check later.",
+        503,
+      );
+    }
 
     return jsonOk({
       ok: true,
@@ -46,6 +58,7 @@ export async function POST(req: NextRequest) {
         : null,
     });
   } catch (e) {
+    console.error("[duplicate-check]", e);
     return jsonError(e instanceof Error ? e.message : "Duplicate check failed");
   }
 }

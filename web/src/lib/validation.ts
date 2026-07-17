@@ -51,6 +51,8 @@ export const BookingFormSchema = z.object({
   staff_names:      z.array(z.string().transform(upper)).optional(),
   items:            z.array(BookingItemSchema).min(1, "At least one item required"),
   orders:           z.array(BookingOrderSchema).optional(),
+  /** Client UUID for create-once semantics (double-submit / network retry). */
+  client_request_id: z.string().uuid().optional(),
 });
 
 export const InventoryItemSchema = z.object({

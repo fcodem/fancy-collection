@@ -2,7 +2,6 @@ import { NextRequest } from "next/server";
 import * as Sentry from "@sentry/nextjs";
 import { jsonError, jsonOk } from "@/lib/api";
 import { runQueueWatchdog } from "@/lib/dressChecker/deploymentSafety";
-import { startAiJobWorker } from "@/lib/dressChecker/aiJobWorker";
 
 export const dynamic = "force-dynamic";
 export const maxDuration = 120;
@@ -14,14 +13,13 @@ function authorizeCron(req: NextRequest): boolean {
   return auth === `Bearer ${secret}`;
 }
 
-/** Every 5 minutes: stuck-job recovery + worker watchdog + drain. */
+/** Watchdog: recover stuck jobs + drain a small batch. No in-process interval. */
 export async function GET(req: NextRequest) {
   if (!authorizeCron(req)) {
     return jsonError("Unauthorized", 401);
   }
 
   try {
-    startAiJobWorker();
     const result = await runQueueWatchdog();
     const { touchDurableWorkerHeartbeat } = await import("@/lib/dressChecker/workerHeartbeat");
     await touchDurableWorkerHeartbeat({

@@ -1,13 +1,9 @@
 import { NextRequest, after } from "next/server";
 import prisma from "@/lib/prisma";
-import { createBooking } from "@/lib/services/bookingCrud";
 import { jsonError, jsonOk, requireUser, isResponse, requireJsonContentType } from "@/lib/api";
-import {
-  scheduleBookingBill,
-  processWhatsAppJobQueue,
-} from "@/lib/services/whatsapp/jobQueue";
 import { BookingFormSchema } from "@/lib/validation";
 import { catalogPhotoRef } from "@/lib/catalogPhotoRef";
+import { createBookingWithSideEffects } from "@/lib/services/bookingCreateOrchestration";
 
 export const maxDuration = 60;
 
@@ -24,19 +20,17 @@ export async function POST(req: NextRequest) {
       return jsonError(parseResult.error.issues[0]?.message || "Invalid input", 400);
     }
     const body = parseResult.data;
-    const booking = await createBooking(body, user.username);
-
-    await scheduleBookingBill(booking.id, req.nextUrl.origin, user.username);
-    // Do not block save on Chromium PDF / Meta send — drain in background.
-    after(async () => {
-      try {
-        await processWhatsAppJobQueue(2, { bookingId: booking.id });
-      } catch (e) {
-        console.error("[booking POST] whatsapp queue error:", e);
-      }
+    const result = await createBookingWithSideEffects(body, user, {}, {
+      nextAfter: after,
+      origin: req.nextUrl.origin,
     });
 
-    return jsonOk({ ok: true, id: booking.id, serial: booking.monthlySerial });
+    return jsonOk({
+      ok: true,
+      id: result.id,
+      serial: result.serial,
+      reused: result.reused || undefined,
+    });
   } catch (e) {
     const msg = e instanceof Error ? e.message : "Failed to create booking";
     return jsonError(msg);

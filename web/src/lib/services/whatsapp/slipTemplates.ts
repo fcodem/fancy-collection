@@ -64,7 +64,8 @@ export const SLIP_TEMPLATE_DEFS: SlipTemplateDef[] = [
   },
   {
     key: "return_slip",
-    name: "return_slip_v3",
+    // Prefer v4 (Dear + review CTA). Meta templates are immutable — v3 stays as fallback only.
+    name: "return_slip_v4",
     envVar: "WA_TEMPLATE_RETURN_SLIP",
     category: "UTILITY",
     kind: "document",
@@ -77,7 +78,7 @@ export const SLIP_TEMPLATE_DEFS: SlipTemplateDef[] = [
   },
   {
     key: "incomplete_return_slip",
-    name: "incomplete_return_v3",
+    name: "incomplete_return_v4",
     envVar: "WA_TEMPLATE_INCOMPLETE_SLIP",
     category: "UTILITY",
     kind: "document",
@@ -187,18 +188,28 @@ export function resolveTemplateName(def: SlipTemplateDef): string {
   return def.name;
 }
 
-/** Prefer configured/env name, then v4 (if submitted later), then approved v3. */
+/**
+ * Prefer env override (if set), then newest approved version, then older fallbacks.
+ * Do not put an older def.name ahead of v4 — that kept cold sends on return_slip_v3.
+ */
 function documentTemplateNameCandidates(def: SlipTemplateDef): string[] {
-  const primary = resolveTemplateName(def);
-  const extras: string[] = [];
+  const envName = def.envVar ? process.env[def.envVar]?.trim().toLowerCase() : "";
+  const versioned: string[] = [];
   if (def.key === "delivery_slip") {
-    extras.push("delivery_slip_v5", "delivery_slip_v4", "delivery_slip_v3");
+    versioned.push("delivery_slip_v5", "delivery_slip_v4", "delivery_slip_v3");
   } else if (def.key === "return_slip") {
-    extras.push("return_slip_v4", "return_slip_v3");
+    versioned.push("return_slip_v4", "return_slip_v3");
   } else if (def.key === "incomplete_return_slip") {
-    extras.push("incomplete_return_v4", "incomplete_return_v3");
+    versioned.push("incomplete_return_v4", "incomplete_return_v3");
+  } else {
+    versioned.push(def.name);
   }
-  return [...new Set([primary, def.name, ...extras].map((n) => n.toLowerCase()))];
+  const ordered = [
+    ...(envName ? [envName] : []),
+    ...versioned,
+    def.name,
+  ].map((n) => n.toLowerCase());
+  return [...new Set(ordered)];
 }
 
 export function slipTemplateLanguage(): string {

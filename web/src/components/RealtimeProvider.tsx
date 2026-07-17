@@ -52,10 +52,12 @@ export default function RealtimeProvider({
     if (navCountsTimer) clearTimeout(navCountsTimer);
     navCountsTimer = setTimeout(() => {
       navCountsTimer = null;
-      fetchJson<{ overdue_delivery_count: number }>("/api/dashboard/nav-counts")
+      fetchJson<{ overdue_delivery_count: number }>("/api/dashboard/nav-counts", {
+        dedupeMs: 60_000,
+      })
         .then((d) => onNavRefreshRef.current?.(d.overdue_delivery_count || 0))
         .catch(() => {});
-    }, 1500);
+    }, 2500);
   }, []);
 
   const handleEvent = useCallback(
