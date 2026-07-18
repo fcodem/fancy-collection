@@ -1,4 +1,4 @@
-import { getDashboardData } from "@/lib/services/core";
+import { getDashboardEssentialData } from "@/lib/services/dashboardSections";
 import { jsonOk, jsonError, requireFastReadUser, isResponse } from "@/lib/api";
 import { createPerfTimer, withServerTiming } from "@/lib/perfTiming";
 
@@ -10,7 +10,7 @@ export async function GET() {
 
   try {
     perf.mark("query");
-    const data = await getDashboardData();
+    const data = await getDashboardEssentialData();
     perf.endStage("queryMs", "query");
     const timings = perf.finish({ kind: "read" });
     return withServerTiming(jsonOk(data), timings);

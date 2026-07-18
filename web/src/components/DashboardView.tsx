@@ -40,6 +40,8 @@ type DashboardProps = {
   isOwner: boolean;
   pendingStaff: Array<{ id: number; username: string; staffName: string; requestedAt?: string }>;
   activeStaff: Array<{ id: number; username: string; staffName: string; loginAt?: string }>;
+  showBusinessSummary?: boolean;
+  showOrdersDueCard?: boolean;
 };
 
 const STAT_LIST_HREF = {
@@ -97,7 +99,14 @@ function serialLabel(n: number) {
   return String(n || 0).padStart(2, "0");
 }
 
-export default function DashboardView({ data: initialData, isOwner, pendingStaff, activeStaff }: DashboardProps) {
+export default function DashboardView({
+  data: initialData,
+  isOwner,
+  pendingStaff,
+  activeStaff,
+  showBusinessSummary = true,
+  showOrdersDueCard = true,
+}: DashboardProps) {
   const toast = useToast();
   const router = useRouter();
   const [data, setData] = useState(initialData);
@@ -463,12 +472,14 @@ export default function DashboardView({ data: initialData, isOwner, pendingStaff
           <div className="stat-value">{data.late_return_count}</div>
           <div className="stat-label">Late Returns</div>
         </Link>
-        <Link href="/orders" className="stat-card" style={{ textDecoration: "none", background: "linear-gradient(135deg,#b8860b,#8a6d1a)", color: "white" }}>
-          <div className="stat-icon" style={{ background: "rgba(255,255,255,0.15)", color: "white" }}><i className="fa-solid fa-scissors" /></div>
-          <div className="stat-value">{data.orders_due_soon_count}</div>
-          <div className="stat-label">Orders Due (3 days)</div>
-          <div style={{ fontSize: 10, opacity: 0.8, marginTop: 4 }}>Click to open list</div>
-        </Link>
+        {showOrdersDueCard && (
+          <Link href="/orders" className="stat-card" style={{ textDecoration: "none", background: "linear-gradient(135deg,#b8860b,#8a6d1a)", color: "white" }}>
+            <div className="stat-icon" style={{ background: "rgba(255,255,255,0.15)", color: "white" }}><i className="fa-solid fa-scissors" /></div>
+            <div className="stat-value">{data.orders_due_soon_count}</div>
+            <div className="stat-label">Orders Due (3 days)</div>
+            <div style={{ fontSize: 10, opacity: 0.8, marginTop: 4 }}>Click to open list</div>
+          </Link>
+        )}
       </div>
 
       <div style={{ marginBottom: 20, display: "flex", gap: 12, flexWrap: "wrap" }}>
@@ -640,7 +651,7 @@ export default function DashboardView({ data: initialData, isOwner, pendingStaff
         </div>
       )}
 
-      <div style={{ display: "flex", gap: 16, flexWrap: "wrap", marginBottom: 24, alignItems: "center" }}>
+      {showBusinessSummary && <div style={{ display: "flex", gap: 16, flexWrap: "wrap", marginBottom: 24, alignItems: "center" }}>
         <Link href="/inventory" className="btn btn-gold btn-lg">
           <i className="fa-solid fa-layer-group" style={{ marginRight: 10 }} /> Manage Inventory
           <span style={{ marginLeft: 10, background: "rgba(255,255,255,0.25)", padding: "3px 10px", borderRadius: 20, fontSize: 12 }}>{data.stats.total_items} items</span>
@@ -651,7 +662,7 @@ export default function DashboardView({ data: initialData, isOwner, pendingStaff
         <div style={{ background: "#EEF2FF", border: "1.5px solid #c7d2fe", borderRadius: 10, padding: "8px 16px", fontSize: 13, color: "#4F46E5" }}>
           <strong>{data.stats.rented_items}</strong> Rented Out
         </div>
-      </div>
+      </div>}
 
       {data.orders_due_soon_list.length > 0 && (
         <div className="card mb-24" style={{ border: "2px solid #b8860b" }}>
