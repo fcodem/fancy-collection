@@ -18,6 +18,11 @@ type Props = {
   style?: CSSProperties;
   size?: "sm" | "md";
   label?: string;
+  dataFactory?: () => {
+    headers: string[];
+    rows: string[][];
+    warningsBelow?: (PdfWarningPanel[] | undefined)[];
+  };
 };
 
 export default function DownloadPdfButton({
@@ -34,6 +39,7 @@ export default function DownloadPdfButton({
   style,
   size = "md",
   label = "Download PDF",
+  dataFactory,
 }: Props) {
   const sizeClass = size === "sm" ? " btn-sm" : "";
   const noData = rows ? rows.length === 0 : false;
@@ -41,6 +47,14 @@ export default function DownloadPdfButton({
   async function handleClick() {
     let pdfHeaders = headers;
     let pdfRows = rows;
+    let pdfWarnings = warningsBelow;
+
+    if (dataFactory) {
+      const generated = dataFactory();
+      pdfHeaders = generated.headers;
+      pdfRows = generated.rows;
+      pdfWarnings = generated.warningsBelow;
+    }
 
     if (tableId) {
       const table = document.getElementById(tableId) as HTMLTableElement | null;
@@ -60,7 +74,7 @@ export default function DownloadPdfButton({
       subtitle,
       headers: pdfHeaders,
       rows: pdfRows,
-      warningsBelow,
+      warningsBelow: pdfWarnings,
     });
   }
 

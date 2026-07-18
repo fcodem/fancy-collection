@@ -1,17 +1,23 @@
 import PackingListClient from "@/components/PackingListClient";
-import { getPackingListCached } from "@/lib/services/operations";
+import { getPackingListPage } from "@/lib/services/packingList";
 import { todayIso } from "@/lib/constants";
 
 export const revalidate = 30;
 
 export default async function PackingListPage() {
   const today = todayIso();
-  const initialRows = await getPackingListCached(today, today);
+  const initialPage = await getPackingListPage({
+    deliveryFrom: today,
+    deliveryTo: today,
+    limit: 20,
+  });
 
   return (
     <PackingListClient
       today={today}
-      initialRows={initialRows}
+      initialRows={initialPage.results}
+      initialNextCursor={initialPage.nextCursor}
+      initialHasMore={initialPage.hasMore}
       initialLoaded
     />
   );

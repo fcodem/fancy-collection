@@ -1,5 +1,5 @@
 import prisma, { parseDateQ } from "../prisma";
-import { unstable_cache } from "next/cache";
+import { revalidateTag, unstable_cache } from "next/cache";
 import { activeBookingWhere } from "@/lib/bookingActiveStatus";
 import { whereBookingOverlapsPeriod, whereDeliveryInRange, whereReturnInRange, whereReturnOnAnyDates } from "../bookingDateQuery";
 import { formatDate, parseDate } from "../constants";
@@ -793,18 +793,53 @@ export async function savePackingItem(
   },
   by?: string,
 ) {
-  const bi = await prisma.bookingItem.findUnique({ where: { id: data.bi_id } });
-  if (!bi) throw new Error("Item not found");
-  const beforePacking = { preparedBy: bi.preparedBy, checkedBy: bi.checkedBy, isPackedReady: bi.isPackedReady, packingNote: bi.packingNote };
-  const updated = await prisma.bookingItem.update({
+  const bi = await prisma.bookingItem.findUnique({
     where: { id: data.bi_id },
-    data: {
-      ...(data.prepared_by !== undefined ? { preparedBy: data.prepared_by.trim() || null } : {}),
-      ...(data.checked_by !== undefined ? { checkedBy: data.checked_by.trim() || null } : {}),
-      ...(data.is_packed_ready !== undefined ? { isPackedReady: Boolean(data.is_packed_ready) } : {}),
-      ...(data.packing_note !== undefined ? { packingNote: data.packing_note.trim() || null } : {}),
+    select: {
+      id: true,
+      bookingId: true,
+      dressName: true,
+      preparedBy: true,
+      checkedBy: true,
+      isPackedReady: true,
+      packingNote: true,
     },
   });
+  if (!bi) throw new Error("Item not found");
+  const beforePacking = { preparedBy: bi.preparedBy, checkedBy: bi.checkedBy, isPackedReady: bi.isPackedReady, packingNote: bi.packingNote };
+  const update: Prisma.BookingItemUpdateInput = {};
+  if (data.prepared_by !== undefined && (data.prepared_by.trim() || null) !== bi.preparedBy) {
+    update.preparedBy = data.prepared_by.trim() || null;
+  }
+  if (data.checked_by !== undefined && (data.checked_by.trim() || null) !== bi.checkedBy) {
+    update.checkedBy = data.checked_by.trim() || null;
+  }
+  if (data.is_packed_ready !== undefined && Boolean(data.is_packed_ready) !== bi.isPackedReady) {
+    update.isPackedReady = Boolean(data.is_packed_ready);
+  }
+  if (data.packing_note !== undefined && (data.packing_note.trim() || null) !== bi.packingNote) {
+    update.packingNote = data.packing_note.trim() || null;
+  }
+  if (!Object.keys(update).length) {
+    return {
+      ok: true,
+      prepared_by: bi.preparedBy || "",
+      checked_by: bi.checkedBy || "",
+      is_packed_ready: bi.isPackedReady,
+      packing_note: bi.packingNote || "",
+    };
+  }
+  const updated = await prisma.bookingItem.update({
+    where: { id: data.bi_id },
+    data: update,
+    select: {
+      preparedBy: true,
+      checkedBy: true,
+      isPackedReady: true,
+      packingNote: true,
+    },
+  });
+  revalidateTag("packing-list");
   broadcastShopEvent({ type: "packing.updated", bookingId: bi.bookingId, by });
   logActivity({
     username: by || "system",

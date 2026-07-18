@@ -45,11 +45,15 @@ export default function PackingListClient({
   today,
   initialRows = [],
   initialLoaded = false,
+  initialNextCursor = null,
+  initialHasMore = false,
 }: {
   today: string;
   initialRows?: PackingBooking[];
   /** True when SSR already completed a fetch (even if zero rows). */
   initialLoaded?: boolean;
+  initialNextCursor?: string | null;
+  initialHasMore?: boolean;
 }) {
   const [from, setFrom] = useState(today);
   const [to, setTo] = useState(today);
@@ -57,17 +61,34 @@ export default function PackingListClient({
   const [rows, setRows] = useState<PackingBooking[]>(initialRows);
   const [loaded, setLoaded] = useState(initialLoaded || initialRows.length > 0);
   const [error, setError] = useState("");
+  const [loading, setLoading] = useState(false);
+  const [hasMore, setHasMore] = useState(initialHasMore);
+  const [saveStatus, setSaveStatus] = useState<Record<number, "saving" | "saved" | "error">>({});
+  const loadAbortRef = useRef<AbortController | null>(null);
+  const nextCursorRef = useRef<string | null>(initialNextCursor);
   const saveQueue = useRef<Map<number, Partial<PackingItem> & { timer?: ReturnType<typeof setTimeout> }>>(
     new Map(),
   );
 
-  const load = useCallback(async () => {
+  const load = useCallback(async (append = false) => {
     if (!from) return;
+    if (!append) nextCursorRef.current = null;
+    loadAbortRef.current?.abort();
+    const controller = new AbortController();
+    loadAbortRef.current = controller;
     setError("");
+    setLoading(true);
     try {
+      const params = new URLSearchParams({
+        delivery_from: from,
+        delivery_to: to || from,
+        category,
+        limit: "20",
+      });
+      if (append && nextCursorRef.current) params.set("cursor", nextCursorRef.current);
       const res = await fetch(
-        `/api/packing-list?delivery_date=${from}&return_date=${to || from}&category=${encodeURIComponent(category)}`,
-        { credentials: "same-origin" },
+        `/api/packing-list?${params.toString()}`,
+        { credentials: "same-origin", signal: controller.signal },
       );
       if (!res.ok) {
         const body = await res.json().catch(() => ({}));
@@ -75,21 +96,23 @@ export default function PackingListClient({
       }
       const data = await res.json();
       const list = Array.isArray(data) ? data : Array.isArray(data?.results) ? data.results : [];
-      setRows(
-        list.map((b: PackingBooking) => ({
+      const normalized = list.map((b: PackingBooking) => ({
           ...b,
           items: Array.isArray(b.items) ? b.items : [],
-        })),
-      );
+        }));
+      setRows((previous) => append ? [...previous, ...normalized] : normalized);
+      nextCursorRef.current = typeof data?.nextCursor === "string" ? data.nextCursor : null;
+      setHasMore(Boolean(data?.hasMore));
     } catch (e) {
-      setRows([]);
+      if (e instanceof DOMException && e.name === "AbortError") return;
       setError(e instanceof Error ? e.message : "Failed to load packing list");
     } finally {
       setLoaded(true);
+      if (!controller.signal.aborted) setLoading(false);
     }
   }, [from, to, category]);
 
-  useRealtimeRefresh(BOOKING_EVENTS, load);
+  useRealtimeRefresh(BOOKING_EVENTS, () => void load(false));
 
   // Empty SSR result is still a completed result — do not immediately refetch.
   const skipInitial = useRef(Boolean(initialLoaded));
@@ -98,21 +121,37 @@ export default function PackingListClient({
       skipInitial.current = false;
       return;
     }
-    void load();
+    const timer = setTimeout(() => void load(false), 300);
+    return () => clearTimeout(timer);
   }, [load]);
 
-  async function flushSave(biId: number) {
+  async function flushSave(biId: number, keepalive = false) {
     const entry = saveQueue.current.get(biId);
     if (!entry) return;
     if (entry.timer) clearTimeout(entry.timer);
     const { timer: _t, ...patch } = entry;
     saveQueue.current.delete(biId);
     if (!Object.keys(patch).length) return;
-    await fetch("/api/packing-list/save-item", {
-      method: "POST",
-      headers: { "Content-Type": "application/json" },
-      body: JSON.stringify({ bi_id: biId, ...patch }),
-    });
+    setSaveStatus((previous) => ({ ...previous, [biId]: "saving" }));
+    try {
+      const response = await fetch("/api/packing-list/save-item", {
+        method: "PATCH",
+        headers: { "Content-Type": "application/json" },
+        body: JSON.stringify({ bi_id: biId, ...patch }),
+        keepalive,
+      });
+      if (!response.ok) throw new Error("Save failed");
+      setSaveStatus((previous) => ({ ...previous, [biId]: "saved" }));
+    } catch {
+      saveQueue.current.set(biId, patch);
+      setSaveStatus((previous) => ({ ...previous, [biId]: "error" }));
+    }
+  }
+
+  async function flushAll(keepalive = false) {
+    await Promise.all(
+      [...saveQueue.current.keys()].map((biId) => flushSave(biId, keepalive)),
+    );
   }
 
   function queueSave(biId: number, patch: Partial<PackingItem>, immediate = false) {
@@ -130,46 +169,86 @@ export default function PackingListClient({
     saveQueue.current.set(biId, next);
   }
 
-  async function saveItem(biId: number, patch: Partial<PackingItem>) {
+  function saveItem(biId: number, patch: Partial<PackingItem>) {
     const immediate = Object.prototype.hasOwnProperty.call(patch, "is_packed_ready");
-    // Skip unchanged blur noise — caller should only invoke on real change when possible.
     queueSave(biId, patch, immediate);
   }
+
+  function updateItem<K extends keyof PackingItem>(
+    biId: number,
+    field: K,
+    value: PackingItem[K],
+  ) {
+    const current = rows
+      .flatMap((booking) => booking.items)
+      .find((item) => item.bi_id === biId);
+    if (!current || current[field] === value) return;
+    setRows((previous) =>
+      previous.map((booking) => ({
+        ...booking,
+        items: booking.items.map((item) => {
+          if (item.bi_id !== biId || item[field] === value) return item;
+          return { ...item, [field]: value };
+        }),
+      })),
+    );
+    saveItem(biId, { [field]: value } as Partial<PackingItem>);
+  }
+
+  useEffect(() => {
+    const flushOnLeave = () => {
+      void flushAll(true);
+    };
+    window.addEventListener("pagehide", flushOnLeave);
+    return () => {
+      window.removeEventListener("pagehide", flushOnLeave);
+      loadAbortRef.current?.abort();
+      void flushAll(true);
+    };
+    // Queue refs intentionally remain stable for the component lifetime.
+    // eslint-disable-next-line react-hooks/exhaustive-deps
+  }, []);
 
   const allItems = rows.flatMap((b) => (Array.isArray(b.items) ? b.items : []).filter((i) => i.bi_id));
   const packed = allItems.filter((i) => i.is_packed_ready).length;
 
-  const pdfHeaders = [
-    ...STANDARD_BOOKING_HEADERS,
-    "Prepared By",
-    "Checked By",
-    "Packing Note",
-    "Ready",
-  ];
-
-  const pdfResults = rows.flatMap((b) =>
-    (b.items || []).map((item) =>
-      standardBookingPdfRow(
-        b.serial_no,
-        {
-          ...b,
-          dress_names: item.display_name || item.dress_name || b.dress_names,
-        },
-        [
-          item.prepared_by || "—",
-          item.checked_by || "—",
-          item.packing_note || "—",
-          item.is_packed_ready ? "Yes" : "No",
-        ],
-        panelsForItemWarnings(
-          item.returning_warning,
-          null,
-          item.display_name || item.dress_name,
+  function buildPdfData() {
+    const headers = [
+      ...STANDARD_BOOKING_HEADERS,
+      "Prepared By",
+      "Checked By",
+      "Packing Note",
+      "Ready",
+    ];
+    const results = rows.flatMap((b) =>
+      (b.items || []).map((item) =>
+        standardBookingPdfRow(
+          b.serial_no,
+          {
+            ...b,
+            dress_names: item.display_name || item.dress_name || b.dress_names,
+          },
+          [
+            item.prepared_by || "—",
+            item.checked_by || "—",
+            item.packing_note || "—",
+            item.is_packed_ready ? "Yes" : "No",
+          ],
+          panelsForItemWarnings(
+            item.returning_warning,
+            null,
+            item.display_name || item.dress_name,
+          ),
         ),
       ),
-    ),
-  );
-  const { rows: pdfRows, warningsBelow } = flattenBookingPdfRows(pdfResults);
+    );
+    const flattened = flattenBookingPdfRows(results);
+    return {
+      headers,
+      rows: flattened.rows,
+      warningsBelow: flattened.warningsBelow,
+    };
+  }
 
   return (
     <div>
@@ -180,10 +259,8 @@ export default function PackingListClient({
             title="Packing List"
             filename={`packing-list-${from}${to !== from ? `-to-${to}` : ""}`}
             subtitle={`Delivery: ${from}${to !== from ? ` to ${to}` : ""}${category ? ` · ${category}` : ""}`}
-            headers={pdfHeaders}
-            rows={pdfRows}
-            warningsBelow={warningsBelow}
-            disabled={!loaded || !pdfRows.length}
+            dataFactory={buildPdfData}
+            disabled={!loaded || !allItems.length}
             size="sm"
           />
         </div>
@@ -201,8 +278,8 @@ export default function PackingListClient({
               <label className="form-label">Category</label>
               <CategorySelect value={category} onChange={setCategory} />
             </div>
-            <button className="btn btn-primary" onClick={load}>
-              Load
+            <button className="btn btn-primary" onClick={() => void load(false)} disabled={loading}>
+              {loading ? "Loading…" : "Load"}
             </button>
           </div>
         </div>
@@ -260,8 +337,8 @@ export default function PackingListClient({
                     {item.bi_id ? (
                       <input
                         className="form-control"
-                        defaultValue={item.prepared_by}
-                        onBlur={(e) => saveItem(item.bi_id!, { prepared_by: e.target.value })}
+                        value={item.prepared_by}
+                        onChange={(e) => updateItem(item.bi_id!, "prepared_by", e.target.value)}
                       />
                     ) : (
                       <span>—</span>
@@ -272,8 +349,8 @@ export default function PackingListClient({
                     {item.bi_id ? (
                       <input
                         className="form-control"
-                        defaultValue={item.checked_by}
-                        onBlur={(e) => saveItem(item.bi_id!, { checked_by: e.target.value })}
+                        value={item.checked_by}
+                        onChange={(e) => updateItem(item.bi_id!, "checked_by", e.target.value)}
                       />
                     ) : (
                       <span>—</span>
@@ -284,8 +361,8 @@ export default function PackingListClient({
                     {item.bi_id ? (
                       <input
                         className="form-control"
-                        defaultValue={item.packing_note}
-                        onBlur={(e) => saveItem(item.bi_id!, { packing_note: e.target.value })}
+                        value={item.packing_note}
+                        onChange={(e) => updateItem(item.bi_id!, "packing_note", e.target.value)}
                       />
                     ) : (
                       <span>—</span>
@@ -297,27 +374,42 @@ export default function PackingListClient({
                       <input
                         type="checkbox"
                         checked={item.is_packed_ready}
-                        onChange={(e) => {
-                          item.is_packed_ready = e.target.checked;
-                          saveItem(item.bi_id!, { is_packed_ready: e.target.checked });
-                          setRows([...rows]);
-                        }}
+                        onChange={(e) => updateItem(item.bi_id!, "is_packed_ready", e.target.checked)}
                       />
                     ) : (
                       <span>—</span>
                     )}
                   </div>
+                  {item.bi_id && saveStatus[item.bi_id] && (
+                    <div style={{ fontSize: 11, color: saveStatus[item.bi_id] === "error" ? "var(--danger)" : "var(--text-muted)" }}>
+                      {saveStatus[item.bi_id] === "saving" && "Saving…"}
+                      {saveStatus[item.bi_id] === "saved" && "Saved"}
+                      {saveStatus[item.bi_id] === "error" && (
+                        <button type="button" className="btn btn-sm btn-outline" onClick={() => void flushSave(item.bi_id!)}>
+                          Error · Retry
+                        </button>
+                      )}
+                    </div>
+                  )}
                 </div>
               </div>
             ))}
           </div>
           {b.orders && b.orders.length > 0 && (
             <div className="card-body" style={{ paddingTop: 0 }}>
-              <CustomOrdersSection orders={b.orders} />
+              <CustomOrdersSection orders={b.orders} showPhoto={false} />
             </div>
           )}
         </div>
       ))}
+
+      {hasMore && (
+        <div style={{ textAlign: "center", margin: "8px 0 24px" }}>
+          <button type="button" className="btn btn-outline" disabled={loading} onClick={() => void load(true)}>
+            {loading ? "Loading…" : "Load More Bookings"}
+          </button>
+        </div>
+      )}
 
       {loaded && !rows.length && (
         <div className="card">

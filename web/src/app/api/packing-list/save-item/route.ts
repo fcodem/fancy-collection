@@ -2,7 +2,7 @@ import { NextRequest } from "next/server";
 import { savePackingItem } from "@/lib/services/operations";
 import { jsonError, jsonOk, requireUser, isResponse, requireJsonContentType } from "@/lib/api";
 
-export async function POST(req: NextRequest) {
+async function save(req: NextRequest) {
   const _ct = requireJsonContentType(req);
   if (_ct) return _ct;
 
@@ -17,3 +17,6 @@ export async function POST(req: NextRequest) {
     return jsonError(e instanceof Error ? e.message : "Save failed", 404);
   }
 }
+
+export const POST = save;
+export const PATCH = save;

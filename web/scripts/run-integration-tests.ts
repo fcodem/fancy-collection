@@ -7,6 +7,7 @@ import { allocateInventorySkusWithClient } from "../src/lib/inventorySkuAllocato
 import { buildWhatsAppIdempotencyKey } from "../src/lib/mutationIdempotency";
 import { createHash } from "crypto";
 import { searchAvailableItems } from "../src/lib/services/availabilitySearch";
+import { getPackingListPage } from "../src/lib/services/packingList";
 
 function assert(cond: unknown, msg: string): asserts cond {
   if (!cond) throw new Error(msg);
@@ -137,6 +138,16 @@ async function main() {
         secondPage.free_items.every((item) => !firstIds.has(item.id)),
         "availability cursor pages must not overlap",
       );
+    }
+
+    const packing = await getPackingListPage({
+      deliveryFrom: "2020-01-01",
+      deliveryTo: "2035-12-31",
+      limit: 2,
+    });
+    assert(packing.results.length <= 2, "packing booking page must be bounded");
+    if (packing.hasMore) {
+      assert(Boolean(packing.nextCursor), "packing next cursor required");
     }
 
     console.log("Integration checks passed");
