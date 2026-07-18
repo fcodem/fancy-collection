@@ -1,5 +1,11 @@
 import { NextRequest, NextResponse } from "next/server";
-import { isValidPdfRenderSecret } from "@/lib/slipPdfAccess";
+import {
+  SLIP_BODYHASH_HEADER,
+  SLIP_NONCE_HEADER,
+  SLIP_SIG_HEADER,
+  SLIP_TS_HEADER,
+  verifySlipRenderAuth,
+} from "@/lib/slipRenderAuth";
 import { renderSlipPdfDirect } from "@/lib/services/whatsapp/slipHtmlPdfDirect.server";
 import type {
   SlipPdfKind,
@@ -20,7 +26,17 @@ export const maxDuration = 60;
 const KINDS = new Set<SlipPdfKind>(["booking", "delivery", "return", "incomplete"]);
 
 export async function POST(req: NextRequest) {
-  if (!isValidPdfRenderSecret(req.headers.get("x-pdf-secret"))) {
+  // Read the raw body FIRST so the HMAC covers exactly what we parse.
+  const rawBody = await req.text();
+
+  const auth = verifySlipRenderAuth({
+    ts: req.headers.get(SLIP_TS_HEADER),
+    nonce: req.headers.get(SLIP_NONCE_HEADER),
+    sig: req.headers.get(SLIP_SIG_HEADER),
+    bodyHash: req.headers.get(SLIP_BODYHASH_HEADER),
+    rawBody,
+  });
+  if (!auth.ok) {
     return NextResponse.json({ error: "Unauthorized" }, { status: 401 });
   }
 
@@ -31,7 +47,7 @@ export async function POST(req: NextRequest) {
     opts?: unknown;
   };
   try {
-    body = await req.json();
+    body = JSON.parse(rawBody);
   } catch {
     return NextResponse.json({ error: "Invalid request body" }, { status: 400 });
   }

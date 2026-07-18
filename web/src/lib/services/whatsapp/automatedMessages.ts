@@ -586,7 +586,7 @@ export async function sendReturnReceiptWhatsApp(
     const htmlMsg = htmlErr instanceof Error ? htmlErr.message : "HTML PDF failed";
     console.warn("[sendReturnReceiptWhatsApp] HTML PDF failed, using jsPDF fallback:", htmlMsg);
     try {
-      pdfBuffer = generateOperationSlipPdfFallback("return", booking);
+      pdfBuffer = await generateOperationSlipPdfFallback("return", booking);
     } catch (e) {
       const err = e instanceof Error ? e.message : "PDF generation failed";
       console.error("[sendReturnReceiptWhatsApp] PDF error:", err);
@@ -875,7 +875,7 @@ export async function sendDeliverySlipWhatsApp(
     const htmlMsg = htmlErr instanceof Error ? htmlErr.message : "HTML PDF failed";
     console.warn("[sendDeliverySlipWhatsApp] HTML PDF failed, using jsPDF fallback:", htmlMsg);
     try {
-      pdfBuffer = generateOperationSlipPdfFallback("delivery", booking, itemIds.length ? itemIds : undefined);
+      pdfBuffer = await generateOperationSlipPdfFallback("delivery", booking, itemIds.length ? itemIds : undefined);
     } catch (e) {
       return {
         ok: false,
@@ -969,7 +969,7 @@ export async function sendPartialReturnSlipWhatsApp(
     const htmlMsg = htmlErr instanceof Error ? htmlErr.message : "HTML PDF failed";
     console.warn("[sendPartialReturnSlipWhatsApp] HTML PDF failed, using jsPDF fallback:", htmlMsg);
     try {
-      pdfBuffer = generateOperationSlipPdfFallback(
+      pdfBuffer = await generateOperationSlipPdfFallback(
         "return",
         booking,
         itemIds.length ? itemIds : undefined,
@@ -1081,7 +1081,7 @@ export async function sendIncompleteSlipWhatsApp(
     const htmlMsg = htmlErr instanceof Error ? htmlErr.message : "HTML PDF failed";
     console.warn("[sendIncompleteSlipWhatsApp] HTML PDF failed, using jsPDF fallback:", htmlMsg);
     try {
-      pdfBuffer = generateOperationSlipPdfFallback(
+      pdfBuffer = await generateOperationSlipPdfFallback(
         "incomplete",
         booking,
         ids.length ? ids : undefined,

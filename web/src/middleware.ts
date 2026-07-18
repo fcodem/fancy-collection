@@ -66,11 +66,13 @@ export async function middleware(request: NextRequest) {
     return passThrough();
   }
 
-  // The single internal Chromium renderer is a server-to-server call (no cookie),
-  // authenticated by the PDF render secret header.
+  // The single internal Chromium renderer is a server-to-server call (no cookie).
+  // Edge only checks that a signature is present; the Node route authoritatively
+  // verifies the HMAC (timestamp + nonce + body hash + replay) before any work.
   if (
     pathname === "/api/internal/slip/render" &&
-    isValidPdfRenderSecret(request.headers.get("x-pdf-secret"))
+    request.method === "POST" &&
+    request.headers.get("x-slip-sig")
   ) {
     return passThrough();
   }

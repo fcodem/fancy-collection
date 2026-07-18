@@ -10,6 +10,7 @@ import {
   slipRs,
 } from "@/lib/slipConstants";
 import { resolvePublicBookingId } from "./publicBookingId";
+import { loadSlipLogoDataUrl } from "./slipLogoData.server";
 
 type SlipFallbackKind = "delivery" | "return" | "incomplete";
 
@@ -51,11 +52,11 @@ function titleFor(kind: SlipFallbackKind): string {
  * Compact jsPDF slip when Chromium HTML→PDF is unavailable on Vercel.
  * Good enough for Meta document send so WhatsApp still works.
  */
-export function generateOperationSlipPdfFallback(
+export async function generateOperationSlipPdfFallback(
   kind: SlipFallbackKind,
   booking: SlipBooking,
   itemIds?: number[],
-): Buffer {
+): Promise<Buffer> {
   const publicId = resolvePublicBookingId(booking);
   const delivery = formatSlipDateTime(booking.deliveryDate);
   const ret = formatSlipDateTime(booking.returnDate);
@@ -66,6 +67,18 @@ export function generateOperationSlipPdfFallback(
 
   const doc = new jsPDF({ orientation: "portrait", unit: "mm", format: "a4" });
   let y = 16;
+
+  // Brand logo (top-left) so the fallback stays visually branded like the
+  // Chromium slip. Text header is retained if the asset is unavailable.
+  const logoDataUrl = await loadSlipLogoDataUrl();
+  if (logoDataUrl) {
+    try {
+      doc.addImage(logoDataUrl, "PNG", 14, 8, 16, 16);
+    } catch {
+      /* keep text-only header */
+    }
+  }
+
   doc.setFont("helvetica", "bold");
   doc.setFontSize(16);
   doc.text(SLIP_BRAND_NAME, 105, y, { align: "center" });

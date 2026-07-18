@@ -1,6 +1,7 @@
 import "server-only";
 
 import { getPdfRenderSecret } from "@/lib/slipPdfAccess";
+import { buildSlipRenderAuthHeaders } from "@/lib/slipRenderAuth";
 
 export type SlipPdfKind = "booking" | "delivery" | "return" | "incomplete";
 
@@ -85,13 +86,14 @@ async function renderSlipViaEndpoint(
   }
 
   const origin = resolveAppOrigin(requestOrigin);
+  const rawBody = JSON.stringify({ kind, bookingId, origin, opts: opts ?? null });
   const res = await fetch(`${origin}/api/internal/slip/render`, {
     method: "POST",
     headers: {
       "content-type": "application/json",
-      "x-pdf-secret": secret,
+      ...buildSlipRenderAuthHeaders(rawBody),
     },
-    body: JSON.stringify({ kind, bookingId, origin, opts: opts ?? null }),
+    body: rawBody,
     cache: "no-store",
   });
 
