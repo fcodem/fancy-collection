@@ -9,7 +9,6 @@ import {
   isAbortError,
   normalizeQrTarget,
   parseQrScanPayload,
-  qrTargetPrefetchFamily,
 } from "@/lib/bookingQrClient";
 import {
   cameraErrorMessage,
@@ -245,16 +244,6 @@ export default function SearchQrClient({
       sessionRef.current = null;
     };
   }, []);
-
-  // Warm the destination route family (not a specific record) so the shell paints fast.
-  useEffect(() => {
-    if (!mounted) return;
-    try {
-      router.prefetch(qrTargetPrefetchFamily(normalizeQrTarget(navigateTarget)));
-    } catch {
-      /* ignore */
-    }
-  }, [mounted, router, navigateTarget]);
 
   useEffect(() => {
     if (!mounted) return;

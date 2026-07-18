@@ -3,6 +3,7 @@ import { activeBookingWhere } from "@/lib/bookingActiveStatus";
 import { dressDisplayName } from "../dress";
 import { hashPassword, invalidateAllSessionsForUser } from "../auth";
 import { assertStrongPassword } from "../passwordPolicy";
+import { invalidateCategoryCache } from "../categories";
 import {
   BASE_ACCESSORY,
   BASE_JEWELLERY,
@@ -153,15 +154,24 @@ export async function addCustomCategory(name: string, group: string) {
   const existing = await prisma.customCategory.findUnique({ where: { name: name.trim() } });
   if (existing) {
     if (!existing.active) {
-      return prisma.customCategory.update({ where: { id: existing.id }, data: { active: true, group } });
+      const updated = await prisma.customCategory.update({
+        where: { id: existing.id },
+        data: { active: true, group },
+      });
+      invalidateCategoryCache();
+      return updated;
     }
     throw new Error("Category already exists.");
   }
-  return prisma.customCategory.create({ data: { name: name.trim(), group } });
+  const created = await prisma.customCategory.create({ data: { name: name.trim(), group } });
+  invalidateCategoryCache();
+  return created;
 }
 
 export async function removeCustomCategory(id: number) {
-  return prisma.customCategory.update({ where: { id }, data: { active: false } });
+  const updated = await prisma.customCategory.update({ where: { id }, data: { active: false } });
+  invalidateCategoryCache();
+  return updated;
 }
 
 export async function updateCustomCategory(id: number, name: string, group: string) {
@@ -171,10 +181,12 @@ export async function updateCustomCategory(id: number, name: string, group: stri
     where: { name: trimmed, active: true, NOT: { id } },
   });
   if (conflict) throw new Error("Category already exists.");
-  return prisma.customCategory.update({
+  const updated = await prisma.customCategory.update({
     where: { id },
     data: { name: trimmed, group: group || "other" },
   });
+  invalidateCategoryCache();
+  return updated;
 }
 
 export async function hideCategory(name: string) {
@@ -182,6 +194,7 @@ export async function hideCategory(name: string) {
   if (!trimmed) throw new Error("Category name is required.");
   const { hideCategoryName } = await import("../categoryTables");
   await hideCategoryName(trimmed);
+  invalidateCategoryCache();
   return { name: trimmed };
 }
 
