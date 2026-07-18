@@ -33,7 +33,11 @@ export async function parseResponseJson<T = Record<string, unknown>>(res: Respon
   }
 }
 
-type DedupeEntry = { promise: Promise<unknown>; expiresAt: number };
+type DedupeEntry = {
+  /** In-flight or fulfilled result. Kept until expiresAt so dedupeMs is a real TTL. */
+  promise: Promise<unknown>;
+  expiresAt: number;
+};
 const getDedupe = new Map<string, DedupeEntry>();
 
 function dedupeKey(input: RequestInfo | URL, init?: RequestInit): string | null {
@@ -44,7 +48,7 @@ function dedupeKey(input: RequestInfo | URL, init?: RequestInit): string | null 
 }
 
 export type FetchJsonOptions = RequestInit & {
-  /** Client-side GET dedupe window (ms). Default 5s when cache is not "no-store". */
+  /** Client-side GET result TTL (ms). Default 5s when cache is not "no-store". */
   dedupeMs?: number;
   timeoutMs?: number;
 };
@@ -92,11 +96,13 @@ export async function fetchJson<T = Record<string, unknown>>(
   })();
 
   if (key && dedupeWindow > 0) {
+    // Keep the fulfilled value until the TTL expires (not just while in-flight).
+    // Failures must not poison the cache for the full window.
     getDedupe.set(key, { promise: run, expiresAt: Date.now() + dedupeWindow });
-    run.finally(() => {
+    run.catch(() => {
       const cur = getDedupe.get(key);
       if (cur?.promise === run) getDedupe.delete(key);
-    }).catch(() => {});
+    });
   }
 
   return run;

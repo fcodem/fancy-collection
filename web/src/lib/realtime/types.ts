@@ -9,6 +9,8 @@ export type ShopEventType =
   | "booking.postponed_resolved"
   | "packing.updated"
   | "inventory.changed"
+  /** Polling-mode signal: shop data changed (revision advanced). Not used on Ably. */
+  | "shop.changed"
   | "nav.refresh"
   | "presence";
 

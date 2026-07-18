@@ -17,6 +17,10 @@ function safeRefresh(refresh: () => void) {
 /**
  * Re-fetch list/search data when RealtimeProvider receives shop events.
  * Uses a single poll from useShopRealtime — no duplicate setInterval per page.
+ *
+ * `nav.refresh` is intentionally ignored here — it is reserved for the shell
+ * nav-badge path. List refreshes only happen on matching domain events or on
+ * polling-mode `shop.changed` (revision advanced).
  */
 export function useRealtimeRefresh(types: ShopEventType[], refresh: () => void) {
   const refreshRef = useRef(refresh);
@@ -29,7 +33,7 @@ export function useRealtimeRefresh(types: ShopEventType[], refresh: () => void) 
       if (typeof document !== "undefined" && document.hidden) return;
       const event = (e as CustomEvent<ShopEvent>).detail;
       if (!event) return;
-      if (event.type === "nav.refresh" || typesRef.current.includes(event.type)) {
+      if (event.type === "shop.changed" || typesRef.current.includes(event.type)) {
         const jitter = Math.floor(Math.random() * 800);
         setTimeout(() => safeRefresh(() => refreshRef.current()), jitter);
       }

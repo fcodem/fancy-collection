@@ -69,9 +69,15 @@ export default function RealtimeProvider({
         return;
       }
 
-      // Polling mode only emits nav.refresh — presence badge stays hidden (online < 2).
-
+      // Badge-only path. Synthetic/polling nav.refresh must NOT fan out to every
+      // list subscriber (that previously caused unconditional refetch storms).
       if (event.type === "nav.refresh") {
+        scheduleNavCounts();
+        return;
+      }
+
+      // Polling-mode revision advanced — refresh nav badge + notify list subscribers.
+      if (event.type === "shop.changed") {
         scheduleNavCounts();
         window.dispatchEvent(new CustomEvent("shop-realtime", { detail: event }));
         return;

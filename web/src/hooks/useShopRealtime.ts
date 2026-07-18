@@ -12,6 +12,21 @@ function shouldDeliver(allowed: ShopEventType[] | "all", event: ShopEvent): bool
   return allowed === "all" || allowed.includes(event.type);
 }
 
+async function fetchShopRevision(signal?: AbortSignal): Promise<string | null> {
+  try {
+    const res = await fetch("/api/realtime/revision", {
+      credentials: "same-origin",
+      cache: "no-store",
+      signal,
+    });
+    if (!res.ok) return null;
+    const data = (await res.json()) as { rev?: unknown };
+    return typeof data.rev === "string" ? data.rev : null;
+  } catch {
+    return null;
+  }
+}
+
 /** Subscribe to shop-wide updates: polling (Vercel), Ably pub/sub, or legacy SSE (single Node process). */
 export function useShopRealtime(
   types: ShopEventType[] | "all",
@@ -29,18 +44,41 @@ export function useShopRealtime(
     const mode = getClientRealtimeMode();
     let closed = false;
 
-  if (mode === "polling") {
-      const tick = () => {
-        if (closed || (typeof document !== "undefined" && document.hidden)) return;
-        const event: ShopEvent = { type: "nav.refresh", at: new Date().toISOString() };
-        if (shouldDeliver(typesRef.current, event)) {
-          onEventRef.current(event);
+    if (mode === "polling") {
+      // Only emit when the shop revision changes. Fabricating nav.refresh every
+      // interval previously forced every open list (and the dashboard) to refetch
+      // even when nothing changed — burning the 3-connection Prisma pool.
+      let lastRev: string | null = null;
+      let inFlight = false;
+
+      const tick = async () => {
+        if (closed || inFlight) return;
+        if (typeof document !== "undefined" && document.hidden) return;
+        inFlight = true;
+        try {
+          const rev = await fetchShopRevision();
+          if (closed || rev == null) return;
+          if (lastRev === null) {
+            lastRev = rev;
+            return;
+          }
+          if (rev === lastRev) return;
+          lastRev = rev;
+          const event: ShopEvent = { type: "shop.changed", at: new Date().toISOString() };
+          if (shouldDeliver(typesRef.current, event)) {
+            onEventRef.current(event);
+          }
+        } finally {
+          inFlight = false;
         }
       };
 
-      const id = setInterval(tick, POLL_INTERVAL_MS);
+      void tick();
+      const id = setInterval(() => {
+        void tick();
+      }, POLL_INTERVAL_MS);
       const onVisibility = () => {
-        if (!document.hidden) tick();
+        if (!document.hidden) void tick();
       };
       document.addEventListener("visibilitychange", onVisibility);
       return () => {
@@ -54,6 +92,27 @@ export function useShopRealtime(
       let client: import("ably").Realtime | null = null;
       let channel: import("ably").RealtimeChannel | null = null;
       let pollFallbackId: ReturnType<typeof setInterval> | null = null;
+      let lastRev: string | null = null;
+      let fallbackInFlight = false;
+
+      const revisionFallbackTick = async () => {
+        if (closed || fallbackInFlight) return;
+        if (typeof document !== "undefined" && document.hidden) return;
+        fallbackInFlight = true;
+        try {
+          const rev = await fetchShopRevision();
+          if (closed || rev == null) return;
+          if (lastRev === null) {
+            lastRev = rev;
+            return;
+          }
+          if (rev === lastRev) return;
+          lastRev = rev;
+          onEventRef.current({ type: "shop.changed", at: new Date().toISOString() });
+        } finally {
+          fallbackInFlight = false;
+        }
+      };
 
       (async () => {
         try {
@@ -76,9 +135,9 @@ export function useShopRealtime(
             }
           });
         } catch {
+          void revisionFallbackTick();
           pollFallbackId = setInterval(() => {
-            if (closed) return;
-            onEventRef.current({ type: "nav.refresh", at: new Date().toISOString() });
+            void revisionFallbackTick();
           }, POLL_INTERVAL_MS);
         }
       })();
