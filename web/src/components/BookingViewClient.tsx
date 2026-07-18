@@ -1,7 +1,7 @@
 "use client";
 
-import Link from "next/link";
 import { useState } from "react";
+import PrefetchOnIntentLink from "@/components/PrefetchOnIntentLink";
 import { BookingRecordDetails } from "@/components/BookingRecordDetails";
 import type { SlipOrderDisplay } from "@/components/BookingSlip";
 import { BookingItemWarningsSection } from "@/components/BookingItemWarningsSection";
@@ -61,17 +61,17 @@ export default function BookingViewClient({
     <div>
       <div style={{ display: "flex", gap: 8, marginBottom: 20, flexWrap: "wrap" }} className="no-print">
         {canModify && (
-          <Link href={editHref(booking.id, status)} className="btn btn-outline">
+          <PrefetchOnIntentLink href={editHref(booking.id, status)} className="btn btn-outline">
             {isDelivered ? "Edit (Delivery)" : "Edit"}
-          </Link>
+          </PrefetchOnIntentLink>
         )}
         {locked && isOwner && (
-          <Link href={`/booking/${booking.id}/edit?unlock=1`} className="btn btn-primary">
+          <PrefetchOnIntentLink href={`/booking/${booking.id}/edit?unlock=1`} className="btn btn-primary">
             <i className="fa-solid fa-unlock" style={{ marginRight: 6 }} />
             Unlock &amp; Edit
-          </Link>
+          </PrefetchOnIntentLink>
         )}
-        <Link
+        <PrefetchOnIntentLink
           href={`/booking/${booking.id}/customer-slips`}
           className="btn btn-outline slip-action-btn"
           style={{ color: "#5b21b6", borderColor: "#7c3aed", minHeight: 44, display: "inline-flex", alignItems: "center", gap: 6 }}
@@ -79,8 +79,8 @@ export default function BookingViewClient({
         >
           <i className="fa-solid fa-file-pdf" />
           <span className="slip-btn-label">All Customer Slips</span>
-        </Link>
-        <Link
+        </PrefetchOnIntentLink>
+        <PrefetchOnIntentLink
           href={`/booking/${booking.id}/slip`}
           className="btn btn-outline slip-action-btn"
           style={{ color: "#1a5c2a", borderColor: "#1a5c2a", minHeight: 44, display: "inline-flex", alignItems: "center", gap: 6 }}
@@ -88,9 +88,9 @@ export default function BookingViewClient({
         >
           <i className="fa-solid fa-receipt" />
           <span className="slip-btn-label">Booking Slip</span>
-        </Link>
+        </PrefetchOnIntentLink>
         {isDeliverySlipEligible(booking) && isCommonDeliverySlipEligible(booking) && (
-          <Link
+          <PrefetchOnIntentLink
             href={deliverySlipHref(booking.id, booking)}
             className="btn btn-outline slip-action-btn"
             style={{ color: "#1565c0", borderColor: "#1565c0", minHeight: 44, display: "inline-flex", alignItems: "center", gap: 6 }}
@@ -98,10 +98,10 @@ export default function BookingViewClient({
           >
             <i className="fa-solid fa-truck-fast" />
             <span className="slip-btn-label">Delivery Slip</span>
-          </Link>
+          </PrefetchOnIntentLink>
         )}
         {isDeliverySlipEligible(booking) && hasPartialDelivery(booking) && (
-          <Link
+          <PrefetchOnIntentLink
             href={`/booking-delivery/${booking.id}`}
             className="btn btn-outline slip-action-btn"
             style={{ color: "#1565c0", borderColor: "#1565c0", minHeight: 44, display: "inline-flex", alignItems: "center", gap: 6 }}
@@ -109,10 +109,10 @@ export default function BookingViewClient({
           >
             <i className="fa-solid fa-truck-fast" />
             <span className="slip-btn-label">Delivery Slips</span>
-          </Link>
+          </PrefetchOnIntentLink>
         )}
         {isReturnSlipEligible(booking) && isCommonReturnSlipEligible(booking) && (
-          <Link
+          <PrefetchOnIntentLink
             href={returnSlipHref(booking.id, booking)}
             className="btn btn-outline slip-action-btn"
             style={{ color: "#b8860b", borderColor: "#c9a84c", minHeight: 44, display: "inline-flex", alignItems: "center", gap: 6 }}
@@ -120,10 +120,10 @@ export default function BookingViewClient({
           >
             <i className="fa-solid fa-circle-check" />
             <span className="slip-btn-label">Return Receipt</span>
-          </Link>
+          </PrefetchOnIntentLink>
         )}
         {isReturnSlipEligible(booking) && hasPartialReturn(booking) && (
-          <Link
+          <PrefetchOnIntentLink
             href={`/return/${booking.id}`}
             className="btn btn-outline slip-action-btn"
             style={{ color: "#b8860b", borderColor: "#c9a84c", minHeight: 44, display: "inline-flex", alignItems: "center", gap: 6 }}
@@ -131,10 +131,10 @@ export default function BookingViewClient({
           >
             <i className="fa-solid fa-circle-check" />
             <span className="slip-btn-label">Return Receipts</span>
-          </Link>
+          </PrefetchOnIntentLink>
         )}
         {isIncompleteSlipEligible(booking) && (
-          <Link
+          <PrefetchOnIntentLink
             href={`/booking/${booking.id}/incomplete-slip`}
             className="btn btn-outline slip-action-btn"
             style={{ color: "#c2410c", borderColor: "#f39c12", minHeight: 44, display: "inline-flex", alignItems: "center", gap: 6 }}
@@ -142,7 +142,7 @@ export default function BookingViewClient({
           >
             <i className="fa-solid fa-circle-exclamation" />
             <span className="slip-btn-label">Incomplete Slip</span>
-          </Link>
+          </PrefetchOnIntentLink>
         )}
         <BookingWhatsAppButton
           bookingId={booking.id}
@@ -153,26 +153,26 @@ export default function BookingViewClient({
         />
         {status === "booked" && (
           <>
-            <Link
+            <PrefetchOnIntentLink
               href={`/jewellery-selection/${booking.id}`}
               className="btn btn-outline"
               style={{ color: "#b8860b", borderColor: "#c9a84c" }}
               title="Open jewellery selection for this booking"
             >
               <i className="fa-solid fa-gem" /> Jewellery
-            </Link>
-            <Link href={`/booking-delivery/${booking.id}`} className="btn btn-primary">
+            </PrefetchOnIntentLink>
+            <PrefetchOnIntentLink href={`/booking-delivery/${booking.id}`} className="btn btn-primary">
               <i className="fa-solid fa-truck-fast" /> Delivery
-            </Link>
-            <Link href={`/postponed-booking/${booking.id}`} className="btn btn-outline" style={{ color: "#E65100", borderColor: "#E65100" }}>
+            </PrefetchOnIntentLink>
+            <PrefetchOnIntentLink href={`/postponed-booking/${booking.id}`} className="btn btn-outline" style={{ color: "#E65100", borderColor: "#E65100" }}>
               <i className="fa-solid fa-clock" /> Postpone
-            </Link>
+            </PrefetchOnIntentLink>
           </>
         )}
         {status === "delivered" && (
-          <Link href={`/return/${booking.id}`} className="btn btn-gold">
+          <PrefetchOnIntentLink href={`/return/${booking.id}`} className="btn btn-gold">
             <i className="fa-solid fa-rotate-left" /> Return
-          </Link>
+          </PrefetchOnIntentLink>
         )}
         {canModify && status !== "cancelled" && !showCancel && (
           <button type="button" className="btn btn-outline" style={{ color: "var(--danger)" }} onClick={openCancel}>
