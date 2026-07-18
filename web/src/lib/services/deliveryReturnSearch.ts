@@ -1,87 +1,162 @@
 /**
- * Paginated Delivery / Return / Jewellery-list search.
- * Honours date, q, category, page, pageSize — unlike the previous unbounded findMany.
+ * Keyset-paginated Delivery / Return / Jewellery booking search.
+ * Exact indexed paths run before prefix/fuzzy fallbacks.
  */
-import { serializeBookingForList } from "@/lib/booking";
+import prisma from "@/lib/prisma";
+import { serializeBookingForList, type BookingWithItems } from "@/lib/booking";
 import { whereDeliveryInRange, whereReturnInRange } from "@/lib/bookingDateQuery";
-import { parseDate, todayIso } from "@/lib/constants";
-import {
-  categoryWhere,
-  classifyNumericSearch,
-  customerNameWhere,
-  dressNameWhere,
-  fetchBookingsPage,
-  phoneWhere,
-  sortByRelevance,
-  type SearchMode,
-  type SearchResponse,
-} from "@/lib/services/bookingSearchCore";
+import { todayIso } from "@/lib/constants";
 import {
   OPERATIONAL_LIST_DEFAULT_PAGE_SIZE,
   OPERATIONAL_LIST_MAX_PAGE_SIZE,
 } from "@/lib/searchPagination";
+import {
+  decodeOperationalSearchCursor,
+  encodeOperationalSearchCursor,
+  type OperationalSearchCursor,
+} from "@/lib/operationalSearchCursor";
 import type { Prisma } from "@prisma/client";
 
 export type DeliveryReturnMode = "delivery" | "return";
+type SearchMode = "date" | "id" | "serial" | "phone" | "customer" | "dress" | "fuzzy";
 
-function parsePage(pageRaw?: string | null, pageSizeRaw?: string | null) {
-  const page = Math.max(1, parseInt(pageRaw || "1", 10) || 1);
-  const requested =
-    parseInt(pageSizeRaw || String(OPERATIONAL_LIST_DEFAULT_PAGE_SIZE), 10) ||
-    OPERATIONAL_LIST_DEFAULT_PAGE_SIZE;
-  const pageSize = Math.min(
-    OPERATIONAL_LIST_MAX_PAGE_SIZE,
-    Math.max(1, requested),
-  );
-  return { page, pageSize };
+const operationalBookingSelect = {
+  id: true,
+  bookingNumber: true,
+  monthlySerial: true,
+  customerName: true,
+  customerAddress: true,
+  contact1: true,
+  whatsappNo: true,
+  venue: true,
+  staffNames: true,
+  status: true,
+  dressName: true,
+  notes: true,
+  commonNotes: true,
+  deliveryDate: true,
+  deliveryTime: true,
+  returnDate: true,
+  returnTime: true,
+  createdAt: true,
+  totalPrice: true,
+  totalAdvance: true,
+  totalRemaining: true,
+  remainingCollected: true,
+  securityDeposit: true,
+  securityCollected: true,
+  securityHeld: true,
+  deliveryNotes: true,
+  bookingItems: {
+    where: { isCancelled: false },
+    select: {
+      dressName: true,
+      category: true,
+      size: true,
+      notes: true,
+      price: true,
+      itemSecurityCollected: true,
+      isDelivered: true,
+      isReturned: true,
+      item: { select: { size: true, sku: true } },
+    },
+  },
+  legacyItem: { select: { size: true, category: true, sku: true } },
+} satisfies Prisma.BookingSelect;
+
+function encodeCursor(row: BookingWithItems, mode: DeliveryReturnMode): string {
+  const payload: OperationalSearchCursor = {
+    date: (mode === "delivery" ? row.deliveryDate : row.returnDate).toISOString(),
+    time: mode === "delivery" ? row.deliveryTime : row.returnTime,
+    id: row.id,
+  };
+  return encodeOperationalSearchCursor(payload);
 }
 
-function nearbyDateWindow(refIso: string, days = 3): { from: string; to: string } {
-  const ref = parseDate(refIso);
-  const from = new Date(ref.getTime() - days * 86_400_000);
-  const to = new Date(ref.getTime() + days * 86_400_000);
-  const iso = (d: Date) => d.toISOString().slice(0, 10);
-  return { from: iso(from), to: iso(to) };
-}
-
-function deliveryStatusWhere(): Prisma.BookingWhereInput {
-  return { status: "booked" };
-}
-
-function returnStatusWhere(): Prisma.BookingWhereInput {
+function keysetWhere(
+  mode: DeliveryReturnMode,
+  cursor: OperationalSearchCursor | null,
+): Prisma.BookingWhereInput {
+  if (!cursor) return {};
+  const date = new Date(cursor.date);
+  const dateField = mode === "delivery" ? "deliveryDate" : "returnDate";
+  const timeField = mode === "delivery" ? "deliveryTime" : "returnTime";
   return {
-    status: { in: ["delivered", "booked"] },
-    OR: [{ status: "delivered" }, { bookingItems: { some: { isDelivered: true, isCancelled: false } } }],
+    OR: [
+      { [dateField]: { gt: date } },
+      { [dateField]: date, [timeField]: { gt: cursor.time } },
+      { [dateField]: date, [timeField]: cursor.time, id: { gt: cursor.id } },
+    ],
   };
 }
 
-function textWhere(q: string): { where: Prisma.BookingWhereInput; mode: SearchMode } {
-  const trimmed = q.trim();
-  if (!trimmed) return { where: {}, mode: "date" };
-
-  const numeric = classifyNumericSearch(trimmed);
-  if (numeric === "serial") {
-    const serial = parseInt(trimmed, 10);
-    return { where: { monthlySerial: serial }, mode: "serial" };
+function statusWhere(mode: DeliveryReturnMode): Prisma.BookingWhereInput {
+  if (mode === "delivery") {
+    return {
+      status: "booked",
+      OR: [
+        { bookingItems: { some: { isCancelled: false, isDelivered: false } } },
+        { bookingItems: { none: {} } },
+      ],
+    };
   }
-  if (numeric === "phone") {
-    return { where: phoneWhere(trimmed), mode: "phone" };
-  }
-  if (/^\d+$/.test(trimmed) && trimmed.length >= 4) {
-    // booking id / public id digits
-    const id = parseInt(trimmed, 10);
-    if (!Number.isNaN(id)) {
-      return {
-        where: {
-          OR: [{ id }, { publicBookingId: { contains: trimmed, mode: "insensitive" } }],
+  return {
+    status: { in: ["booked", "delivered"] },
+    OR: [
+      {
+        bookingItems: {
+          some: { isCancelled: false, isDelivered: true, isReturned: false },
         },
-        mode: "mixed",
-      };
-    }
-  }
+      },
+      { status: "delivered", bookingItems: { none: {} } },
+    ],
+  };
+}
 
-  // Prefer customer-name prefix path first; dress as fallback at call site.
-  return { where: customerNameWhere(trimmed), mode: "customer" };
+function categoryWhere(category: string): Prisma.BookingWhereInput {
+  if (!category) return {};
+  return {
+    OR: [
+      { bookingItems: { some: { category, isCancelled: false } } },
+      { bookingItems: { none: {} }, legacyItem: { is: { category } } },
+    ],
+  };
+}
+
+function digitsOnly(value: string) {
+  return value.replace(/\D/g, "");
+}
+
+async function fetchPage(args: {
+  mode: DeliveryReturnMode;
+  base: Prisma.BookingWhereInput[];
+  search?: Prisma.BookingWhereInput;
+  cursor: OperationalSearchCursor | null;
+  limit: number;
+}) {
+  const dateField = args.mode === "delivery" ? "deliveryDate" : "returnDate";
+  const timeField = args.mode === "delivery" ? "deliveryTime" : "returnTime";
+  const rows = await prisma.booking.findMany({
+    where: {
+      AND: [
+        ...args.base,
+        args.search ?? {},
+        keysetWhere(args.mode, args.cursor),
+      ],
+    },
+    select: operationalBookingSelect,
+    orderBy: [{ [dateField]: "asc" }, { [timeField]: "asc" }, { id: "asc" }],
+    take: args.limit + 1,
+  });
+  const hasMore = rows.length > args.limit;
+  const visible = rows.slice(0, args.limit) as BookingWithItems[];
+  return {
+    rows: visible,
+    hasMore,
+    nextCursor: hasMore && visible.length
+      ? encodeCursor(visible[visible.length - 1]!, args.mode)
+      : null,
+  };
 }
 
 export async function searchDeliveryOrReturn(opts: {
@@ -89,107 +164,135 @@ export async function searchDeliveryOrReturn(opts: {
   date?: string | null;
   q?: string | null;
   category?: string | null;
+  cursor?: string | null;
+  limit?: string | null;
   page?: string | null;
   pageSize?: string | null;
-}): Promise<SearchResponse> {
+}) {
   const refIso = (opts.date || "").trim() || todayIso();
-  const refDate = parseDate(refIso);
   const q = (opts.q || "").trim();
   const category = (opts.category || "").trim();
-  const { page, pageSize } = parsePage(opts.page, opts.pageSize);
-
-  const statusWhere =
-    opts.mode === "delivery" ? deliveryStatusWhere() : returnStatusWhere();
-  const orderBy: Prisma.BookingOrderByWithRelationInput[] =
-    opts.mode === "delivery"
-      ? [
-          { deliveryDate: "asc" },
-          { deliveryTime: "asc" },
-          { monthlySerial: "asc" },
-          { id: "asc" },
-        ]
-      : [
-          { returnDate: "asc" },
-          { returnTime: "asc" },
-          { monthlySerial: "asc" },
-          { id: "asc" },
-        ];
-
-  const cat = categoryWhere(category);
-  const window = nearbyDateWindow(refIso, 3);
+  const requested = Number(opts.limit || opts.pageSize || OPERATIONAL_LIST_DEFAULT_PAGE_SIZE);
+  const limit = Math.min(OPERATIONAL_LIST_MAX_PAGE_SIZE, Math.max(1, requested || OPERATIONAL_LIST_DEFAULT_PAGE_SIZE));
+  const page = Math.max(1, Number(opts.page || 1) || 1);
+  const cursor = decodeOperationalSearchCursor(opts.cursor);
   const dateWhere =
     opts.mode === "delivery"
-      ? await whereDeliveryInRange(window.from, window.to)
-      : await whereReturnInRange(window.from, window.to);
+      ? await whereDeliveryInRange(refIso, refIso)
+      : await whereReturnInRange(refIso, refIso);
+  const base = [statusWhere(opts.mode), categoryWhere(category)];
+
+  let mode: SearchMode = "date";
+  let result;
 
   if (!q) {
-    const pageResult = await fetchBookingsPage(
-      { ...statusWhere, ...cat, ...dateWhere },
-      orderBy,
-      page,
-      pageSize,
-    );
-    const sorted = sortByRelevance(pageResult.rows, refDate);
-    return {
-      mode: "date",
-      results: sorted.map(serializeBookingForList),
-      total: pageResult.total,
-      page: pageResult.page,
-      pageSize: pageResult.pageSize,
-      hasMore: pageResult.hasMore,
-    };
-  }
+    result = await fetchPage({ mode: opts.mode, base: [...base, dateWhere], cursor, limit });
+  } else {
+    const numeric = /^\d+$/.test(q);
+    const id = numeric ? Number(q) : 0;
 
-  if (q.length < 2 && classifyNumericSearch(q) !== "serial") {
-    return { mode: "date", results: [], total: 0, page, pageSize, hasMore: false };
-  }
+    // 1. Exact booking ID.
+    if (numeric && Number.isSafeInteger(id)) {
+      mode = "id";
+      result = await fetchPage({ mode: opts.mode, base, search: { id }, cursor, limit });
+    }
 
-  let { where: text, mode } = textWhere(q);
-  let pageResult = await fetchBookingsPage(
-    { ...statusWhere, ...cat, ...text },
-    orderBy,
-    page,
-    pageSize,
-  );
+    // 2. Exact monthly serial.
+    if ((!result || !result.rows.length) && numeric) {
+      mode = "serial";
+      result = await fetchPage({
+        mode: opts.mode,
+        base,
+        search: { monthlySerial: id },
+        cursor,
+        limit,
+      });
+    }
 
-  // Customer miss → dress name
-  if (!pageResult.total && mode === "customer") {
-    mode = "dress";
-    pageResult = await fetchBookingsPage(
-      { ...statusWhere, ...cat, ...dressNameWhere(q) },
-      orderBy,
-      page,
-      pageSize,
-    );
-  }
+    const digits = digitsOnly(q);
+    // 3. Exact normalized phone, then 4. suffix.
+    if ((!result || !result.rows.length) && digits.length >= 4) {
+      mode = "phone";
+      result = await fetchPage({
+        mode: opts.mode,
+        base,
+        search: { OR: [{ contact1: digits }, { whatsappNo: digits }] },
+        cursor,
+        limit,
+      });
+      if (!result.rows.length) {
+        result = await fetchPage({
+          mode: opts.mode,
+          base,
+          search: {
+            OR: [
+              { contact1: { endsWith: digits, mode: "insensitive" } },
+              { whatsappNo: { endsWith: digits, mode: "insensitive" } },
+            ],
+          },
+          cursor,
+          limit,
+        });
+      }
+    }
 
-  // Still empty → restrict to nearby date window with original text
-  if (!pageResult.total) {
-    ({ where: text, mode } = textWhere(q));
-    pageResult = await fetchBookingsPage(
-      { ...statusWhere, ...cat, ...text, ...dateWhere },
-      orderBy,
-      page,
-      pageSize,
-    );
-    if (!pageResult.total && mode === "customer") {
+    // 5. Customer prefix.
+    if (!result || !result.rows.length) {
+      mode = "customer";
+      result = await fetchPage({
+        mode: opts.mode,
+        base,
+        search: { customerName: { startsWith: q, mode: "insensitive" } },
+        cursor,
+        limit,
+      });
+    }
+
+    // 6. Dress prefix.
+    if (!result.rows.length) {
       mode = "dress";
-      pageResult = await fetchBookingsPage(
-        { ...statusWhere, ...cat, ...dressNameWhere(q), ...dateWhere },
-        orderBy,
-        page,
-        pageSize,
-      );
+      result = await fetchPage({
+        mode: opts.mode,
+        base,
+        search: {
+          OR: [
+            { dressName: { startsWith: q, mode: "insensitive" } },
+            { bookingItems: { some: { dressName: { startsWith: q, mode: "insensitive" }, isCancelled: false } } },
+          ],
+        },
+        cursor,
+        limit,
+      });
+    }
+
+    // 7. Bounded fuzzy fallback only after indexed paths miss.
+    if (!result.rows.length && q.length >= 3) {
+      mode = "fuzzy";
+      result = await fetchPage({
+        mode: opts.mode,
+        base: [...base, dateWhere],
+        search: {
+          OR: [
+            { customerName: { contains: q, mode: "insensitive" } },
+            { dressName: { contains: q, mode: "insensitive" } },
+            { bookingItems: { some: { dressName: { contains: q, mode: "insensitive" }, isCancelled: false } } },
+          ],
+        },
+        cursor,
+        limit,
+      });
     }
   }
 
-  const sorted = sortByRelevance(pageResult.rows, refDate);
+  const rows = result?.rows ?? [];
   return {
     mode,
-    results: sorted.map(serializeBookingForList),
-    total: pageResult.total,
-    page: pageResult.page,
-    pageSize: pageResult.pageSize,
-    hasMore: pageResult.hasMore,
+    results: rows.map(serializeBookingForList),
+    page,
+    pageSize: limit,
+    total: (page - 1) * limit + rows.length + (result?.hasMore ? 1 : 0),
+    totalExact: false,
+    hasMore: result?.hasMore ?? false,
+    nextCursor: result?.nextCursor ?? null,
   };
 }

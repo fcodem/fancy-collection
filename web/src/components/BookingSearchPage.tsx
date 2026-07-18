@@ -104,19 +104,39 @@ export default function BookingSearchPage({
     apiPath.includes("/delivery/search") || apiPath.includes("/return/search");
   const [loaded, setLoaded] = useState(false);
   const [loading, setLoading] = useState(false);
+  const [ready, setReady] = useState(false);
   const [page, setPage] = useState(1);
   const [pageSize, setPageSize] = useState(
     isOperationalList ? OPERATIONAL_LIST_DEFAULT_PAGE_SIZE : DEFAULT_SEARCH_PAGE_SIZE,
   );
   const [total, setTotal] = useState(0);
+  const [totalExact, setTotalExact] = useState(true);
   const [hasMore, setHasMore] = useState(false);
   const abortRef = useRef<AbortController | null>(null);
+  const activeRequestKeyRef = useRef("");
+  const cursorByPageRef = useRef(new Map<number, string | null>([[1, null]]));
   const seqRef = useRef(0);
   const debounceRef = useRef<ReturnType<typeof setTimeout> | null>(null);
   const realtimeTimer = useRef<ReturnType<typeof setTimeout> | null>(null);
+  const lastDebouncedQueryRef = useRef(query);
 
-  const runSearch = useCallback(async (pageOverride?: number) => {
+  const runSearch = useCallback(async (pageOverride?: number, cursorOverride?: string | null) => {
     const activePage = pageOverride ?? page;
+    const activeCursor =
+      cursorOverride !== undefined
+        ? cursorOverride
+        : cursorByPageRef.current.get(activePage) ?? null;
+    const requestKey = [
+      apiPath,
+      searchDate,
+      query,
+      category,
+      activePage,
+      pageSize,
+      activeCursor || "",
+    ].join("|");
+    if (activeRequestKeyRef.current === requestKey) return;
+    activeRequestKeyRef.current = requestKey;
     const seq = ++seqRef.current;
     abortRef.current?.abort();
     const ac = new AbortController();
@@ -128,7 +148,9 @@ export default function BookingSearchPage({
         q: query,
         page: String(activePage),
         pageSize: String(pageSize),
+        limit: String(pageSize),
       });
+      if (isOperationalList && activeCursor) params.set("cursor", activeCursor);
       if (category) params.set("category", category);
       const res = await fetch(`${apiPath}?${params.toString()}`, {
         credentials: "same-origin",
@@ -143,13 +165,17 @@ export default function BookingSearchPage({
         setSearchMode("");
         setSearchMonth("");
         setTotal(data.length);
+        setTotalExact(true);
         setHasMore(false);
       } else {
         setRows(Array.isArray(data.results) ? data.results : []);
         setSearchMode(data.mode || "");
         setSearchMonth(typeof data.month === "string" ? data.month : "");
         setTotal(typeof data.total === "number" ? data.total : (data.results?.length ?? 0));
+        setTotalExact(data.totalExact !== false);
         setHasMore(Boolean(data.hasMore));
+        const incomingCursor = typeof data.nextCursor === "string" ? data.nextCursor : null;
+        if (incomingCursor) cursorByPageRef.current.set(activePage + 1, incomingCursor);
         if (typeof data.page === "number") setPage(data.page);
         if (typeof data.pageSize === "number") setPageSize(data.pageSize);
       }
@@ -158,48 +184,76 @@ export default function BookingSearchPage({
       if (e instanceof DOMException && e.name === "AbortError") return;
       setLoaded((prev) => prev || true);
     } finally {
-      if (seq === seqRef.current) setLoading(false);
+      if (seq === seqRef.current) {
+        setLoading(false);
+        activeRequestKeyRef.current = "";
+      }
     }
-  }, [apiPath, searchDate, query, category, page, pageSize]);
+  }, [apiPath, searchDate, query, category, page, pageSize, isOperationalList]);
+
+  useEffect(() => {
+    if (isOperationalList) {
+      const mobile = window.matchMedia("(max-width: 767px), (pointer: coarse)").matches;
+      setPageSize(mobile ? 15 : OPERATIONAL_LIST_DEFAULT_PAGE_SIZE);
+    }
+    setReady(true);
+  }, [isOperationalList]);
+
+  useEffect(
+    () => () => {
+      abortRef.current?.abort();
+      if (debounceRef.current) clearTimeout(debounceRef.current);
+      if (realtimeTimer.current) clearTimeout(realtimeTimer.current);
+    },
+    [],
+  );
 
   // Coalesce realtime bursts — one refresh, keep prior rows visible.
   useRealtimeRefresh(BOOKING_EVENTS, () => {
     if (realtimeTimer.current) clearTimeout(realtimeTimer.current);
     realtimeTimer.current = setTimeout(() => {
-      void runSearch();
+      void runSearch(page, cursorByPageRef.current.get(page) ?? null);
     }, 400);
   });
 
   // Date or category change: refresh list from page 1.
   useEffect(() => {
+    if (!ready) return;
+    cursorByPageRef.current = new Map([[1, null]]);
     setPage(1);
-    void runSearch(1);
+    void runSearch(1, null);
     // eslint-disable-next-line react-hooks/exhaustive-deps
-  }, [searchDate, category, pageSize]);
+  }, [searchDate, category, pageSize, ready]);
 
   // Debounced text search (operational lists) — keep typing responsive.
   useEffect(() => {
-    if (!isOperationalList) return;
+    if (!isOperationalList || !ready) return;
+    if (lastDebouncedQueryRef.current === query) return;
+    lastDebouncedQueryRef.current = query;
     if (debounceRef.current) clearTimeout(debounceRef.current);
     debounceRef.current = setTimeout(() => {
       setPage(1);
-      void runSearch(1);
+      cursorByPageRef.current = new Map([[1, null]]);
+      void runSearch(1, null);
     }, 220);
     return () => {
       if (debounceRef.current) clearTimeout(debounceRef.current);
     };
     // eslint-disable-next-line react-hooks/exhaustive-deps
-  }, [query]);
+  }, [query, ready]);
 
   function handleSearchClick() {
+    cursorByPageRef.current = new Map([[1, null]]);
     setPage(1);
-    void runSearch(1);
+    void runSearch(1, null);
   }
 
   function goToPage(nextPage: number) {
     if (nextPage < 1) return;
+    const cursor = cursorByPageRef.current.get(nextPage);
+    if (isOperationalList && nextPage > 1 && cursor === undefined) return;
     setPage(nextPage);
-    void runSearch(nextPage);
+    void runSearch(nextPage, cursor ?? null);
   }
 
   const pageStart = total === 0 ? 0 : (page - 1) * pageSize + 1;
@@ -507,7 +561,8 @@ export default function BookingSearchPage({
                 }}
               >
                 <div style={{ fontSize: 12, color: "var(--text-muted)" }}>
-                  Page {page} · {pageStart.toLocaleString()}–{pageEnd.toLocaleString()} of {total.toLocaleString()}
+                  Page {page} · {pageStart.toLocaleString()}–{pageEnd.toLocaleString()}
+                  {totalExact ? ` of ${total.toLocaleString()}` : hasMore ? " · more available" : ""}
                 </div>
                 <div style={{ display: "flex", gap: 8, alignItems: "center", flexWrap: "wrap" }}>
                   <label style={{ fontSize: 12, color: "var(--text-muted)" }}>
@@ -518,9 +573,19 @@ export default function BookingSearchPage({
                       value={pageSize}
                       onChange={(e) => setPageSize(Number(e.target.value))}
                     >
-                      <option value={50}>50</option>
-                      <option value={100}>100</option>
-                      <option value={200}>200</option>
+                      {isOperationalList ? (
+                        <>
+                          <option value={15}>15</option>
+                          <option value={25}>25</option>
+                          <option value={50}>50</option>
+                        </>
+                      ) : (
+                        <>
+                          <option value={50}>50</option>
+                          <option value={100}>100</option>
+                          <option value={200}>200</option>
+                        </>
+                      )}
                     </select>
                   </label>
                   <button

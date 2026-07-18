@@ -15,6 +15,8 @@ export async function GET(req: NextRequest) {
   const date = sp.get("date");
   const q = sp.get("q");
   const category = sp.get("category");
+  const cursor = sp.get("cursor");
+  const limit = sp.get("limit");
   const page = sp.get("page");
   const pageSize = sp.get("pageSize") || sp.get("limit");
   perf.endStage("parseMs", "parse");
@@ -25,12 +27,13 @@ export async function GET(req: NextRequest) {
     date,
     q,
     category,
+    cursor,
+    limit,
     page,
     pageSize,
   });
   perf.endStage("queryMs", "query");
   perf.setRowCount(data.results.length);
-  perf.addQueries(2);
 
   const timings = perf.finish({ kind: "read" });
   return withServerTiming(jsonOk(data), timings);

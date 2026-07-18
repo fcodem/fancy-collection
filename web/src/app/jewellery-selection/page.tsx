@@ -1,6 +1,6 @@
 import Link from "next/link";
 import { redirect } from "next/navigation";
-import { getCurrentUser } from "@/lib/auth";
+import { getCurrentUserReadOnly } from "@/lib/auth";
 import BookingSearchPage from "@/components/BookingSearchPage";
 import { getAllCategories } from "@/lib/categories";
 import { todayIso } from "@/lib/constants";
@@ -8,7 +8,7 @@ import { todayIso } from "@/lib/constants";
 export const dynamic = "force-dynamic";
 
 export default async function JewellerySelectionPanelPage() {
-  const user = await getCurrentUser();
+  const user = await getCurrentUserReadOnly();
   if (!user) redirect("/login");
 
   const categories = await getAllCategories();
