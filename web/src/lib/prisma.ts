@@ -1,6 +1,7 @@
 import { PrismaClient } from "@prisma/client";
 import { logSafeDatabaseConfig } from "./dbConfigLog";
 import { localTodayEnd, localTodayStart } from "./constants";
+import { beginPrismaQuery, endPrismaQuery } from "./prismaConcurrency";
 
 /**
  * Date helpers for Prisma queries.
@@ -156,12 +157,34 @@ function createPrismaClient() {
   });
 }
 
-const globalForPrisma = globalThis as unknown as { prisma?: PrismaClient };
+const globalForPrisma = globalThis as unknown as {
+  prisma?: PrismaClient;
+  __fc_prisma_gauge_wired__?: boolean;
+};
 
 const prisma = globalForPrisma.prisma ?? createPrismaClient();
 
 // Reuse across hot reloads (dev) and warm serverless isolates (Vercel).
 globalForPrisma.prisma = prisma;
+
+// Instrumentation only: track in-flight query concurrency so pool pressure is
+// measurable. Registered once per instance and never blocks a query.
+if (!globalForPrisma.__fc_prisma_gauge_wired__) {
+  const useMiddleware = (prisma as unknown as {
+    $use?: (fn: (params: unknown, next: (p: unknown) => Promise<unknown>) => Promise<unknown>) => void;
+  }).$use;
+  if (typeof useMiddleware === "function") {
+    useMiddleware.call(prisma, async (params: unknown, next: (p: unknown) => Promise<unknown>) => {
+      beginPrismaQuery();
+      try {
+        return await next(params);
+      } finally {
+        endPrismaQuery();
+      }
+    });
+    globalForPrisma.__fc_prisma_gauge_wired__ = true;
+  }
+}
 
 export { prisma };
 export default prisma;

@@ -5,6 +5,7 @@
 
 import prisma from "../prisma";
 import { learnFromPositiveCorrection } from "../dressCheckerCorrections";
+import { mapLimit } from "../concurrency";
 
 export type SameDressConfirmInput = {
   itemId: number;
@@ -156,14 +157,13 @@ export async function learningAdjustmentsForItems(
 ): Promise<Map<number, number>> {
   const map = new Map<number, number>();
   if (!itemIds.length) return map;
-  await Promise.all(
-    itemIds.map(async (id) => {
-      const [boost, penalty] = await Promise.all([
-        positivePairBoostForItem(id),
-        negativePairPenaltyForItem(id),
-      ]);
-      map.set(id, boost - penalty);
-    }),
-  );
+  // Bound fan-out: unbounded itemIds × 2 queries can exhaust the pool.
+  await mapLimit(itemIds, 2, async (id) => {
+    const [boost, penalty] = await Promise.all([
+      positivePairBoostForItem(id),
+      negativePairPenaltyForItem(id),
+    ]);
+    map.set(id, boost - penalty);
+  });
   return map;
 }

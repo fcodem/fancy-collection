@@ -2,6 +2,7 @@
  * Safe stage timing for booking / delivery / return / dashboard paths.
  * Never log PII, secrets, connection strings, or photo URLs.
  */
+import { getMaxConcurrentQueries } from "./prismaConcurrency";
 
 export type PerfStage =
   | "authMs"
@@ -41,6 +42,7 @@ export type PerfStage =
 
 export type PerfTimings = Partial<Record<PerfStage, number>> & {
   queryCount?: number;
+  maxConcurrentQueries?: number;
   itemCount?: number;
   rowCount?: number;
   payloadBytes?: number;
@@ -108,6 +110,8 @@ export function createPerfTimer(route: string) {
     finish(opts?: { kind?: "read" | "mutation" | "photo"; forceLog?: boolean }) {
       stages.totalMs = Date.now() - t0;
       stages.queryCount = queryCount || stages.queryCount;
+      // Instance-global high-water mark of simultaneous Prisma operations.
+      stages.maxConcurrentQueries = getMaxConcurrentQueries();
       const kind = opts?.kind ?? "mutation";
       const threshold =
         kind === "photo" ? 2500 : kind === "read" ? 750 : 1000;
@@ -183,6 +187,9 @@ export function logPerf(timings: PerfTimings) {
     if (typeof v === "number") parts.push(`${key}=${v}`);
   }
   if (typeof timings.queryCount === "number") parts.push(`queryCount=${timings.queryCount}`);
+  if (typeof timings.maxConcurrentQueries === "number") {
+    parts.push(`maxConcurrentQueries=${timings.maxConcurrentQueries}`);
+  }
   if (typeof timings.rowCount === "number") parts.push(`rowCount=${timings.rowCount}`);
   else if (typeof timings.itemCount === "number") parts.push(`itemCount=${timings.itemCount}`);
   if (typeof timings.payloadBytes === "number") parts.push(`payloadBytes=${timings.payloadBytes}`);
