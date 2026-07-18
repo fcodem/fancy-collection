@@ -275,6 +275,46 @@ export async function resumeDeadLetterAiJobs(): Promise<number> {
   return result.count;
 }
 
+/** Owner control: retry a single FAILED / DEAD_LETTER job with a fresh budget. */
+export async function retryOneAiJob(jobId: number): Promise<boolean> {
+  const result = await prisma.inventoryAiJob.updateMany({
+    where: {
+      id: jobId,
+      status: { in: [AI_JOB_STATUS.FAILED, AI_JOB_STATUS.DEAD_LETTER] },
+    },
+    data: {
+      status: AI_JOB_STATUS.PENDING,
+      retryCount: 0,
+      nextRetryAt: null,
+      errorMessage: null,
+      lastError: null,
+      lockedAt: null,
+      lockedBy: null,
+      completedAt: null,
+      reason: "manual_retry_one",
+      priority: 25,
+    },
+  });
+  return result.count > 0;
+}
+
+/** Owner control: ignore a dead-letter job (kept for audit, never re-run). */
+export async function ignoreDeadLetterAiJob(jobId: number): Promise<boolean> {
+  const result = await prisma.inventoryAiJob.updateMany({
+    where: { id: jobId, status: AI_JOB_STATUS.DEAD_LETTER },
+    data: { status: AI_JOB_STATUS.CANCELLED, lockedAt: null, lockedBy: null },
+  });
+  return result.count > 0;
+}
+
+/** Owner control: permanently remove a dead-letter job record. */
+export async function removeDeadLetterAiJob(jobId: number): Promise<boolean> {
+  const result = await prisma.inventoryAiJob.deleteMany({
+    where: { id: jobId, status: AI_JOB_STATUS.DEAD_LETTER },
+  });
+  return result.count > 0;
+}
+
 export async function enqueueRepairJobs(limit = 200): Promise<number> {
   const engine = CURRENT_PIPELINE_VERSION;
   const rows = await prisma.$queryRawUnsafe<Array<{ item_id: number }>>(

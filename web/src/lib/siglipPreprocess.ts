@@ -5,17 +5,27 @@ export const SIGLIP_MODEL_ID = "Xenova/siglip-base-patch16-224";
 export const SIGLIP_EMBEDDING_DIM = 768;
 export const SIGLIP_MASTER_MAX_EDGE = 2048;
 export const SIGLIP_JPEG_QUALITY = 92;
+/** Bound decoded pixels to guard against decompression bombs → OOM/SIGABRT. */
+export const SIGLIP_MAX_INPUT_PIXELS = 40_000_000;
 
 /**
  * Master image preparation — used identically for inventory indexing AND search uploads.
  * EXIF orientation, RGB JPEG, aspect ratio preserved (fit inside), no stretch.
  */
 export async function prepareSiglipMasterImage(buffer: Buffer): Promise<Buffer> {
-  const meta = await sharp(buffer, { failOn: "none", animated: false }).metadata();
+  const meta = await sharp(buffer, {
+    failOn: "none",
+    animated: false,
+    limitInputPixels: SIGLIP_MAX_INPUT_PIXELS,
+  }).metadata();
   if (!meta.width || !meta.height) {
     throw new Error("Could not read image dimensions");
   }
-  return sharp(buffer, { failOn: "none", animated: false })
+  return sharp(buffer, {
+    failOn: "none",
+    animated: false,
+    limitInputPixels: SIGLIP_MAX_INPUT_PIXELS,
+  })
     .rotate()
     .resize(SIGLIP_MASTER_MAX_EDGE, SIGLIP_MASTER_MAX_EDGE, {
       fit: "inside",
@@ -60,11 +70,19 @@ export async function extractSiglipCrop(master: Buffer, spec: CropSpec): Promise
 
 /** Minimal prep for embedding input — no second full resize if already prepared. */
 export async function prepareSiglipEmbeddingInput(buffer: Buffer): Promise<Buffer> {
-  const meta = await sharp(buffer, { failOn: "none", animated: false }).metadata();
+  const meta = await sharp(buffer, {
+    failOn: "none",
+    animated: false,
+    limitInputPixels: SIGLIP_MAX_INPUT_PIXELS,
+  }).metadata();
   if (!meta.width || !meta.height) {
     throw new Error("Could not read image dimensions");
   }
-  return sharp(buffer, { failOn: "none", animated: false })
+  return sharp(buffer, {
+    failOn: "none",
+    animated: false,
+    limitInputPixels: SIGLIP_MAX_INPUT_PIXELS,
+  })
     .rotate()
     .removeAlpha()
     .jpeg({ quality: SIGLIP_JPEG_QUALITY, force: true })

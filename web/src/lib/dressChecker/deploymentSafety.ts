@@ -454,21 +454,30 @@ export async function getPublicHealthStatus() {
     profiles[String(row.ai_status).toUpperCase()] = Number(row.count) || 0;
   }
 
-  const workerHealthy = durable.status === "HEALTHY" || durable.status === "DEGRADED";
-  const failedJobCount = (queue?.failed ?? 0) + (queue?.deadLetter ?? 0);
+  const deadLetterCount = queue?.deadLetter ?? 0;
+  const failedJobCount = (queue?.failed ?? 0) + deadLetterCount;
   const failedProfiles = profiles.FAILED ?? 0;
-  const unhealthy =
-    !dbOk || durable.status === "OFFLINE" || failedJobCount > 0 || failedProfiles > 0;
+
+  // Website health depends ONLY on the database. Optional AI indexing being
+  // degraded (failed/dead-letter jobs, offline worker) must never mark the
+  // business website unhealthy.
+  const websiteOk = dbOk;
+  const aiHealthy =
+    dbOk && durable.status !== "OFFLINE" && failedJobCount === 0 && failedProfiles === 0;
 
   let banner: string | null = null;
   if (!dbOk) banner = "Database unreachable.";
-  else if (durable.status === "OFFLINE") banner = "Queue worker offline.";
+  else if (durable.status === "OFFLINE") banner = "Queue worker offline (AI indexing paused).";
   else if (failedJobCount > 0 || failedProfiles > 0) {
-    banner = "AI indexing service unhealthy.";
+    banner = "AI indexing degraded — inventory and bookings are unaffected.";
   }
 
   return {
-    ok: !unhealthy && dbOk,
+    ok: websiteOk,
+    website: websiteOk ? "OK" : "DOWN",
+    aiHealthy,
+    deadLetterCount,
+    lastSuccessfulJob: durable.lastDrainAt ?? null,
     database: dbOk ? "OK" : "DOWN",
     queue: queue
       ? {

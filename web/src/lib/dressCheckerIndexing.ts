@@ -1,9 +1,12 @@
 import { Prisma } from "@prisma/client";
 import prisma from "./prisma";
 import { logDressChecker } from "./dressCheckerLog";
-import { processInventoryFingerprint } from "./recognitionPipeline/processInventory";
 
-export { indexIdentificationFingerprint } from "./services/dressIdentificationPipeline";
+// NOTE: the recognition/transformer graph (`recognitionPipeline/processInventory`
+// and `services/dressIdentificationPipeline`) is intentionally NOT imported
+// statically. Normal routes import this module only for the lightweight
+// photo-removed cleanup below; the heavy model graph is dynamically imported
+// inside runRecognitionPipeline / onInventoryPhotoChanged (worker path only).
 
 /** Clear embeddings + recognition image when inventory photo is removed. */
 export async function clearIdentificationIndex(itemId: number, reason: string): Promise<void> {
@@ -50,6 +53,9 @@ export async function runRecognitionPipeline(
     select: { photo: true },
   });
   if (!row?.photo) return;
+  const { processInventoryFingerprint } = await import(
+    "./recognitionPipeline/processInventory"
+  );
   await processInventoryFingerprint(itemId, reason);
 }
 

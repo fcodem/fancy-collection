@@ -157,17 +157,54 @@ export async function POST(req: NextRequest) {
       | "resume_queue"
       | "drain_queue"
       | "self_heal"
-      | "resume_dead_letter";
+      | "resume_dead_letter"
+      | "retry_one"
+      | "ignore_dead_letter"
+      | "remove_dead_letter";
     itemIds?: number[];
+    jobId?: number;
   };
+
+  // Pure management actions must not spin up the worker or drain jobs.
+  const managementOnly = new Set(["ignore_dead_letter", "remove_dead_letter"]);
 
   try {
     // Resume via durable drain — no in-process interval on Vercel.
-    if (process.env.VERCEL !== "1") {
-      startAiJobWorker();
-    } else {
-      const { drainAiJobQueue } = await import("@/lib/dressChecker/aiJobWorker");
-      await drainAiJobQueue(3, { source: "admin" });
+    if (!managementOnly.has(body.action ?? "")) {
+      if (process.env.VERCEL !== "1") {
+        startAiJobWorker();
+      } else {
+        const { drainAiJobQueue } = await import("@/lib/dressChecker/aiJobWorker");
+        await drainAiJobQueue(3, { source: "admin" });
+      }
+    }
+
+    if (body.action === "retry_one") {
+      const jobId = Number(body.jobId);
+      if (!Number.isFinite(jobId)) return jsonError("jobId required", 400);
+      const { retryOneAiJob } = await import("@/lib/dressChecker/aiJobQueue");
+      const ok = await retryOneAiJob(jobId);
+      if (!ok) return jsonError("Job not found or not retryable", 404);
+      const drained = await drainAiJobQueue(1, { source: "admin" });
+      return jsonOk({ ...drained, message: `Retried job ${jobId}` });
+    }
+
+    if (body.action === "ignore_dead_letter") {
+      const jobId = Number(body.jobId);
+      if (!Number.isFinite(jobId)) return jsonError("jobId required", 400);
+      const { ignoreDeadLetterAiJob } = await import("@/lib/dressChecker/aiJobQueue");
+      const ok = await ignoreDeadLetterAiJob(jobId);
+      if (!ok) return jsonError("Dead-letter job not found", 404);
+      return jsonOk({ message: `Ignored dead-letter job ${jobId}` });
+    }
+
+    if (body.action === "remove_dead_letter") {
+      const jobId = Number(body.jobId);
+      if (!Number.isFinite(jobId)) return jsonError("jobId required", 400);
+      const { removeDeadLetterAiJob } = await import("@/lib/dressChecker/aiJobQueue");
+      const ok = await removeDeadLetterAiJob(jobId);
+      if (!ok) return jsonError("Dead-letter job not found", 404);
+      return jsonOk({ message: `Removed dead-letter job ${jobId}` });
     }
 
     if (body.action === "reindex_selected") {

@@ -3,7 +3,10 @@
  * In-process setInterval is only a local pump — NEVER used for health status.
  * Health = durable Postgres heartbeat (cron / drain / startup).
  */
-import { processInventoryAiProfile } from "./processInventory";
+// NOTE: `./processInventory` (transformers/onnx/sharp) is intentionally NOT
+// imported statically. It is dynamically imported inside processOneAiJob so the
+// heavy model graph loads ONLY on the worker path, never when a normal route or
+// the /api/health probe merely imports this module.
 import {
   claimNextAiJob,
   completeAiJob,
@@ -47,6 +50,7 @@ export async function processOneAiJob(): Promise<boolean> {
         return true;
       }
     }
+    const { processInventoryAiProfile } = await import("./processInventory");
     const ok = await processInventoryAiProfile(job.itemId, job.reason);
     if (ok) {
       await completeAiJob(job.id);
