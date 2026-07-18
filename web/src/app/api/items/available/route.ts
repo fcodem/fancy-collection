@@ -1,18 +1,25 @@
-import prisma from "@/lib/prisma";
-import { jsonOk, requireUser, isResponse } from "@/lib/api";
+import { NextRequest } from "next/server";
+import { jsonOk, requireFastReadUser, isResponse } from "@/lib/api";
+import { searchAvailableItems } from "@/lib/services/availabilitySearch";
+import { todayIso } from "@/lib/constants";
 
-export async function GET() {
-  const user = await requireUser();
+export async function GET(req: NextRequest) {
+  const user = await requireFastReadUser();
   if (isResponse(user)) return user;
-  const items = await prisma.clothingItem.findMany({
-    where: { status: "available" },
-    orderBy: { name: "asc" },
+  const sp = req.nextUrl.searchParams;
+  const deliveryDate = sp.get("delivery_date") || todayIso();
+  const returnDate = sp.get("return_date") || deliveryDate;
+  const data = await searchAvailableItems({
+    deliveryDate,
+    returnDate,
+    category: sp.get("category") || "",
+    subCategory: sp.get("subcategory") || "",
+    size: sp.get("size") || "",
+    itemType: sp.get("type") || "",
+    group: sp.get("group") || "",
+    search: sp.get("search") || "",
+    cursor: sp.get("cursor"),
+    limit: Number(sp.get("limit") || 0) || undefined,
   });
-  return jsonOk(items.map((i) => ({
-    id: i.id,
-    name: i.name,
-    sku: i.sku,
-    daily_rate: i.dailyRate,
-    deposit: i.deposit,
-  })));
+  return jsonOk(data);
 }

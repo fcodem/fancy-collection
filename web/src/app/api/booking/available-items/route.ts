@@ -1,5 +1,5 @@
 import { NextRequest } from "next/server";
-import { getAvailableItemsApi } from "@/lib/booking";
+import { searchAvailableItems } from "@/lib/services/availabilitySearch";
 import { jsonOk, requireFastReadUser, isResponse } from "@/lib/api";
 import { createPerfTimer, withServerTiming } from "@/lib/perfTiming";
 
@@ -18,8 +18,21 @@ export async function GET(req: NextRequest) {
 
   const exclude = parseInt(req.nextUrl.searchParams.get("exclude_booking") || "0", 10) || undefined;
   perf.mark("db");
-  // Live DB read — New Booking must not show dresses that are already booked.
-  const data = await getAvailableItemsApi(deliveryDate, returnDate, category, exclude);
+  // One live, bounded CTE query — New Booking must never show occupied inventory.
+  const data = await searchAvailableItems({
+    deliveryDate,
+    returnDate,
+    category,
+    excludeBookingId: exclude,
+    subCategory: req.nextUrl.searchParams.get("subcategory") || "",
+    size: req.nextUrl.searchParams.get("size") || "",
+    itemType: req.nextUrl.searchParams.get("type") || "",
+    group: req.nextUrl.searchParams.get("group") || "",
+    status: req.nextUrl.searchParams.get("status") || "",
+    search: req.nextUrl.searchParams.get("search") || "",
+    cursor: req.nextUrl.searchParams.get("cursor"),
+    limit: Number(req.nextUrl.searchParams.get("limit") || 0) || undefined,
+  });
   perf.endStage("initialReadMs", "db");
   const timings = perf.finish({ kind: "read" });
   return withServerTiming(jsonOk(data), timings);

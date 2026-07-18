@@ -400,6 +400,10 @@ export default function BookingFormClient(props: Props) {
   const [selectedListExpanded, setSelectedListExpanded] = useState(true);
 
   const [allFreeItems, setAllFreeItems] = useState<FreeItem[]>([]);
+  const [availabilityHasMore, setAvailabilityHasMore] = useState(false);
+  const [availabilityPageLimit] = useState(() =>
+    typeof window !== "undefined" && window.matchMedia("(max-width: 767px)").matches ? 20 : 30,
+  );
 
   const [selectedDresses, setSelectedDresses] = useState<SelectedDress[]>(props.initial?.items || []);
 
@@ -421,6 +425,7 @@ export default function BookingFormClient(props: Props) {
 
   const [dateCheckLoading, setDateCheckLoading] = useState(false);
   const availabilityAbortRef = useRef<AbortController | null>(null);
+  const availabilityCursorRef = useRef<string | null>(null);
   const dateCheckAbortRef = useRef<AbortController | null>(null);
   const availabilityVersionRef = useRef(0);
   const dateCheckVersionRef = useRef(0);
@@ -513,25 +518,41 @@ export default function BookingFormClient(props: Props) {
 
 
   /** Loads free inventory for delivery/return range; aborts stale requests on date change. */
-  const fetchAvailability = useCallback(async () => {
+  const fetchAvailability = useCallback(async (append = false) => {
     if (!deliveryDate || !returnDate) return;
     if (parseDate(returnDate) < parseDate(deliveryDate)) return;
 
+    if (!append) availabilityCursorRef.current = null;
     availabilityAbortRef.current?.abort();
     const controller = new AbortController();
     availabilityAbortRef.current = controller;
     const version = ++availabilityVersionRef.current;
 
     setLoading(true);
-    const exclude = props.editId ? `&exclude_booking=${props.editId}` : "";
-    const cacheKey = `avail:${deliveryDate}:${returnDate}:${props.editId || 0}`;
+    const cursor = append ? availabilityCursorRef.current : null;
+    const params = new URLSearchParams({
+      delivery_date: deliveryDate,
+      return_date: returnDate,
+      category: categoryFilter,
+      size: sizeFilter,
+      search: nameSearch.trim(),
+      limit: String(availabilityPageLimit),
+    });
+    if (props.editId) params.set("exclude_booking", String(props.editId));
+    if (cursor) params.set("cursor", cursor);
+    const cacheKey = `avail:${params.toString()}`;
 
     try {
-      const data = await cachedFetchJson<{ free_items?: FreeItem[]; error?: string }>(
+      const data = await cachedFetchJson<{
+        free_items?: FreeItem[];
+        error?: string;
+        nextCursor?: string | null;
+        hasMore?: boolean;
+      }>(
         cacheKey,
         async (signal) => {
           const res = await fetch(
-            `/api/booking/available-items?delivery_date=${deliveryDate}&return_date=${returnDate}${exclude}`,
+            `/api/booking/available-items?${params.toString()}`,
             { credentials: "same-origin", signal, cache: "no-store" },
           );
           const json = await res.json();
@@ -546,7 +567,12 @@ export default function BookingFormClient(props: Props) {
       );
 
       if (controller.signal.aborted || version !== availabilityVersionRef.current) return;
-      setAllFreeItems(data.free_items || []);
+      setAllFreeItems((previous) =>
+        append ? [...previous, ...(data.free_items || [])] : (data.free_items || []),
+      );
+      availabilityCursorRef.current =
+        typeof data.nextCursor === "string" ? data.nextCursor : null;
+      setAvailabilityHasMore(Boolean(data.hasMore));
     } catch (e) {
       if (controller.signal.aborted || isAbortError(e) || version !== availabilityVersionRef.current) {
         return;
@@ -560,14 +586,22 @@ export default function BookingFormClient(props: Props) {
         setLoading(false);
       }
     }
-  }, [deliveryDate, returnDate, props.editId]);
+  }, [
+    deliveryDate,
+    returnDate,
+    props.editId,
+    categoryFilter,
+    sizeFilter,
+    nameSearch,
+    availabilityPageLimit,
+  ]);
 
   useRealtimeRefresh([...BOOKING_EVENTS, ...INVENTORY_EVENTS], () => {
     const now = Date.now();
     if (now - lastRealtimeRefreshRef.current < 2_500) return;
     lastRealtimeRefreshRef.current = now;
     invalidateClientCache("avail:");
-    void fetchAvailability();
+    void fetchAvailability(false);
   });
 
   useEffect(() => () => {
@@ -659,7 +693,7 @@ export default function BookingFormClient(props: Props) {
       void fetchAvailability();
     }, props.editId ? 0 : 450);
     return () => clearTimeout(t);
-  }, [deliveryDate, returnDate, fetchAvailability, props.editId]);
+  }, [deliveryDate, returnDate, categoryFilter, sizeFilter, nameSearch, fetchAvailability, props.editId]);
 
   const durationDays = useMemo(() => {
 
@@ -1447,7 +1481,7 @@ export default function BookingFormClient(props: Props) {
             </p>
           )}
 
-          {loading ? (
+          {loading && filtered.length === 0 ? (
 
             <p style={{ textAlign: "center", padding: 30, color: "var(--text-muted)" }}><i className="fa-solid fa-spinner fa-spin" /> Checking availability…</p>
 
@@ -1461,6 +1495,7 @@ export default function BookingFormClient(props: Props) {
 
           ) : (
 
+            <>
             <div className="dress-picker-scroll">
 
               {filtered.map((item) => {
@@ -1510,6 +1545,19 @@ export default function BookingFormClient(props: Props) {
               })}
 
             </div>
+            {availabilityHasMore && (
+              <div style={{ textAlign: "center", marginTop: 12 }}>
+                <button
+                  type="button"
+                  className="btn btn-outline btn-sm"
+                  disabled={loading}
+                  onClick={() => void fetchAvailability(true)}
+                >
+                  {loading ? "Loading…" : "Load More Available Items"}
+                </button>
+              </div>
+            )}
+            </>
 
           )}
 

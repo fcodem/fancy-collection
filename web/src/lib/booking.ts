@@ -22,6 +22,7 @@ import {
 } from "./jewelleryParts";
 import type { Booking, BookingItem, ClothingItem, Prisma } from "@prisma/client";
 import { catalogPhotoRef } from "./catalogPhotoRef";
+import { searchAvailableItems } from "./services/availabilitySearch";
 
 type DbClient = Prisma.TransactionClient | typeof prisma;
 
@@ -343,6 +344,15 @@ export async function getAvailableItemsApi(
 ) {
   const dDate = parseDateQ(deliveryDateStr);
   const rDate = parseDateQ(returnDateStr);
+  if (!isSqliteDb()) {
+    return searchAvailableItems({
+      deliveryDate: deliveryDateStr,
+      returnDate: returnDateStr,
+      category: categoryFilter,
+      excludeBookingId,
+      limit: 50,
+    });
+  }
   const dIso = formatDate(dDate, "iso");
   const rIso = formatDate(rDate, "iso");
   const exclude = excludeBookingId ? { id: { not: excludeBookingId } } : {};
@@ -354,60 +364,8 @@ export async function getAvailableItemsApi(
   /** SQLite path may already hold full warning bookings; Postgres fetches slim later. */
   let sqliteWarningBookings: BookingWithItems[] | null = null;
 
-  if (!isSqliteDb()) {
-    const excludeId = excludeBookingId ?? null;
-    const [y, m, d] = rIso.split("-").map(Number);
-    const rEnd = new Date(Date.UTC(y!, m! - 1, d! + 1));
-    const occupancy = await prisma.$queryRaw<
-      Array<{ item_id: number; booking_id: number; kind: string }>
-    >`
-      WITH item_rows AS (
-        SELECT
-          b.id AS booking_id,
-          items.item_id,
-          (b.return_date AT TIME ZONE 'UTC')::date AS return_day,
-          (b.delivery_date AT TIME ZONE 'UTC')::date AS delivery_day
-        FROM bookings b
-        CROSS JOIN LATERAL (
-          SELECT bi.item_id
-          FROM booking_items bi
-          WHERE bi.booking_id = b.id
-            AND bi.item_id IS NOT NULL
-            AND bi.is_cancelled = false
-            AND bi.is_returned = false
-          UNION ALL
-          SELECT b.item_id
-          WHERE b.item_id IS NOT NULL
-            AND NOT EXISTS (
-              SELECT 1 FROM booking_items bi2 WHERE bi2.booking_id = b.id
-            )
-        ) items
-        WHERE b.status IN ('booked', 'delivered')
-          AND (${excludeId}::int IS NULL OR b.id <> ${excludeId})
-          AND b.delivery_date < ${rEnd}
-          AND b.return_date >= ${dDate}
-      )
-      SELECT
-        item_id,
-        booking_id,
-        CASE
-          WHEN return_day = ${dIso}::date THEN 'returning'
-          WHEN delivery_day = ${rIso}::date THEN 'booked'
-          ELSE 'busy'
-        END AS kind
-      FROM item_rows
-    `;
-    for (const row of occupancy) {
-      if (row.kind === "returning") {
-        returningPairs.push({ itemId: row.item_id, bookingId: row.booking_id });
-      } else if (row.kind === "booked") {
-        bookedPairs.push({ itemId: row.item_id, bookingId: row.booking_id });
-      } else {
-        busyItemIds.add(row.item_id);
-      }
-    }
-  } else {
-    // SQLite: keep Prisma date helpers (no Postgres raw SQL).
+  {
+    // SQLite-only compatibility path. PostgreSQL returned from the single CTE above.
     const overlapWhere = await whereBookingOverlapsPeriod(deliveryDateStr, returnDateStr);
     const returnOnDeliveryWhere = await whereReturnInRange(deliveryDateStr, deliveryDateStr);
     const deliveryOnReturnWhere = await whereDeliveryInRange(returnDateStr, returnDateStr);

@@ -1,6 +1,6 @@
 "use client";
 
-import { useCallback, useEffect, useState } from "react";
+import { useCallback, useEffect, useRef, useState } from "react";
 import CategorySelect from "./CategorySelect";
 import { BookingWarningPanel } from "@/components/BookingDetailsColumns";
 import { WARNING_BOOKED_ON_RETURN, WARNING_RETURNING_ON_DELIVERY } from "@/lib/bookingDetails";
@@ -9,8 +9,6 @@ import { BASE_JEWELLERY, BASE_MENS, BASE_WOMENS, SIZES } from "@/lib/constants";
 import { useRealtimeRefresh } from "@/hooks/useRealtimeRefresh";
 import { BOOKING_EVENTS, INVENTORY_EVENTS } from "@/lib/realtime/types";
 import DownloadPdfButton from "@/components/DownloadPdfButton";
-import ZoomableImage from "@/components/ZoomableImage";
-import { catalogPhotoUrl } from "@/lib/catalogPhotoUrl";
 import { formatJewelleryPartsLabel, type JewelleryPartKey } from "@/lib/jewelleryParts";
 
 type FreeItem = {
@@ -37,8 +35,6 @@ function hasBookedParts(item: FreeItem): boolean {
   return (item.booked_parts?.length ?? 0) > 0;
 }
 
-const BRIDAL_JEWELLERY = "Bridal Jewellery";
-
 // Four main divisions requested for the Free Item List.
 const GROUP_OPTIONS = [
   { value: "", label: "All Divisions" },
@@ -47,15 +43,6 @@ const GROUP_OPTIONS = [
   { value: "jewellery", label: "Jewellery" },
   { value: "bridal", label: "Bridal Jewellery" },
 ];
-
-function matchesGroup(cat: string, group: string): boolean {
-  if (!group) return true;
-  if (group === "men") return BASE_MENS.includes(cat);
-  if (group === "women") return BASE_WOMENS.includes(cat);
-  if (group === "jewellery") return BASE_JEWELLERY.includes(cat) && cat !== BRIDAL_JEWELLERY;
-  if (group === "bridal") return cat === BRIDAL_JEWELLERY;
-  return true;
-}
 
 // Fixed display order so a whole division shows its categories in a sensible sequence
 // (e.g. Men → Sherwani, Indowestern, Jodhpuri … ).
@@ -86,19 +73,24 @@ function groupByCategory(items: FreeItem[]): { category: string; items: FreeItem
   return groups;
 }
 
-function FreeItemBlock({ item }: { item: FreeItem }) {
+function FreeItemBlock({
+  item,
+  onImageClick,
+}: {
+  item: FreeItem;
+  onImageClick: (item: FreeItem) => void;
+}) {
   const isJewellery = item.item_type === "jewellery";
   const freeLabel = formatJewelleryPartsLabel(item.available_parts || []);
   const bookedLabel = formatJewelleryPartsLabel(item.booked_parts || []);
   return (
     <div className="free-item-block" style={{ display: "flex", gap: 12, alignItems: "flex-start" }}>
       {item.photo ? (
-        <ZoomableImage
-          src={catalogPhotoUrl(item)}
-          alt={item.display_name || item.name}
-          overlayCaption={item.display_name || item.name}
-          style={{ width: 56, height: 56, borderRadius: 8, objectFit: "cover", flexShrink: 0, cursor: "zoom-in" }}
-        />
+        <button type="button" onClick={() => onImageClick(item)} style={{ padding: 0, border: 0, background: "transparent", cursor: "zoom-in" }}>
+          {/* API returns only the 320px thumbnail; original is fetched after this click. */}
+          {/* eslint-disable-next-line @next/next/no-img-element */}
+          <img src={item.photo} alt={item.display_name || item.name} style={{ width: 56, height: 56, borderRadius: 8, objectFit: "cover", display: "block" }} />
+        </button>
       ) : (
         <div
           style={{
@@ -152,10 +144,12 @@ function FreeItemsSection({
   title,
   titleColor,
   items,
+  onImageClick,
 }: {
   title: string;
   titleColor?: string;
   items: FreeItem[];
+  onImageClick: (item: FreeItem) => void;
 }) {
   if (!items.length) return null;
   return (
@@ -183,7 +177,7 @@ function FreeItemsSection({
               {grp.category} ({grp.items.length})
             </div>
             {grp.items.map((item) => (
-              <FreeItemBlock key={item.id} item={item} />
+              <FreeItemBlock key={item.id} item={item} onImageClick={onImageClick} />
             ))}
           </div>
         ))}
@@ -201,42 +195,81 @@ export default function FreeItemsClient({ today }: { today: string }) {
   const [subCat, setSubCat] = useState("");
   const [free, setFree] = useState<FreeItem[]>([]);
   const [loaded, setLoaded] = useState(false);
+  const [loading, setLoading] = useState(false);
+  const [pageLimit] = useState(() =>
+    typeof window !== "undefined" && window.matchMedia("(max-width: 767px)").matches ? 20 : 30,
+  );
+  const [nextCursor, setNextCursor] = useState<string | null>(null);
+  const [hasMore, setHasMore] = useState(false);
+  const [lightbox, setLightbox] = useState<{ src: string; caption: string } | null>(null);
+  const abortRef = useRef<AbortController | null>(null);
+  const requestSeqRef = useRef(0);
 
   const showSize = category === "Sherwani" || category === "Suit" || category === "Blazer";
 
-  const search = useCallback(async () => {
+  const openOriginal = useCallback(async (item: FreeItem) => {
     try {
+      const res = await fetch(`/api/inventory/${item.id}`, {
+        credentials: "same-origin",
+        headers: { Accept: "application/json" },
+      });
+      if (!res.ok) return;
+      const detail = await res.json();
+      const src = detail.original_photo_url || detail.photo_url;
+      if (src) setLightbox({ src, caption: item.display_name || item.name });
+    } catch {
+      /* keep the list usable if an original image is unavailable */
+    }
+  }, []);
+
+  const search = useCallback(async (append = false) => {
+    const seq = ++requestSeqRef.current;
+    abortRef.current?.abort();
+    const controller = new AbortController();
+    abortRef.current = controller;
+    setLoading(true);
+    try {
+      const params = new URLSearchParams({
+        delivery_date: deliveryDate,
+        return_date: returnDate,
+        group,
+        category,
+        size,
+        subcategory: subCat,
+        limit: String(pageLimit),
+      });
+      if (append && nextCursor) params.set("cursor", nextCursor);
       const res = await fetch(
-        `/api/booking/available-items?delivery_date=${deliveryDate}&return_date=${returnDate}&category=${encodeURIComponent(category)}`,
-        { cache: "no-store" },
+        `/api/booking/available-items?${params.toString()}`,
+        { cache: "no-store", signal: controller.signal },
       );
       if (!res.ok) return;
       const data = await res.json();
-      let items: FreeItem[] = data.free_items || [];
-      if (group) items = items.filter((i) => matchesGroup(i.category, group));
-      if (size) items = items.filter((i) => i.size === size);
-      if (subCat) items = items.filter((i) => (i.sub_category || "Normal") === subCat);
-      setFree(items);
+      if (seq !== requestSeqRef.current) return;
+      const items: FreeItem[] = data.free_items || [];
+      setFree((previous) => (append ? [...previous, ...items] : items));
+      setNextCursor(typeof data.nextCursor === "string" ? data.nextCursor : null);
+      setHasMore(Boolean(data.hasMore));
       setLoaded(true);
-    } catch {
+    } catch (error) {
+      if (error instanceof DOMException && error.name === "AbortError") return;
       /* ignore transient network errors (e.g. dev recompile during poll refresh) */
       setLoaded(true);
+    } finally {
+      if (seq === requestSeqRef.current) setLoading(false);
     }
-  }, [deliveryDate, returnDate, group, category, size, subCat]);
+  }, [deliveryDate, returnDate, group, category, size, subCat, nextCursor, pageLimit]);
 
   useEffect(() => {
-    search();
-  }, []);
-
-  // Re-run the search automatically when the division / size / sub-category changes
-  // so those filters combine with the selected group instantly.
-  useEffect(() => {
-    if (loaded) search();
-    // eslint-disable-next-line react-hooks/exhaustive-deps
-  }, [group, size, subCat]);
+    const timer = setTimeout(() => void search(false), 300);
+    return () => {
+      clearTimeout(timer);
+      abortRef.current?.abort();
+    };
+  }, [deliveryDate, returnDate, group, category, size, subCat]); // eslint-disable-line react-hooks/exhaustive-deps
 
   useRealtimeRefresh([...BOOKING_EVENTS, ...INVENTORY_EVENTS], () => {
-    if (loaded) search();
+    if (loaded) void search(false);
   });
 
   const totallyFree = free.filter((i) => !i.returning_warning && !i.booked_warning && !hasBookedParts(i));
@@ -327,25 +360,44 @@ export default function FreeItemsClient({ today }: { today: string }) {
               </select>
             </div>
           </div>
-          <button className="btn btn-primary" style={{ marginTop: 16 }} onClick={search}>
-            Search
+          <button className="btn btn-primary" style={{ marginTop: 16 }} onClick={() => void search(false)} disabled={loading}>
+            {loading ? "Searching…" : "Search"}
           </button>
         </div>
       </div>
 
       {loaded && (
         <>
-          <FreeItemsSection title="Totally Free" titleColor="var(--success)" items={totallyFree} />
-          <FreeItemsSection title="Some Parts Booked (parts still free)" titleColor="#E65100" items={partialParts} />
-          <FreeItemsSection title={WARNING_RETURNING_ON_DELIVERY} titleColor="#E65100" items={returning} />
-          <FreeItemsSection title={WARNING_BOOKED_ON_RETURN} titleColor="var(--danger)" items={booked} />
-          <FreeItemsSection title={`${WARNING_RETURNING_ON_DELIVERY} & ${WARNING_BOOKED_ON_RETURN}`} items={both} />
+          <FreeItemsSection title="Totally Free" titleColor="var(--success)" items={totallyFree} onImageClick={openOriginal} />
+          <FreeItemsSection title="Some Parts Booked (parts still free)" titleColor="#E65100" items={partialParts} onImageClick={openOriginal} />
+          <FreeItemsSection title={WARNING_RETURNING_ON_DELIVERY} titleColor="#E65100" items={returning} onImageClick={openOriginal} />
+          <FreeItemsSection title={WARNING_BOOKED_ON_RETURN} titleColor="var(--danger)" items={booked} onImageClick={openOriginal} />
+          <FreeItemsSection title={`${WARNING_RETURNING_ON_DELIVERY} & ${WARNING_BOOKED_ON_RETURN}`} items={both} onImageClick={openOriginal} />
+          {hasMore && (
+            <div style={{ textAlign: "center", margin: "8px 0 24px" }}>
+              <button type="button" className="btn btn-outline" disabled={loading} onClick={() => void search(true)}>
+                {loading ? "Loading…" : "Load More"}
+              </button>
+            </div>
+          )}
         </>
       )}
 
       {loaded && !free.length && (
         <div style={{ textAlign: "center", padding: 40, color: "var(--text-muted)" }}>
           No free items found for selected dates.
+        </div>
+      )}
+      {lightbox && (
+        <div
+          role="dialog"
+          aria-modal="true"
+          aria-label={lightbox.caption}
+          onClick={() => setLightbox(null)}
+          style={{ position: "fixed", inset: 0, zIndex: 1000, background: "rgba(0,0,0,.82)", display: "grid", placeItems: "center", padding: 24 }}
+        >
+          {/* eslint-disable-next-line @next/next/no-img-element */}
+          <img src={lightbox.src} alt={lightbox.caption} style={{ maxWidth: "95vw", maxHeight: "90vh", objectFit: "contain" }} />
         </div>
       )}
     </div>

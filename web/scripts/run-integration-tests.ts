@@ -6,6 +6,7 @@ import { PrismaClient } from "@prisma/client";
 import { allocateInventorySkusWithClient } from "../src/lib/inventorySkuAllocator";
 import { buildWhatsAppIdempotencyKey } from "../src/lib/mutationIdempotency";
 import { createHash } from "crypto";
+import { searchAvailableItems } from "../src/lib/services/availabilitySearch";
 
 function assert(cond: unknown, msg: string): asserts cond {
   if (!cond) throw new Error(msg);
@@ -115,6 +116,28 @@ async function main() {
       dupBlocked = code === "P2002" || /unique/i.test(e instanceof Error ? e.message : "");
     }
     assert(dupBlocked, "whatsapp_send_ledger must enforce unique idempotency_key");
+
+    // Availability must execute as one bounded PostgreSQL CTE and return a valid cursor page.
+    const availability = await searchAvailableItems({
+      deliveryDate: "2035-01-10",
+      returnDate: "2035-01-12",
+      limit: 2,
+    });
+    assert(availability.free_items.length <= 2, "availability limit must be enforced");
+    if (availability.hasMore) {
+      assert(Boolean(availability.nextCursor), "availability next cursor required");
+      const secondPage = await searchAvailableItems({
+        deliveryDate: "2035-01-10",
+        returnDate: "2035-01-12",
+        cursor: availability.nextCursor,
+        limit: 2,
+      });
+      const firstIds = new Set(availability.free_items.map((item) => item.id));
+      assert(
+        secondPage.free_items.every((item) => !firstIds.has(item.id)),
+        "availability cursor pages must not overlap",
+      );
+    }
 
     console.log("Integration checks passed");
   } finally {
