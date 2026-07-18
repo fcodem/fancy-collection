@@ -84,8 +84,13 @@ cd web
 npm run copy-assets
 ```
 
-Copies `style.css` and `dress-suggest.js` from Flask static folder.
-For item photos, copy `fancynew/static/uploads/*` to `web/public/uploads/` before deploy, or use Vercel Blob (set `BLOB_READ_WRITE_TOKEN`).
+Copies only the legacy `dress-suggest.js` compatibility asset. The canonical
+stylesheet is maintained in `web/public/css/style.css` and is never overwritten
+during install.
+
+Do not commit or copy customer upload folders into a deployment. Production item
+photos belong in Vercel Blob (`BLOB_READ_WRITE_TOKEN`); local development uploads
+remain ignored under `public/uploads/`.
 
 ## File uploads
 
