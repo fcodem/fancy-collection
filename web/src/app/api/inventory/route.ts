@@ -11,6 +11,7 @@ import { invalidateInventoryCaches } from "@/lib/inventoryCacheTags";
 import { logActivity, snapshotInventory } from "@/lib/activityLog";
 import { createPerfTimer, withServerTiming } from "@/lib/perfTiming";
 import prisma from "@/lib/prisma";
+import { after } from "next/server";
 import {
   MutationIdempotencyError,
   claimMutationReceipt,
@@ -26,6 +27,20 @@ export const dynamic = "force-dynamic";
 async function fileContentHash(file: File): Promise<string> {
   const buf = Buffer.from(await file.arrayBuffer());
   return createHash("sha256").update(buf).digest("hex");
+}
+
+function validatedDirectBlobUrl(value: FormDataEntryValue | null): string | null {
+  if (typeof value !== "string" || !value.trim()) return null;
+  try {
+    const url = new URL(value);
+    if (
+      url.protocol !== "https:" ||
+      !url.hostname.endsWith(".public.blob.vercel-storage.com")
+    ) return null;
+    return url.toString();
+  } catch {
+    return null;
+  }
 }
 
 export async function POST(req: NextRequest) {
@@ -58,7 +73,9 @@ export async function POST(req: NextRequest) {
     const operationId = operationIdOrErr;
 
     const photo = form.get("photo");
-    const hasPhoto = photo instanceof File && photo.size > 0;
+    const directPhotoPath = validatedDirectBlobUrl(form.get("photo_path"));
+    const directThumbnailPath = validatedDirectBlobUrl(form.get("thumbnail_path"));
+    const hasPhoto = (photo instanceof File && photo.size > 0) || Boolean(directPhotoPath);
     if (hasPhoto && process.env.VERCEL && !process.env.BLOB_READ_WRITE_TOKEN?.trim()) {
       return jsonError(
         "Photo storage is not configured on this deployment. Set BLOB_READ_WRITE_TOKEN in Vercel Environment Variables (Production), then Redeploy.",
@@ -99,6 +116,8 @@ export async function POST(req: NextRequest) {
       has_teeka: form.get("has_teeka") === "1",
       has_pasa: form.get("has_pasa") === "1",
       photo_content_hash: photoHash,
+      photo_path: directPhotoPath,
+      thumbnail_path: directThumbnailPath,
     };
 
     // Claim BEFORE upload so completed retries never create orphan Blob files.
@@ -123,6 +142,14 @@ export async function POST(req: NextRequest) {
       if (stagedPhoto) {
         uploadedPhotoPath = stagedPhoto;
         uploadedThumbPath = stagedThumb;
+      } else if (directPhotoPath) {
+        uploadedPhotoPath = directPhotoPath;
+        uploadedThumbPath = directThumbnailPath;
+        await storeMutationStaging(operationId, {
+          staging_photo: uploadedPhotoPath,
+          staging_thumbnail: uploadedThumbPath,
+          photo_content_hash: photoHash,
+        });
       } else {
         const saved = await saveFastInventoryPhotoWithThumb(photo as File);
         uploadedPhotoPath = saved.photo;
@@ -207,22 +234,19 @@ export async function POST(req: NextRequest) {
       });
     }
 
-    let ai_queue_warning: string | undefined;
     if (result._hasPhoto && result.ids.length) {
-      try {
-        const queued = await enqueueInventoryPhotoJobsDurable(result.ids, "photo_created");
-        ai_queue_warning = queued.warning || undefined;
-      } catch (e) {
-        console.error("[inventory POST] AI enqueue failed:", e);
-        ai_queue_warning =
-          "Inventory saved but AI queue could not be written. Retry from AI indexing.";
-      }
-      // AI indexing is processed only by dedicated cron/worker — never drain here.
+      after(async () => {
+        try {
+          await enqueueInventoryPhotoJobsDurable(result.ids, "photo_created");
+        } catch (error) {
+          console.error("[inventory POST] post-commit AI enqueue failed:", error);
+        }
+      });
     }
 
     const { _hasPhoto: _a, _itemSnapshots: _b, ...publicResult } = result;
     const timings = perf.finish({ kind: "mutation" });
-    return withServerTiming(jsonOk({ ...publicResult, ai_queue_warning }), timings);
+    return withServerTiming(jsonOk(publicResult), timings);
   } catch (e) {
     if (e instanceof MutationIdempotencyError) {
       const pub = toPublicErrorPayload(e);

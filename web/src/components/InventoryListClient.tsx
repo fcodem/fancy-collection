@@ -13,6 +13,7 @@ import {
 import { usePathname } from "next/navigation";
 import PrefetchOnIntentLink from "@/components/PrefetchOnIntentLink";
 import DressNameSuggestInput from "@/components/DressNameSuggestInput";
+import CategorySelect from "@/components/CategorySelect";
 import { useAbortableSearch } from "@/hooks/useAbortableSearch";
 import { useBoundedQueryCache } from "@/hooks/useBoundedQueryCache";
 import type { InventoryGroupSummary } from "@/lib/services/inventoryList";
@@ -33,6 +34,14 @@ type GroupUnit = {
   thumbnailUrl: string | null;
 };
 
+type InventoryDetail = {
+  original_photo_url?: string;
+  photo_url?: string;
+  conditionNotes?: string | null;
+  deposit?: number;
+  subCategory?: string | null;
+};
+
 type ListResponse = {
   groups: InventoryGroupSummary[];
   nextCursor: string | null;
@@ -44,6 +53,7 @@ type Props = {
   initialNextCursor: string | null;
   initialQ: string;
   initialStatus: string;
+  initialCategory: string;
   isOwner: boolean;
   pageSize: number;
 };
@@ -77,6 +87,7 @@ export default function InventoryListClient({
   initialNextCursor,
   initialQ,
   initialStatus,
+  initialCategory,
   isOwner,
   pageSize,
 }: Props) {
@@ -90,6 +101,7 @@ export default function InventoryListClient({
   const [nextCursor, setNextCursor] = useState(initialNextCursor);
   const [query, setQuery] = useState(initialQ);
   const [statusVal, setStatusVal] = useState(initialStatus);
+  const [categoryVal, setCategoryVal] = useState(initialCategory);
   const deferredQuery = useDeferredValue(query);
   const [loading, setLoading] = useState(false);
   const [loadingMore, setLoadingMore] = useState(false);
@@ -97,6 +109,8 @@ export default function InventoryListClient({
   const [expanded, setExpanded] = useState<Record<string, GroupUnit[] | "loading">>({});
   const [lightbox, setLightbox] = useState<{ src: string; caption: string } | null>(null);
   const [drawer, setDrawer] = useState<InventoryGroupSummary | null>(null);
+  const [drawerDetail, setDrawerDetail] = useState<InventoryDetail | null>(null);
+  const detailCacheRef = useRef(new Map<number, InventoryDetail>());
   const [deletingId, setDeletingId] = useState<number | null>(null);
   const [menuOpen, setMenuOpen] = useState<string | null>(null);
 
@@ -105,8 +119,8 @@ export default function InventoryListClient({
   }, []);
 
   const buildKey = useCallback(
-    (q: string, status: string, cursor: string | null) =>
-      `list|${q}|${status}|${cursor || ""}|${pageSize}`,
+    (q: string, status: string, category: string, cursor: string | null) =>
+      `list|${q}|${status}|${category}|${cursor || ""}|${pageSize}`,
     [pageSize],
   );
 
@@ -114,10 +128,11 @@ export default function InventoryListClient({
     async (
       q: string,
       status: string,
+      category: string,
       cursor: string | null,
       opts: { append: boolean; debounce: boolean },
     ) => {
-      const key = buildKey(q, status, cursor);
+      const key = buildKey(q, status, category, cursor);
       const cached = !cursor ? cache.get(key) : undefined;
       if (cached && !opts.append) {
         setGroups(cached.groups);
@@ -135,6 +150,7 @@ export default function InventoryListClient({
             const params = new URLSearchParams();
             if (q.trim()) params.set("q", q.trim());
             if (status) params.set("status", status);
+            if (category) params.set("category", category);
             if (cursor) params.set("cursor", cursor);
             params.set("limit", String(pageSize));
             params.set("sort", "name");
@@ -180,16 +196,17 @@ export default function InventoryListClient({
     const params = new URLSearchParams();
     if (deferredQuery.trim()) params.set("q", deferredQuery.trim());
     if (statusVal) params.set("status", statusVal);
+    if (categoryVal) params.set("category", categoryVal);
     const qs = params.toString();
     window.history.replaceState(null, "", qs ? `${pathname}?${qs}` : pathname);
-    void fetchPage(deferredQuery, statusVal, null, { append: false, debounce: true });
+    void fetchPage(deferredQuery, statusVal, categoryVal, null, { append: false, debounce: true });
     // eslint-disable-next-line react-hooks/exhaustive-deps -- intentional filter sync
-  }, [deferredQuery, statusVal]);
+  }, [deferredQuery, statusVal, categoryVal]);
 
   function onFilterSubmit(e: FormEvent) {
     e.preventDefault();
     markPerf("inventory-filter-submit");
-    void fetchPage(query, statusVal, null, { append: false, debounce: false });
+    void fetchPage(query, statusVal, categoryVal, null, { append: false, debounce: false });
   }
 
   async function expandGroup(groupKey: string) {
@@ -260,10 +277,28 @@ export default function InventoryListClient({
     }
   }
 
-  function openRow(g: InventoryGroupSummary) {
+  async function openRow(g: InventoryGroupSummary) {
     markPerf("inventory-row-click");
     setDrawer(g);
+    setDrawerDetail(null);
     markPerf("inventory-drawer-visible");
+    const cached = detailCacheRef.current.get(g.primaryId);
+    if (cached) {
+      setDrawerDetail(cached);
+      return;
+    }
+    try {
+      const response = await fetch(`/api/inventory/${g.primaryId}`, {
+        credentials: "same-origin",
+        headers: { Accept: "application/json" },
+      });
+      if (!response.ok) return;
+      const detail = (await response.json()) as InventoryDetail;
+      detailCacheRef.current.set(g.primaryId, detail);
+      setDrawerDetail(detail);
+    } catch {
+      /* quick summary remains usable */
+    }
   }
 
   return (
@@ -305,6 +340,7 @@ export default function InventoryListClient({
               <option value="rented">Rented</option>
               <option value="maintenance">Maintenance</option>
             </select>
+            <CategorySelect value={categoryVal} onChange={setCategoryVal} />
             <button className="btn btn-primary" type="submit" disabled={loading}>
               {loading ? "…" : "Filter"}
             </button>
@@ -313,146 +349,16 @@ export default function InventoryListClient({
         </div>
       </div>
 
-      {/* Desktop table */}
-      <div className="card inv-list-desktop">
-        <div className="card-body p-0">
-          <table className="data-table">
-            <thead>
-              <tr>
-                <th>Photo</th>
-                <th>SKU</th>
-                <th>Name</th>
-                <th>Qty</th>
-                <th>Category</th>
-                <th>Size</th>
-                <th>Status</th>
-                <th>Rate</th>
-                <th>Actions</th>
-              </tr>
-            </thead>
-            <tbody>
-              {groups.map((g) => {
-                const badge = statusBadge(g);
-                const caption = dressDisplayName(g.baseName, g.category, g.size);
-                const units = expanded[g.groupKey];
-                return (
-                  <tr key={g.groupKey} className="inv-row" style={{ contentVisibility: "auto" }}>
-                    <td>
-                      {g.thumbnailUrl ? (
-                        <button
-                          type="button"
-                          className="inv-thumb-btn"
-                          onClick={() =>
-                            setLightbox({ src: g.thumbnailUrl!, caption })
-                          }
-                        >
-                          {/* eslint-disable-next-line @next/next/no-img-element */}
-                          <img
-                            src={g.thumbnailUrl}
-                            alt=""
-                            width={48}
-                            height={48}
-                            loading="lazy"
-                            decoding="async"
-                            fetchPriority="low"
-                            className="inv-list-thumb"
-                          />
-                        </button>
-                      ) : (
-                        <span className="inv-list-thumb-empty">—</span>
-                      )}
-                    </td>
-                    <td>
-                      {g.totalQuantity === 1 ? (
-                        g.primarySku
-                      ) : (
-                        <span>{g.totalQuantity} units</span>
-                      )}
-                    </td>
-                    <td>
-                      {g.totalQuantity === 1 ? (
-                        <PrefetchOnIntentLink href={`/inventory/${g.primaryId}`}>
-                          {caption}
-                        </PrefetchOnIntentLink>
-                      ) : (
-                        <button
-                          type="button"
-                          className="inv-linkish"
-                          onClick={() => expandGroup(g.groupKey)}
-                        >
-                          {caption}
-                          {units === "loading" ? "…" : units ? " ▾" : " ▸"}
-                        </button>
-                      )}
-                      {Array.isArray(units) && (
-                        <ul className="inv-unit-list">
-                          {units.map((u) => (
-                            <li key={u.id}>
-                              <PrefetchOnIntentLink href={`/inventory/${u.id}`}>
-                                {u.displayName} ({u.sku})
-                              </PrefetchOnIntentLink>{" "}
-                              <span className={`badge badge-${u.status}`}>{u.status}</span>
-                            </li>
-                          ))}
-                        </ul>
-                      )}
-                    </td>
-                    <td>{g.totalQuantity}</td>
-                    <td>{g.category}</td>
-                    <td>{g.size || "—"}</td>
-                    <td>
-                      <span className={`badge badge-${badge.className}`}>{badge.label}</span>
-                    </td>
-                    <td>₹{g.dailyRate.toLocaleString()}</td>
-                    <td>
-                      <div className="inv-row-actions">
-                        <button
-                          type="button"
-                          className="btn btn-sm btn-outline"
-                          onClick={() => openRow(g)}
-                        >
-                          Quick
-                        </button>
-                        <PrefetchOnIntentLink
-                          href={`/inventory/${g.primaryId}`}
-                          className="btn btn-sm btn-outline"
-                        >
-                          Details
-                        </PrefetchOnIntentLink>
-                        {isOwner && g.totalQuantity === 1 && (
-                          <button
-                            type="button"
-                            className="btn btn-sm btn-danger"
-                            disabled={deletingId === g.primaryId}
-                            onClick={() =>
-                              handleDelete(g.primaryId, caption, g.groupKey)
-                            }
-                          >
-                            {deletingId === g.primaryId ? "…" : "Delete"}
-                          </button>
-                        )}
-                      </div>
-                    </td>
-                  </tr>
-                );
-              })}
-              {!groups.length && (
-                <tr>
-                  <td colSpan={9} style={{ textAlign: "center", padding: 24 }}>
-                    No inventory matches.
-                  </td>
-                </tr>
-              )}
-            </tbody>
-          </table>
-        </div>
-      </div>
-
-      {/* Mobile cards */}
-      <div className="inv-list-mobile" aria-label="Inventory list">
+      {/* One responsive tree for desktop, tablet and mobile. */}
+      <div
+        className="inv-list-responsive"
+        aria-label="Inventory list"
+        style={{ display: "grid", gridTemplateColumns: "repeat(auto-fit, minmax(min(100%, 320px), 1fr))", gap: 12 }}
+      >
         {groups.map((g) => {
           const badge = statusBadge(g);
           const caption = dressDisplayName(g.baseName, g.category, g.size);
+          const units = expanded[g.groupKey];
           return (
             <article key={g.groupKey} className="inv-card">
               <button
@@ -523,6 +429,21 @@ export default function InventoryListClient({
                   )}
                 </div>
               )}
+              {units === "loading" && (
+                <div className="inv-unit-list" style={{ padding: 12 }}>Loading units…</div>
+              )}
+              {Array.isArray(units) && (
+                <ul className="inv-unit-list">
+                  {units.map((unit) => (
+                    <li key={unit.id}>
+                      <PrefetchOnIntentLink href={`/inventory/${unit.id}`}>
+                        {unit.displayName} ({unit.sku})
+                      </PrefetchOnIntentLink>{" "}
+                      <span className={`badge badge-${unit.status}`}>{unit.status}</span>
+                    </li>
+                  ))}
+                </ul>
+              )}
             </article>
           );
         })}
@@ -536,7 +457,7 @@ export default function InventoryListClient({
             className="btn btn-outline inv-touch"
             disabled={loadingMore}
             onClick={() =>
-              fetchPage(deferredQuery, statusVal, nextCursor, {
+              fetchPage(deferredQuery, statusVal, categoryVal, nextCursor, {
                 append: true,
                 debounce: false,
               })
@@ -574,6 +495,20 @@ export default function InventoryListClient({
                   className="inv-drawer-thumb"
                 />
               ) : null}
+              {(drawerDetail?.original_photo_url || drawerDetail?.photo_url) && (
+                <button
+                  type="button"
+                  className="btn btn-outline btn-sm"
+                  onClick={() =>
+                    setLightbox({
+                      src: drawerDetail.original_photo_url || drawerDetail.photo_url || "",
+                      caption: dressDisplayName(drawer.baseName, drawer.category, drawer.size),
+                    })
+                  }
+                >
+                  View original image
+                </button>
+              )}
               <p>
                 <strong>SKU:</strong> {drawer.primarySku}
               </p>
@@ -584,7 +519,15 @@ export default function InventoryListClient({
               <p>
                 <strong>Rate:</strong> ₹{drawer.dailyRate.toLocaleString()}
               </p>
-              <p className="inv-drawer-hint">Loading full details…</p>
+              {drawerDetail ? (
+                <>
+                  <p><strong>Sub-category:</strong> {drawerDetail.subCategory || "Normal"}</p>
+                  <p><strong>Deposit:</strong> ₹{Number(drawerDetail.deposit || 0).toLocaleString()}</p>
+                  {drawerDetail.conditionNotes ? <p><strong>Condition:</strong> {drawerDetail.conditionNotes}</p> : null}
+                </>
+              ) : (
+                <p className="inv-drawer-hint">Loading full details…</p>
+              )}
               <PrefetchOnIntentLink
                 href={`/inventory/${drawer.primaryId}`}
                 className="btn btn-primary"

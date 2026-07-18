@@ -1,4 +1,4 @@
-import { NextRequest } from "next/server";
+import { after, NextRequest } from "next/server";
 import { createHash } from "crypto";
 import prisma from "@/lib/prisma";
 import { updateInventoryItemInTx, deleteInventoryItem } from "@/lib/services/inventoryOps";
@@ -17,6 +17,7 @@ import {
   jsonOk,
   requireOwner,
   requireUser,
+  requireFastReadUser,
   isResponse,
   requireOperationId,
 } from "@/lib/api";
@@ -33,7 +34,7 @@ import { createPerfTimer, withServerTiming } from "@/lib/perfTiming";
 export async function GET(_req: NextRequest, { params }: { params: Promise<{ id: string }> }) {
   const perf = createPerfTimer("GET /api/inventory/[id]");
   perf.mark("auth");
-  const user = await requireUser();
+  const user = await requireFastReadUser(perf);
   perf.endStage("authMs", "auth");
   if (isResponse(user)) return user;
   const { id } = await params;
@@ -48,7 +49,7 @@ export async function GET(_req: NextRequest, { params }: { params: Promise<{ id:
       display_name: dressDisplayName(item.name, item.category, item.size),
       photo_url: catalogPhotoUrl(item),
       recognition_photo_url: recognitionPhotoUrl(item),
-      original_photo_url: photoUrl(item.photo),
+      original_photo_url: photoUrl(item.originalPhoto || item.photo),
     }),
     timings,
   );
@@ -57,6 +58,19 @@ export async function GET(_req: NextRequest, { params }: { params: Promise<{ id:
 async function fileContentHash(file: File): Promise<string> {
   const buf = Buffer.from(await file.arrayBuffer());
   return createHash("sha256").update(buf).digest("hex");
+}
+
+function validatedDirectBlobUrl(value: FormDataEntryValue | null): string | null {
+  if (typeof value !== "string" || !value.trim()) return null;
+  try {
+    const url = new URL(value);
+    return url.protocol === "https:" &&
+      url.hostname.endsWith(".public.blob.vercel-storage.com")
+      ? url.toString()
+      : null;
+  } catch {
+    return null;
+  }
 }
 
 export async function PUT(req: NextRequest, { params }: { params: Promise<{ id: string }> }) {
@@ -77,7 +91,9 @@ export async function PUT(req: NextRequest, { params }: { params: Promise<{ id: 
     const operationId = operationIdOrErr;
 
     const photo = form.get("photo");
-    const hasPhoto = photo instanceof File && photo.size > 0;
+    const directPhotoPath = validatedDirectBlobUrl(form.get("photo_path"));
+    const directThumbnailPath = validatedDirectBlobUrl(form.get("thumbnail_path"));
+    const hasPhoto = (photo instanceof File && photo.size > 0) || Boolean(directPhotoPath);
     const removePhoto = form.get("remove_photo") === "1";
     const photoHashFromClient = String(form.get("photo_content_hash") || "").trim() || null;
     const photoHash =
@@ -100,6 +116,8 @@ export async function PUT(req: NextRequest, { params }: { params: Promise<{ id: 
       has_teeka: form.get("has_teeka") === "1",
       has_pasa: form.get("has_pasa") === "1",
       photo_content_hash: photoHash,
+      photo_path: directPhotoPath,
+      thumbnail_path: directThumbnailPath,
     };
 
     // Claim BEFORE upload so completed retries never create orphan Blob files.
@@ -124,6 +142,14 @@ export async function PUT(req: NextRequest, { params }: { params: Promise<{ id: 
       if (stagedPhoto) {
         stagedPhotoPath = stagedPhoto;
         stagedThumbPath = stagedThumb;
+      } else if (directPhotoPath) {
+        stagedPhotoPath = directPhotoPath;
+        stagedThumbPath = directThumbnailPath;
+        await storeMutationStaging(operationId, {
+          staging_photo: stagedPhotoPath,
+          staging_thumbnail: stagedThumbPath,
+          photo_content_hash: photoHash,
+        });
       } else {
         const saved = await saveFastInventoryPhotoWithThumb(photo as File);
         stagedPhotoPath = saved.photo;
@@ -203,11 +229,13 @@ export async function PUT(req: NextRequest, { params }: { params: Promise<{ id: 
     if (result._photoRemoved) {
       onInventoryPhotoRemoved(itemId);
     } else if (result._hasPhoto && result._photoReplaced) {
-      try {
-        await enqueueInventoryPhotoJobsDurable([itemId], "photo_replaced");
-      } catch (e) {
-        console.error("[inventory PUT] AI enqueue failed:", e);
-      }
+      after(async () => {
+        try {
+          await enqueueInventoryPhotoJobsDurable([itemId], "photo_replaced");
+        } catch (error) {
+          console.error("[inventory PUT] post-commit AI enqueue failed:", error);
+        }
+      });
     }
 
     const {

@@ -38,6 +38,33 @@ function itemTypeForCategory(category: string) {
 
 type DbClient = Prisma.TransactionClient | typeof prisma;
 
+async function unreferencedInventoryPhotoPaths(
+  client: DbClient,
+  paths: Array<string | null | undefined>,
+  excludeId?: number,
+) {
+  const unique = [...new Set(paths.filter((path): path is string => Boolean(path)))];
+  const results = await Promise.all(
+    unique.map(async (path) => {
+      const references = await client.clothingItem.count({
+        where: {
+          ...(excludeId ? { id: { not: excludeId } } : {}),
+          OR: [
+            { photo: path },
+            { thumbnailPhoto: path },
+            { originalPhoto: path },
+            { enhancedPhoto: path },
+            { marketingPhoto: path },
+            { recognitionImage: path },
+          ],
+        },
+      });
+      return references === 0 ? path : null;
+    }),
+  );
+  return results.filter((path): path is string => Boolean(path));
+}
+
 /** Atomically reserve `count` SKU numbers and return formatted ITM-#### values. */
 export async function allocateInventorySkus(
   count: number,
@@ -404,7 +431,18 @@ export async function updateInventoryItemInTx(
     },
   });
 
-  return { updated, uploadsToDelete, beforeSnapshot, photoReplaced, photoRemoved };
+  const safeUploadsToDelete = await unreferencedInventoryPhotoPaths(
+    tx,
+    uploadsToDelete,
+    id,
+  );
+  return {
+    updated,
+    uploadsToDelete: safeUploadsToDelete,
+    beforeSnapshot,
+    photoReplaced,
+    photoRemoved,
+  };
 }
 
 export async function updateInventoryItem(id: number, form: UpdateInventoryForm, by?: string) {
@@ -485,7 +523,8 @@ export async function deleteInventoryItem(id: number, by?: string) {
 
   await prisma.clothingItem.delete({ where: { id } });
 
-  await enqueueBlobCleanup(uploadPaths, { reason: "inventory_deleted" });
+  const safeUploadPaths = await unreferencedInventoryPhotoPaths(prisma, uploadPaths);
+  await enqueueBlobCleanup(safeUploadPaths, { reason: "inventory_deleted" });
   broadcastShopEvent({ type: "inventory.changed", itemIds: [id], by });
   logActivity({
     username: by || "system",

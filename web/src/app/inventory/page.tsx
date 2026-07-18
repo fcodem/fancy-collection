@@ -84,6 +84,7 @@ export default async function InventoryPage({
         initialNextCursor={result.nextCursor}
         initialQ={q}
         initialStatus={status}
+        initialCategory={category}
         isOwner={isOwner(user)}
         pageSize={pageSize}
       />

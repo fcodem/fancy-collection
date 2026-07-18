@@ -46,7 +46,7 @@ function clampLimit(n?: number) {
   return Math.max(1, Math.min(MAX_LIMIT, v));
 }
 
-type CursorPayload = { sort: "name" | "newest"; v1: string; v2: string };
+type CursorPayload = { sort: "name" | "newest"; v1: string; v2: string; v3?: string };
 
 export function decodeCursor(raw?: string | null): CursorPayload | null {
   if (!raw?.trim()) return null;
@@ -54,7 +54,12 @@ export function decodeCursor(raw?: string | null): CursorPayload | null {
     const json = Buffer.from(raw, "base64url").toString("utf8");
     const parsed = JSON.parse(json) as Partial<CursorPayload>;
     if ((parsed.sort === "name" || parsed.sort === "newest") && parsed.v1 && parsed.v2) {
-      return { sort: parsed.sort, v1: parsed.v1, v2: parsed.v2 };
+      return {
+        sort: parsed.sort,
+        v1: parsed.v1,
+        v2: parsed.v2,
+        ...(parsed.v3 ? { v3: parsed.v3 } : {}),
+      };
     }
   } catch {
     /* ignore */
@@ -123,7 +128,6 @@ function summarizeGroup(
     color: string | null;
     status: string;
     dailyRate: number;
-    photo: string | null;
     thumbnailPhoto?: string | null;
     inventoryGroupId: string | null;
     createdAt: Date;
@@ -132,7 +136,7 @@ function summarizeGroup(
   const primary = [...items].sort(
     (a, b) => b.createdAt.getTime() - a.createdAt.getTime() || b.id - a.id,
   )[0]!;
-  const thumb = primary.thumbnailPhoto || primary.photo;
+  const thumb = primary.thumbnailPhoto;
   return {
     groupKey,
     inventoryGroupId: primary.inventoryGroupId,
@@ -161,7 +165,6 @@ const ITEM_SELECT = {
   color: true,
   status: true,
   dailyRate: true,
-  photo: true,
   thumbnailPhoto: true,
   inventoryGroupId: true,
   createdAt: true,
@@ -179,7 +182,11 @@ async function listInventoryGroupsPostgres(opts: {
 
   if (q && looksLikeSku(q)) {
     const exact = await prisma.clothingItem.findFirst({
-      where: { sku: { equals: q, mode: "insensitive" } },
+      where: {
+        sku: { equals: q, mode: "insensitive" },
+        ...(category ? { category } : {}),
+        ...(status ? { status } : {}),
+      },
       select: ITEM_SELECT,
     });
     if (exact) {
@@ -201,7 +208,8 @@ async function listInventoryGroupsPostgres(opts: {
   // Keyset values — unused branches receive sentinel values that match no row.
   const cursorTs = cursor?.sort === "newest" ? cursor.v1 : "1970-01-01T00:00:00.000Z";
   const cursorName = cursor?.sort === "name" ? cursor.v1 : "";
-  const cursorKey = cursor?.v2 ?? "";
+  const cursorBaseName = cursor?.sort === "newest" ? cursor.v2 : "";
+  const cursorKey = cursor?.sort === "newest" ? cursor.v3 ?? "" : cursor?.v2 ?? "";
   const hasCursor = Boolean(cursor);
   const useNewest = sortNewest;
 
@@ -234,7 +242,6 @@ async function listInventoryGroupsPostgres(opts: {
         COALESCE(color, '') AS color,
         status,
         daily_rate,
-        photo,
         thumbnail_photo,
         inventory_group_id,
         created_at,
@@ -246,7 +253,6 @@ async function listInventoryGroupsPostgres(opts: {
       FROM clothing_items
       WHERE
         (${category} = '' OR category = ${category})
-        AND (${status} = '' OR status = ${status})
         AND (
           ${q} = ''
           OR lower(name) LIKE '%' || lower(${q}) || '%'
@@ -268,28 +274,37 @@ async function listInventoryGroupsPostgres(opts: {
         COUNT(*) FILTER (WHERE status = 'maintenance')::int AS maintenance_qty,
         MAX(daily_rate)::float AS daily_rate,
         MAX(created_at) AS newest_created_at,
+        BOOL_OR(status = ${status}) AS status_match,
         (ARRAY_AGG(id ORDER BY created_at DESC, id DESC))[1]::int AS primary_id,
         (ARRAY_AGG(sku ORDER BY created_at DESC, id DESC))[1] AS primary_sku,
-        (ARRAY_AGG(COALESCE(thumbnail_photo, photo) ORDER BY created_at DESC, id DESC))[1] AS thumb_ref
+        (ARRAY_AGG(thumbnail_photo ORDER BY created_at DESC, id DESC))[1] AS thumb_ref
       FROM base
       GROUP BY group_key
     )
     SELECT *
     FROM agg
-    WHERE
-      NOT ${hasCursor}
-      OR (
-        ${useNewest}
-        AND (
-          newest_created_at < ${cursorTs}::timestamptz
-          OR (newest_created_at = ${cursorTs}::timestamptz AND group_key > ${cursorKey})
+    WHERE (${status} = '' OR status_match)
+      AND (
+        NOT ${hasCursor}
+        OR (
+          ${useNewest}
+          AND (
+            newest_created_at < ${cursorTs}::timestamptz
+            OR (
+              newest_created_at = ${cursorTs}::timestamptz
+              AND (
+                base_name > ${cursorBaseName}
+                OR (base_name = ${cursorBaseName} AND group_key > ${cursorKey})
+              )
+            )
+          )
         )
-      )
-      OR (
-        NOT ${useNewest}
-        AND (
-          base_name > ${cursorName}
-          OR (base_name = ${cursorName} AND group_key > ${cursorKey})
+        OR (
+          NOT ${useNewest}
+          AND (
+            base_name > ${cursorName}
+            OR (base_name = ${cursorName} AND group_key > ${cursorKey})
+          )
         )
       )
     ORDER BY
@@ -323,7 +338,12 @@ async function listInventoryGroupsPostgres(opts: {
     const last = groups[groups.length - 1]!;
     nextCursor = encodeCursor(
       sortNewest
-        ? { sort: "newest", v1: last.newestCreatedAt, v2: last.groupKey }
+        ? {
+            sort: "newest",
+            v1: last.newestCreatedAt,
+            v2: last.baseName,
+            v3: last.groupKey,
+          }
         : { sort: "name", v1: last.baseName, v2: last.groupKey },
     );
   }
@@ -343,7 +363,6 @@ async function listInventoryGroupsPrismaFallback(opts: {
   const items = await prisma.clothingItem.findMany({
     where: {
       ...(opts.category ? { category: opts.category } : {}),
-      ...(opts.status ? { status: opts.status } : {}),
       ...(opts.q
         ? {
             OR: [
@@ -369,11 +388,15 @@ async function listInventoryGroupsPrismaFallback(opts: {
     map.set(key, arr);
   }
 
-  let groups = Array.from(map.entries()).map(([key, rows]) => summarizeGroup(key, rows));
+  let groups = Array.from(map.entries())
+    .filter(([, rows]) => !opts.status || rows.some((row) => row.status === opts.status))
+    .map(([key, rows]) => summarizeGroup(key, rows));
   groups.sort((a, b) => {
     if (opts.sortNewest) {
       const t = b.newestCreatedAt.localeCompare(a.newestCreatedAt);
       if (t !== 0) return t;
+      const n = a.baseName.localeCompare(b.baseName);
+      if (n !== 0) return n;
       return a.groupKey.localeCompare(b.groupKey);
     }
     const n = a.baseName.localeCompare(b.baseName);
@@ -382,7 +405,9 @@ async function listInventoryGroupsPrismaFallback(opts: {
   });
 
   if (opts.cursor) {
-    const idx = groups.findIndex((g) => g.groupKey === opts.cursor!.v2);
+    const cursorKey =
+      opts.cursor.sort === "newest" ? opts.cursor.v3 : opts.cursor.v2;
+    const idx = groups.findIndex((g) => g.groupKey === cursorKey);
     if (idx >= 0) groups = groups.slice(idx + 1);
   }
 
@@ -394,7 +419,8 @@ async function listInventoryGroupsPrismaFallback(opts: {
             ? {
                 sort: "newest",
                 v1: page[page.length - 1]!.newestCreatedAt,
-                v2: page[page.length - 1]!.groupKey,
+                v2: page[page.length - 1]!.baseName,
+                v3: page[page.length - 1]!.groupKey,
               }
             : {
                 sort: "name",
@@ -427,7 +453,6 @@ export async function listInventoryGroupItems(groupKey: string) {
         color: true,
         status: true,
         dailyRate: true,
-        photo: true,
         thumbnailPhoto: true,
       },
       orderBy: { name: "asc" },
@@ -447,7 +472,6 @@ export async function listInventoryGroupItems(groupKey: string) {
       color: true,
       status: true,
       dailyRate: true,
-      photo: true,
       thumbnailPhoto: true,
     },
     orderBy: { name: "asc" },

@@ -40,11 +40,7 @@ export async function GET(
         color: i.color,
         status: i.status,
         dailyRate: i.dailyRate,
-        thumbnailUrl: i.thumbnailPhoto
-          ? photoUrl(i.thumbnailPhoto)
-          : i.photo
-            ? photoUrl(i.photo)
-            : null,
+        thumbnailUrl: i.thumbnailPhoto ? photoUrl(i.thumbnailPhoto) : null,
       })),
     }),
     timings,

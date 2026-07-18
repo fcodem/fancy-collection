@@ -3,7 +3,10 @@
 import { useRouter } from "next/navigation";
 import { useCallback, useEffect, useRef, useState } from "react";
 import { type CatalogPhotoItem } from "@/lib/catalogPhotoUrl";
-import { compressImageForUpload } from "@/lib/clientImageCompress";
+import {
+  prepareInventoryPhoto,
+  type PreparedInventoryPhoto,
+} from "@/lib/prepareInventoryPhoto";
 import {
   BASE_MENS,
   BASE_WOMENS,
@@ -45,24 +48,10 @@ type SaveConfirmed = {
   count: number;
 };
 
-type PreparedPhoto = {
-  file: File;
-  hash: string;
-  sourceKey: string;
-};
-
 type DuplicateCheckResult = {
   is_duplicate?: boolean;
   match?: { sku: string; name: string; similarity: number };
 } | null;
-
-async function hashFileSha256(file: File): Promise<string> {
-  const buf = await file.arrayBuffer();
-  const digest = await crypto.subtle.digest("SHA-256", buf);
-  return Array.from(new Uint8Array(digest))
-    .map((b) => b.toString(16).padStart(2, "0"))
-    .join("");
-}
 
 function buildPayloadKey(form: FormData, photoHash: string | null): string {
   const sizes = form.getAll("sizes[]").map(String).sort();
@@ -130,16 +119,22 @@ export default function InventoryFormClient({
     name: string;
     similarity: number;
   } | null>(null);
-  const [preparedPhoto, setPreparedPhoto] = useState<PreparedPhoto | null>(null);
+  const [preparedPhoto, setPreparedPhoto] = useState<PreparedInventoryPhoto | null>(null);
   const [photoPrepPending, setPhotoPrepPending] = useState(false);
   const [dupCheckResult, setDupCheckResult] = useState<DuplicateCheckResult>(null);
   const [dupCheckPending, setDupCheckPending] = useState(false);
   const prepGenRef = useRef(0);
+  const prepPromiseRef = useRef<{
+    sourceKey: string;
+    promise: Promise<PreparedInventoryPhoto>;
+  } | null>(null);
   const dupCacheRef = useRef(new Map<string, DuplicateCheckResult>());
   const dupAbortRef = useRef<AbortController | null>(null);
+  const duplicatePromiseRef = useRef<Promise<DuplicateCheckResult> | null>(null);
   const [pendingForm, setPendingForm] = useState<FormData | null>(null);
   const [localPreview, setLocalPreview] = useState("");
   const [photoUrl, setPhotoUrl] = useState(initialPhotoUrl || "");
+  const [removePhoto, setRemovePhoto] = useState(false);
   const [subCategories, setSubCategories] = useState<string[]>(["Normal"]);
   const isEdit = Boolean(item?.id);
   const isMens = MENS_CATEGORIES.includes(category);
@@ -165,26 +160,31 @@ export default function InventoryFormClient({
     setPreparedPhoto(null);
     dupAbortRef.current?.abort();
     if (!file) {
-      setLocalPreview("");
+      setLocalPreview((previous) => {
+        if (previous.startsWith("blob:")) URL.revokeObjectURL(previous);
+        return "";
+      });
       setPhotoPrepPending(false);
+      prepPromiseRef.current = null;
       return;
     }
-    const reader = new FileReader();
-    reader.onload = () => {
-      if (typeof reader.result === "string") setLocalPreview(reader.result);
-    };
-    reader.readAsDataURL(file);
+    setRemovePhoto(false);
+    const preview = URL.createObjectURL(file);
+    setLocalPreview((previous) => {
+      if (previous.startsWith("blob:")) URL.revokeObjectURL(previous);
+      return preview;
+    });
 
     const sourceKey = `${file.name}:${file.size}:${file.lastModified}`;
     const gen = ++prepGenRef.current;
     setPhotoPrepPending(true);
+    const promise = prepareInventoryPhoto(file, sourceKey);
+    prepPromiseRef.current = { sourceKey, promise };
     void (async () => {
       try {
-        const compressed = await compressImageForUpload(file);
+        const prepared = await promise;
         if (gen !== prepGenRef.current) return;
-        const hash = await hashFileSha256(compressed);
-        if (gen !== prepGenRef.current) return;
-        setPreparedPhoto({ file: compressed, hash, sourceKey });
+        setPreparedPhoto(prepared);
       } catch {
         if (gen === prepGenRef.current) setPreparedPhoto(null);
       } finally {
@@ -193,55 +193,69 @@ export default function InventoryFormClient({
     })();
   }
 
+  useEffect(
+    () => () => {
+      if (localPreview.startsWith("blob:")) URL.revokeObjectURL(localPreview);
+      dupAbortRef.current?.abort();
+    },
+    [localPreview],
+  );
+
+  const startDuplicateCheck = useCallback(
+    (prepared: PreparedInventoryPhoto, selectedCategory: string) => {
+      if (isEdit || !selectedCategory) return Promise.resolve(null);
+      const cacheKey = `${prepared.hash}|${selectedCategory}`;
+      const cached = dupCacheRef.current.get(cacheKey);
+      if (cached !== undefined) return Promise.resolve(cached);
+
+      dupAbortRef.current?.abort();
+      const controller = new AbortController();
+      dupAbortRef.current = controller;
+      setDupCheckPending(true);
+      const promise = (async (): Promise<DuplicateCheckResult> => {
+        try {
+          const dupForm = new FormData();
+          dupForm.append("photo", prepared.file);
+          dupForm.append("category", selectedCategory);
+          const response = await fetch("/api/inventory/duplicate-check", {
+            method: "POST",
+            body: dupForm,
+            credentials: "same-origin",
+            signal: controller.signal,
+          });
+          const data = (await response.json().catch(() => ({}))) as DuplicateCheckResult;
+          const result = response.ok ? data : null;
+          if (!controller.signal.aborted) {
+            dupCacheRef.current.set(cacheKey, result);
+            setDupCheckResult(result);
+          }
+          return result;
+        } catch {
+          return null;
+        } finally {
+          if (!controller.signal.aborted) setDupCheckPending(false);
+        }
+      })();
+      duplicatePromiseRef.current = promise;
+      return promise;
+    },
+    [isEdit],
+  );
+
   useEffect(() => {
     if (isEdit || !category || !preparedPhoto) {
       setDupCheckResult(null);
       setDupCheckPending(false);
       return;
     }
-
-    const cacheKey = `${preparedPhoto.hash}|${category}`;
-    const cached = dupCacheRef.current.get(cacheKey);
-    if (cached !== undefined) {
-      setDupCheckResult(cached);
-      return;
-    }
-
     const timer = setTimeout(() => {
-      dupAbortRef.current?.abort();
-      const controller = new AbortController();
-      dupAbortRef.current = controller;
-      setDupCheckPending(true);
-
-      void (async () => {
-        try {
-          const dupForm = new FormData();
-          dupForm.append("photo", preparedPhoto.file);
-          dupForm.append("category", category);
-          const dupRes = await fetch("/api/inventory/duplicate-check", {
-            method: "POST",
-            body: dupForm,
-            credentials: "same-origin",
-            signal: controller.signal,
-          });
-          const dupData = (await dupRes.json().catch(() => ({}))) as DuplicateCheckResult;
-          const result: DuplicateCheckResult = dupRes.ok ? dupData : null;
-          if (controller.signal.aborted) return;
-          dupCacheRef.current.set(cacheKey, result);
-          setDupCheckResult(result);
-        } catch {
-          if (!controller.signal.aborted) setDupCheckResult(null);
-        } finally {
-          if (!controller.signal.aborted) setDupCheckPending(false);
-        }
-      })();
-    }, 400);
-
+      void startDuplicateCheck(preparedPhoto, category);
+    }, 150);
     return () => {
       clearTimeout(timer);
       dupAbortRef.current?.abort();
     };
-  }, [category, preparedPhoto, isEdit]);
+  }, [category, preparedPhoto, isEdit, startDuplicateCheck]);
 
   const resetFormForNewItem = useCallback(() => {
     setCategory("");
@@ -253,6 +267,7 @@ export default function InventoryFormClient({
     setHasPasa(false);
     setLocalPreview("");
     setPhotoUrl("");
+    setRemovePhoto(false);
     setPreparedPhoto(null);
     setDupCheckResult(null);
     setPhotoPrepPending(false);
@@ -266,15 +281,22 @@ export default function InventoryFormClient({
     if (!(photo instanceof File) || photo.size <= 0) {
       return { form, photoHash: null };
     }
-    if (preparedPhoto) {
-      form.set("photo", preparedPhoto.file);
-      return { form, photoHash: preparedPhoto.hash };
-    }
     setStatusMessage("Preparing image…");
-    const compressed = await compressImageForUpload(photo);
-    form.set("photo", compressed);
-    const photoHash = await hashFileSha256(compressed);
-    return { form, photoHash };
+    const sourceKey = `${photo.name}:${photo.size}:${photo.lastModified}`;
+    let prepared =
+      preparedPhoto?.sourceKey === sourceKey ? preparedPhoto : null;
+    if (!prepared && prepPromiseRef.current?.sourceKey === sourceKey) {
+      prepared = await prepPromiseRef.current.promise;
+    }
+    if (!prepared) {
+      const promise = prepareInventoryPhoto(photo, sourceKey);
+      prepPromiseRef.current = { sourceKey, promise };
+      prepared = await promise;
+    }
+    setPreparedPhoto(prepared);
+    form.set("photo", prepared.file);
+    form.set("thumbnail", prepared.thumbnail);
+    return { form, photoHash: prepared.hash };
   }
 
   async function prepareFormForUpload(form: FormData): Promise<FormData> {
@@ -305,6 +327,38 @@ export default function InventoryFormClient({
     return { error: text?.trim()?.slice(0, 280) || `Save failed (HTTP ${res.status}).` };
   }
 
+  async function uploadPreparedPhotoDirect(
+    form: FormData,
+    operationId: string,
+  ): Promise<void> {
+    const photo = form.get("photo");
+    const thumbnail = form.get("thumbnail");
+    if (!(photo instanceof File) || photo.size <= 0 || !(thumbnail instanceof File)) return;
+    try {
+      setStatusMessage("Uploading photo…");
+      const { upload } = await import("@vercel/blob/client");
+      const [originalBlob, thumbnailBlob] = await Promise.all([
+        upload(`inventory/${operationId}/original.jpg`, photo, {
+          access: "public",
+          handleUploadUrl: "/api/inventory/upload",
+          multipart: photo.size > 4 * 1024 * 1024,
+        }),
+        upload(`inventory/${operationId}/thumbnail.webp`, thumbnail, {
+          access: "public",
+          handleUploadUrl: "/api/inventory/upload",
+        }),
+      ]);
+      form.delete("photo");
+      form.delete("thumbnail");
+      form.set("photo_path", originalBlob.url);
+      form.set("thumbnail_path", thumbnailBlob.url);
+    } catch {
+      // Local development and unconfigured Blob environments retain the secure
+      // multipart fallback; production uses the direct upload path above.
+      setStatusMessage("Uploading through server fallback…");
+    }
+  }
+
   async function saveForm(form: FormData, url: string, method: string) {
     setSaving(true);
     setStatusMessage("Saving record…");
@@ -319,6 +373,7 @@ export default function InventoryFormClient({
         return;
       }
       uploadForm.set("operation_id", operationId);
+      await uploadPreparedPhotoDirect(uploadForm, operationId);
 
       setStatusMessage(photoHash ? "Uploading…" : "Saving record…");
       const res = await fetchWithOperationInProgressRetry(
@@ -408,14 +463,25 @@ export default function InventoryFormClient({
     const photo = form.get("photo");
 
     if (!isEdit && photo instanceof File && photo.size > 0 && category) {
-      if (photoPrepPending) {
-        setStatusMessage("Preparing image…");
-        alert("Image is still being prepared. Wait a moment and try again.");
-        return;
-      }
-
       const uploadForm = await prepareFormForUpload(form);
-      const dup = dupCheckResult;
+      const sourceKey = `${photo.name}:${photo.size}:${photo.lastModified}`;
+      const currentPrepared =
+        preparedPhoto?.sourceKey === sourceKey
+          ? preparedPhoto
+          : prepPromiseRef.current?.sourceKey === sourceKey
+            ? await prepPromiseRef.current.promise
+            : null;
+      let dup = dupCheckResult;
+      if (!dup && currentPrepared) {
+        setStatusMessage("Checking for duplicates…");
+        const pending =
+          duplicatePromiseRef.current ||
+          startDuplicateCheck(currentPrepared, category);
+        dup = await Promise.race([
+          pending,
+          new Promise<null>((resolve) => setTimeout(() => resolve(null), 1_500)),
+        ]);
+      }
       if (dup?.is_duplicate && dup.match) {
         setDuplicateWarning({
           sku: dup.match.sku,
@@ -426,9 +492,6 @@ export default function InventoryFormClient({
         return;
       }
 
-      if (dupCheckPending) {
-        setStatusMessage("Checking for duplicates…");
-      }
       await saveForm(uploadForm, url, method);
       return;
     }
@@ -630,6 +693,7 @@ export default function InventoryFormClient({
         </div>
         <div>
           <label className="form-label">Photo</label>
+          {removePhoto && <input type="hidden" name="remove_photo" value="1" />}
           <input name="photo" type="file" accept="image/*" className="form-control" onChange={handlePhotoChange} />
           {displayPhoto ? (
             <div className="inv-form-photo-preview">
@@ -640,6 +704,25 @@ export default function InventoryFormClient({
             <p style={{ fontSize: 12, color: "var(--text-muted)", marginTop: 8 }}>
               Select a photo to see an instant preview.
             </p>
+          )}
+          {isEdit && displayPhoto && (
+            <button
+              type="button"
+              className="btn btn-danger btn-sm"
+              style={{ marginTop: 8 }}
+              onClick={() => {
+                setRemovePhoto(true);
+                setLocalPreview((previous) => {
+                  if (previous.startsWith("blob:")) URL.revokeObjectURL(previous);
+                  return "";
+                });
+                setPhotoUrl("");
+                setPreparedPhoto(null);
+                prepPromiseRef.current = null;
+              }}
+            >
+              Remove Photo
+            </button>
           )}
         </div>
         {statusMessage ? (
@@ -653,7 +736,7 @@ export default function InventoryFormClient({
         ) : null}
         <button
           className="btn btn-primary"
-          disabled={saving || photoPrepPending}
+          disabled={saving}
         >
           {saving ? "Saving…" : isEdit ? "Update" : "Add Item"}
         </button>
