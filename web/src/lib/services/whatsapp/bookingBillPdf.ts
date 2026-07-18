@@ -1,6 +1,8 @@
 import jsPDF from "jspdf";
 import { readFile } from "fs/promises";
 import path from "path";
+import { loadSlipLogoDataUrl } from "./slipLogoData.server";
+import { SLIP_TAGLINE, SLIP_MOTTO } from "@/lib/slipConstants";
 
 export type BookingBillPdfInput = {
   booking: {
@@ -129,6 +131,17 @@ async function prefetchDressImages(items: BookingBillPdfInput["items"]) {
   return pairs;
 }
 
+/** Fallback brand monogram when the logo asset cannot be embedded. */
+function drawMonogram(doc: jsPDF, initials: string, marginX: number, _gold: unknown): void {
+  draw(doc, GOLD);
+  doc.setLineWidth(0.7);
+  doc.circle(marginX + 9, 15, 9, "D");
+  color(doc, GOLD);
+  doc.setFont("helvetica", "bold");
+  doc.setFontSize(14);
+  doc.text(initials, marginX + 9, 18, { align: "center" });
+}
+
 export async function generateBookingBillPdf(input: BookingBillPdfInput): Promise<Buffer> {
   const doc = new jsPDF({ orientation: "portrait", unit: "mm", format: "a4" });
   const b = input.booking;
@@ -150,13 +163,16 @@ export async function generateBookingBillPdf(input: BookingBillPdfInput): Promis
   fill(doc, GREEN_LIGHT);
   doc.rect(PAGE_W / 2, 0, PAGE_W / 2, HEADER_H, "F");
 
-  draw(doc, GOLD);
-  doc.setLineWidth(0.7);
-  doc.circle(MARGIN + 9, 15, 9, "D");
-  color(doc, GOLD);
-  doc.setFont("helvetica", "bold");
-  doc.setFontSize(14);
-  doc.text(initials, MARGIN + 9, 18, { align: "center" });
+  const logoDataUrl = await loadSlipLogoDataUrl();
+  if (logoDataUrl) {
+    try {
+      doc.addImage(logoDataUrl, "PNG", MARGIN, 6, 18, 18);
+    } catch {
+      drawMonogram(doc, initials, MARGIN, GOLD);
+    }
+  } else {
+    drawMonogram(doc, initials, MARGIN, GOLD);
+  }
 
   doc.setFont("helvetica", "bold");
   doc.setFontSize(15);
@@ -182,7 +198,7 @@ export async function generateBookingBillPdf(input: BookingBillPdfInput): Promis
   doc.setFont("helvetica", "italic");
   doc.setFontSize(7);
   color(doc, GOLD);
-  doc.text("Premium Cloth Rental — Elegance for Every Occasion", MARGIN + 22, HEADER_H - 4);
+  doc.text(`${SLIP_TAGLINE} · ${SLIP_MOTTO}`, MARGIN + 22, HEADER_H - 4);
 
   doc.setFont("helvetica", "bold");
   doc.setFontSize(13);

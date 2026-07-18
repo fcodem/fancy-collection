@@ -12,6 +12,7 @@ import { formatInr } from "@/lib/format";
 import { resolveBookingStatus } from "@/lib/bookingStatus";
 import { bookingMonthKey, formatBookingMonthLabel } from "@/lib/bookingMonth";
 import BookingPanelPdfButton from "@/components/BookingPanelPdfButton";
+import PrefetchOnIntentLink from "@/components/PrefetchOnIntentLink";
 import {
   BOOKING_PANEL_PAGE_SIZE,
   loadBookingPanelPage,
@@ -191,9 +192,10 @@ export default async function BookingPanelPage({
                         </td>
                         <td className="booking-col-actions">
                           <div className="booking-col-actions-inner">
-                            <Link href={`/booking/${b.id}`} prefetch={false} className="btn btn-outline btn-sm"><i className="fa-solid fa-eye" /></Link>
+                            <PrefetchOnIntentLink href={`/booking/${b.id}`} className="btn btn-outline btn-sm"><i className="fa-solid fa-eye" /></PrefetchOnIntentLink>
+                            <PrefetchOnIntentLink href={`/jewellery-selection/${b.id}`} className="btn btn-outline btn-sm" title="Jewellery Selection" style={{ color: "#b8860b", borderColor: "#c9a84c" }}><i className="fa-solid fa-gem" /></PrefetchOnIntentLink>
                             {status === "delivered" && (
-                              <Link href={`/booking-delivery/${b.id}`} prefetch={false} className="btn btn-outline btn-sm" title="Edit Delivered"><i className="fa-solid fa-pen" /></Link>
+                              <PrefetchOnIntentLink href={`/booking-delivery/${b.id}`} className="btn btn-outline btn-sm" title="Edit Delivered"><i className="fa-solid fa-pen" /></PrefetchOnIntentLink>
                             )}
                           </div>
                         </td>

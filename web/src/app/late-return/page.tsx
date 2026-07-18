@@ -1,4 +1,3 @@
-import Link from "next/link";
 import prisma from "@/lib/prisma";
 import { whereReturnBefore } from "@/lib/bookingDateQuery";
 import { todayIso } from "@/lib/constants";
@@ -13,6 +12,7 @@ import {
 import { StandardBookingTableCells, StandardBookingTableHead } from "@/components/BookingDetailsColumns";
 import { serializeStandardBookingDetails } from "@/lib/bookingDetails";
 import { localTodayStart } from "@/lib/constants";
+import PrefetchOnIntentLink from "@/components/PrefetchOnIntentLink";
 
 export default async function LateReturnPage() {
   const today = localTodayStart();
@@ -76,7 +76,7 @@ export default async function LateReturnPage() {
                         <td className="booking-col-serial"><strong>{String(b.monthlySerial).padStart(2, "0")}</strong></td>
                         <StandardBookingTableCells d={serializeStandardBookingDetails(b)} />
                         <td className="booking-col-date"><span className="badge badge-overdue">{daysLate} days</span></td>
-                        <td className="booking-col-actions"><Link href={`/return/${b.id}`} prefetch={false} className="btn btn-sm btn-primary">Process Return</Link></td>
+                        <td className="booking-col-actions"><PrefetchOnIntentLink href={`/return/${b.id}`} className="btn btn-sm btn-primary">Process Return</PrefetchOnIntentLink></td>
                       </tr>
                     );
                   })}

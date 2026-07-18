@@ -2,6 +2,14 @@ export const DEFAULT_SEARCH_PAGE_SIZE = 100;
 export const MAX_SEARCH_PAGE_SIZE = 200;
 export const DASHBOARD_SEARCH_LIMIT = 50;
 
+/** Delivery / Return / Jewellery operational lists */
+export const OPERATIONAL_LIST_DEFAULT_PAGE_SIZE = 25;
+export const OPERATIONAL_LIST_MAX_PAGE_SIZE = 50;
+
+/** Dashboard today-stat drilldowns */
+export const DASHBOARD_STAT_DEFAULT_PAGE_SIZE = 25;
+export const DASHBOARD_STAT_MAX_PAGE_SIZE = 50;
+
 export function parseSearchPageParams(
   pageRaw?: string | null,
   pageSizeRaw?: string | null,

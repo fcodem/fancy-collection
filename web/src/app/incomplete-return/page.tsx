@@ -1,4 +1,3 @@
-import Link from "next/link";
 import prisma from "@/lib/prisma";
 import ResolveButton from "@/components/ResolveButton";
 import { StandardBookingTableCells, StandardBookingTableHead } from "@/components/BookingDetailsColumns";
@@ -13,6 +12,7 @@ import {
   buildWarningMaps,
   pdfWarningsForBooking,
 } from "@/lib/bookingWarnings";
+import PrefetchOnIntentLink from "@/components/PrefetchOnIntentLink";
 
 function incompleteMissingNotes(
   b: {
@@ -198,11 +198,11 @@ export default async function IncompleteReturnPage() {
                       <td>{b.returnedAt ? formatDate(b.returnedAt, "display") : "—"}</td>
                       <td>
                         <div style={{ display: "flex", gap: 6, flexWrap: "wrap" }}>
-                          <Link href={`/booking/${b.id}/incomplete-slip`} prefetch={false} className="btn btn-sm btn-outline" style={{ color: "#c2410c", borderColor: "#f39c12" }}>
+                          <PrefetchOnIntentLink href={`/booking/${b.id}/incomplete-slip`} className="btn btn-sm btn-outline" style={{ color: "#c2410c", borderColor: "#f39c12" }}>
                             <i className="fa-solid fa-receipt" style={{ marginRight: 4 }} />Slip
-                          </Link>
+                          </PrefetchOnIntentLink>
                           <ResolveButton bookingId={b.id} />
-                          <Link href={`/return/${b.id}`} prefetch={false} className="btn btn-sm btn-outline">View</Link>
+                          <PrefetchOnIntentLink href={`/return/${b.id}`} className="btn btn-sm btn-outline">View</PrefetchOnIntentLink>
                         </div>
                       </td>
                     </tr>

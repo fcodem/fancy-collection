@@ -1,5 +1,7 @@
 import { revalidateTag } from "next/cache";
 import { INVENTORY_CACHE_TAGS, invalidateInventoryCaches } from "@/lib/inventoryCacheTags";
+import { clearMemoryCache } from "@/lib/perfCache";
+import { clearQrResolveCache } from "@/lib/services/qrResolve";
 
 export { invalidateInventoryCaches };
 
@@ -28,6 +30,8 @@ function safeRevalidate(tags: string[]) {
       /* cache API unavailable in some runtimes */
     }
   }
+  // In-process memory TTL must not outlive tagged invalidation.
+  clearMemoryCache();
 }
 
 export function invalidateBookingCaches() {
@@ -42,6 +46,8 @@ export function invalidateBookingCaches() {
     CACHE_TAGS.deliveryList,
     CACHE_TAGS.returnList,
   ]);
+  // A created/edited/deleted booking may change or retire a qr_token → id mapping.
+  clearQrResolveCache();
 }
 
 export function invalidateDashboardCaches() {
@@ -65,4 +71,6 @@ export function invalidateDeliveryReturnCaches() {
     CACHE_TAGS.dashboard,
     CACHE_TAGS.dashboardCounts,
   ]);
+  // Delivery/return mutate booking status; keep QR resolver mapping fresh too.
+  clearQrResolveCache();
 }

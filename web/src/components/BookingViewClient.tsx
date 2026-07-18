@@ -153,6 +153,14 @@ export default function BookingViewClient({
         />
         {status === "booked" && (
           <>
+            <Link
+              href={`/jewellery-selection/${booking.id}`}
+              className="btn btn-outline"
+              style={{ color: "#b8860b", borderColor: "#c9a84c" }}
+              title="Open jewellery selection for this booking"
+            >
+              <i className="fa-solid fa-gem" /> Jewellery
+            </Link>
             <Link href={`/booking-delivery/${booking.id}`} className="btn btn-primary">
               <i className="fa-solid fa-truck-fast" /> Delivery
             </Link>

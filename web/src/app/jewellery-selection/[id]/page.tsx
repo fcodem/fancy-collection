@@ -1,6 +1,6 @@
 import { redirect, notFound } from "next/navigation";
 import Link from "next/link";
-import { getCurrentUser } from "@/lib/auth";
+import { getCurrentUserForLayout } from "@/lib/auth";
 import prisma from "@/lib/prisma";
 import { formatDate } from "@/lib/constants";
 import { getAllCategories } from "@/lib/categories";
@@ -10,7 +10,7 @@ import JewellerySelectionClient from "@/components/JewellerySelectionClient";
 export const dynamic = "force-dynamic";
 
 export default async function JewellerySelectionRecordPage({ params }: { params: Promise<{ id: string }> }) {
-  const user = await getCurrentUser();
+  const user = await getCurrentUserForLayout();
   if (!user) redirect("/login");
 
   const { id } = await params;

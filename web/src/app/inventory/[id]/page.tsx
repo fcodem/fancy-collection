@@ -1,7 +1,7 @@
 import Link from "next/link";
 import { redirect, notFound } from "next/navigation";
 import prisma from "@/lib/prisma";
-import { getCurrentUser, isOwner } from "@/lib/auth";
+import { getCurrentUserReadOnly, isOwner } from "@/lib/auth";
 import InventoryDeleteButton from "@/components/InventoryDeleteButton";
 import InventoryDetailPhoto from "@/components/InventoryDetailPhoto";
 import { dressDisplayName } from "@/lib/dress";
@@ -11,7 +11,7 @@ import { formatDate } from "@/lib/constants";
 export const dynamic = "force-dynamic";
 
 export default async function InventoryDetailPage({ params }: { params: Promise<{ id: string }> }) {
-  const user = await getCurrentUser();
+  const user = await getCurrentUserReadOnly();
   if (!user) redirect("/login");
 
   const { id } = await params;
@@ -21,7 +21,25 @@ export default async function InventoryDetailPage({ params }: { params: Promise<
 
   const item = await prisma.clothingItem.findUnique({
     where: { id: itemId },
-    include: {
+    select: {
+      id: true,
+      sku: true,
+      name: true,
+      category: true,
+      size: true,
+      color: true,
+      subCategory: true,
+      status: true,
+      dailyRate: true,
+      deposit: true,
+      itemType: true,
+      conditionNotes: true,
+      createdAt: true,
+      photo: true,
+      originalPhoto: true,
+      enhancedPhoto: true,
+      marketingPhoto: true,
+      recognitionImage: true,
       aiProfile: {
         select: {
           aiStatus: true,

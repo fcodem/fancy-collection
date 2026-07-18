@@ -43,6 +43,46 @@ export function bookingQrNavigatePath(parsed: ParsedQrScan, target?: string): st
   return q ? `${base}?${q}` : base;
 }
 
+/** Client-safe QR target allowlist (shared by resolver API + intermediate route). */
+export const QR_TARGETS = ["booking", "jewellery", "delivery", "return"] as const;
+export type QrTarget = (typeof QR_TARGETS)[number];
+
+/** Normalize an untrusted target string to the allowlist; defaults to "booking". */
+export function normalizeQrTarget(raw: string | null | undefined): QrTarget {
+  const t = (raw || "").trim().toLowerCase();
+  return (QR_TARGETS as readonly string[]).includes(t) ? (t as QrTarget) : "booking";
+}
+
+/** Deterministic destination path for a resolved booking id + target. */
+export function qrTargetPath(target: QrTarget, bookingId: number): string {
+  switch (target) {
+    case "jewellery":
+      return `/jewellery-selection/${bookingId}`;
+    case "delivery":
+      return `/booking-delivery/${bookingId}`;
+    case "return":
+      return `/return/${bookingId}`;
+    case "booking":
+    default:
+      return `/booking/${bookingId}`;
+  }
+}
+
+/** Route-family code to prefetch for a scanner target (before the booking id is known). */
+export function qrTargetPrefetchFamily(target: QrTarget): string {
+  switch (target) {
+    case "jewellery":
+      return "/jewellery-selection";
+    case "delivery":
+      return "/booking-delivery";
+    case "return":
+      return "/return";
+    case "booking":
+    default:
+      return "/booking";
+  }
+}
+
 /** Mobile / tablet → back camera; PC / laptop → front camera. */
 export function preferBackCamera(): boolean {
   if (typeof window === "undefined") return true;

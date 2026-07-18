@@ -1,11 +1,11 @@
 import { redirect, notFound } from "next/navigation";
 import Link from "next/link";
 import { getCustomer } from "@/lib/services/customersOps";
-import { getCurrentUser, isOwner } from "@/lib/auth";
+import { getCurrentUserReadOnly, isOwner } from "@/lib/auth";
 import CustomerFormClient from "@/components/CustomerFormClient";
 
 export default async function CustomerDetailPage({ params }: { params: Promise<{ id: string }> }) {
-  const user = await getCurrentUser();
+  const user = await getCurrentUserReadOnly();
   if (!user) redirect("/login");
   if (!isOwner(user)) redirect("/");
 

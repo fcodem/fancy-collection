@@ -99,7 +99,11 @@ export async function getStaffWithoutAccounts() {
 
 export async function changeUserRole(userId: number, role: string, currentUserId: number) {
   if (userId === currentUserId) throw new Error("Cannot change your own role.");
-  return prisma.user.update({ where: { id: userId }, data: { role } });
+  const updated = await prisma.user.update({ where: { id: userId }, data: { role } });
+  // Role must take effect immediately — drop read-session cache for this user.
+  const { invalidateCachedSessionsForUser } = await import("../sessionCache");
+  invalidateCachedSessionsForUser(userId);
+  return updated;
 }
 
 export async function resetUserPassword(userId: number, password: string, endedById?: number) {

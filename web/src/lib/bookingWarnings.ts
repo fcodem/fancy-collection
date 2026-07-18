@@ -165,18 +165,39 @@ export function pdfWarningsForBooking(
 }
 
 /** Load edge bookings for warning detection across a date span (inclusive). */
-export async function fetchWarningEdgeBookings(fromIso: string, toIso: string) {
+export async function fetchWarningEdgeBookings(
+  fromIso: string,
+  toIso: string,
+  opts?: { itemIds?: number[]; take?: number },
+) {
   const dDateQ = parseDateQ(fromIso);
   const rDateQ = parseDateQ(toIso);
+  const itemIds = (opts?.itemIds || []).filter((id) => Number.isFinite(id) && id > 0);
+  const itemFilter =
+    itemIds.length > 0
+      ? {
+          OR: [
+            { itemId: { in: itemIds } },
+            { bookingItems: { some: { itemId: { in: itemIds } } } },
+          ],
+        }
+      : null;
+
   return prisma.booking.findMany({
     where: {
       status: { in: ["booked", "delivered"] },
-      OR: [
-        { returnDate: { gte: dDateQ, lte: rDateQ } },
-        { deliveryDate: { gte: dDateQ, lte: rDateQ } },
+      AND: [
+        {
+          OR: [
+            { returnDate: { gte: dDateQ, lte: rDateQ } },
+            { deliveryDate: { gte: dDateQ, lte: rDateQ } },
+          ],
+        },
+        ...(itemFilter ? [itemFilter] : []),
       ],
     },
     include: { bookingItems: { include: { item: true } }, legacyItem: true },
+    ...(opts?.take && opts.take > 0 ? { take: opts.take } : {}),
   });
 }
 
@@ -198,7 +219,14 @@ export function dateSpanFromBookings(bookings: Array<{ deliveryDate: Date; retur
 export async function loadWarningItemsForBooking(booking: WarningMapBooking) {
   const span = dateSpanFromBookings([booking]);
   if (!span.from) return [];
-  const edgeBookings = await fetchWarningEdgeBookings(span.from, span.to);
+  const visibleItemIds = itemIds(booking);
+  if (visibleItemIds.length === 0) return [];
+  // Record pages only need conflicts for their visible items. Without this filter
+  // every record open loaded all bookings across the date span and all item rows.
+  const edgeBookings = await fetchWarningEdgeBookings(span.from, span.to, {
+    itemIds: visibleItemIds,
+    take: 250,
+  });
   const { returning, booked } = buildWarningMaps(edgeBookings);
   return warningItemsForBooking(booking, returning, booked);
 }

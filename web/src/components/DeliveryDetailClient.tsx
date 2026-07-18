@@ -643,6 +643,17 @@ export default function DeliveryDetailClient({
 
   return (
     <div>
+      <div style={{ display: "flex", gap: 12, marginBottom: 16, flexWrap: "wrap" }} className="no-print">
+        <Link
+          href={`/jewellery-selection/${booking.id}`}
+          className="btn btn-outline"
+          style={{ color: "#b8860b", borderColor: "#c9a84c" }}
+          title="Open jewellery selection for this booking"
+        >
+          <i className="fa-solid fa-gem" style={{ marginRight: 6 }} />
+          {jewellery.length > 0 ? `Jewellery (${jewellery.length})` : "Select Jewellery"}
+        </Link>
+      </div>
       {allDelivered && (
         <div style={{ display: "flex", gap: 12, marginBottom: 16, flexWrap: "wrap" }} className="no-print">
           <Link

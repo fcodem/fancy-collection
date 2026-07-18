@@ -435,10 +435,59 @@ export class QrCameraSession {
     }
   }
 
-  private async disposeAll(): Promise<void> {
+  private async disposeAll(opts?: { settle?: boolean }): Promise<void> {
     await this.disposeNative();
     await this.disposeHtml5();
-    await new Promise((r) => setTimeout(r, 200));
+    // Settling delay only matters when reopening a camera on the same page
+    // (e.g. switching lenses). The success-navigation path must NOT wait.
+    if (opts?.settle) await new Promise((r) => setTimeout(r, 200));
+  }
+
+  /**
+   * Synchronously halt scanning + release media tracks so the camera light turns
+   * off and no further decode callbacks fire. Safe to call from the decode handler
+   * right before navigation. Finish nonessential teardown via disposeInBackground().
+   */
+  stopImmediately(): void {
+    this.stopNativeLoop();
+    this.detector = null;
+    if (this.videoEl) {
+      try {
+        this.videoEl.srcObject = null;
+      } catch {
+        /* ignore */
+      }
+      this.videoEl = null;
+    }
+    if (this.stream) {
+      this.stream.getTracks().forEach((track) => {
+        try {
+          track.stop();
+        } catch {
+          /* ignore */
+        }
+      });
+      this.stream = null;
+    }
+  }
+
+  /** Non-blocking cleanup of the html5 fallback + DOM. Run without awaiting on nav. */
+  async disposeInBackground(): Promise<void> {
+    try {
+      await this.disposeHtml5();
+    } catch {
+      /* ignore */
+    }
+    this.clearContainer();
+    this.devices = [];
+    this.deviceIndex = 0;
+    this.detector = null;
+  }
+
+  /** Stop tracks now, then finish teardown in the background (returns cleanup promise). */
+  stopAfterDecode(): Promise<void> {
+    this.stopImmediately();
+    return this.disposeInBackground();
   }
 
   private startNativeLoop(onDecode: (text: string) => void): void {
@@ -585,7 +634,7 @@ export class QrCameraSession {
   }
 
   private async openCamera(onDecode: (text: string) => void, facingOverride?: CameraFacing): Promise<void> {
-    await this.disposeAll();
+    await this.disposeAll({ settle: true });
 
     if (!this.detector) {
       this.detector = await createBarcodeDetector();

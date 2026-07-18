@@ -66,6 +66,15 @@ export async function middleware(request: NextRequest) {
     return passThrough();
   }
 
+  // The single internal Chromium renderer is a server-to-server call (no cookie),
+  // authenticated by the PDF render secret header.
+  if (
+    pathname === "/api/internal/slip/render" &&
+    isValidPdfRenderSecret(request.headers.get("x-pdf-secret"))
+  ) {
+    return passThrough();
+  }
+
   // Setup routes are never public in production / on Vercel.
   if (pathname.startsWith("/api/setup/")) {
     return NextResponse.json({ error: "Not found" }, { status: 404 });

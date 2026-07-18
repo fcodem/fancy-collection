@@ -1,30 +1,34 @@
 import prisma from "@/lib/prisma";
-import { jsonOk, jsonError } from "@/lib/api";
-import { getCurrentUserReadOnly } from "@/lib/auth";
+import { jsonOk, jsonError, requireUserReadOnly, isResponse } from "@/lib/api";
 import { todayIso } from "@/lib/constants";
 import { whereOverduePendingDelivery } from "@/lib/bookingDateQuery";
-import { memoryCachedQuery } from "@/lib/perfCache";
+import { cachedQuery } from "@/lib/perfCache";
+import { createPerfTimer, withServerTiming } from "@/lib/perfTiming";
+import { CACHE_TAGS } from "@/lib/cacheInvalidation";
 
-/** Nav badge counts — cached ~45s (not financial). */
+/** Nav badge counts — tagged cache ~45s (not financial). */
 export async function GET() {
-  const user = await getCurrentUserReadOnly();
-  if (!user) return jsonError("Please log in to continue.", 401);
+  const perf = createPerfTimer("GET /api/dashboard/nav-counts");
+  perf.mark("auth");
+  const user = await requireUserReadOnly();
+  perf.endStage("cookieAuthMs", "auth");
+  perf.endStage("authMs", "auth");
+  if (isResponse(user)) return user;
 
-  const started = Date.now();
   try {
-    const overdueDeliveryCount = await memoryCachedQuery(
-      ["nav-overdue-delivery", todayIso()],
+    perf.mark("query");
+    const overdueDeliveryCount = await cachedQuery(
+      [CACHE_TAGS.dashboardCounts, "nav-overdue-delivery", todayIso()],
       async () =>
         prisma.booking.count({
           where: await whereOverduePendingDelivery(todayIso()),
         }),
       45,
     );
-    const totalMs = Date.now() - started;
-    if (totalMs > 500) {
-      console.log(`[perf] route=/api/dashboard/nav-counts totalMs=${totalMs}`);
-    }
-    return jsonOk({ overdue_delivery_count: overdueDeliveryCount });
+    perf.endStage("queryMs", "query");
+    perf.addQueries(1);
+    const timings = perf.finish({ kind: "read" });
+    return withServerTiming(jsonOk({ overdue_delivery_count: overdueDeliveryCount }), timings);
   } catch (e) {
     console.error("[nav-counts]", e);
     const msg = e instanceof Error ? e.message : "";

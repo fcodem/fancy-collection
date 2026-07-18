@@ -5,6 +5,8 @@ import {
   formatSlipDateTime,
   SLIP_BRAND_NAME,
   SLIP_DEFAULT_PHONE,
+  SLIP_MOTTO,
+  SLIP_TAGLINE,
   slipRs,
 } from "@/lib/slipConstants";
 import { resolvePublicBookingId } from "./publicBookingId";
@@ -67,7 +69,12 @@ export function generateOperationSlipPdfFallback(
   doc.setFont("helvetica", "bold");
   doc.setFontSize(16);
   doc.text(SLIP_BRAND_NAME, 105, y, { align: "center" });
+  y += 6;
+  doc.setFont("helvetica", "italic");
+  doc.setFontSize(8);
+  doc.text(`${SLIP_TAGLINE} · ${SLIP_MOTTO}`, 105, y, { align: "center" });
   y += 8;
+  doc.setFont("helvetica", "bold");
   doc.setFontSize(13);
   doc.text(titleFor(kind), 105, y, { align: "center" });
   y += 10;

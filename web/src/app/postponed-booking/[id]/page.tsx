@@ -1,13 +1,13 @@
 import { redirect, notFound } from "next/navigation";
 import prisma from "@/lib/prisma";
-import { getCurrentUser } from "@/lib/auth";
+import { getCurrentUserReadOnly } from "@/lib/auth";
 import PostponedBookingDetailClient from "@/components/PostponedBookingDetailClient";
 import { formatDate } from "@/lib/constants";
 
 export const dynamic = "force-dynamic";
 
 export default async function PostponedBookingDetailPage({ params }: { params: Promise<{ id: string }> }) {
-  const user = await getCurrentUser();
+  const user = await getCurrentUserReadOnly();
   if (!user) redirect("/login");
 
   const { id } = await params;
@@ -28,15 +28,10 @@ export default async function PostponedBookingDetailPage({ params }: { params: P
     redirect(`/booking/${booking.id}`);
   }
 
-  let postponedAtDisplay: string | null = null;
-  if (booking.status === "postponed") {
-    const rows = await prisma.$queryRaw<{ postponed_at: Date | null }[]>`
-      SELECT postponed_at FROM bookings WHERE id = ${bookingId}
-    `;
-    postponedAtDisplay = rows[0]?.postponed_at
-      ? formatDate(rows[0].postponed_at, "display")
+  const postponedAtDisplay =
+    booking.status === "postponed" && booking.postponedAt
+      ? formatDate(booking.postponedAt, "display")
       : null;
-  }
 
   return (
     <PostponedBookingDetailClient

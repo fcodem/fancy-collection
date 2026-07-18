@@ -5,7 +5,13 @@
 
 export type PerfStage =
   | "authMs"
+  | "cookieAuthMs"
+  | "sessionValidationMs"
   | "parseMs"
+  | "signatureMs"
+  | "resolverDbMs"
+  | "cacheLookupMs"
+  | "dbWaitMs"
   | "validationMs"
   | "initialReadMs"
   | "lockMs"
@@ -16,21 +22,28 @@ export type PerfStage =
   | "responseReadMs"
   | "photoUploadMs"
   | "queryMs"
+  | "warningQueryMs"
   | "groupMs"
   | "serializeMs"
+  | "imageMs"
   | "thumbnailMs"
   | "compressionMs"
   | "hashMs"
   | "duplicateCheckMs"
   | "uploadMs"
+  | "outboxMs"
   | "cacheMs"
   | "totalMs";
 
 export type PerfTimings = Partial<Record<PerfStage, number>> & {
   queryCount?: number;
   itemCount?: number;
+  rowCount?: number;
+  payloadBytes?: number;
   cold?: boolean;
   route?: string;
+  requestId?: string;
+  cacheStatus?: "hit" | "miss" | "bypass" | "coalesced";
 };
 
 const GLOBAL_COLD_KEY = "__fc_perf_warm__";
@@ -42,13 +55,19 @@ function isColdInvocation(): boolean {
   return true;
 }
 
+function newRequestId(): string {
+  return `r${Date.now().toString(36)}${Math.random().toString(36).slice(2, 8)}`;
+}
+
 export function createPerfTimer(route: string) {
   const t0 = Date.now();
   const marks = new Map<string, number>();
-  const stages: PerfTimings = { route, cold: isColdInvocation() };
+  const requestId = newRequestId();
+  const stages: PerfTimings = { route, cold: isColdInvocation(), requestId };
   let queryCount = 0;
 
   return {
+    requestId,
     mark(name: string) {
       marks.set(name, Date.now());
     },
@@ -67,6 +86,16 @@ export function createPerfTimer(route: string) {
     },
     setItemCount(n: number) {
       stages.itemCount = n;
+    },
+    setRowCount(n: number) {
+      stages.rowCount = n;
+      stages.itemCount = n;
+    },
+    setPayloadBytes(n: number) {
+      stages.payloadBytes = Math.max(0, Math.round(n));
+    },
+    setCacheStatus(status: NonNullable<PerfTimings["cacheStatus"]>) {
+      stages.cacheStatus = status;
     },
     finish(opts?: { kind?: "read" | "mutation" | "photo"; forceLog?: boolean }) {
       stages.totalMs = Date.now() - t0;
@@ -99,36 +128,53 @@ function sanitizeForLog(value: unknown): string {
   return s.slice(0, 120);
 }
 
+const LOG_STAGES: PerfStage[] = [
+  "authMs",
+  "cookieAuthMs",
+  "sessionValidationMs",
+  "parseMs",
+  "signatureMs",
+  "resolverDbMs",
+  "cacheLookupMs",
+  "dbWaitMs",
+  "validationMs",
+  "initialReadMs",
+  "lockMs",
+  "conflictCheckMs",
+  "transactionMs",
+  "databaseWriteMs",
+  "jobEnqueueMs",
+  "responseReadMs",
+  "photoUploadMs",
+  "queryMs",
+  "warningQueryMs",
+  "groupMs",
+  "serializeMs",
+  "imageMs",
+  "thumbnailMs",
+  "compressionMs",
+  "hashMs",
+  "duplicateCheckMs",
+  "uploadMs",
+  "outboxMs",
+  "cacheMs",
+  "totalMs",
+];
+
 export function logPerf(timings: PerfTimings) {
-  const parts: string[] = [`[perf] route=${sanitizeForLog(timings.route || "unknown")}`];
-  for (const key of [
-    "authMs",
-    "parseMs",
-    "validationMs",
-    "initialReadMs",
-    "lockMs",
-    "conflictCheckMs",
-    "transactionMs",
-    "databaseWriteMs",
-    "jobEnqueueMs",
-    "responseReadMs",
-    "photoUploadMs",
-    "queryMs",
-    "groupMs",
-    "serializeMs",
-    "thumbnailMs",
-    "compressionMs",
-    "hashMs",
-    "duplicateCheckMs",
-    "uploadMs",
-    "cacheMs",
-    "totalMs",
-  ] as const) {
+  const parts: string[] = [
+    `[perf] route=${sanitizeForLog(timings.route || "unknown")}`,
+    `requestId=${timings.requestId || "-"}`,
+  ];
+  for (const key of LOG_STAGES) {
     const v = timings[key];
     if (typeof v === "number") parts.push(`${key}=${v}`);
   }
   if (typeof timings.queryCount === "number") parts.push(`queryCount=${timings.queryCount}`);
-  if (typeof timings.itemCount === "number") parts.push(`itemCount=${timings.itemCount}`);
+  if (typeof timings.rowCount === "number") parts.push(`rowCount=${timings.rowCount}`);
+  else if (typeof timings.itemCount === "number") parts.push(`itemCount=${timings.itemCount}`);
+  if (typeof timings.payloadBytes === "number") parts.push(`payloadBytes=${timings.payloadBytes}`);
+  if (timings.cacheStatus) parts.push(`cacheStatus=${timings.cacheStatus}`);
   if (typeof timings.cold === "boolean") parts.push(`cold=${timings.cold}`);
   console.log(parts.join(" "));
 }
@@ -136,8 +182,14 @@ export function logPerf(timings: PerfTimings) {
 /** Build Server-Timing header value from recorded stages. */
 export function toServerTimingHeader(timings: PerfTimings): string {
   const entries: string[] = [];
+  if (timings.requestId) {
+    entries.push(`req;desc="${timings.requestId}"`);
+  }
   for (const [k, v] of Object.entries(timings)) {
-    if (typeof v !== "number" || k === "queryCount" || k === "itemCount") continue;
+    if (typeof v !== "number") continue;
+    if (k === "queryCount" || k === "itemCount" || k === "rowCount" || k === "payloadBytes") {
+      continue;
+    }
     if (!/Ms$/.test(k)) continue;
     const name = k.replace(/Ms$/, "");
     entries.push(`${name};dur=${Math.round(v)}`);
@@ -150,6 +202,7 @@ export function withServerTiming(res: Response, timings: PerfTimings): Response 
   if (!value) return res;
   const headers = new Headers(res.headers);
   headers.set("Server-Timing", value);
+  if (timings.requestId) headers.set("X-Request-Id", timings.requestId);
   return new Response(res.body, {
     status: res.status,
     statusText: res.statusText,

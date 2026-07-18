@@ -23,6 +23,16 @@ describe("auth layout cookie path contract", () => {
     assert.equal(typeof mod.getSessionIdentityFromCookie, "function");
     assert.equal(typeof mod.getCurrentUserForLayout, "function");
     assert.equal(typeof mod.getCurrentUser, "function");
+    assert.equal(typeof mod.getCurrentUserReadOnly, "function");
+  });
+});
+
+describe("session cache module", () => {
+  it("exports invalidate helpers for force-logout / role change", async () => {
+    const mod = await import("./sessionCache");
+    assert.equal(typeof mod.invalidateCachedSession, "function");
+    assert.equal(typeof mod.invalidateCachedSessionsForUser, "function");
+    assert.equal(typeof mod.coalesceSessionValidation, "function");
   });
 });
 

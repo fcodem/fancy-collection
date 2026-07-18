@@ -28,7 +28,8 @@ export async function GET(req: NextRequest) {
   try {
     const stuck = await recoverStuckAiJobs().catch(() => ({ recovered: 0, itemIds: [] as number[] }));
     const resumed = await resumeFailedAiJobs().catch(() => 0);
-    const result = await drainAiJobQueue(2, { source: "cron" });
+    // One heavy job per serverless invocation until tmp/native stability is proven.
+    const result = await drainAiJobQueue(1, { source: "cron" });
     const totalMs = Date.now() - started;
     if (totalMs > 2_000) {
       console.log(

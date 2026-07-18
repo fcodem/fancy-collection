@@ -1,4 +1,4 @@
-import { NextRequest, after } from "next/server";
+import { NextRequest } from "next/server";
 import { createHash } from "crypto";
 import { createInventoryItemInTx } from "@/lib/services/inventoryOps";
 import { jsonError, jsonOk, requireOwner, isResponse, requireOperationId } from "@/lib/api";
@@ -217,16 +217,7 @@ export async function POST(req: NextRequest) {
         ai_queue_warning =
           "Inventory saved but AI queue could not be written. Retry from AI indexing.";
       }
-      if (!ai_queue_warning) {
-        after(async () => {
-          try {
-            const { drainAiJobQueue } = await import("@/lib/dressChecker/aiJobWorker");
-            await drainAiJobQueue(1, { source: "inventory_save" });
-          } catch (err) {
-            console.error("[inventory POST] after() AI drain:", err);
-          }
-        });
-      }
+      // AI indexing is processed only by dedicated cron/worker — never drain here.
     }
 
     const { _hasPhoto: _a, _itemSnapshots: _b, ...publicResult } = result;

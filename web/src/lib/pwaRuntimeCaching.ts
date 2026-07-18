@@ -46,12 +46,12 @@ export const pwaRuntimeCaching: RuntimeCaching[] = [
       expiration: { maxEntries: 64, maxAgeSeconds: ONE_WEEK * 4 },
     },
   },
-  /* ── Public inventory thumbnail / catalog blobs ── */
+  /* ── Public inventory thumbnails only (never ID proofs / originals / incomplete) ── */
   {
-    urlPattern: /^https:\/\/[^/]+\.public\.blob\.vercel-storage\.com\/.*/i,
+    urlPattern: /^https:\/\/[^/]+\.public\.blob\.vercel-storage\.com\/(?:.*\/)?thumbs\/[^/?#]+$/i,
     handler: "CacheFirst",
     options: {
-      cacheName: "inventory-thumbs-v1",
+      cacheName: "inventory-thumbs-v2",
       expiration: { maxEntries: 200, maxAgeSeconds: THREE_DAYS },
       cacheableResponse: { statuses: [0, 200] },
     },

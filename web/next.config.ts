@@ -21,6 +21,9 @@ const withPWA = withPWAInit({
   },
 });
 
+/** Serverless-Chromium binary needed by the Puppeteer slip renderer. */
+const CHROMIUM_TRACE = "./node_modules/@sparticuz/chromium/**/*";
+
 const nextConfig: NextConfig = {
   // Do not ignore ESLint errors during production builds.
   eslint: {
@@ -39,25 +42,18 @@ const nextConfig: NextConfig = {
     "onnxruntime-node",
     "sharp",
   ],
-  // Trace Prisma everywhere; Chromium only into PDF/WhatsApp API routes (not every page).
-  // Bundling chromium into `/*` bloated deploy uploads and timed out at 45m on Vercel.
+  // Trace Prisma everywhere; Chromium into EXACTLY ONE function.
+  //
+  // All slip PDF generation delegates to POST /api/internal/slip/render (see
+  // slipHtmlPdf.server.ts), so @sparticuz/chromium is bundled only there instead
+  // of into ~13 hot API routes. This keeps upload size, build time, cold starts
+  // and function-size risk low. NEVER add CHROMIUM_TRACE to any other route.
   outputFileTracingIncludes: {
     "/api/**/*": [
       "./node_modules/.prisma/client/**/*",
       "./node_modules/@prisma/client/**/*",
     ],
-    "/api/cron/whatsapp-jobs": [
-      "./node_modules/@sparticuz/chromium/**/*",
-    ],
-    "/api/booking/*/whatsapp": [
-      "./node_modules/@sparticuz/chromium/**/*",
-    ],
-    "/api/booking/*/return-slip/whatsapp": [
-      "./node_modules/@sparticuz/chromium/**/*",
-    ],
-    "/api/booking/*/delivery-slip/whatsapp": [
-      "./node_modules/@sparticuz/chromium/**/*",
-    ],
+    "/api/internal/slip/render": [CHROMIUM_TRACE],
     "/*": [
       "./node_modules/.prisma/client/**/*",
       "./node_modules/@prisma/client/**/*",

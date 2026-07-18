@@ -1,10 +1,27 @@
 import { redirect, notFound } from "next/navigation";
 import prisma from "@/lib/prisma";
-import { getCurrentUser, isOwner } from "@/lib/auth";
+import { getCurrentUserReadOnly } from "@/lib/auth";
 
 export default async function RentalViewPage({ params }: { params: Promise<{ id: string }> }) {
-const { id } = await params;
-  const rental = await prisma.rental.findUnique({ where: { id: parseInt(id, 10) }, include: { customer: true, items: { include: { item: true } } } });
+  const user = await getCurrentUserReadOnly();
+  if (!user) redirect("/login");
+  const { id } = await params;
+  const rental = await prisma.rental.findUnique({
+    where: { id: parseInt(id, 10) },
+    select: {
+      rentalNumber: true,
+      status: true,
+      totalAmount: true,
+      customer: { select: { name: true } },
+      items: {
+        select: {
+          id: true,
+          dailyRate: true,
+          item: { select: { name: true } },
+        },
+      },
+    },
+  });
   if (!rental) notFound();
   return (
     <div className="card">

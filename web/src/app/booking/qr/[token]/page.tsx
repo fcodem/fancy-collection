@@ -1,14 +1,15 @@
 import { redirect, notFound } from "next/navigation";
-import { getCurrentUser } from "@/lib/auth";
-import {
-  backfillMissingQrTokens,
-  bookingQrTargetPath,
-  ensureBookingQrToken,
-  findBookingByQrToken,
-  verifyBookingQrSignature,
-} from "@/lib/bookingQr";
+import { getCurrentUserForLayout } from "@/lib/auth";
+import { verifyBookingQrSignature } from "@/lib/bookingQr";
+import { resolveBookingQr } from "@/lib/services/qrResolve";
 
-/** Smart router: scan signed bill QR → open booking panel for that booking. */
+export const dynamic = "force-dynamic";
+
+/**
+ * Printed-bill QR entry point: /booking/qr/[token]?s=[signature]&to=[target]
+ * Verifies the signature locally, runs ONE indexed lookup via the shared resolver,
+ * then redirects. Never backfills or assigns QR tokens during a scan.
+ */
 export default async function BookingQrRedirectPage({
   params,
   searchParams,
@@ -16,29 +17,25 @@ export default async function BookingQrRedirectPage({
   params: Promise<{ token: string }>;
   searchParams: Promise<{ s?: string; to?: string }>;
 }) {
-  const user = await getCurrentUser();
+  const user = await getCurrentUserForLayout();
   if (!user) redirect("/login");
-
-  await backfillMissingQrTokens(50);
 
   const { token } = await params;
   const { s, to } = await searchParams;
   const cleanToken = decodeURIComponent(token);
 
+  // Reject an invalid signature before any booking query.
   if (!verifyBookingQrSignature(cleanToken, s)) {
     notFound();
   }
 
-  const booking = await findBookingByQrToken(cleanToken);
-  if (!booking) notFound();
+  const { outcome } = await resolveBookingQr({
+    token: cleanToken,
+    target: to,
+    signatureVerified: true,
+  });
 
-  if (!booking.qrToken) {
-    await ensureBookingQrToken(booking.id);
-  }
+  if (!outcome.ok) notFound();
 
-  if (to === "jewellery") {
-    redirect(`/jewellery-selection/${booking.id}`);
-  }
-
-  redirect(bookingQrTargetPath(booking.status, booking.id));
+  redirect(outcome.url);
 }

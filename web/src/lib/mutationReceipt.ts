@@ -245,6 +245,9 @@ function collectStagingPaths(resultJson: unknown): string[] {
   if (typeof obj.staging_photo === "string" && obj.staging_photo) {
     paths.push(obj.staging_photo);
   }
+  if (typeof obj.staging_thumbnail === "string" && obj.staging_thumbnail) {
+    paths.push(obj.staging_thumbnail);
+  }
   if (Array.isArray(obj.staging_photos)) {
     for (const p of obj.staging_photos) {
       if (typeof p === "string" && p) paths.push(p);

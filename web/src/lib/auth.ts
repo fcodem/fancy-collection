@@ -9,6 +9,12 @@ import { v4 as uuidv4 } from "uuid";
 import prisma from "./prisma";
 import { LOGIN_REQUEST_TTL_MINUTES } from "./constants";
 import { isWerkzeugHash, verifyWerkzeugPassword } from "./werkzeugPassword";
+import {
+  coalesceSessionValidation,
+  invalidateCachedSession,
+  invalidateCachedSessionsForUser,
+  type CachedSessionIdentity,
+} from "./sessionCache";
 
 export interface SessionData {
   userId?: number;
@@ -100,12 +106,13 @@ export async function getSession() {
   return getIronSession<SessionData>(await cookies(), getSessionOptions());
 }
 
-async function resolveSessionUser(updateLastSeen: boolean) {
-  const session = await getSession();
-  if (!session.userId || !session.sessionId) return null;
-
+async function loadActiveSessionUser(
+  userId: number,
+  sessionId: string,
+  updateLastSeen: boolean,
+) {
   const userSession = await prisma.userSession.findFirst({
-    where: { sessionId: session.sessionId, userId: session.userId, active: true },
+    where: { sessionId, userId, active: true },
     include: {
       user: {
         select: {
@@ -113,18 +120,18 @@ async function resolveSessionUser(updateLastSeen: boolean) {
           username: true,
           role: true,
           staffId: true,
+          active: true,
           staff: { select: { id: true, name: true, active: true } },
         },
       },
     },
   });
-  if (!userSession) return null;
+  if (!userSession || !userSession.user.active) return null;
 
   if (updateLastSeen) {
     const now = Date.now();
-    const key = session.sessionId;
-    if (now - (lastSeenAt.get(key) || 0) >= LAST_SEEN_INTERVAL_MS) {
-      lastSeenAt.set(key, now);
+    if (now - (lastSeenAt.get(sessionId) || 0) >= LAST_SEEN_INTERVAL_MS) {
+      lastSeenAt.set(sessionId, now);
       void prisma.userSession
         .update({
           where: { id: userSession.id },
@@ -137,9 +144,61 @@ async function resolveSessionUser(updateLastSeen: boolean) {
   return userSession.user;
 }
 
+async function resolveSessionUser(updateLastSeen: boolean) {
+  const session = await getSession();
+  if (!session.userId || !session.sessionId) return null;
+  return loadActiveSessionUser(session.userId, session.sessionId, updateLastSeen);
+}
+
+/**
+ * Authoritative mutation path — always hits the database (request-scoped React cache
+ * still dedupes identical calls within one request).
+ */
 export const getCurrentUser = cache(async () => resolveSessionUser(true));
 
-export const getCurrentUserReadOnly = cache(async () => resolveSessionUser(false));
+/**
+ * Fast read path for list/suggestion APIs:
+ * 1. Decode signed Iron Session cookie (no DB)
+ * 2. Validate via bounded active-session cache (~20s)
+ * 3. Coalesce simultaneous validations for the same session
+ * Force-logout / deactivation / role / password reset invalidate the cache immediately.
+ */
+export const getCurrentUserReadOnly = cache(async () => {
+  const session = await getSession();
+  if (!session.userId || !session.sessionId) return null;
+
+  const userId = session.userId;
+  const sessionId = session.sessionId;
+
+  const cached = await coalesceSessionValidation(sessionId, async () => {
+    const user = await loadActiveSessionUser(userId, sessionId, false);
+    if (!user) return null;
+    const identity: CachedSessionIdentity = {
+      id: user.id,
+      username: user.username,
+      role: user.role,
+      staffId: user.staffId ?? null,
+      staff: null,
+      active: true,
+    };
+    return identity;
+  });
+
+  if (!cached) return null;
+  // Never trust a cached identity that does not match the signed cookie user id.
+  if (cached.id !== userId) {
+    invalidateCachedSession(sessionId);
+    return null;
+  }
+  return {
+    id: cached.id,
+    username: cached.username,
+    role: cached.role,
+    staffId: cached.staffId,
+    active: true as const,
+    staff: null,
+  };
+});
 
 async function createUserSessionRecord(userId: number) {
   await prisma.userSession.updateMany({
@@ -301,7 +360,9 @@ export async function endUserSession(sessionId?: string, endedById?: number) {
       where: { id: row.id },
       data: { active: false, endedAt: new Date(), endedById: endedById || null },
     });
+    invalidateCachedSessionsForUser(row.userId);
   }
+  invalidateCachedSession(sid);
   if (!sessionId) {
     session.destroy();
   }
@@ -313,6 +374,7 @@ export async function invalidateAllSessionsForUser(userId: number, endedById?: n
     where: { userId, active: true },
     data: { active: false, endedAt: new Date(), endedById: endedById ?? null },
   });
+  invalidateCachedSessionsForUser(userId);
 }
 
 export async function findUserForLogin(identifier: string) {

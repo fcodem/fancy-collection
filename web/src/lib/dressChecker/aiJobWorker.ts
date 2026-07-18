@@ -64,7 +64,7 @@ export async function processOneAiJob(): Promise<boolean> {
     lastError = message;
     // Native crashes / invalid-size patterns → dead-letter quickly to protect cron.
     const fatalNative =
-      /invalid size|SIGABRT|heap|out of memory|ENOMEM|Input image exceeds|limitInputPixels/i.test(
+      /invalid size|SIGABRT|heap|out of memory|ENOMEM|ENOSPC|no space left|Input image exceeds|limitInputPixels/i.test(
         message,
       );
     const outcome = await failOrRetryAiJob(job.id, message, {

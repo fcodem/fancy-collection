@@ -6,9 +6,10 @@ import { useRouter } from "next/navigation";
 import { useMounted } from "@/lib/useMounted";
 import { BRAND_FULL_NAME } from "@/lib/branding";
 import {
-  bookingQrNavigatePath,
   isAbortError,
+  normalizeQrTarget,
   parseQrScanPayload,
+  qrTargetPrefetchFamily,
 } from "@/lib/bookingQrClient";
 import {
   cameraErrorMessage,
@@ -21,6 +22,9 @@ import {
 } from "@/lib/cameraScanner";
 
 type PermissionUi = "idle" | "requesting" | "granted" | "denied";
+type ScanState = "idle" | "resolving" | "navigating" | "error";
+
+const RESOLVER_TIMEOUT_MS = 8000;
 
 export default function SearchQrClient({
   navigateTarget,
@@ -46,14 +50,18 @@ export default function SearchQrClient({
   const [isMobile, setIsMobile] = useState(false);
   const [needsHttps, setNeedsHttps] = useState(false);
 
+  const [scanState, setScanState] = useState<ScanState>("idle");
   const sessionRef = useRef<QrCameraSession | null>(null);
   const handledRef = useRef(false);
   const startGenRef = useRef(0);
+  const resolveGenRef = useRef(0);
+  const resolveAbortRef = useRef<AbortController | null>(null);
   const mountedRef = useRef(true);
   const decodeHandlerRef = useRef<(text: string) => void>(() => undefined);
 
   const goToToken = useCallback(
     async (raw: string) => {
+      // Synchronous duplicate guard — state updates are async and cannot be trusted here.
       if (handledRef.current) return;
       const parsed = parseQrScanPayload(raw);
       if (!parsed) {
@@ -66,12 +74,85 @@ export default function SearchQrClient({
       }
 
       handledRef.current = true;
-      setError("");
+      const gen = ++resolveGenRef.current;
       startGenRef.current += 1;
-      await sessionRef.current?.stop();
+      setError("");
+      setScanState("resolving");
+      if (typeof navigator !== "undefined" && navigator.vibrate) {
+        try {
+          navigator.vibrate(30);
+        } catch {
+          /* ignore */
+        }
+      }
+
+      // Stop the camera immediately (non-blocking) and resolve in parallel —
+      // navigation must not wait for full scanner teardown.
+      const session = sessionRef.current;
       sessionRef.current = null;
+      const cleanupPromise = session ? session.stopAfterDecode() : Promise.resolve();
       setCameraReady(false);
-      router.push(bookingQrNavigatePath(parsed, navigateTarget));
+
+      const controller = new AbortController();
+      resolveAbortRef.current = controller;
+      const timer = setTimeout(() => controller.abort(), RESOLVER_TIMEOUT_MS);
+
+      const finishStale = () => gen !== resolveGenRef.current || !mountedRef.current;
+      const failScan = (message: string) => {
+        // Allow Retry / Scan Another without reopening the camera unnecessarily.
+        handledRef.current = false;
+        setScanState("error");
+        setError(message);
+      };
+
+      try {
+        const res = await fetch("/api/booking/qr/resolve", {
+          method: "POST",
+          headers: { "content-type": "application/json" },
+          credentials: "same-origin",
+          signal: controller.signal,
+          body: JSON.stringify({
+            token: parsed.token,
+            signature: parsed.sig,
+            target: navigateTarget,
+          }),
+        });
+        clearTimeout(timer);
+        if (finishStale()) return;
+
+        const data = (await res.json().catch(() => ({}))) as {
+          target?: string;
+          code?: string;
+        };
+
+        if (res.status === 401 && data.code !== "QR_INVALID") {
+          setScanState("navigating");
+          void cleanupPromise?.catch(() => {});
+          router.replace("/login");
+          return;
+        }
+        if (!res.ok || !data.target) {
+          void cleanupPromise?.catch(() => {});
+          if (data.code === "QR_INVALID") failScan("This QR code is not valid.");
+          else if (data.code === "QR_NOT_FOUND") failScan("No booking found for this QR code.");
+          else failScan("Could not open the record. Please try again.");
+          return;
+        }
+
+        setScanState("navigating");
+        router.prefetch(data.target);
+        void cleanupPromise?.catch(() => {});
+        router.replace(data.target);
+      } catch (e) {
+        clearTimeout(timer);
+        if (finishStale()) return;
+        if (isAbortError(e)) {
+          failScan("Timed out opening the record. Please try again.");
+          return;
+        }
+        void cleanupPromise?.catch(() => {});
+        failScan("Network error. Check your connection and try again.");
+      }
     },
     [router, navigateTarget]
   );
@@ -82,6 +163,9 @@ export default function SearchQrClient({
 
   const allowCameraAndScan = useCallback(async () => {
     const gen = ++startGenRef.current;
+    handledRef.current = false;
+    resolveAbortRef.current?.abort();
+    setScanState("idle");
     setError("");
     setPermissionUi("requesting");
     setCameraReady(false);
@@ -155,10 +239,22 @@ export default function SearchQrClient({
     return () => {
       mountedRef.current = false;
       startGenRef.current += 1;
+      resolveGenRef.current += 1;
+      resolveAbortRef.current?.abort();
       void sessionRef.current?.stop();
       sessionRef.current = null;
     };
   }, []);
+
+  // Warm the destination route family (not a specific record) so the shell paints fast.
+  useEffect(() => {
+    if (!mounted) return;
+    try {
+      router.prefetch(qrTargetPrefetchFamily(normalizeQrTarget(navigateTarget)));
+    } catch {
+      /* ignore */
+    }
+  }, [mounted, router, navigateTarget]);
 
   useEffect(() => {
     if (!mounted) return;
@@ -333,7 +429,33 @@ export default function SearchQrClient({
               </div>
             )}
 
-            {showAllowOverlay && (
+            {(scanState === "resolving" || scanState === "navigating") && (
+              <div
+                role="status"
+                aria-live="polite"
+                style={{
+                  position: "absolute",
+                  inset: 0,
+                  display: "flex",
+                  flexDirection: "column",
+                  alignItems: "center",
+                  justifyContent: "center",
+                  gap: 10,
+                  padding: 20,
+                  background: "rgba(16, 44, 82, 0.94)",
+                  color: "white",
+                  borderRadius: 8,
+                  textAlign: "center",
+                  zIndex: 5,
+                }}
+              >
+                <i className="fa-solid fa-circle-check" style={{ fontSize: 40, color: "#68d391" }} />
+                <div style={{ fontSize: 16, fontWeight: 700 }}>QR scanned successfully</div>
+                <div style={{ fontSize: 13, opacity: 0.9 }}>Opening record…</div>
+              </div>
+            )}
+
+            {showAllowOverlay && scanState !== "resolving" && scanState !== "navigating" && (
               <div
                 style={{
                   position: "absolute",
@@ -434,10 +556,12 @@ export default function SearchQrClient({
             type="button"
             className="btn btn-primary"
             style={{ marginTop: 12 }}
-            disabled={!manualToken.trim()}
+            disabled={
+              !manualToken.trim() || scanState === "resolving" || scanState === "navigating"
+            }
             onClick={() => void goToToken(manualToken)}
           >
-            Open Booking
+            {scanState === "resolving" || scanState === "navigating" ? "Opening…" : "Open Booking"}
           </button>
         </div>
       </div>

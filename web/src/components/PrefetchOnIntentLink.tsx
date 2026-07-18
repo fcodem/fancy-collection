@@ -9,6 +9,7 @@ import {
   type ComponentProps,
   type FocusEvent,
   type MouseEvent,
+  type PointerEvent,
   type ReactNode,
 } from "react";
 
@@ -40,7 +41,7 @@ function runPrefetch(fn: () => void) {
   }
 }
 
-function shouldSkipIntentPrefetch(): boolean {
+function shouldSkipIntentPrefetch(skipCoarsePointer = true): boolean {
   if (typeof navigator === "undefined") return true;
   const conn = (navigator as Navigator & {
     connection?: { saveData?: boolean; effectiveType?: string };
@@ -49,7 +50,11 @@ function shouldSkipIntentPrefetch(): boolean {
   const et = conn?.effectiveType || "";
   if (et === "slow-2g" || et === "2g") return true;
   // Touch / coarse pointer: avoid prefetch storms on scroll
-  if (typeof window !== "undefined" && window.matchMedia("(pointer: coarse)").matches) {
+  if (
+    skipCoarsePointer &&
+    typeof window !== "undefined" &&
+    window.matchMedia("(pointer: coarse)").matches
+  ) {
     return true;
   }
   return false;
@@ -67,6 +72,7 @@ export default function PrefetchOnIntentLink({
   onMouseLeave,
   onFocus,
   onBlur,
+  onPointerDown,
   ...rest
 }: PrefetchOnIntentLinkProps) {
   const router = useRouter();
@@ -100,6 +106,21 @@ export default function PrefetchOnIntentLink({
     }, intentMs);
   }, [clear, href, intentMs, router]);
 
+  const prefetchNow = useCallback(() => {
+    if (doneRef.current || shouldSkipIntentPrefetch(false)) return;
+    clear();
+    doneRef.current = true;
+    const path = typeof href === "string" ? href : href.pathname || "";
+    if (!path) return;
+    runPrefetch(() => {
+      try {
+        router.prefetch(path);
+      } catch {
+        /* navigation still proceeds */
+      }
+    });
+  }, [clear, href, router]);
+
   return (
     <Link
       href={href}
@@ -119,6 +140,12 @@ export default function PrefetchOnIntentLink({
       onBlur={(e: FocusEvent<HTMLAnchorElement>) => {
         onBlur?.(e);
         clear();
+      }}
+      onPointerDown={(e: PointerEvent<HTMLAnchorElement>) => {
+        onPointerDown?.(e);
+        // Touch devices have no hover dwell. Start the RSC request at pointer-down
+        // so the following click can reuse it instead of beginning from zero.
+        prefetchNow();
       }}
       {...rest}
     >

@@ -20,12 +20,17 @@ import {
   flattenBookingPdfRows,
   standardBookingPdfRow,
 } from "@/lib/standardBookingPdfRows";
+import { fetchJson } from "@/lib/fetchJson";
 
 type Props = {
   listType: DashboardStatListType;
   title: string;
   description: string;
-  bookings: DashboardStatBookingRow[];
+  initialBookings: DashboardStatBookingRow[];
+  initialTotal: number;
+  initialPage: number;
+  pageSize: number;
+  hasMore: boolean;
   categories: string[];
   todayIso: string;
 };
@@ -38,10 +43,20 @@ export default function DashboardStatListClient({
   listType,
   title,
   description,
-  bookings,
+  initialBookings,
+  initialTotal,
+  initialPage,
+  pageSize,
+  hasMore: initialHasMore,
   categories,
   todayIso,
 }: Props) {
+  const [bookings, setBookings] = useState(initialBookings);
+  const [total, setTotal] = useState(initialTotal);
+  const [page, setPage] = useState(initialPage);
+  const [hasMore, setHasMore] = useState(initialHasMore);
+  const [loadingMore, setLoadingMore] = useState(false);
+  const [loadError, setLoadError] = useState<string | null>(null);
   const [query, setQuery] = useState("");
   const [category, setCategory] = useState("");
   const [appliedQuery, setAppliedQuery] = useState("");
@@ -49,7 +64,7 @@ export default function DashboardStatListClient({
 
   const filtered = useMemo(
     () => filterStatListBookings(bookings, appliedQuery, appliedCategory),
-    [bookings, appliedQuery, appliedCategory]
+    [bookings, appliedQuery, appliedCategory],
   );
 
   useEffect(() => {
@@ -71,6 +86,39 @@ export default function DashboardStatListClient({
     setCategory("");
     setAppliedQuery("");
     setAppliedCategory("");
+  }
+
+  async function loadMore() {
+    if (loadingMore || !hasMore) return;
+    setLoadingMore(true);
+    setLoadError(null);
+    try {
+      const nextPage = page + 1;
+      const data = await fetchJson<{
+        bookings: DashboardStatBookingRow[];
+        total: number;
+        page: number;
+        pageSize: number;
+        hasMore: boolean;
+      }>(`/api/dashboard/stats/${listType}?page=${nextPage}&pageSize=${pageSize}`, {
+        dedupeMs: 0,
+      });
+      setBookings((prev) => {
+        const seen = new Set(prev.map((b) => b.id));
+        const merged = [...prev];
+        for (const row of data.bookings) {
+          if (!seen.has(row.id)) merged.push(row);
+        }
+        return merged;
+      });
+      setTotal(data.total);
+      setPage(data.page);
+      setHasMore(data.hasMore);
+    } catch (e) {
+      setLoadError(e instanceof Error ? e.message : "Failed to load more");
+    } finally {
+      setLoadingMore(false);
+    }
   }
 
   const hasFilters = Boolean(appliedQuery || appliedCategory);
@@ -104,8 +152,11 @@ export default function DashboardStatListClient({
           <div style={{ fontSize: 20, fontWeight: 700, fontFamily: "Playfair Display, serif" }}>{title}</div>
           <div style={{ fontSize: 12, opacity: 0.85, marginTop: 4 }}>{description}</div>
           <div style={{ fontSize: 11, opacity: 0.7, marginTop: 4 }}>
-            {filtered.length} of {bookings.length} record{bookings.length === 1 ? "" : "s"}
+            Showing {filtered.length} loaded
             {hasFilters ? " (filtered)" : ""}
+            {" · "}
+            {total} total
+            {hasMore ? " · more available" : ""}
           </div>
         </div>
         <Link href="/" className="btn btn-sm" style={{ background: "rgba(255,255,255,0.15)", color: "white", border: "1.5px solid rgba(255,255,255,0.35)" }}>
@@ -114,7 +165,7 @@ export default function DashboardStatListClient({
         <DownloadPdfButton
           title={title}
           filename={listType}
-          subtitle={description}
+          subtitle={`${description} (loaded page only)`}
           headers={pdfHeaders}
           rows={pdfRows}
           warningsBelow={warningsBelow}
@@ -165,7 +216,7 @@ export default function DashboardStatListClient({
             </div>
           </div>
           <p style={{ fontSize: 11, color: "var(--text-muted)", marginTop: 10, marginBottom: 0 }}>
-            Search and category filters are optional and work independently. Use both together to narrow results within this list only.
+            Filters apply to loaded rows. Use Load more to bring in additional bookings, then narrow within this list.
           </p>
         </div>
       </div>
@@ -179,9 +230,26 @@ export default function DashboardStatListClient({
           ) : listType === "remaining-to-deliver" ? (
             <RemainingTable rows={filtered} todayIso={todayIso} />
           ) : (
-            <StandardTable rows={filtered} listType={listType} todayIso={todayIso} />
+            <StandardTable rows={filtered} listType={listType} />
           )}
         </div>
+        {(hasMore || loadError) && (
+          <div style={{ padding: 16, textAlign: "center", borderTop: "1px solid var(--border)" }}>
+            {loadError && (
+              <p style={{ color: "var(--danger)", fontSize: 12, marginBottom: 8 }}>{loadError}</p>
+            )}
+            {hasMore && (
+              <button
+                type="button"
+                className="btn btn-outline"
+                onClick={() => void loadMore()}
+                disabled={loadingMore}
+              >
+                {loadingMore ? "Loading…" : `Load more (${bookings.length} of ${total})`}
+              </button>
+            )}
+          </div>
+        )}
       </div>
     </div>
   );
@@ -190,11 +258,9 @@ export default function DashboardStatListClient({
 function StandardTable({
   rows,
   listType,
-  todayIso,
 }: {
   rows: DashboardStatBookingRow[];
   listType: DashboardStatListType;
-  todayIso: string;
 }) {
   return (
     <div className="table-wrapper">

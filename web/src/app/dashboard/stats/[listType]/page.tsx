@@ -1,6 +1,6 @@
 import { notFound, redirect } from "next/navigation";
 import DashboardStatListClient from "@/components/DashboardStatListClient";
-import { getCurrentUser } from "@/lib/auth";
+import { getCurrentUserForLayout } from "@/lib/auth";
 import {
   BASE_ACCESSORY,
   BASE_JEWELLERY,
@@ -11,16 +11,19 @@ import {
 import {
   categoriesInList,
   DASHBOARD_STAT_LISTS,
-  getDashboardStatList,
+  getDashboardStatListPage,
   parseDashboardStatListType,
 } from "@/lib/services/dashboardStatLists";
+
+export const dynamic = "force-dynamic";
+export const maxDuration = 30;
 
 export default async function DashboardStatListPage({
   params,
 }: {
   params: Promise<{ listType: string }>;
 }) {
-  const user = await getCurrentUser();
+  const user = await getCurrentUserForLayout();
   if (!user) redirect("/login");
 
   const { listType: raw } = await params;
@@ -28,8 +31,8 @@ export default async function DashboardStatListPage({
   if (!listType) notFound();
 
   const meta = DASHBOARD_STAT_LISTS[listType];
-  const bookings = await getDashboardStatList(listType);
-  const listCategories = categoriesInList(bookings);
+  const firstPage = await getDashboardStatListPage(listType, { page: 1 });
+  const listCategories = categoriesInList(firstPage.bookings);
   const allCategories = [
     ...BASE_MENS,
     ...BASE_WOMENS,
@@ -42,12 +45,16 @@ export default async function DashboardStatListPage({
 
   return (
     <DashboardStatListClient
-        listType={listType}
-        title={meta.title}
-        description={meta.description}
-        bookings={bookings}
-        categories={categories}
-        todayIso={todayIso()}
-      />
+      listType={listType}
+      title={meta.title}
+      description={meta.description}
+      initialBookings={firstPage.bookings}
+      initialTotal={firstPage.total}
+      initialPage={firstPage.page}
+      pageSize={firstPage.pageSize}
+      hasMore={firstPage.hasMore}
+      categories={categories}
+      todayIso={todayIso()}
+    />
   );
 }

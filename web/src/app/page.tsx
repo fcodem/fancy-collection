@@ -1,10 +1,8 @@
 import { redirect } from "next/navigation";
-import { after } from "next/server";
 import Link from "next/link";
 import { getCurrentUserForLayout, getPendingStaffLoginRequests, getActiveStaffSessions, isOwner } from "@/lib/auth";
 import DashboardView from "@/components/DashboardView";
 import { getDashboardData } from "@/lib/services/core";
-import { isWhatsAppConfigured } from "@/lib/services/whatsapp/metaApi";
 
 export const dynamic = "force-dynamic";
 /** Keep dashboard under Vercel hobby/pro function limits; fail rather than hang. */
@@ -16,20 +14,9 @@ export default async function DashboardPage() {
 
   const owner = isOwner(user);
 
-  // Hobby plan only runs WhatsApp cron once/day — drain a few jobs after dashboard paints.
-  if (owner && isWhatsAppConfigured()) {
-    after(async () => {
-      try {
-        const { processWhatsAppJobQueue } = await import("@/lib/services/whatsapp/jobQueue");
-        await processWhatsAppJobQueue(2);
-      } catch (e) {
-        console.error("[dashboard] whatsapp queue drain:", e);
-      }
-    });
-  }
-
   try {
     // Dashboard first (uses up to 2 pool slots), then owner widgets — avoids stacking to P2024.
+    // WhatsApp drain stays on /api/cron/whatsapp-jobs — not on the dashboard critical path.
     const data = await getDashboardData();
     const [pendingStaff, activeStaff] = owner
       ? await Promise.all([getPendingStaffLoginRequests(), getActiveStaffSessions()])

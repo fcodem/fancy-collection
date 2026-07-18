@@ -1,7 +1,6 @@
 import "server-only";
 
 import { getPdfRenderSecret } from "@/lib/slipPdfAccess";
-import { renderHtmlUrlToPdf } from "./pdfBrowserPool";
 
 export type SlipPdfKind = "booking" | "delivery" | "return" | "incomplete";
 
@@ -25,28 +24,6 @@ export function resolveAppOrigin(requestOrigin?: string): string {
   return raw.replace("://localhost", "://127.0.0.1");
 }
 
-const SLIP_HTML_MARKERS = [
-  "slip-page-wrap",
-  "slip-container",
-  "booking-slip-root",
-  "delivery-slip-root",
-  "return-slip-root",
-  "incomplete-slip-root",
-];
-
-const SLIP_ROOT_SELECTOR =
-  "#booking-slip-root, #delivery-slip-root, #return-slip-root, #incomplete-slip-root, .slip-page-wrap";
-
-function assertSlipHtml(html: string): void {
-  if (SLIP_HTML_MARKERS.some((m) => html.includes(m))) return;
-  if (html.includes('href="/login"') || /sign in/i.test(html)) {
-    throw new Error(
-      "Slip page was blocked by login. Set PDF_RENDER_SECRET or CRON_SECRET in .env.local and restart the dev server.",
-    );
-  }
-  throw new Error("Slip page did not render — check booking id and slip eligibility");
-}
-
 function slipPath(kind: SlipPdfKind, bookingId: number): string {
   switch (kind) {
     case "booking":
@@ -60,6 +37,11 @@ function slipPath(kind: SlipPdfKind, bookingId: number): string {
   }
 }
 
+/**
+ * Build the (secret-signed) slip page URL Chromium will render.
+ * Kept here (no Chromium import) so both the public generators and the single
+ * internal renderer share one definition.
+ */
 export function buildSlipPageUrl(
   kind: SlipPdfKind,
   bookingId: number,
@@ -82,25 +64,53 @@ export function buildSlipPageUrl(
   return `${origin}${slipPath(kind, bookingId)}?${params.toString()}`;
 }
 
-async function renderSlipPdf(
+/**
+ * Centralized Chromium architecture:
+ *   Every caller delegates to the ONE Chromium-enabled function,
+ *   POST /api/internal/slip/render, instead of importing the Puppeteer/Chromium
+ *   pool. This keeps @sparticuz/chromium out of ~13 hot API bundles (smaller
+ *   uploads, faster cold starts) while still producing the full HTML slip
+ *   inline. If the renderer is unreachable/misconfigured, callers throw and the
+ *   upstream jsPDF fallback (branded) takes over.
+ */
+async function renderSlipViaEndpoint(
   kind: SlipPdfKind,
   bookingId: number,
   requestOrigin?: string,
   opts?: SlipPdfRenderOptions,
 ): Promise<Buffer> {
-  const url = buildSlipPageUrl(kind, bookingId, requestOrigin, opts);
-  return renderHtmlUrlToPdf({
-    url,
-    rootSelector: SLIP_ROOT_SELECTOR,
-    validateHtml: assertSlipHtml,
+  const secret = getPdfRenderSecret();
+  if (!secret) {
+    throw new Error("PDF_RENDER_SECRET or CRON_SECRET must be set for slip PDF generation.");
+  }
+
+  const origin = resolveAppOrigin(requestOrigin);
+  const res = await fetch(`${origin}/api/internal/slip/render`, {
+    method: "POST",
+    headers: {
+      "content-type": "application/json",
+      "x-pdf-secret": secret,
+    },
+    body: JSON.stringify({ kind, bookingId, origin, opts: opts ?? null }),
+    cache: "no-store",
   });
+
+  if (!res.ok) {
+    const detail = await res.text().catch(() => "");
+    throw new Error(
+      `Slip renderer failed (HTTP ${res.status})${detail ? `: ${detail.slice(0, 200)}` : ""}`,
+    );
+  }
+
+  const ab = await res.arrayBuffer();
+  return Buffer.from(ab);
 }
 
 export async function generateBookingSlipPdf(
   bookingId: number,
   requestOrigin?: string,
 ): Promise<Buffer> {
-  return renderSlipPdf("booking", bookingId, requestOrigin);
+  return renderSlipViaEndpoint("booking", bookingId, requestOrigin);
 }
 
 export async function generateDeliverySlipPdf(
@@ -108,7 +118,7 @@ export async function generateDeliverySlipPdf(
   requestOrigin?: string,
   opts?: SlipPdfRenderOptions,
 ): Promise<Buffer> {
-  return renderSlipPdf("delivery", bookingId, requestOrigin, opts);
+  return renderSlipViaEndpoint("delivery", bookingId, requestOrigin, opts);
 }
 
 export async function generateReturnSlipPdf(
@@ -116,7 +126,7 @@ export async function generateReturnSlipPdf(
   requestOrigin?: string,
   opts?: SlipPdfRenderOptions,
 ): Promise<Buffer> {
-  return renderSlipPdf("return", bookingId, requestOrigin, opts);
+  return renderSlipViaEndpoint("return", bookingId, requestOrigin, opts);
 }
 
 export async function generateIncompleteSlipPdf(
@@ -124,5 +134,5 @@ export async function generateIncompleteSlipPdf(
   requestOrigin?: string,
   opts?: SlipPdfRenderOptions,
 ): Promise<Buffer> {
-  return renderSlipPdf("incomplete", bookingId, requestOrigin, opts);
+  return renderSlipViaEndpoint("incomplete", bookingId, requestOrigin, opts);
 }

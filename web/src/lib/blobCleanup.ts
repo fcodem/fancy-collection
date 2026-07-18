@@ -59,6 +59,7 @@ export async function isBlobPathStillReferenced(blobPath: string): Promise<boole
       OR EXISTS (
         SELECT 1 FROM clothing_items
         WHERE photo = ${blobPath}
+           OR thumbnail_photo = ${blobPath}
            OR original_photo = ${blobPath}
            OR enhanced_photo = ${blobPath}
            OR marketing_photo = ${blobPath}

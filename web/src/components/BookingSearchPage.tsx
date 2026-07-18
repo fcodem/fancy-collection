@@ -1,7 +1,7 @@
 "use client";
 
 import PrefetchOnIntentLink from "@/components/PrefetchOnIntentLink";
-import { useCallback, useEffect, useMemo, useState } from "react";
+import { useCallback, useEffect, useMemo, useRef, useState } from "react";
 import BookingSearchSuggestInput from "@/components/BookingSearchSuggestInput";
 import { StandardBookingTableCells, StandardBookingTableHead } from "@/components/BookingDetailsColumns";
 import type { StandardBookingDetails } from "@/lib/bookingDetails";
@@ -11,7 +11,10 @@ import { pdfCurrency } from "@/lib/pdfFormat";
 import { useRealtimeRefresh } from "@/hooks/useRealtimeRefresh";
 import { BOOKING_EVENTS } from "@/lib/realtime/types";
 import DownloadPdfButton from "@/components/DownloadPdfButton";
-import { DEFAULT_SEARCH_PAGE_SIZE } from "@/lib/searchPagination";
+import {
+  DEFAULT_SEARCH_PAGE_SIZE,
+  OPERATIONAL_LIST_DEFAULT_PAGE_SIZE,
+} from "@/lib/searchPagination";
 import {
   STANDARD_BOOKING_HEADERS,
   flattenBookingPdfRows,
@@ -97,14 +100,28 @@ export default function BookingSearchPage({
   const [rows, setRows] = useState<BookingRow[]>([]);
   const [searchMode, setSearchMode] = useState("");
   const [searchMonth, setSearchMonth] = useState("");
+  const isOperationalList =
+    apiPath.includes("/delivery/search") || apiPath.includes("/return/search");
   const [loaded, setLoaded] = useState(false);
+  const [loading, setLoading] = useState(false);
   const [page, setPage] = useState(1);
-  const [pageSize, setPageSize] = useState(DEFAULT_SEARCH_PAGE_SIZE);
+  const [pageSize, setPageSize] = useState(
+    isOperationalList ? OPERATIONAL_LIST_DEFAULT_PAGE_SIZE : DEFAULT_SEARCH_PAGE_SIZE,
+  );
   const [total, setTotal] = useState(0);
   const [hasMore, setHasMore] = useState(false);
+  const abortRef = useRef<AbortController | null>(null);
+  const seqRef = useRef(0);
+  const debounceRef = useRef<ReturnType<typeof setTimeout> | null>(null);
+  const realtimeTimer = useRef<ReturnType<typeof setTimeout> | null>(null);
 
   const runSearch = useCallback(async (pageOverride?: number) => {
     const activePage = pageOverride ?? page;
+    const seq = ++seqRef.current;
+    abortRef.current?.abort();
+    const ac = new AbortController();
+    abortRef.current = ac;
+    setLoading(true);
     try {
       const params = new URLSearchParams({
         date: searchDate,
@@ -115,10 +132,12 @@ export default function BookingSearchPage({
       if (category) params.set("category", category);
       const res = await fetch(`${apiPath}?${params.toString()}`, {
         credentials: "same-origin",
-        cache: "no-store",
+        signal: ac.signal,
+        headers: { Accept: "application/json" },
       });
       if (!res.ok) return;
       const data = await res.json();
+      if (seq !== seqRef.current) return; // stale
       if (Array.isArray(data)) {
         setRows(data);
         setSearchMode("");
@@ -135,13 +154,21 @@ export default function BookingSearchPage({
         if (typeof data.pageSize === "number") setPageSize(data.pageSize);
       }
       setLoaded(true);
-    } catch {
-      /* ignore transient network errors (e.g. dev recompile during poll refresh) */
+    } catch (e) {
+      if (e instanceof DOMException && e.name === "AbortError") return;
       setLoaded((prev) => prev || true);
+    } finally {
+      if (seq === seqRef.current) setLoading(false);
     }
   }, [apiPath, searchDate, query, category, page, pageSize]);
 
-  useRealtimeRefresh(BOOKING_EVENTS, () => runSearch());
+  // Coalesce realtime bursts — one refresh, keep prior rows visible.
+  useRealtimeRefresh(BOOKING_EVENTS, () => {
+    if (realtimeTimer.current) clearTimeout(realtimeTimer.current);
+    realtimeTimer.current = setTimeout(() => {
+      void runSearch();
+    }, 400);
+  });
 
   // Date or category change: refresh list from page 1.
   useEffect(() => {
@@ -149,6 +176,20 @@ export default function BookingSearchPage({
     void runSearch(1);
     // eslint-disable-next-line react-hooks/exhaustive-deps
   }, [searchDate, category, pageSize]);
+
+  // Debounced text search (operational lists) — keep typing responsive.
+  useEffect(() => {
+    if (!isOperationalList) return;
+    if (debounceRef.current) clearTimeout(debounceRef.current);
+    debounceRef.current = setTimeout(() => {
+      setPage(1);
+      void runSearch(1);
+    }, 220);
+    return () => {
+      if (debounceRef.current) clearTimeout(debounceRef.current);
+    };
+    // eslint-disable-next-line react-hooks/exhaustive-deps
+  }, [query]);
 
   function handleSearchClick() {
     setPage(1);

@@ -106,16 +106,92 @@ export async function bookingQrDataUrl(
   return QRCode.toDataURL(url, { width, margin: 1, errorCorrectionLevel: "M" });
 }
 
-export async function backfillMissingQrTokens(limit = 500) {
+/** How many historical bookings still have no QR token (for reporting). */
+export async function countBookingsMissingQrToken(): Promise<number> {
+  return prisma.booking.count({ where: { qrToken: null } });
+}
+
+/**
+ * Verify the fast set-based path is available on THIS database BEFORE a real run,
+ * so we never discover a missing `gen_random_uuid()` via a failed production
+ * backfill. Read-only: it generates one uuid and discards it. Returns whether
+ * the fast path works and which strategy the backfill will use.
+ */
+export async function qrBackfillPreflight(): Promise<{
+  genRandomUuid: boolean;
+  strategy: "set-based" | "per-row-fallback";
+  detail?: string;
+}> {
+  try {
+    const { Prisma } = await import("@prisma/client");
+    await prisma.$queryRaw(Prisma.sql`SELECT gen_random_uuid()`);
+    return { genRandomUuid: true, strategy: "set-based" };
+  } catch (e) {
+    return {
+      genRandomUuid: false,
+      strategy: "per-row-fallback",
+      detail:
+        e instanceof Error ? e.message : "gen_random_uuid() unavailable on this database",
+    };
+  }
+}
+
+/**
+ * Assign QR tokens to a bounded batch of historical bookings.
+ * Set-based UPDATE (one statement) with a per-row fallback for engines without
+ * gen_random_uuid(). NEVER call this during a scan/navigation request — it is for
+ * an explicit admin action or scheduled maintenance only. Resumable: call
+ * repeatedly until it returns 0.
+ */
+export async function backfillMissingQrTokens(limit = 500): Promise<number> {
+  const batch = Math.max(1, Math.min(limit, 1000));
   const rows = await prisma.booking.findMany({
     where: { qrToken: null },
     select: { id: true },
-    take: limit,
+    take: batch,
   });
-  for (const row of rows) {
-    await ensureBookingQrToken(row.id);
+  if (!rows.length) return 0;
+
+  const ids = rows.map((r) => r.id);
+  try {
+    const { Prisma } = await import("@prisma/client");
+    await prisma.$executeRaw(
+      Prisma.sql`UPDATE bookings SET qr_token = gen_random_uuid()::text WHERE id IN (${Prisma.join(
+        ids,
+      )}) AND qr_token IS NULL`,
+    );
+    return ids.length;
+  } catch {
+    // Fallback (e.g. non-Postgres / missing gen_random_uuid): idempotent per-row.
+    let done = 0;
+    for (const id of ids) {
+      await ensureBookingQrToken(id);
+      done += 1;
+    }
+    return done;
   }
-  return rows.length;
+}
+
+/**
+ * Drain the backfill in bounded batches until complete or a cap is reached.
+ * Returns processed count and remaining count for reporting.
+ */
+export async function runQrBackfill(opts?: {
+  batchSize?: number;
+  maxBatches?: number;
+}): Promise<{ processed: number; remaining: number; batches: number }> {
+  const batchSize = opts?.batchSize ?? 500;
+  const maxBatches = opts?.maxBatches ?? 40;
+  let processed = 0;
+  let batches = 0;
+  for (let i = 0; i < maxBatches; i++) {
+    const n = await backfillMissingQrTokens(batchSize);
+    if (n === 0) break;
+    processed += n;
+    batches += 1;
+  }
+  const remaining = await countBookingsMissingQrToken();
+  return { processed, remaining, batches };
 }
 
 // Re-export client parser types for server routes that need them

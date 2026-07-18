@@ -44,16 +44,22 @@ type PackingBooking = StandardBookingDetails & {
 export default function PackingListClient({
   today,
   initialRows = [],
+  initialLoaded = false,
 }: {
   today: string;
   initialRows?: PackingBooking[];
+  /** True when SSR already completed a fetch (even if zero rows). */
+  initialLoaded?: boolean;
 }) {
   const [from, setFrom] = useState(today);
   const [to, setTo] = useState(today);
   const [category, setCategory] = useState("");
   const [rows, setRows] = useState<PackingBooking[]>(initialRows);
-  const [loaded, setLoaded] = useState(initialRows.length > 0);
+  const [loaded, setLoaded] = useState(initialLoaded || initialRows.length > 0);
   const [error, setError] = useState("");
+  const saveQueue = useRef<Map<number, Partial<PackingItem> & { timer?: ReturnType<typeof setTimeout> }>>(
+    new Map(),
+  );
 
   const load = useCallback(async () => {
     if (!from) return;
@@ -68,7 +74,7 @@ export default function PackingListClient({
         throw new Error(body.error || "Failed to load packing list");
       }
       const data = await res.json();
-      const list = Array.isArray(data) ? data : [];
+      const list = Array.isArray(data) ? data : Array.isArray(data?.results) ? data.results : [];
       setRows(
         list.map((b: PackingBooking) => ({
           ...b,
@@ -85,7 +91,8 @@ export default function PackingListClient({
 
   useRealtimeRefresh(BOOKING_EVENTS, load);
 
-  const skipInitial = useRef(initialRows.length > 0);
+  // Empty SSR result is still a completed result — do not immediately refetch.
+  const skipInitial = useRef(Boolean(initialLoaded));
   useEffect(() => {
     if (skipInitial.current) {
       skipInitial.current = false;
@@ -94,12 +101,39 @@ export default function PackingListClient({
     void load();
   }, [load]);
 
-  async function saveItem(biId: number, patch: Partial<PackingItem>) {
+  async function flushSave(biId: number) {
+    const entry = saveQueue.current.get(biId);
+    if (!entry) return;
+    if (entry.timer) clearTimeout(entry.timer);
+    const { timer: _t, ...patch } = entry;
+    saveQueue.current.delete(biId);
+    if (!Object.keys(patch).length) return;
     await fetch("/api/packing-list/save-item", {
       method: "POST",
       headers: { "Content-Type": "application/json" },
       body: JSON.stringify({ bi_id: biId, ...patch }),
     });
+  }
+
+  function queueSave(biId: number, patch: Partial<PackingItem>, immediate = false) {
+    const prev = saveQueue.current.get(biId) || {};
+    if (prev.timer) clearTimeout(prev.timer);
+    const next = { ...prev, ...patch };
+    if (immediate) {
+      saveQueue.current.set(biId, next);
+      void flushSave(biId);
+      return;
+    }
+    next.timer = setTimeout(() => {
+      void flushSave(biId);
+    }, 500);
+    saveQueue.current.set(biId, next);
+  }
+
+  async function saveItem(biId: number, patch: Partial<PackingItem>) {
+    const immediate = Object.prototype.hasOwnProperty.call(patch, "is_packed_ready");
+    // Skip unchanged blur noise — caller should only invoke on real change when possible.
+    queueSave(biId, patch, immediate);
   }
 
   const allItems = rows.flatMap((b) => (Array.isArray(b.items) ? b.items : []).filter((i) => i.bi_id));

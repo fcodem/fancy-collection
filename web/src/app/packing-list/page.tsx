@@ -8,5 +8,11 @@ export default async function PackingListPage() {
   const today = todayIso();
   const initialRows = await getPackingListCached(today, today);
 
-  return <PackingListClient today={today} initialRows={initialRows} />;
+  return (
+    <PackingListClient
+      today={today}
+      initialRows={initialRows}
+      initialLoaded
+    />
+  );
 }

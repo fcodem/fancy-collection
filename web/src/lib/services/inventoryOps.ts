@@ -338,6 +338,10 @@ export async function updateInventoryItemInTx(
   if (photoRemoved) {
     if (existing.photo) uploadsToDelete.push(existing.photo);
     if (existing.thumbnailPhoto) uploadsToDelete.push(existing.thumbnailPhoto);
+    if (existing.originalPhoto) uploadsToDelete.push(existing.originalPhoto);
+    if (existing.enhancedPhoto) uploadsToDelete.push(existing.enhancedPhoto);
+    if (existing.marketingPhoto) uploadsToDelete.push(existing.marketingPhoto);
+    if (existing.recognitionImage) uploadsToDelete.push(existing.recognitionImage);
     photo = null;
     thumbnailPhoto = null;
   }
@@ -389,6 +393,11 @@ export async function updateInventoryItemInTx(
       hasPasa: form.has_pasa ?? existing.hasPasa,
       ...(photoRemoved
         ? {
+            originalPhoto: null,
+            enhancedPhoto: null,
+            marketingPhoto: null,
+            enhancementStatus: "none",
+            enhancementError: null,
             aiFingerprint: null,
             aiIndexedAt: null,
             identificationIndex: Prisma.JsonNull,
@@ -472,9 +481,14 @@ export async function deleteInventoryItem(id: number, by?: string) {
   const existing = await prisma.clothingItem.findUnique({ where: { id } });
   if (!existing) return;
 
-  const uploadPaths = [existing.photo, existing.recognitionImage].filter(
-    (p): p is string => !!p,
-  );
+  const uploadPaths = [
+    existing.photo,
+    existing.thumbnailPhoto,
+    existing.originalPhoto,
+    existing.enhancedPhoto,
+    existing.marketingPhoto,
+    existing.recognitionImage,
+  ].filter((p): p is string => !!p);
 
   await prisma.clothingItem.delete({ where: { id } });
 

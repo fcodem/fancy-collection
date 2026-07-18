@@ -1,7 +1,7 @@
 import { Suspense } from "react";
 import { redirect, notFound } from "next/navigation";
 import prisma from "@/lib/prisma";
-import { getCurrentUser, isOwner } from "@/lib/auth";
+import { getCurrentUserForLayout, isOwner } from "@/lib/auth";
 import BookingViewClient from "@/components/BookingViewClient";
 import BookingQrDisplay from "@/components/BookingQrDisplay";
 import BookingQrSkeleton from "@/components/BookingQrSkeleton";
@@ -12,7 +12,7 @@ import { serializeActiveOrders } from "@/lib/slipBookingData";
 export const dynamic = "force-dynamic";
 
 export default async function BookingViewPage({ params }: { params: Promise<{ id: string }> }) {
-  const user = await getCurrentUser();
+  const user = await getCurrentUserForLayout();
   if (!user) redirect("/login");
 
   const { id } = await params;
