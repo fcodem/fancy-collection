@@ -137,8 +137,8 @@ export async function validateSessionWithCache(
     return {
       value,
       status: "coalesced",
-      cacheLookupMs,
-      sessionDbMs: performance.now() - waitStarted,
+      cacheLookupMs: cacheLookupMs + (performance.now() - waitStarted),
+      sessionDbMs: 0,
     };
   }
 
