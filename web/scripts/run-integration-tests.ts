@@ -3,7 +3,7 @@
  * Never targets production.
  */
 import { PrismaClient } from "@prisma/client";
-import { allocateInventorySkus } from "../src/lib/services/inventoryOps";
+import { allocateInventorySkusWithClient } from "../src/lib/inventorySkuAllocator";
 import { buildWhatsAppIdempotencyKey } from "../src/lib/mutationIdempotency";
 import { createHash } from "crypto";
 
@@ -41,8 +41,8 @@ async function main() {
 
     // Concurrent SKU allocation must not collide.
     const [a, b] = await Promise.all([
-      prisma.$transaction((tx) => allocateInventorySkus(3, tx)),
-      prisma.$transaction((tx) => allocateInventorySkus(3, tx)),
+      prisma.$transaction((tx) => allocateInventorySkusWithClient(3, tx)),
+      prisma.$transaction((tx) => allocateInventorySkusWithClient(3, tx)),
     ]);
     const set = new Set([...a, ...b]);
     assert(set.size === 6, `SKU collision detected: ${[...a, ...b].join(",")}`);

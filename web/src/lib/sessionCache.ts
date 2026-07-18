@@ -20,12 +20,30 @@ type CacheEntry = {
   expiresAt: number;
 };
 
+export type SessionCacheStatus = "hit" | "miss" | "coalesced";
+
+export type SessionValidationResult = {
+  value: CachedSessionIdentity | null;
+  status: SessionCacheStatus;
+  cacheLookupMs: number;
+  sessionDbMs: number;
+};
+
 const DEFAULT_TTL_MS = 20_000;
 const MAX_ENTRIES = 2_000;
 
 const store = new Map<string, CacheEntry>();
 /** Coalesce concurrent validations for the same hashed session. */
-const pending = new Map<string, Promise<CachedSessionIdentity | null>>();
+const pending = new Map<
+  string,
+  {
+    promise: Promise<CachedSessionIdentity | null>;
+    userId?: number;
+    generation: number;
+  }
+>();
+/** Prevent an invalidated in-flight lookup from repopulating stale access. */
+const generations = new Map<string, number>();
 
 export function hashSessionId(sessionId: string): string {
   return createHash("sha256").update(sessionId).digest("hex");
@@ -67,8 +85,10 @@ export function setCachedSession(
 }
 
 export function invalidateCachedSession(sessionId: string) {
-  store.delete(hashSessionId(sessionId));
-  pending.delete(hashSessionId(sessionId));
+  const key = hashSessionId(sessionId);
+  store.delete(key);
+  pending.delete(key);
+  generations.set(key, (generations.get(key) ?? 0) + 1);
 }
 
 /** Invalidate every cached entry for a user (role/password/deactivation). */
@@ -76,42 +96,83 @@ export function invalidateCachedSessionsForUser(userId: number) {
   for (const [key, entry] of store) {
     if (entry.value?.id === userId) {
       store.delete(key);
+      generations.set(key, (generations.get(key) ?? 0) + 1);
     }
   }
-  // Pending promises may still resolve; callers should re-check DB on miss.
+  for (const [key, entry] of pending) {
+    if (entry.userId === userId) {
+      pending.delete(key);
+      generations.set(key, (generations.get(key) ?? 0) + 1);
+    }
+  }
 }
 
 export function clearSessionCache() {
   store.clear();
   pending.clear();
+  generations.clear();
 }
 
 /**
- * Coalesce simultaneous session validations for one session ID.
- * `loader` runs at most once per in-flight window for that key.
+ * Validate a read-only session through the bounded cache and return safe timing
+ * metadata. `loader` runs at most once per in-flight window for that key.
  */
+export async function validateSessionWithCache(
+  sessionId: string,
+  loader: () => Promise<CachedSessionIdentity | null>,
+  userId?: number,
+): Promise<SessionValidationResult> {
+  const key = hashSessionId(sessionId);
+  const lookupStarted = performance.now();
+  const hit = getCachedSession(sessionId);
+  const cacheLookupMs = performance.now() - lookupStarted;
+  if (hit !== undefined) {
+    return { value: hit, status: "hit", cacheLookupMs, sessionDbMs: 0 };
+  }
+
+  const existing = pending.get(key);
+  if (existing) {
+    const waitStarted = performance.now();
+    const value = await existing.promise;
+    return {
+      value,
+      status: "coalesced",
+      cacheLookupMs,
+      sessionDbMs: performance.now() - waitStarted,
+    };
+  }
+
+  const generation = generations.get(key) ?? 0;
+  const dbStarted = performance.now();
+  const run = loader()
+    .then((value) => {
+      // Logout/force-logout/deactivation may have invalidated this lookup while
+      // it was in flight. Never let its stale result restore cached access.
+      if ((generations.get(key) ?? 0) === generation) {
+        setCachedSession(sessionId, value);
+      }
+      return value;
+    })
+    .finally(() => {
+      if (pending.get(key)?.promise === run) pending.delete(key);
+    });
+
+  pending.set(key, { promise: run, userId, generation });
+  const value = await run;
+  return {
+    value,
+    status: "miss",
+    cacheLookupMs,
+    sessionDbMs: performance.now() - dbStarted,
+  };
+}
+
+/** Backwards-compatible value-only wrapper used by existing callers/tests. */
 export async function coalesceSessionValidation(
   sessionId: string,
   loader: () => Promise<CachedSessionIdentity | null>,
 ): Promise<CachedSessionIdentity | null> {
-  const key = hashSessionId(sessionId);
-  const hit = getCachedSession(sessionId);
-  if (hit !== undefined) return hit;
-
-  const existing = pending.get(key);
-  if (existing) return existing;
-
-  const run = loader()
-    .then((value) => {
-      setCachedSession(sessionId, value);
-      return value;
-    })
-    .finally(() => {
-      pending.delete(key);
-    });
-
-  pending.set(key, run);
-  return run;
+  return (await validateSessionWithCache(sessionId, loader)).value;
 }
 
 /** Test helper */

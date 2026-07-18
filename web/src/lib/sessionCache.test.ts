@@ -9,6 +9,7 @@ import {
   invalidateCachedSessionsForUser,
   setCachedSession,
   sessionCacheStats,
+  validateSessionWithCache,
   type CachedSessionIdentity,
 } from "./sessionCache";
 
@@ -78,5 +79,59 @@ describe("sessionCache", () => {
     setCachedSession("session-b", ident(2, "bob"));
     assert.equal(getCachedSession("session-a")?.username, "alice");
     assert.equal(getCachedSession("session-b")?.username, "bob");
+  });
+
+  it("reports miss then hit and avoids the second validation query", async () => {
+    let calls = 0;
+    const load = async () => {
+      calls += 1;
+      return ident(7);
+    };
+    const first = await validateSessionWithCache("sid-7", load, 7);
+    const second = await validateSessionWithCache("sid-7", load, 7);
+    assert.equal(first.status, "miss");
+    assert.equal(second.status, "hit");
+    assert.equal(second.sessionDbMs, 0);
+    assert.equal(calls, 1);
+  });
+
+  it("rejects an invalid session and caches the negative result briefly", async () => {
+    let calls = 0;
+    const load = async () => {
+      calls += 1;
+      return null;
+    };
+    assert.equal((await validateSessionWithCache("dead", load, 9)).value, null);
+    assert.equal((await validateSessionWithCache("dead", load, 9)).value, null);
+    assert.equal(calls, 1);
+  });
+
+  it("force logout invalidation removes cached access immediately", async () => {
+    await validateSessionWithCache("force-out", async () => ident(12), 12);
+    invalidateCachedSession("force-out");
+    const after = await validateSessionWithCache("force-out", async () => null, 12);
+    assert.equal(after.value, null);
+    assert.equal(after.status, "miss");
+  });
+
+  it("deactivation/role invalidation replaces stale identity", async () => {
+    await validateSessionWithCache("role", async () => ident(13), 13);
+    invalidateCachedSessionsForUser(13);
+    const owner = { ...ident(13), role: "owner" };
+    const after = await validateSessionWithCache("role", async () => owner, 13);
+    assert.equal(after.value?.role, "owner");
+    assert.equal(after.status, "miss");
+  });
+
+  it("invalidation during an in-flight read cannot repopulate stale access", async () => {
+    let release!: (value: CachedSessionIdentity | null) => void;
+    const gate = new Promise<CachedSessionIdentity | null>((resolve) => {
+      release = resolve;
+    });
+    const pendingRead = validateSessionWithCache("racing", () => gate, 21);
+    invalidateCachedSessionsForUser(21);
+    release(ident(21));
+    await pendingRead;
+    assert.equal(getCachedSession("racing"), undefined);
   });
 });

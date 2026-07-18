@@ -1,5 +1,5 @@
 import { NextRequest } from "next/server";
-import { isResponse, jsonError, jsonOk, requireUserReadOnly } from "@/lib/api";
+import { isResponse, jsonError, jsonOk, requireFastReadUser } from "@/lib/api";
 import { createPerfTimer, withServerTiming } from "@/lib/perfTiming";
 import { resolveBookingQr } from "@/lib/services/qrResolve";
 
@@ -13,10 +13,7 @@ export const maxDuration = 15;
 export async function POST(req: NextRequest) {
   const perf = createPerfTimer("qr-resolve");
 
-  perf.mark("auth");
-  const user = await requireUserReadOnly();
-  perf.endStage("cookieAuthMs", "auth");
-  perf.endStage("authMs", "auth");
+  const user = await requireFastReadUser(perf);
   if (isResponse(user)) return user;
 
   let body: { token?: unknown; signature?: unknown; target?: unknown };

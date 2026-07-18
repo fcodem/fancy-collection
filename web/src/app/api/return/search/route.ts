@@ -1,5 +1,5 @@
 import { NextRequest } from "next/server";
-import { jsonOk, requireUserReadOnly, isResponse } from "@/lib/api";
+import { jsonOk, requireFastReadUser, isResponse } from "@/lib/api";
 import { createPerfTimer, withServerTiming } from "@/lib/perfTiming";
 import { searchDeliveryOrReturn } from "@/lib/services/deliveryReturnSearch";
 
@@ -7,10 +7,7 @@ export const dynamic = "force-dynamic";
 
 export async function GET(req: NextRequest) {
   const perf = createPerfTimer("GET /api/return/search");
-  perf.mark("auth");
-  const user = await requireUserReadOnly();
-  perf.endStage("cookieAuthMs", "auth");
-  perf.endStage("authMs", "auth");
+  const user = await requireFastReadUser(perf);
   if (isResponse(user)) return user;
 
   perf.mark("parse");

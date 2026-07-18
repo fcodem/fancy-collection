@@ -1,5 +1,11 @@
 import { NextResponse } from "next/server";
-import { getCurrentUser, getCurrentUserReadOnly, isOwner, AuthUser } from "./auth";
+import {
+  getCurrentUser,
+  getFastReadUserResult,
+  isOwner,
+  AuthUser,
+} from "./auth";
+import type { PerfTimer } from "./perfTiming";
 
 export function jsonOk<T>(data: T, status = 200) {
   return NextResponse.json(data, { status });
@@ -28,11 +34,26 @@ export async function requireUser(): Promise<AuthUser | NextResponse> {
   return user;
 }
 
-export async function requireUserReadOnly(): Promise<AuthUser | NextResponse> {
-  const user = await getCurrentUserReadOnly();
+/**
+ * Fast read-only auth. Mutations must use requireUser/requireOwner instead.
+ * Optional timer receives cookie/cache/DB stages without exposing session IDs.
+ */
+export async function requireFastReadUser(
+  perf?: PerfTimer,
+): Promise<AuthUser | NextResponse> {
+  const { user, timings } = await getFastReadUserResult();
+  perf?.set("cookieDecryptMs", timings.cookieDecryptMs);
+  perf?.set("sessionCacheMs", timings.sessionCacheMs);
+  perf?.set("sessionDbMs", timings.sessionDbMs);
+  perf?.set("authTotalMs", timings.authTotalMs);
+  perf?.set("authMs", timings.authTotalMs);
+  perf?.setAuthCacheStatus(timings.cacheStatus);
   if (!user) return jsonError("Please log in to continue.", 401);
   return user;
 }
+
+/** @deprecated Use requireFastReadUser for explicit read-only routing. */
+export const requireUserReadOnly = requireFastReadUser;
 
 export async function requireOwner(): Promise<AuthUser | NextResponse> {
   const user = await getCurrentUser();

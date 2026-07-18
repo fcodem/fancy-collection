@@ -10,10 +10,11 @@ import prisma from "./prisma";
 import { LOGIN_REQUEST_TTL_MINUTES } from "./constants";
 import { isWerkzeugHash, verifyWerkzeugPassword } from "./werkzeugPassword";
 import {
-  coalesceSessionValidation,
   invalidateCachedSession,
   invalidateCachedSessionsForUser,
+  validateSessionWithCache,
   type CachedSessionIdentity,
+  type SessionCacheStatus,
 } from "./sessionCache";
 
 export interface SessionData {
@@ -32,6 +33,19 @@ export type SessionIdentity = {
   role: string;
   staffId: number | null;
   staff: null;
+};
+
+export type FastReadAuthTimings = {
+  cookieDecryptMs: number;
+  sessionCacheMs: number;
+  sessionDbMs: number;
+  authTotalMs: number;
+  cacheStatus: SessionCacheStatus | "bypass";
+};
+
+export type FastReadAuthResult = {
+  user: (SessionIdentity & { active: true }) | null;
+  timings: FastReadAuthTimings;
 };
 
 function readEnv(name: string): string {
@@ -163,42 +177,75 @@ export const getCurrentUser = cache(async () => resolveSessionUser(true));
  * 3. Coalesce simultaneous validations for the same session
  * Force-logout / deactivation / role / password reset invalidate the cache immediately.
  */
-export const getCurrentUserReadOnly = cache(async () => {
+export const getFastReadUserResult = cache(async (): Promise<FastReadAuthResult> => {
+  const authStarted = performance.now();
+  const cookieStarted = performance.now();
   const session = await getSession();
-  if (!session.userId || !session.sessionId) return null;
+  const cookieDecryptMs = performance.now() - cookieStarted;
+  if (!session.userId || !session.sessionId) {
+    return {
+      user: null,
+      timings: {
+        cookieDecryptMs,
+        sessionCacheMs: 0,
+        sessionDbMs: 0,
+        authTotalMs: performance.now() - authStarted,
+        cacheStatus: "bypass",
+      },
+    };
+  }
 
   const userId = session.userId;
   const sessionId = session.sessionId;
 
-  const cached = await coalesceSessionValidation(sessionId, async () => {
-    const user = await loadActiveSessionUser(userId, sessionId, false);
-    if (!user) return null;
-    const identity: CachedSessionIdentity = {
-      id: user.id,
-      username: user.username,
-      role: user.role,
-      staffId: user.staffId ?? null,
-      staff: null,
-      active: true,
-    };
-    return identity;
-  });
+  const validation = await validateSessionWithCache(
+    sessionId,
+    async () => {
+      const user = await loadActiveSessionUser(userId, sessionId, false);
+      if (!user) return null;
+      const identity: CachedSessionIdentity = {
+        id: user.id,
+        username: user.username,
+        role: user.role,
+        staffId: user.staffId ?? null,
+        staff: null,
+        active: true,
+      };
+      return identity;
+    },
+    userId,
+  );
+  const cached = validation.value;
+  const timings: FastReadAuthTimings = {
+    cookieDecryptMs,
+    sessionCacheMs: validation.cacheLookupMs,
+    sessionDbMs: validation.sessionDbMs,
+    authTotalMs: performance.now() - authStarted,
+    cacheStatus: validation.status,
+  };
 
-  if (!cached) return null;
+  if (!cached) return { user: null, timings };
   // Never trust a cached identity that does not match the signed cookie user id.
   if (cached.id !== userId) {
     invalidateCachedSession(sessionId);
-    return null;
+    return { user: null, timings };
   }
   return {
-    id: cached.id,
-    username: cached.username,
-    role: cached.role,
-    staffId: cached.staffId,
-    active: true as const,
-    staff: null,
+    user: {
+      id: cached.id,
+      username: cached.username,
+      role: cached.role,
+      staffId: cached.staffId,
+      active: true as const,
+      staff: null,
+    },
+    timings,
   };
 });
+
+export const getCurrentUserReadOnly = cache(
+  async () => (await getFastReadUserResult()).user,
+);
 
 async function createUserSessionRecord(userId: number) {
   await prisma.userSession.updateMany({

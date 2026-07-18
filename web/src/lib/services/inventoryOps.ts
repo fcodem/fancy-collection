@@ -15,6 +15,7 @@ import { enqueueInventoryPhotoJobsDurable } from "../inventoryPhotoPipeline";
 import { enqueueBlobCleanup } from "../blobCleanup";
 import { generateUuidV4 } from "../clientUuid";
 import { mapConfidence } from "../siglipMath";
+import { allocateInventorySkusWithClient } from "../inventorySkuAllocator";
 
 export type InventoryPhotoSearchFilters = {
   category?: string;
@@ -42,15 +43,7 @@ export async function allocateInventorySkus(
   count: number,
   client: DbClient = prisma,
 ): Promise<string[]> {
-  const n = Math.max(1, Math.min(Math.floor(count), 500));
-  const rows = await client.$queryRaw<Array<{ start_value: bigint }>>`
-    UPDATE inventory_sku_counter
-    SET next_value = next_value + ${n}
-    WHERE id = 1
-    RETURNING (next_value - ${n}) AS start_value
-  `;
-  const start = Number(rows[0]?.start_value ?? 1);
-  return Array.from({ length: n }, (_, i) => `ITM-${String(start + i).padStart(4, "0")}`);
+  return allocateInventorySkusWithClient(count, client);
 }
 
 /** @deprecated Prefer allocateInventorySkus for concurrency safety. */

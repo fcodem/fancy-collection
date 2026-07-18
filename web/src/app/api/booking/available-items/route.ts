@@ -1,13 +1,11 @@
 import { NextRequest } from "next/server";
 import { getAvailableItemsApi } from "@/lib/booking";
-import { jsonOk, requireUserReadOnly, isResponse } from "@/lib/api";
+import { jsonOk, requireFastReadUser, isResponse } from "@/lib/api";
 import { createPerfTimer, withServerTiming } from "@/lib/perfTiming";
 
 export async function GET(req: NextRequest) {
   const perf = createPerfTimer("GET /api/booking/available-items");
-  perf.mark("auth");
-  const user = await requireUserReadOnly();
-  perf.endStage("authMs", "auth");
+  const user = await requireFastReadUser(perf);
   if (isResponse(user)) return user;
 
   const deliveryDate = req.nextUrl.searchParams.get("delivery_date") || "";

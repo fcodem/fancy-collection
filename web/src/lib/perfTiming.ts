@@ -6,6 +6,10 @@
 export type PerfStage =
   | "authMs"
   | "cookieAuthMs"
+  | "cookieDecryptMs"
+  | "sessionCacheMs"
+  | "sessionDbMs"
+  | "authTotalMs"
   | "sessionValidationMs"
   | "parseMs"
   | "signatureMs"
@@ -44,6 +48,7 @@ export type PerfTimings = Partial<Record<PerfStage, number>> & {
   route?: string;
   requestId?: string;
   cacheStatus?: "hit" | "miss" | "bypass" | "coalesced";
+  authCacheStatus?: "hit" | "miss" | "bypass" | "coalesced";
 };
 
 const GLOBAL_COLD_KEY = "__fc_perf_warm__";
@@ -97,6 +102,9 @@ export function createPerfTimer(route: string) {
     setCacheStatus(status: NonNullable<PerfTimings["cacheStatus"]>) {
       stages.cacheStatus = status;
     },
+    setAuthCacheStatus(status: NonNullable<PerfTimings["authCacheStatus"]>) {
+      stages.authCacheStatus = status;
+    },
     finish(opts?: { kind?: "read" | "mutation" | "photo"; forceLog?: boolean }) {
       stages.totalMs = Date.now() - t0;
       stages.queryCount = queryCount || stages.queryCount;
@@ -131,6 +139,10 @@ function sanitizeForLog(value: unknown): string {
 const LOG_STAGES: PerfStage[] = [
   "authMs",
   "cookieAuthMs",
+  "cookieDecryptMs",
+  "sessionCacheMs",
+  "sessionDbMs",
+  "authTotalMs",
   "sessionValidationMs",
   "parseMs",
   "signatureMs",
@@ -175,6 +187,7 @@ export function logPerf(timings: PerfTimings) {
   else if (typeof timings.itemCount === "number") parts.push(`itemCount=${timings.itemCount}`);
   if (typeof timings.payloadBytes === "number") parts.push(`payloadBytes=${timings.payloadBytes}`);
   if (timings.cacheStatus) parts.push(`cacheStatus=${timings.cacheStatus}`);
+  if (timings.authCacheStatus) parts.push(`authCacheStatus=${timings.authCacheStatus}`);
   if (typeof timings.cold === "boolean") parts.push(`cold=${timings.cold}`);
   console.log(parts.join(" "));
 }

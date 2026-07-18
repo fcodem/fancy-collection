@@ -1,5 +1,5 @@
 import prisma from "@/lib/prisma";
-import { jsonOk, jsonError, requireUserReadOnly, isResponse } from "@/lib/api";
+import { jsonOk, jsonError, requireFastReadUser, isResponse } from "@/lib/api";
 import { todayIso } from "@/lib/constants";
 import { whereOverduePendingDelivery } from "@/lib/bookingDateQuery";
 import { cachedQuery } from "@/lib/perfCache";
@@ -9,10 +9,7 @@ import { CACHE_TAGS } from "@/lib/cacheInvalidation";
 /** Nav badge counts — tagged cache ~45s (not financial). */
 export async function GET() {
   const perf = createPerfTimer("GET /api/dashboard/nav-counts");
-  perf.mark("auth");
-  const user = await requireUserReadOnly();
-  perf.endStage("cookieAuthMs", "auth");
-  perf.endStage("authMs", "auth");
+  const user = await requireFastReadUser(perf);
   if (isResponse(user)) return user;
 
   try {

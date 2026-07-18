@@ -1,5 +1,7 @@
 import { describe, it } from "node:test";
 import assert from "node:assert/strict";
+import { readFileSync } from "node:fs";
+import { join } from "node:path";
 import { BOOKING_PANEL_PAGE_SIZE } from "./bookingPanelConstants";
 
 describe("booking panel pagination contract", () => {
@@ -33,6 +35,22 @@ describe("session cache module", () => {
     assert.equal(typeof mod.invalidateCachedSession, "function");
     assert.equal(typeof mod.invalidateCachedSessionsForUser, "function");
     assert.equal(typeof mod.coalesceSessionValidation, "function");
+  });
+
+  it("keeps mutation auth authoritative and separate from the read cache", () => {
+    const apiSource = readFileSync(join(process.cwd(), "src", "lib", "api.ts"), "utf8");
+    assert.match(
+      apiSource,
+      /export async function requireUser[\s\S]*?const user = await getCurrentUser\(\)/,
+    );
+    assert.match(
+      apiSource,
+      /export async function requireOwner[\s\S]*?const user = await getCurrentUser\(\)/,
+    );
+    assert.match(
+      apiSource,
+      /export async function requireFastReadUser[\s\S]*?getFastReadUserResult\(\)/,
+    );
   });
 });
 
