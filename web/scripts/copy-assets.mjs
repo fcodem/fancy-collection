@@ -8,13 +8,10 @@ const flaskStatic = join(webRoot, "..", "fancynew", "static");
 const publicDir = join(webRoot, "public");
 
 const copies = [
-  ["css/style.css", "css/style.css"],
   ["js/dress-suggest.js", "js/dress-suggest.js"],
-  ["uploads", "uploads"],
 ];
 
 mkdirSync(join(publicDir, "css"), { recursive: true });
-mkdirSync(join(publicDir, "uploads"), { recursive: true });
 
 for (const [src, dest] of copies) {
   const from = join(flaskStatic, src);

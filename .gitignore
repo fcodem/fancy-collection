@@ -56,5 +56,6 @@ web/public/worker-*.js
 
 # Runtime data / user uploads (not source code)
 web/public/uploads/
+**/static/uploads/
 db-backups/
 .vercel
