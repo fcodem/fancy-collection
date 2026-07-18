@@ -28,6 +28,10 @@ web/backups/
 .DS_Store
 Thumbs.db
 
+# Python build artifacts
+__pycache__/
+*.py[cod]
+
 # TypeScript
 *.tsbuildinfo
 
@@ -39,6 +43,16 @@ logs/
 *.tmp
 run-server.bat
 web/tmp-*.html
+web/tmp-*.txt
+web/tmp-*.json
+web/tmp/
+web/scripts/_tmp-*
+web/scripts/.*-forensic.json
+web/scripts/.deployment-audit-report.json
+web/scripts/.reindex-checkpoint.json
+
+# Generated PWA worker (content hash changes each build)
+web/public/worker-*.js
 
 # Runtime data / user uploads (not source code)
 web/public/uploads/
