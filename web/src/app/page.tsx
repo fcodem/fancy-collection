@@ -2,8 +2,8 @@ import { Suspense } from "react";
 import { redirect } from "next/navigation";
 import { getCurrentUserForLayout, isOwner } from "@/lib/auth";
 import DashboardSectionBoundary from "@/components/DashboardSectionBoundary";
+import DashboardAiHealthClient from "@/components/DashboardAiHealthClient";
 import {
-  DashboardAiHealthSection,
   DashboardBusinessSection,
   DashboardEssentialSection,
   DashboardFinanceSection,
@@ -71,9 +71,7 @@ export default async function DashboardPage() {
       )}
 
       <DashboardSectionBoundary title="AI health">
-        <Suspense fallback={<DashboardSectionSkeleton title="AI Indexing Health" />}>
-          <DashboardAiHealthSection />
-        </Suspense>
+        <DashboardAiHealthClient />
       </DashboardSectionBoundary>
     </>
   );

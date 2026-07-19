@@ -15,8 +15,8 @@ export const SLIP_TMP_PREFIXES = [
 /** @deprecated alias */
 export const SLIP_TEMP_PREFIXES = SLIP_TMP_PREFIXES;
 
-/** Warn and proactively clean when slip temp usage exceeds this threshold. */
-export const TMP_USAGE_WARN_BYTES = 200 * 1024 * 1024;
+/** Proactively clean slip/Chromium temp when usage is high (default 100MB). */
+export const TMP_USAGE_WARN_BYTES = 100 * 1024 * 1024;
 
 export function slipTmpDir(): string {
   return os.tmpdir();

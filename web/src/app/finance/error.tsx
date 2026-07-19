@@ -1,6 +1,6 @@
 "use client";
 
-import { useEffect, useState } from "react";
+import { useEffect } from "react";
 import Link from "next/link";
 
 export default function FinanceError({
@@ -10,22 +10,22 @@ export default function FinanceError({
   error: Error & { digest?: string };
   reset: () => void;
 }) {
-  const [retryCount, setRetryCount] = useState(0);
-
   useEffect(() => {
-    // Auto-retry once on chunk load errors (stale PWA cache after deploy)
     const isChunkError =
       /loading chunk|failed to fetch|load failed|dynamically imported module/i.test(
         error.message || "",
       );
-    if (isChunkError && retryCount === 0) {
-      setRetryCount(1);
-      // Force reload the page to clear stale chunks
-      window.location.reload();
-      return;
+    if (isChunkError) {
+      const key = "fc-finance-chunk-reload";
+      if (!sessionStorage.getItem(key)) {
+        sessionStorage.setItem(key, "1");
+        window.location.reload();
+        return;
+      }
+      sessionStorage.removeItem(key);
     }
     console.error("[finance error boundary]", error);
-  }, [error, retryCount]);
+  }, [error]);
 
   const message =
     "This finance report could not be loaded. You can retry or return to the ledger.";

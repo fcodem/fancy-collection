@@ -2,8 +2,8 @@ import { AsyncSemaphore } from "@/lib/asyncSemaphore";
 
 const SECTION_TIMEOUT_MS = 4_000;
 
-/** Max 2 simultaneous dashboard DB reads per function instance. */
-export const dashboardReadSemaphore = new AsyncSemaphore(2);
+/** Max 1 dashboard DB read at a time per instance — pool limit is 3 and auth/nav also use connections. */
+export const dashboardReadSemaphore = new AsyncSemaphore(1);
 
 function withQueryTimeout<T>(promise: Promise<T>, timeoutMs: number): Promise<T> {
   return Promise.race([

@@ -1064,6 +1064,17 @@ export default function BookingFormClient(props: Props) {
 
     clientRequestIdRef.current = null;
 
+    if (typeof window !== "undefined") {
+      window.dispatchEvent(
+        new CustomEvent("shop-realtime", {
+          detail: {
+            type: props.editId ? "booking.updated" : "booking.created",
+            bookingId,
+          },
+        }),
+      );
+    }
+
     if (printWindow) {
       printWindow.location.href = `/booking/${bookingId}/slip?print=1`;
     }
@@ -1106,6 +1117,7 @@ export default function BookingFormClient(props: Props) {
       const serial = data.serial ?? data.monthly_serial;
       resetFormForNewBooking();
       invalidateClientCache();
+      router.refresh();
       router.replace(`/booking/new?confirmed=1&serial=${serial ?? ""}`);
       window.scrollTo(0, 0);
     }
@@ -1294,7 +1306,7 @@ export default function BookingFormClient(props: Props) {
 
               <label className="form-label">WhatsApp *</label>
 
-              <input className="form-control" value={whatsapp} onChange={(e) => setWhatsapp(e.target.value)} required />
+              <input className="form-control" inputMode="tel" value={whatsapp} onChange={(e) => setWhatsapp(e.target.value)} required />
 
             </div>
 
@@ -1311,7 +1323,7 @@ export default function BookingFormClient(props: Props) {
 
               <label className="form-label">Security Deposit (₹)</label>
 
-              <input type="number" className="form-control" value={securityDeposit} onChange={(e) => setSecurityDeposit(Number(e.target.value))} min={0} />
+              <input type="number" className="form-control" inputMode="numeric" value={securityDeposit} onChange={(e) => setSecurityDeposit(Number(e.target.value))} min={0} />
 
             </div>
             )}
@@ -1636,7 +1648,7 @@ export default function BookingFormClient(props: Props) {
 
                     <label className="form-label">Rental Price (₹)</label>
 
-                    <input type="number" className="form-control" value={d.price} min={0} onChange={(e) => updateDressField(i, "price", Number(e.target.value))} />
+                    <input type="number" className="form-control" inputMode="numeric" value={d.price} min={0} onChange={(e) => updateDressField(i, "price", Number(e.target.value))} />
 
                   </div>
 
@@ -1644,7 +1656,7 @@ export default function BookingFormClient(props: Props) {
 
                     <label className="form-label">Advance Paid (₹)</label>
 
-                    <input type="number" className="form-control" value={d.advance} min={0} onChange={(e) => updateDressField(i, "advance", Number(e.target.value))} />
+                    <input type="number" className="form-control" inputMode="numeric" value={d.advance} min={0} onChange={(e) => updateDressField(i, "advance", Number(e.target.value))} />
 
                   </div>
 
@@ -1732,14 +1744,14 @@ export default function BookingFormClient(props: Props) {
                   <div className="payment-grid-3">
                     <div>
                       <label className="form-label">Total Cost (₹)</label>
-                      <input type="number" className="form-control" value={o.cost} min={0} onChange={(e) => updateOrderField(i, "cost", Number(e.target.value))} />
+                      <input type="number" className="form-control" inputMode="numeric" value={o.cost} min={0} onChange={(e) => updateOrderField(i, "cost", Number(e.target.value))} />
                       {o.cost === 0 && (
                         <span className="form-hint" style={{ color: "var(--gold, #c9a846)" }}>Included in rent</span>
                       )}
                     </div>
                     <div>
                       <label className="form-label">Advance (₹)</label>
-                      <input type="number" className="form-control" value={o.advance} min={0} onChange={(e) => updateOrderField(i, "advance", Number(e.target.value))} />
+                      <input type="number" className="form-control" inputMode="numeric" value={o.advance} min={0} onChange={(e) => updateOrderField(i, "advance", Number(e.target.value))} />
                     </div>
                     <div>
                       <label className="form-label">Balance</label>

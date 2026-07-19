@@ -428,7 +428,12 @@ export default function DressAvailabilityScanner() {
         }
         return;
       }
-      // Synchronous visual acknowledgement occurs before fetch/React batching.
+      // Pause camera after successful scan so user can review result
+      const session = sessionRef.current;
+      if (session && !force) {
+        session.pause();
+        setCameraPaused(true);
+      }
       setFeedback("Code scanned — checking availability…");
       if (
         !queueRef.current.some((queued) => queued.code === claim.code)
@@ -457,7 +462,7 @@ export default function DressAvailabilityScanner() {
         if (!cancelled) {
           setCameraStatus(status);
           setCameraError("");
-          setFeedback("Camera ready. Point it at a dress QR code or barcode.");
+          setFeedback("Camera ready. Point it at a dress QR code.");
         }
       } catch (error) {
         if (cancelled) return;
@@ -750,7 +755,7 @@ export default function DressAvailabilityScanner() {
                 setFeedback("Ready for next scan.");
               }}
             >
-              Scan Again
+              Scan Another Dress
             </button>
           </div>
           {cameraStatus ? (

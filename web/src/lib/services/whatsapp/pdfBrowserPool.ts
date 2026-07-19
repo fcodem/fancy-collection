@@ -88,6 +88,7 @@ function resolveLocalChromiumBin(): string | undefined {
 }
 
 async function extractChromiumExecutable(): Promise<string> {
+  await cleanSlipTempDirs();
   await ensureSlipTempHeadroom();
   const usage = measureSlipTempUsage();
   if (usage >= TMP_USAGE_WARN_BYTES) {

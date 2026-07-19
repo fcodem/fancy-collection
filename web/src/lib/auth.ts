@@ -121,7 +121,6 @@ export function getSessionOptions(): SessionOptions {
       secure: isProd ? true : false,
       httpOnly: true,
       sameSite: "lax",
-      maxAge: 60 * 60 * 24 * 7,
     },
   };
 }

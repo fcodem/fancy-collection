@@ -2,6 +2,7 @@
 
 import { useCallback, useEffect, useRef, useState } from "react";
 import QRCode from "qrcode";
+import JsBarcode from "jsbarcode";
 
 type ScanCode = { id: number; code: string; format: string; isPrimary: boolean };
 type InventoryItem = {
@@ -14,6 +15,8 @@ type InventoryItem = {
   scanCodes: ScanCode[];
 };
 
+type PrintFormat = "QR_CODE" | "CODE_128" | "BOTH";
+
 const COLS = 3;
 const ROWS = 8;
 const LABELS_PER_PAGE = COLS * ROWS; // 24
@@ -25,6 +28,7 @@ export default function PrintCodesClient() {
   const [category, setCategory] = useState("");
   const [startCol, setStartCol] = useState(1);
   const [startRow, setStartRow] = useState(1);
+  const [printFormat, setPrintFormat] = useState<PrintFormat>("QR_CODE");
 
   const fetchItems = useCallback(async () => {
     setLoading(true);
@@ -130,15 +134,19 @@ export default function PrintCodesClient() {
             height: 37mm;
             overflow: hidden;
             display: flex;
-            flex-direction: row;
+            flex-direction: column;
             align-items: center;
             justify-content: center;
             padding: 1.5mm;
             box-sizing: border-box;
           }
           .label-cell canvas {
-            width: 28mm !important;
-            height: 28mm !important;
+            width: 22mm !important;
+            height: 22mm !important;
+          }
+          .label-cell svg.barcode-svg {
+            width: 62mm !important;
+            height: 10mm !important;
           }
           .label-text {
             font-size: 8pt;
@@ -156,6 +164,14 @@ export default function PrintCodesClient() {
             text-overflow: ellipsis;
             white-space: nowrap;
             max-width: 36mm;
+          }
+          .label-brand {
+            font-size: 6pt;
+            font-weight: bold;
+            color: #7B1F45;
+            text-transform: uppercase;
+            letter-spacing: 0.5pt;
+            margin-bottom: 1mm;
           }
           .label-size {
             font-size: 7pt;
@@ -189,6 +205,18 @@ export default function PrintCodesClient() {
                   <option value="Saree">Saree</option>
                   <option value="Indo-Western">Indo-Western</option>
                   <option value="Jewellery">Jewellery</option>
+                </select>
+              </div>
+              <div>
+                <label className="block text-xs text-gray-500 mb-1">Label type</label>
+                <select
+                  value={printFormat}
+                  onChange={(e) => setPrintFormat(e.target.value as PrintFormat)}
+                  className="border rounded px-3 py-2 text-sm"
+                >
+                  <option value="QR_CODE">QR Code</option>
+                  <option value="CODE_128">Code 128 Barcode</option>
+                  <option value="BOTH">QR + Barcode</option>
                 </select>
               </div>
               <div>
@@ -313,7 +341,7 @@ export default function PrintCodesClient() {
             <div key={pageIdx} className="label-page">
               {page.map((item, slotIdx) => (
                 <div key={slotIdx} className="label-cell">
-                  {item && <StickerLabel item={item} />}
+                  {item && <StickerLabel item={item} format={printFormat} />}
                 </div>
               ))}
             </div>
@@ -324,30 +352,54 @@ export default function PrintCodesClient() {
   );
 }
 
-function StickerLabel({ item }: { item: InventoryItem }) {
+function StickerLabel({ item, format }: { item: InventoryItem; format: PrintFormat }) {
   const qrRef = useRef<HTMLCanvasElement>(null);
+  const barcodeRef = useRef<SVGSVGElement>(null);
 
   const qrCode = item.scanCodes.find((c) => c.format === "QR_CODE");
   const barcode = item.scanCodes.find((c) => c.format === "CODE_128");
-  const codeValue = qrCode?.code || barcode?.code || item.sku;
+  const qrValue = qrCode?.code || item.sku;
+  const barcodeValue = barcode?.code || qrCode?.code || item.sku;
 
   useEffect(() => {
-    if (qrRef.current) {
-      void QRCode.toCanvas(qrRef.current, codeValue, {
+    if ((format === "QR_CODE" || format === "BOTH") && qrRef.current) {
+      void QRCode.toCanvas(qrRef.current, qrValue, {
         width: 200,
         margin: 1,
         errorCorrectionLevel: "H",
       });
     }
-  }, [codeValue]);
+  }, [qrValue, format]);
+
+  useEffect(() => {
+    if ((format === "CODE_128" || format === "BOTH") && barcodeRef.current) {
+      try {
+        JsBarcode(barcodeRef.current, barcodeValue, {
+          format: "CODE128",
+          width: 1.2,
+          height: 32,
+          displayValue: false,
+          margin: 0,
+        });
+      } catch {
+        /* invalid barcode value */
+      }
+    }
+  }, [barcodeValue, format]);
 
   return (
     <>
-      <canvas ref={qrRef} style={{ width: "28mm", height: "28mm" }} />
-      <div className="label-text">
+      <div className="label-text" style={{ textAlign: "center", maxWidth: "66mm", paddingLeft: 0 }}>
+        <div className="label-brand">Fancy Collection</div>
         <div className="label-name">{item.name}</div>
-        {item.size && <div className="label-size">{item.size}</div>}
+        {item.size && <div className="label-size">Size: {item.size}</div>}
       </div>
+      {(format === "QR_CODE" || format === "BOTH") && (
+        <canvas ref={qrRef} style={{ width: "22mm", height: "22mm" }} />
+      )}
+      {(format === "CODE_128" || format === "BOTH") && (
+        <svg ref={barcodeRef} className="barcode-svg" />
+      )}
     </>
   );
 }

@@ -13,8 +13,7 @@ import { createPerfTimer, withServerTiming } from "@/lib/perfTiming";
 import prisma from "@/lib/prisma";
 import { after } from "next/server";
 import {
-  assignScanCodeToInventory,
-  generateInternalDressCode,
+  generateDefaultScanCodesInTx,
 } from "@/lib/services/inventoryScanCode";
 import {
   MutationIdempotencyError,
@@ -208,6 +207,9 @@ export async function POST(req: NextRequest) {
         pipeline,
       };
       await completeMutationReceiptInTx(tx, operationId, publicPayload);
+      for (const item of items) {
+        await generateDefaultScanCodesInTx(tx, item.id);
+      }
       return {
         ...publicPayload,
         _hasPhoto: Boolean(uploadedPhotoPath),
@@ -246,16 +248,6 @@ export async function POST(req: NextRequest) {
           await enqueueInventoryPhotoJobsDurable(result.ids, "photo_created");
         } catch (error) {
           console.error("[inventory POST] post-commit AI enqueue failed:", error);
-        }
-      }
-      for (const id of result.ids) {
-        try {
-          await Promise.all([
-            assignScanCodeToInventory(id, generateInternalDressCode(), "QR_CODE", "SYSTEM_GENERATED_QR"),
-            assignScanCodeToInventory(id, generateInternalDressCode(), "CODE_128", "SYSTEM_GENERATED_BARCODE"),
-          ]);
-        } catch (e) {
-          console.error("[inventory POST] auto scan-code generation failed for item", id, e);
         }
       }
     });

@@ -655,7 +655,7 @@ export default function InventoryFormClient({
         {!isEdit && (
           <div>
             <label className="form-label">Quantity</label>
-            <input name="quantity" type="number" min={1} max={50} defaultValue={1} className="form-control" />
+            <input name="quantity" type="number" inputMode="numeric" min={1} max={50} defaultValue={1} className="form-control" />
             <small className="text-muted">
               Each unit is a separate bookable item (named #1, #2, … when quantity &gt; 1).
             </small>
@@ -663,11 +663,11 @@ export default function InventoryFormClient({
         )}
         <div>
           <label className="form-label">Daily Rate (₹)</label>
-          <input name="daily_rate" type="number" className="form-control" defaultValue={item?.dailyRate} />
+          <input name="daily_rate" type="number" inputMode="numeric" className="form-control" defaultValue={item?.dailyRate} />
         </div>
         <div>
           <label className="form-label">Deposit (₹)</label>
-          <input name="deposit" type="number" className="form-control" defaultValue={item?.deposit} />
+          <input name="deposit" type="number" inputMode="numeric" className="form-control" defaultValue={item?.deposit} />
         </div>
         <div>
           <label className="form-label">Sub-Category</label>

@@ -18,11 +18,29 @@ import {
   isDeterministicFailure,
 } from "./aiJobTypes";
 import { formatTmpSpace, measureTmpSpace } from "@/lib/tmpSpace";
+import { cleanSlipTempDirs } from "@/lib/slipTempCleanup";
 import { touchDurableWorkerHeartbeat, getDurableWorkerHealth } from "./workerHeartbeat";
+
+/** Skip native AI work when /tmp is nearly full (prevents SIGABRT / ENOSPC). */
+const MIN_TMP_FREE_BYTES = 64 * 1024 * 1024;
 
 /** Local pump only — not a health signal. */
 let workerTimer: ReturnType<typeof setInterval> | null = null;
 let lastError: string | null = null;
+
+async function ensureWorkerTmpHeadroom(): Promise<boolean> {
+  try {
+    await cleanSlipTempDirs();
+  } catch {
+    /* best-effort */
+  }
+  const snap = await measureTmpSpace();
+  if (snap.freeBytes != null && snap.freeBytes < MIN_TMP_FREE_BYTES) {
+    lastError = `Insufficient /tmp headroom (${formatTmpSpace(snap)})`;
+    return false;
+  }
+  return true;
+}
 
 export async function getAiWorkerHealthDurable() {
   return getDurableWorkerHealth();
@@ -42,6 +60,11 @@ function withJobTimeout<T>(promise: Promise<T>, ms: number): Promise<T> {
 }
 
 export async function processOneAiJob(): Promise<boolean> {
+  if (!(await ensureWorkerTmpHeadroom())) {
+    console.warn(`[ai-worker] skipped job claim: ${lastError}`);
+    return false;
+  }
+
   const job = await claimNextAiJob();
   if (!job) return false;
 
@@ -119,6 +142,11 @@ export async function drainAiJobQueue(
   limit = 5,
   opts: { source?: string } = {},
 ): Promise<{ processed: number }> {
+  try {
+    await cleanSlipTempDirs();
+  } catch {
+    /* best-effort */
+  }
   let processed = 0;
   for (let i = 0; i < limit; i++) {
     const did = await processOneAiJob();

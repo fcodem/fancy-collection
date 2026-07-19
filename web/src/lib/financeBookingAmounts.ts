@@ -1,8 +1,7 @@
 import prisma from "./prisma";
 import { balanceLeftToCollect } from "./bookingDetails";
 
-/** Dedicated finance category for custom-made orders (non-inventory). */
-export const CUSTOM_ORDERS_CATEGORY = "Custom Orders";
+export { CUSTOM_ORDERS_CATEGORY } from "./finance/constants";
 
 export type OrderAmountRow = {
   cost: number;

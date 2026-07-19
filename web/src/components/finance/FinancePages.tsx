@@ -7,7 +7,7 @@ import { fetchFinanceJson } from "@/components/finance/financeFetch";
 import { FinanceCategorySaleTable } from "@/components/finance/FinanceCategorySaleTable";
 import { FinanceInactiveStats } from "@/components/finance/FinanceInactiveStats";
 import { FinanceOrdersSummary } from "@/components/finance/FinanceOrdersSummary";
-import { CUSTOM_ORDERS_CATEGORY } from "@/lib/financeBookingAmounts";
+import { CUSTOM_ORDERS_CATEGORY } from "@/lib/finance/constants";
 import {
   categoryLabelKeys,
   mergeNumberMaps,

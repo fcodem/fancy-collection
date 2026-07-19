@@ -132,6 +132,91 @@ export function generateInternalDressCode(): string {
   return `FC-D-${suffix}`;
 }
 
+type ScanCodeTx = Pick<Prisma.TransactionClient, "clothingItem" | "inventoryScanCode">;
+
+/** Assign one scan code inside an existing inventory transaction (no nested $transaction). */
+export async function assignScanCodeInTx(
+  tx: ScanCodeTx,
+  inventoryId: number,
+  code: string,
+  format: InventoryScanCodeFormat,
+  source: InventoryScanCodeSource,
+) {
+  if (!Number.isSafeInteger(inventoryId) || inventoryId <= 0) {
+    throw new InventoryScanCodeError("A valid inventory item is required.", "INVENTORY_NOT_FOUND");
+  }
+  assertFormat(format);
+  assertSource(source);
+  const normalizedCode = normalizeScanCode(code);
+  const cleanedCode = cleanScanCode(code);
+
+  const inventory = await tx.clothingItem.findUnique({
+    where: { id: inventoryId },
+    select: { id: true },
+  });
+  if (!inventory) {
+    throw new InventoryScanCodeError("Inventory item not found.", "INVENTORY_NOT_FOUND");
+  }
+
+  const existing = await tx.inventoryScanCode.findUnique({ where: { normalizedCode } });
+  if (existing && existing.inventoryId !== inventoryId) {
+    throw new InventoryScanCodeError(DUPLICATE_SCAN_CODE_MESSAGE, "DUPLICATE_SCAN_CODE");
+  }
+  if (existing) {
+    return tx.inventoryScanCode.update({
+      where: { id: existing.id },
+      data: { code: cleanedCode, format, source, active: true },
+    });
+  }
+
+  const hasActiveCode = await tx.inventoryScanCode.findFirst({
+    where: { inventoryId, active: true },
+    select: { id: true },
+  });
+  return tx.inventoryScanCode.create({
+    data: {
+      inventoryId,
+      code: cleanedCode,
+      normalizedCode,
+      format,
+      source,
+      isPrimary: !hasActiveCode,
+    },
+  });
+}
+
+/** Create default QR + Code 128 records during inventory save (same transaction). */
+export async function generateDefaultScanCodesInTx(tx: ScanCodeTx, inventoryId: number): Promise<void> {
+  for (let attempt = 1; attempt <= 5; attempt += 1) {
+    try {
+      await assignScanCodeInTx(
+        tx,
+        inventoryId,
+        generateInternalDressCode(),
+        "QR_CODE",
+        "SYSTEM_GENERATED_QR",
+      );
+      await assignScanCodeInTx(
+        tx,
+        inventoryId,
+        generateInternalDressCode(),
+        "CODE_128",
+        "SYSTEM_GENERATED_BARCODE",
+      );
+      return;
+    } catch (error) {
+      if (
+        error instanceof InventoryScanCodeError &&
+        error.code === "DUPLICATE_SCAN_CODE" &&
+        attempt < 5
+      ) {
+        continue;
+      }
+      throw error;
+    }
+  }
+}
+
 export function createInventoryScanCodeService(db: ScanCodeDb) {
   async function findInventoryByScanCode(rawCode: string) {
     const normalizedCode = normalizeScanCode(rawCode);
