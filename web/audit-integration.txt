@@ -1,6 +1,0 @@
-npm warn Unknown env config "devdir". This will stop working in the next major version of npm. See `npm help npmrc` for supported config options.
-
-> fancy-collection-web@1.0.0 test:integration
-> tsx scripts/run-integration-tests.ts
-
-Integration checks passed
