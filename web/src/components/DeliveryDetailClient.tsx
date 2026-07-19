@@ -312,13 +312,7 @@ export default function DeliveryDetailClient({
     setError("");
     const printWindow = opts?.openPrintSlip ? openBlankPrintTab() : null;
 
-    if (!(await flushPendingIdPhotos())) {
-      printWindow?.close();
-      setSaving(false);
-      op.fail();
-      setError("Could not save ID photos. Try Save ID Photos, then deliver again.");
-      return;
-    }
+    await flushPendingIdPhotos();
 
     const payload = {
       operation_id: operationId,
@@ -392,13 +386,7 @@ export default function DeliveryDetailClient({
     setError("");
     const printWindow = opts?.openPrintSlip ? openBlankPrintTab() : null;
 
-    if (!(await flushPendingIdPhotos())) {
-      printWindow?.close();
-      setSaving(false);
-      op.fail();
-      setError("Could not save ID photos. Try Save ID Photos, then deliver again.");
-      return;
-    }
+    await flushPendingIdPhotos();
 
     const payload = {
       operation_id: operationId,
@@ -510,7 +498,9 @@ export default function DeliveryDetailClient({
     }
   }
 
-  async function saveIdPhotos(files?: { slot1?: File | null; slot2?: File | null }): Promise<boolean> {
+  async function saveIdPhotos(
+    files?: { slot1?: File | null; slot2?: File | null },
+  ): Promise<{ ok: true } | { ok: false; message: string }> {
     // Ignore accidental click Event if someone wires onClick={saveIdPhotos}.
     const isEventLike =
       !!files &&
@@ -520,8 +510,9 @@ export default function DeliveryDetailClient({
     const f1 = payload && "slot1" in payload ? payload.slot1 ?? null : idPhoto1File;
     const f2 = payload && "slot2" in payload ? payload.slot2 ?? null : idPhoto2File;
     if (!f1 && !f2) {
-      setIdPhotoMessage("Choose at least one photo to upload.");
-      return false;
+      const message = "Choose at least one photo to upload.";
+      setIdPhotoMessage(message);
+      return { ok: false, message };
     }
     setSavingIdPhotos(true);
     setIdPhotoMessage("");
@@ -536,8 +527,9 @@ export default function DeliveryDetailClient({
       });
       const data = await res.json();
       if (!res.ok) {
-        setIdPhotoMessage(data.error || "Failed to save ID photos");
-        return false;
+        const message = data.error || "Failed to save ID photos";
+        setIdPhotoMessage(message);
+        return { ok: false, message };
       }
       if (data.id_photo_1) setSavedIdPhoto1(data.id_photo_1);
       if (data.id_photo_2) setSavedIdPhoto2(data.id_photo_2);
@@ -548,25 +540,30 @@ export default function DeliveryDetailClient({
       setIdPhoto1Preview(null);
       setIdPhoto2Preview(null);
       setIdPhotoMessage("ID photos saved — they will show on the return page.");
-      return true;
+      return { ok: true };
     } catch (e) {
-      const msg =
+      const message =
         e instanceof Error
           ? e.message
           : typeof e === "object" && e && "message" in e
             ? String((e as { message: unknown }).message)
             : "Failed to save ID photos";
-      setIdPhotoMessage(msg);
-      return false;
+      setIdPhotoMessage(message);
+      return { ok: false, message };
     } finally {
       setSavingIdPhotos(false);
     }
   }
 
-  /** Persist any unsaved ID captures before marking delivered. */
-  async function flushPendingIdPhotos(): Promise<boolean> {
-    if (!idPhoto1File && !idPhoto2File) return true;
-    return saveIdPhotos();
+  /** Best-effort upload before delivery. ID photos are optional — never block deliver. */
+  async function flushPendingIdPhotos(): Promise<void> {
+    if (!idPhoto1File && !idPhoto2File) return;
+    const result = await saveIdPhotos();
+    if (result.ok) return;
+    toast(
+      `${result.message} Delivery will continue — tap Save ID Photos to retry before you leave.`,
+      "info",
+    );
   }
 
   function onIdPhotoChange(slot: 1 | 2, file: File | null) {

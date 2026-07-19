@@ -221,13 +221,31 @@ export async function deleteUploads(stored: Array<string | null | undefined>): P
   await Promise.all(stored.map((s) => deleteUpload(s)));
 }
 
-export async function saveIdProofUpload(file: File): Promise<string> {
+function assertIdProofFile(file: File, raw: Buffer): void {
   const ext = extFromName(file.name);
-  if (!ALLOWED_EXTENSIONS.includes(ext)) throw new Error("Invalid file type");
+  if (!ALLOWED_EXTENSIONS.includes(ext) && !String(file.type || "").startsWith("image/")) {
+    throw new Error("Invalid file type");
+  }
   if (file.size > 5 * 1024 * 1024) {
     throw new Error("ID proof must be under 5 MB.");
   }
+  if (!raw.length) throw new Error("Empty ID proof file.");
+}
+
+/** Private customer ID proof — never stored in public catalogue paths. */
+export async function saveIdProofUpload(file: File): Promise<string> {
   const raw = Buffer.from(await file.arrayBuffer());
+  assertIdProofFile(file, raw);
+
+  // Tablet camera captures are often multi-MB. Running sharp on Vercel serverless
+  // can OOM and fail delivery even though ID photos are optional.
+  if (process.env.VERCEL) {
+    const ext = extFromName(file.name);
+    const outExt = ALLOWED_EXTENSIONS.includes(ext) ? (ext === "jpeg" ? "jpg" : ext) : "jpg";
+    const filename = `${randomUUID().replace(/-/g, "")}.${outExt}`;
+    return storeBuffer(raw, `id-proofs/${filename}`, { access: "private" });
+  }
+
   const meta = await sharp(raw, { failOn: "none", limitInputPixels: 40_000_000 }).metadata();
   if (!meta.format || !["jpeg", "jpg", "png", "webp"].includes(meta.format)) {
     throw new Error("ID proof must be a valid image file.");
@@ -235,6 +253,5 @@ export async function saveIdProofUpload(file: File): Promise<string> {
   if ((meta.width || 0) > 8000 || (meta.height || 0) > 8000) {
     throw new Error("ID proof image dimensions are too large.");
   }
-  // Private Blob (or local path). Never use public catalogue storage for ID documents.
   return saveCompressedFromBuffer(raw, "id-proofs", { access: "private" });
 }
