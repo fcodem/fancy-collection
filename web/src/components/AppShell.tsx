@@ -92,6 +92,7 @@ const ALL_NAV = [
 function pageTitle(pathname: string) {
   const exact = ALL_NAV.find((n) => n.href === pathname);
   if (exact) return exact.label;
+  if (pathname.startsWith("/inventory/search/scan")) return "Scan Dress Availability";
   if (pathname.startsWith("/ai-features")) return "AI Features";
   if (pathname.startsWith("/search-qr")) return "Search QR Code";
   if (pathname.startsWith("/late-return")) return "Late Returns";

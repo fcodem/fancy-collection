@@ -331,7 +331,6 @@ export function createScannedDressAvailabilityService(db: AvailabilityDb) {
             color: true,
             status: true,
             thumbnailPhoto: true,
-            photo: true,
           },
         },
       },
@@ -357,7 +356,7 @@ export function createScannedDressAvailabilityService(db: AvailabilityDb) {
       size: inventory.size,
       color: inventory.color,
       status: inventory.status,
-      thumbnailUrl: inventory.thumbnailPhoto || inventory.photo || null,
+      thumbnailUrl: inventory.thumbnailPhoto || null,
     };
 
     // 2. Inventory lifecycle states end the check before any booking query.

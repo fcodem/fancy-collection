@@ -356,6 +356,7 @@ export class QrCameraSession {
   private videoEl: HTMLVideoElement | null = null;
   private detector: BarcodeDetectorLike | null = null;
   private scanActive = false;
+  private paused = false;
   private rafId = 0;
   private lastScanAt = 0;
 
@@ -527,12 +528,13 @@ export class QrCameraSession {
   ): void {
     if (!this.detector || !this.videoEl) return;
     this.scanActive = true;
+    this.paused = false;
     this.lastScanAt = 0;
 
     const tick = async (now: number) => {
       if (!this.scanActive || !this.detector || !this.videoEl) return;
 
-      if (now - this.lastScanAt >= SCAN_INTERVAL_MS && this.videoEl.readyState >= 2) {
+      if (!this.paused && now - this.lastScanAt >= SCAN_INTERVAL_MS && this.videoEl.readyState >= 2) {
         this.lastScanAt = now;
         try {
           const codes = await this.detector.detect(this.videoEl);
@@ -747,6 +749,29 @@ export class QrCameraSession {
     return this.getStatus();
   }
 
+  /**
+   * Pause decode work while leaving the active media stream/camera session
+   * alive. This avoids a permission prompt or camera restart between scans.
+   */
+  pause(): void {
+    this.paused = true;
+    try {
+      this.scanner?.pause(true);
+    } catch {
+      /* html5-qrcode may already be paused/stopped */
+    }
+  }
+
+  /** Resume decoding on the existing stream without reopening the camera. */
+  resume(): void {
+    this.paused = false;
+    try {
+      this.scanner?.resume();
+    } catch {
+      /* native engine or html5-qrcode not currently paused */
+    }
+  }
+
   async switchCamera(
     onDecode: (text: string, format?: DetectedBarcodeFormat) => void,
   ): Promise<ScannerStatus> {
@@ -763,6 +788,7 @@ export class QrCameraSession {
   }
 
   async stop(): Promise<void> {
+    this.paused = false;
     await this.disposeAll();
     this.devices = [];
     this.deviceIndex = 0;
