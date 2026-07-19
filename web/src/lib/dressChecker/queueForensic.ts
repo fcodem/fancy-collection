@@ -3,7 +3,7 @@
  */
 import prisma from "@/lib/prisma";
 import { isPgvectorAvailable } from "@/lib/ai/pgvector";
-import { getAiJobQueueStats, AI_JOB_STATUS } from "./aiJobQueue";
+import { getAiJobQueueStats, AI_JOB_STATUS } from "./aiJobClient";
 import { getDurableWorkerHealth } from "./workerHeartbeat";
 
 const STUCK_MS = 8 * 60 * 1000;

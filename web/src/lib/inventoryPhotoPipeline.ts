@@ -2,7 +2,7 @@ import prisma from "./prisma";
 import { broadcastShopEvent } from "./realtime/broadcast";
 import { photoUrl } from "./photoUrl";
 import type { PipelineStage, PipelineStatus } from "./inventoryPhotoPipelineTypes";
-import { enqueueInventoryAiJob } from "./dressChecker/aiJobQueue";
+import { enqueueInventoryAiJob } from "./dressChecker/aiJobClient";
 export type { PipelineStage, PipelineStatus } from "./inventoryPhotoPipelineTypes";
 
 export function computePipelineStatus(item: {

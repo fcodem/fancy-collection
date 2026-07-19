@@ -21,7 +21,7 @@ import {
   upsertInventoryAiFingerprint,
 } from "./inventoryAiFingerprint";
 import { indexImageBuffers } from "./indexingService";
-import { enqueueInventoryAiJob } from "./aiJobQueue";
+import { enqueueInventoryAiJob } from "./aiJobClient";
 
 export { DRESS_CHECKER_FINGERPRINT_VERSION, DRESS_CHECKER_ENGINE_VERSION };
 

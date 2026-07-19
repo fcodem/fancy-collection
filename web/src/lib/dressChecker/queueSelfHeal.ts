@@ -7,7 +7,7 @@ import {
   resumeFailedAiJobs,
   resumeDeadLetterAiJobs,
   getAiJobQueueStats,
-} from "./aiJobQueue";
+} from "./aiJobClient";
 import { drainAiJobQueue, startAiJobWorker } from "./aiJobWorker";
 import { recoverStuckAiJobs, runQueueWatchdog } from "./deploymentSafety";
 import { touchDurableWorkerHeartbeat, getDurableWorkerHealth } from "./workerHeartbeat";
