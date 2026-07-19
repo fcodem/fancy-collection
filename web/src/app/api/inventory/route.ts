@@ -250,8 +250,10 @@ export async function POST(req: NextRequest) {
       }
       for (const id of result.ids) {
         try {
-          await assignScanCodeToInventory(id, generateInternalDressCode(), "QR_CODE", "SYSTEM_GENERATED_QR");
-          await assignScanCodeToInventory(id, generateInternalDressCode(), "CODE_128", "SYSTEM_GENERATED_BARCODE");
+          await Promise.all([
+            assignScanCodeToInventory(id, generateInternalDressCode(), "QR_CODE", "SYSTEM_GENERATED_QR"),
+            assignScanCodeToInventory(id, generateInternalDressCode(), "CODE_128", "SYSTEM_GENERATED_BARCODE"),
+          ]);
         } catch (e) {
           console.error("[inventory POST] auto scan-code generation failed for item", id, e);
         }

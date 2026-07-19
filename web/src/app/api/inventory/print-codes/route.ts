@@ -13,7 +13,7 @@ export async function GET(req: NextRequest) {
   const category = searchParams.get("category") || undefined;
   const all = searchParams.get("all") === "1";
 
-  const where: Record<string, unknown> = { status: "available" };
+  const where: Record<string, unknown> = {};
   if (ids.length && !all) {
     where.id = { in: ids };
   }
@@ -37,7 +37,6 @@ export async function GET(req: NextRequest) {
       },
     },
     orderBy: [{ category: "asc" }, { name: "asc" }],
-    take: all ? 500 : (ids.length || 500),
   });
 
   return jsonOk({ items });

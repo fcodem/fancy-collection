@@ -1,8 +1,8 @@
 import { redirect } from "next/navigation";
-import { getCurrentUser, isOwner } from "@/lib/auth";
+import { getCurrentUserForLayout, isOwner } from "@/lib/auth";
 
 export default async function FinanceLayout({ children }: { children: React.ReactNode }) {
-  const user = await getCurrentUser();
+  const user = await getCurrentUserForLayout();
   if (!user) redirect("/login");
   if (!isOwner(user)) redirect("/");
 

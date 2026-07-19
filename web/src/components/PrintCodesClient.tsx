@@ -106,7 +106,12 @@ export default function PrintCodesClient() {
           }
           body { margin: 0; padding: 0; }
           .no-print { display: none !important; }
-          .print-area { display: block !important; }
+          .print-area {
+            display: block !important;
+            position: static !important;
+            left: auto !important;
+            top: auto !important;
+          }
           .label-page {
             width: 210mm;
             height: 296mm;
@@ -303,7 +308,7 @@ export default function PrintCodesClient() {
         </div>
 
         {/* Print area — only visible during print */}
-        <div className="hidden print-area">
+        <div className="print-area" style={{ position: "fixed", left: "-9999px", top: 0 }}>
           {pages.map((page, pageIdx) => (
             <div key={pageIdx} className="label-page">
               {page.map((item, slotIdx) => (
