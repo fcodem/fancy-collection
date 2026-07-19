@@ -1,0 +1,546 @@
+{
+  "generatedAt": "2026-07-19T11:15:42.661Z",
+  "label": "final-candidate",
+  "buildDurationMs": 142220,
+  "metrics": {
+    "deployedFunctionCount": 85,
+    "functionCount": 297,
+    "apiFunctionCount": 202,
+    "pageFunctionCount": 95,
+    "traceCount": 303,
+    "largestFunction": {
+      "route": "app/api/cron/ai-job-worker",
+      "bytes": 347253496,
+      "fileCount": 482
+    },
+    "uniqueTracedBytes": 491878157,
+    "nextOutputBytes": 918165977,
+    "buildCacheBytes": 875878739,
+    "publicBytes": 237396979,
+    "runtimeDataTracedFiles": 215,
+    "runtimeDataTracedBytes": 236424046
+  },
+  "routes": {
+    "chromium": [
+      "app/api/internal/slip/render"
+    ],
+    "aiNative": [
+      "app/api/admin/ai/enhancement/reset-all",
+      "app/api/admin/ai/enhancement/retry",
+      "app/api/admin/ai/settings",
+      "app/api/admin/ai-debug",
+      "app/api/admin/ai-health",
+      "app/api/admin/ai-indexing",
+      "app/api/admin/dress-checker/confirm-same-dress",
+      "app/api/admin/dress-checker/corrections/export",
+      "app/api/admin/dress-checker/feedback",
+      "app/api/admin/dress-checker/lifecycle",
+      "app/api/admin/dress-checker-debug",
+      "app/api/admin/index-dress-photos",
+      "app/api/admin/inventory-ai-profile/[id]/refresh-embeddings",
+      "app/api/admin/inventory-ai-profile/[id]/refresh-fingerprints",
+      "app/api/admin/inventory-ai-profile/[id]/refresh-metadata",
+      "app/api/admin/inventory-ai-profile/[id]/regenerate",
+      "app/api/admin/recognition/compare",
+      "app/api/admin/recognition/queue",
+      "app/api/admin/recognition/rebuild",
+      "app/api/admin/recognition/retry-failed",
+      "app/api/admin/recognition/search-diagnostics",
+      "app/api/cron/ai-job-worker",
+      "app/api/cron/ai-queue-watchdog",
+      "app/api/cron/dress-checker-repair",
+      "app/api/dress-checker/correction",
+      "app/api/inventory/duplicate-check",
+      "app/api/inventory/photo-search"
+    ],
+    "sharp": [
+      "../next-server",
+      "app/api/admin/ai/enhancement/reset-all",
+      "app/api/admin/ai/enhancement/retry",
+      "app/api/admin/ai/settings",
+      "app/api/admin/ai-debug",
+      "app/api/admin/ai-health",
+      "app/api/admin/ai-indexing/forensic",
+      "app/api/admin/ai-indexing",
+      "app/api/admin/dress-checker/confirm-same-dress",
+      "app/api/admin/dress-checker/corrections/export",
+      "app/api/admin/dress-checker/feedback",
+      "app/api/admin/dress-checker/lifecycle",
+      "app/api/admin/dress-checker-debug",
+      "app/api/admin/image-sync",
+      "app/api/admin/index-dress-photos",
+      "app/api/admin/inventory-ai-profile/[id]/refresh-embeddings",
+      "app/api/admin/inventory-ai-profile/[id]/refresh-fingerprints",
+      "app/api/admin/inventory-ai-profile/[id]/refresh-metadata",
+      "app/api/admin/inventory-ai-profile/[id]/regenerate",
+      "app/api/admin/recognition/compare",
+      "app/api/admin/recognition/diagnostics",
+      "app/api/admin/recognition/queue",
+      "app/api/admin/recognition/rebuild",
+      "app/api/admin/recognition/retry-failed",
+      "app/api/admin/recognition/search-diagnostics",
+      "app/api/admin/recognition/[id]/fingerprint",
+      "app/api/admin/test-all-slips",
+      "app/api/ai-tools/catalog-generator",
+      "app/api/ai-tools/catalog-generator/save",
+      "app/api/ai-tools/image-enhancer/preview",
+      "app/api/ai-tools/image-enhancer/save",
+      "app/api/booking/date-check",
+      "app/api/booking/[id]/cancel",
+      "app/api/booking/[id]/items/[itemId]/cancel",
+      "app/api/booking/[id]",
+      "app/api/booking-delivery/[id]/id-photos",
+      "app/api/booking-delivery/[id]/save",
+      "app/api/cron/ai-job-worker",
+      "app/api/cron/ai-queue-watchdog",
+      "app/api/cron/blob-cleanup",
+      "app/api/cron/dress-checker-repair",
+      "app/api/dashboard/free-items",
+      "app/api/dress-checker/correction",
+      "app/api/health",
+      "app/api/incomplete-return/[id]/resolve",
+      "app/api/inventory/duplicate-check",
+      "app/api/inventory/photo-search",
+      "app/api/inventory",
+      "app/api/inventory/[id]",
+      "app/api/jewellery-selection/[id]/add",
+      "app/api/jewellery-selection/[id]/available",
+      "app/api/jewellery-selection/[id]/photo",
+      "app/api/jewellery-selection/[id]/remove",
+      "app/api/packing-list/save-item",
+      "app/api/recycle-bin",
+      "app/api/recycle-bin/[id]/restore",
+      "app/api/recycle-bin/[id]/restore-check",
+      "app/api/recycle-bin/[id]",
+      "app/api/return/[id]/save",
+      "app/api/returning-today",
+      "app/api/uploads/order-photo",
+      "app/booking-delivery/[id]",
+      "app/jewellery-selection/[id]"
+    ],
+    "pdf": [
+      "app/api/internal/slip/render"
+    ]
+  },
+  "largestFunctions": [
+    {
+      "route": "app/api/cron/ai-job-worker",
+      "bytes": 347253496,
+      "fileCount": 482
+    },
+    {
+      "route": "app/api/cron/ai-queue-watchdog",
+      "bytes": 347253326,
+      "fileCount": 482
+    },
+    {
+      "route": "app/api/cron/dress-checker-repair",
+      "bytes": 347248491,
+      "fileCount": 482
+    },
+    {
+      "route": "app/api/admin/ai-health",
+      "bytes": 346255108,
+      "fileCount": 468
+    },
+    {
+      "route": "app/api/admin/ai/settings",
+      "bytes": 346253352,
+      "fileCount": 468
+    },
+    {
+      "route": "app/api/admin/recognition/rebuild",
+      "bytes": 346252016,
+      "fileCount": 468
+    },
+    {
+      "route": "app/api/admin/inventory-ai-profile/[id]/refresh-fingerprints",
+      "bytes": 346251536,
+      "fileCount": 468
+    },
+    {
+      "route": "app/api/admin/inventory-ai-profile/[id]/refresh-embeddings",
+      "bytes": 346251535,
+      "fileCount": 468
+    },
+    {
+      "route": "app/api/admin/ai/enhancement/reset-all",
+      "bytes": 346251529,
+      "fileCount": 468
+    },
+    {
+      "route": "app/api/admin/inventory-ai-profile/[id]/refresh-metadata",
+      "bytes": 346251494,
+      "fileCount": 468
+    },
+    {
+      "route": "app/api/admin/inventory-ai-profile/[id]/regenerate",
+      "bytes": 346251428,
+      "fileCount": 468
+    },
+    {
+      "route": "app/api/admin/ai/enhancement/retry",
+      "bytes": 346251372,
+      "fileCount": 468
+    },
+    {
+      "route": "app/api/admin/recognition/retry-failed",
+      "bytes": 346251105,
+      "fileCount": 468
+    },
+    {
+      "route": "app/api/admin/recognition/queue",
+      "bytes": 346250866,
+      "fileCount": 468
+    },
+    {
+      "route": "app/api/inventory/photo-search",
+      "bytes": 345910262,
+      "fileCount": 473
+    },
+    {
+      "route": "app/api/admin/recognition/search-diagnostics",
+      "bytes": 345909571,
+      "fileCount": 473
+    },
+    {
+      "route": "app/api/admin/ai-debug",
+      "bytes": 345906365,
+      "fileCount": 468
+    },
+    {
+      "route": "app/api/admin/dress-checker-debug",
+      "bytes": 345905350,
+      "fileCount": 468
+    },
+    {
+      "route": "app/api/admin/ai-indexing",
+      "bytes": 345879469,
+      "fileCount": 466
+    },
+    {
+      "route": "app/api/dress-checker/correction",
+      "bytes": 345855108,
+      "fileCount": 462
+    },
+    {
+      "route": "app/api/admin/dress-checker/corrections/export",
+      "bytes": 345854094,
+      "fileCount": 462
+    },
+    {
+      "route": "app/api/admin/dress-checker/lifecycle",
+      "bytes": 345848085,
+      "fileCount": 460
+    },
+    {
+      "route": "app/api/admin/index-dress-photos",
+      "bytes": 345846771,
+      "fileCount": 460
+    },
+    {
+      "route": "app/api/inventory/duplicate-check",
+      "bytes": 345840992,
+      "fileCount": 459
+    },
+    {
+      "route": "app/api/admin/dress-checker/feedback",
+      "bytes": 345804936,
+      "fileCount": 460
+    },
+    {
+      "route": "app/api/admin/dress-checker/confirm-same-dress",
+      "bytes": 345804278,
+      "fileCount": 460
+    },
+    {
+      "route": "app/api/booking/[id]",
+      "bytes": 300425027,
+      "fileCount": 436
+    },
+    {
+      "route": "app/api/return/[id]/save",
+      "bytes": 300366368,
+      "fileCount": 435
+    },
+    {
+      "route": "app/api/admin/test-all-slips",
+      "bytes": 300365711,
+      "fileCount": 435
+    },
+    {
+      "route": "app/api/booking-delivery/[id]/save",
+      "bytes": 300360646,
+      "fileCount": 435
+    }
+  ],
+  "topFiles": [
+    {
+      "file": "node_modules/@sparticuz/chromium/bin/chromium.br",
+      "bytes": 64795438
+    },
+    {
+      "file": "node_modules/.prisma/client/query_engine-windows.dll.node",
+      "bytes": 21182976
+    },
+    {
+      "file": "node_modules/next/node_modules/@img/sharp-win32-x64/lib/libvips-42.dll",
+      "bytes": 19112960
+    },
+    {
+      "file": "node_modules/@xenova/transformers/node_modules/sharp/build/Release/libvips-42.dll",
+      "bytes": 19082240
+    },
+    {
+      "file": "node_modules/@xenova/transformers/node_modules/sharp/vendor/8.14.5/win32-x64/lib/libvips-42.dll",
+      "bytes": 19082240
+    },
+    {
+      "file": "node_modules/@img/sharp-win32-x64/lib/libvips-42.dll",
+      "bytes": 18956288
+    },
+    {
+      "file": "node_modules/.prisma/client/libquery_engine-rhel-openssl-3.0.x.so.node",
+      "bytes": 17547808
+    },
+    {
+      "file": "node_modules/onnxruntime-node/bin/napi-v3/win32/arm64/onnxruntime.dll",
+      "bytes": 9301912
+    },
+    {
+      "file": "node_modules/onnxruntime-node/bin/napi-v3/win32/x64/onnxruntime.dll",
+      "bytes": 9271704
+    },
+    {
+      "file": "public/booking-bills/BK-015337.pdf",
+      "bytes": 7441815
+    },
+    {
+      "file": "public/uploads/booking-bills/BK-015356.pdf",
+      "bytes": 6405746
+    },
+    {
+      "file": "public/uploads/studio/1041-transparent.png",
+      "bytes": 5736220
+    },
+    {
+      "file": "public/uploads/booking-bills/BK-015363.pdf",
+      "bytes": 5332351
+    },
+    {
+      "file": "public/uploads/booking-bills/BK-015357.pdf",
+      "bytes": 5276539
+    },
+    {
+      "file": "public/uploads/booking-bills/BK-015359.pdf",
+      "bytes": 4990801
+    },
+    {
+      "file": "public/uploads/originals/182d98e833234322af1864c0bba308d1.jpg",
+      "bytes": 4894704
+    },
+    {
+      "file": "public/uploads/originals/a524c80933f4438f899656fc4b321a78.jpg",
+      "bytes": 4894704
+    },
+    {
+      "file": "public/uploads/originals/75b560e406e04503b07ec4a694b0c1c5.jpg",
+      "bytes": 4838084
+    },
+    {
+      "file": "public/uploads/originals/9ab2e7c693bc4c378f5e49edfd625eba.jpg",
+      "bytes": 4553033
+    },
+    {
+      "file": "public/uploads/booking-bills/BK-015358.pdf",
+      "bytes": 4543324
+    },
+    {
+      "file": "public/uploads/booking-bills/BK-015361.pdf",
+      "bytes": 4541005
+    },
+    {
+      "file": "public/uploads/booking-bills/BK-015360.pdf",
+      "bytes": 4532111
+    },
+    {
+      "file": "public/uploads/dress-checker-corrections/0f8b5be2105e4cb5bb6c962494e2bfeb.jpg",
+      "bytes": 4158724
+    },
+    {
+      "file": "public/uploads/dress-checker-corrections/23fcbf348fe849c193776b414220674b.jpg",
+      "bytes": 4158724
+    },
+    {
+      "file": "public/uploads/dress-checker-corrections/3596d5d6e26a486f8be1c87e65e1350d.jpg",
+      "bytes": 4158724
+    },
+    {
+      "file": "public/uploads/dress-checker-corrections/d750c1b3765c48829e7ebfe134fdf78d.jpg",
+      "bytes": 4158724
+    },
+    {
+      "file": "public/uploads/dress-checker-corrections/03e86cc5817a443f8f88e95c9bab9198.jpg",
+      "bytes": 4111230
+    },
+    {
+      "file": "public/uploads/dress-checker-corrections/0b4a290c0e664fe3b23f498cf5ae67c5.jpg",
+      "bytes": 4111230
+    },
+    {
+      "file": "public/uploads/dress-checker-corrections/3bb8ffa1de724e20bb117e5f64ab384c.jpg",
+      "bytes": 4111230
+    },
+    {
+      "file": "public/uploads/dress-checker-corrections/435e21e50f3c4c79b4ea948631111e46.jpg",
+      "bytes": 4111230
+    }
+  ],
+  "publicFiles": [
+    {
+      "file": "public/booking-bills/BK-015337.pdf",
+      "bytes": 7441815
+    },
+    {
+      "file": "public/uploads/booking-bills/BK-015356.pdf",
+      "bytes": 6405746
+    },
+    {
+      "file": "public/uploads/studio/1041-transparent.png",
+      "bytes": 5736220
+    },
+    {
+      "file": "public/uploads/booking-bills/BK-015363.pdf",
+      "bytes": 5332351
+    },
+    {
+      "file": "public/uploads/booking-bills/BK-015357.pdf",
+      "bytes": 5276539
+    },
+    {
+      "file": "public/uploads/booking-bills/BK-015359.pdf",
+      "bytes": 4990801
+    },
+    {
+      "file": "public/uploads/originals/182d98e833234322af1864c0bba308d1.jpg",
+      "bytes": 4894704
+    },
+    {
+      "file": "public/uploads/originals/a524c80933f4438f899656fc4b321a78.jpg",
+      "bytes": 4894704
+    },
+    {
+      "file": "public/uploads/originals/75b560e406e04503b07ec4a694b0c1c5.jpg",
+      "bytes": 4838084
+    },
+    {
+      "file": "public/uploads/originals/9ab2e7c693bc4c378f5e49edfd625eba.jpg",
+      "bytes": 4553033
+    },
+    {
+      "file": "public/uploads/booking-bills/BK-015358.pdf",
+      "bytes": 4543324
+    },
+    {
+      "file": "public/uploads/booking-bills/BK-015361.pdf",
+      "bytes": 4541005
+    },
+    {
+      "file": "public/uploads/booking-bills/BK-015360.pdf",
+      "bytes": 4532111
+    },
+    {
+      "file": "public/uploads/dress-checker-corrections/0f8b5be2105e4cb5bb6c962494e2bfeb.jpg",
+      "bytes": 4158724
+    },
+    {
+      "file": "public/uploads/dress-checker-corrections/23fcbf348fe849c193776b414220674b.jpg",
+      "bytes": 4158724
+    },
+    {
+      "file": "public/uploads/dress-checker-corrections/3596d5d6e26a486f8be1c87e65e1350d.jpg",
+      "bytes": 4158724
+    },
+    {
+      "file": "public/uploads/dress-checker-corrections/d750c1b3765c48829e7ebfe134fdf78d.jpg",
+      "bytes": 4158724
+    },
+    {
+      "file": "public/uploads/dress-checker-corrections/03e86cc5817a443f8f88e95c9bab9198.jpg",
+      "bytes": 4111230
+    },
+    {
+      "file": "public/uploads/dress-checker-corrections/0b4a290c0e664fe3b23f498cf5ae67c5.jpg",
+      "bytes": 4111230
+    },
+    {
+      "file": "public/uploads/dress-checker-corrections/3bb8ffa1de724e20bb117e5f64ab384c.jpg",
+      "bytes": 4111230
+    },
+    {
+      "file": "public/uploads/dress-checker-corrections/435e21e50f3c4c79b4ea948631111e46.jpg",
+      "bytes": 4111230
+    },
+    {
+      "file": "public/uploads/dress-checker-corrections/562e3cb89aaf44619fbac0d9a81d85d4.jpg",
+      "bytes": 4111230
+    },
+    {
+      "file": "public/uploads/dress-checker-corrections/7ac2ea4289a44e8ea06d1122909a1220.jpg",
+      "bytes": 4111230
+    },
+    {
+      "file": "public/uploads/dress-checker-corrections/a2a15336fe0642f38683fcaa3c24872c.jpg",
+      "bytes": 4111230
+    },
+    {
+      "file": "public/uploads/dress-checker-corrections/a4acf8b54f064e818770d29ee99ddda1.jpg",
+      "bytes": 4111230
+    },
+    {
+      "file": "public/uploads/dress-checker-corrections/dbc04693ef7144ffa78b95454f99669a.jpg",
+      "bytes": 4111230
+    },
+    {
+      "file": "public/uploads/dress-checker-corrections/e4f20958986e485cbb28e99a5db35919.jpg",
+      "bytes": 4111230
+    },
+    {
+      "file": "public/uploads/dress-checker-corrections/f427052fd1a04ad4ac7b6489252f81a0.jpg",
+      "bytes": 4111230
+    },
+    {
+      "file": "public/uploads/originals/240ec5f73c4b4d548ae539704ad7ea72.jpg",
+      "bytes": 4094553
+    },
+    {
+      "file": "public/uploads/studio/1036-transparent.png",
+      "bytes": 3954923
+    }
+  ],
+  "baseline": {
+    "path": "docs/bundle-baseline.json",
+    "metrics": {
+      "functionCount": 297,
+      "apiFunctionCount": 202,
+      "pageFunctionCount": 95,
+      "traceCount": 303,
+      "largestFunction": {
+        "route": "app/api/cron/ai-job-worker",
+        "bytes": 452019039,
+        "fileCount": 599
+      },
+      "uniqueTracedBytes": 607319354,
+      "nextOutputBytes": 967719238,
+      "buildCacheBytes": 920690647,
+      "publicBytes": 237399953
+    },
+    "delta": {
+      "functionCount": 0,
+      "uniqueTracedBytes": -115441197,
+      "nextOutputBytes": -49553261,
+      "buildCacheBytes": -44811908,
+      "publicBytes": -2974
+    }
+  }
+}

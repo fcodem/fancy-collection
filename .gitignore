@@ -56,6 +56,8 @@ web/public/worker-*.js
 
 # Runtime data / user uploads (not source code)
 web/public/uploads/
+web/public/booking-bills/
+web/public/admin-forensics/
 **/static/uploads/
 db-backups/
 .vercel

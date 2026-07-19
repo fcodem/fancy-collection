@@ -57,7 +57,7 @@ describe("AI worker resilience contracts", () => {
 
 describe("website health decoupled from AI", () => {
   it("website/overall health depends on the database, not AI degradation", () => {
-    const dep = read("src/lib/dressChecker/deploymentSafety.ts");
+    const dep = read("src/lib/dressChecker/publicHealthStatus.ts");
     assert.match(dep, /const websiteOk = dbOk;/);
     assert.match(dep, /ok: websiteOk,/);
     assert.match(dep, /website: websiteOk \? "OK" : "DOWN"/);

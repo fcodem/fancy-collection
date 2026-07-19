@@ -139,20 +139,6 @@ async function launchFreshBrowser(): Promise<Browser> {
     return launchServerlessBrowser();
   }
 
-  try {
-    const puppeteer = await import("puppeteer");
-    const execPath = puppeteer.default.executablePath();
-    if (execPath && fs.existsSync(execPath)) {
-      return puppeteer.default.launch({
-        executablePath: execPath,
-        headless: true,
-        args: CHROME_ARGS,
-      });
-    }
-  } catch {
-    // puppeteer full package optional in some installs
-  }
-
   const systemChrome = resolveChromeExecutable();
   if (systemChrome) {
     const puppeteerCore = await import("puppeteer-core");
@@ -164,7 +150,7 @@ async function launchFreshBrowser(): Promise<Browser> {
   }
 
   const hint =
-    "Install Google Chrome, set CHROME_PATH in .env.local, or run: npx puppeteer browsers install chrome";
+    "Install Google Chrome/Edge or set CHROME_PATH in .env.local.";
   throw new Error(`Chrome/Chromium not found for PDF generation. ${hint}`);
 }
 

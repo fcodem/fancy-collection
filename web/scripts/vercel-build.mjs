@@ -218,4 +218,9 @@ if (existsSync(nextBin)) {
   run("next build", bin("next"), ["build"]);
 }
 
+run("server bundle isolation report", process.execPath, [
+  "scripts/analyze-server-bundles.mjs",
+  "--assert-isolation",
+]);
+
 log("done");

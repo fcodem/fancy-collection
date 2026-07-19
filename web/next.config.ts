@@ -23,6 +23,14 @@ const withPWA = withPWAInit({
 
 /** Serverless-Chromium binary needed by the Puppeteer slip renderer. */
 const CHROMIUM_TRACE = "./node_modules/@sparticuz/chromium/**/*";
+const RUNTIME_DATA_EXCLUDES = [
+  "public/uploads/**/*",
+  "public/booking-bills/**/*",
+  "public/admin-forensics/**/*",
+  "test-results/**/*",
+  "playwright-report/**/*",
+  "backups/**/*",
+];
 
 const nextConfig: NextConfig = {
   // Do not ignore ESLint errors during production builds.
@@ -37,27 +45,27 @@ const nextConfig: NextConfig = {
     "prisma",
     "puppeteer-core",
     "@sparticuz/chromium",
-    "puppeteer",
     "@xenova/transformers",
     "onnxruntime-node",
     "sharp",
   ],
-  // Trace Prisma everywhere; Chromium into EXACTLY ONE function.
+  // Chromium is explicitly traced into EXACTLY ONE function.
   //
   // All slip PDF generation delegates to POST /api/internal/slip/render (see
   // slipHtmlPdf.server.ts), so @sparticuz/chromium is bundled only there instead
   // of into ~13 hot API routes. This keeps upload size, build time, cold starts
   // and function-size risk low. NEVER add CHROMIUM_TRACE to any other route.
+  //
+  // Prisma's imports plus PrismaPlugin trace the generated client/engine for the
+  // routes that use it. Do not force the full client into every page and API.
   outputFileTracingIncludes: {
-    "/api/**/*": [
-      "./node_modules/.prisma/client/**/*",
-      "./node_modules/@prisma/client/**/*",
-    ],
     "/api/internal/slip/render": [CHROMIUM_TRACE],
-    "/*": [
-      "./node_modules/.prisma/client/**/*",
-      "./node_modules/@prisma/client/**/*",
-    ],
+  },
+  // Runtime/customer/generated data may exist in a developer's public folder,
+  // but must never be copied into any serverless function trace.
+  outputFileTracingExcludes: {
+    "/api/**/*": RUNTIME_DATA_EXCLUDES,
+    "/*": RUNTIME_DATA_EXCLUDES,
   },
   compress: true,
   images: {

@@ -11,7 +11,7 @@ import { enqueueBlobCleanup } from "@/lib/blobCleanup";
 import { broadcastShopEvent } from "@/lib/realtime/broadcast";
 import { invalidateInventoryCaches } from "@/lib/inventoryCacheTags";
 import { logActivity, snapshotInventory } from "@/lib/activityLog";
-import { onInventoryPhotoRemoved } from "@/lib/dressCheckerIndexing";
+import { cleanupRemovedInventoryPhoto } from "@/lib/dressChecker/photoRemovedCleanup";
 import {
   jsonError,
   jsonOk,
@@ -227,7 +227,13 @@ export async function PUT(req: NextRequest, { params }: { params: Promise<{ id: 
       } as unknown as Record<string, unknown>),
     });
     if (result._photoRemoved) {
-      onInventoryPhotoRemoved(itemId);
+      after(async () => {
+        try {
+          await cleanupRemovedInventoryPhoto(itemId);
+        } catch (error) {
+          console.error("[inventory PUT] post-commit AI cleanup failed:", error);
+        }
+      });
     } else if (result._hasPhoto && result._photoReplaced) {
       after(async () => {
         try {

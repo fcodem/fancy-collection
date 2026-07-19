@@ -40,9 +40,14 @@ describe("Chromium isolation", () => {
   it("traces Chromium into only the internal render function", () => {
     const config = read("next.config.ts");
     assert.match(config, /"\/api\/internal\/slip\/render":\s*\[CHROMIUM_TRACE\]/);
-    // The wildcard bundles must not include the chromium trace.
-    const apiWildcard = config.slice(config.indexOf('"/api/**/*"'), config.indexOf('"/api/internal/slip/render"'));
-    assert.doesNotMatch(apiWildcard, /CHROMIUM_TRACE/);
+    const includes = config.slice(
+      config.indexOf("outputFileTracingIncludes"),
+      config.indexOf("outputFileTracingExcludes"),
+    );
+    assert.equal((includes.match(/CHROMIUM_TRACE/g) ?? []).length, 1);
+    assert.doesNotMatch(includes, /@prisma\/client|\.prisma\/client/);
+    assert.match(config, /outputFileTracingExcludes/);
+    assert.match(config, /public\/uploads\/\*\*\/\*/);
   });
 
   it("only the internal route imports the direct renderer", () => {
@@ -51,6 +56,67 @@ describe("Chromium isolation", () => {
     );
     const rel = importers.map((f) => path.relative(root, f).replace(/\\/g, "/"));
     assert.deepEqual(rel, ["src/app/api/internal/slip/render/route.ts"]);
+  });
+
+  it("does not install the full Puppeteer browser package", () => {
+    const pkg = JSON.parse(read("package.json")) as {
+      dependencies?: Record<string, string>;
+    };
+    assert.equal(pkg.dependencies?.puppeteer, undefined);
+    assert.ok(pkg.dependencies?.["puppeteer-core"]);
+  });
+});
+
+describe("native AI bundle isolation", () => {
+  it("keeps shared instrumentation free of worker/model imports", () => {
+    const instrumentation = read("src/instrumentation.ts");
+    assert.doesNotMatch(
+      instrumentation,
+      /dressChecker|queueSelfHeal|ensureEnhancementSchema|@xenova|onnxruntime/,
+    );
+  });
+
+  it("uses a lightweight health module without the worker graph", () => {
+    const route = read("src/app/api/health/route.ts");
+    const health = read("src/lib/dressChecker/publicHealthStatus.ts");
+    assert.match(route, /dressChecker\/publicHealthStatus/);
+    assert.doesNotMatch(
+      health,
+      /(?:from\s*["'][^"']*(?:aiJobWorker|processInventory|@xenova|onnxruntime)|import\(\s*["'][^"']*(?:aiJobWorker|processInventory|@xenova|onnxruntime))/,
+    );
+  });
+
+  it("keeps photo-removal cleanup out of the recognition worker graph", () => {
+    const route = read("src/app/api/inventory/[id]/route.ts");
+    const cleanup = read("src/lib/dressChecker/photoRemovedCleanup.ts");
+    assert.match(route, /dressChecker\/photoRemovedCleanup/);
+    assert.doesNotMatch(route, /dressCheckerIndexing/);
+    assert.doesNotMatch(
+      cleanup,
+      /(?:from\s*["'][^"']*(?:processInventory|generateProfile|@xenova|onnxruntime)|import\(\s*["'][^"']*(?:processInventory|generateProfile|@xenova|onnxruntime))/,
+    );
+  });
+});
+
+describe("mutations queue slips without waiting for Chromium", () => {
+  it("booking create schedules the durable bill and defers processing", () => {
+    const route = read("src/app/api/booking/route.ts");
+    const orchestration = read("src/lib/services/bookingCreateOrchestration.ts");
+    assert.match(route, /nextAfter: after/);
+    assert.match(orchestration, /scheduleBookingBillInTx/);
+    assert.doesNotMatch(`${route}\n${orchestration}`, /slipHtmlPdfDirect|pdfBrowserPool/);
+  });
+
+  it("delivery and return save queue in-transaction and drain only in after()", () => {
+    for (const file of [
+      "src/app/api/booking-delivery/[id]/save/route.ts",
+      "src/app/api/return/[id]/save/route.ts",
+    ]) {
+      const source = read(file);
+      assert.match(source, /schedule(?:Delivery|Return|Incomplete)SlipInTx/);
+      assert.match(source, /after\(async \(\) =>/);
+      assert.doesNotMatch(source, /slipHtmlPdfDirect|pdfBrowserPool/);
+    }
   });
 });
 

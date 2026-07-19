@@ -33,4 +33,5 @@ function run(label, command, args) {
 
 run("prisma generate", "npx", ["prisma", "generate"]);
 run("copy-assets", "node", ["scripts/copy-assets.mjs"]);
+run("prune unused native platforms", "node", ["scripts/prune-native-packages.mjs"]);
 console.log("[prisma-postinstall] done");

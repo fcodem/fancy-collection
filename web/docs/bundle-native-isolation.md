@@ -1,0 +1,122 @@
+# Server bundle trace report — native-isolation
+
+Generated: 2026-07-19T11:03:08.757Z
+
+## Metrics
+
+- Deployed Node.js functions: 85
+- Local function traces: 297 (202 API, 95 pages)
+- Largest function: app/api/cron/ai-job-worker (331.17 MB)
+- Unique traced server files: 469.15 MB
+- Next output: 877.97 MB
+- Build cache: 837.56 MB
+- Public assets: 226.40 MB
+- Runtime/customer files present in traces: 215 (225.47 MB)
+- Build duration: 133.9 s
+
+## Heavy package routes
+
+- Chromium/Puppeteer (1): app/api/internal/slip/render
+- AI native (29): app/api/admin/ai/enhancement/reset-all, app/api/admin/ai/enhancement/retry, app/api/admin/ai/settings, app/api/admin/ai-debug, app/api/admin/ai-health, app/api/admin/ai-indexing, app/api/admin/dress-checker/confirm-same-dress, app/api/admin/dress-checker/corrections/export, app/api/admin/dress-checker/feedback, app/api/admin/dress-checker/lifecycle, app/api/admin/dress-checker-debug, app/api/admin/index-dress-photos, app/api/admin/inventory-ai-profile/[id]/refresh-embeddings, app/api/admin/inventory-ai-profile/[id]/refresh-fingerprints, app/api/admin/inventory-ai-profile/[id]/refresh-metadata, app/api/admin/inventory-ai-profile/[id]/regenerate, app/api/admin/recognition/compare, app/api/admin/recognition/queue, app/api/admin/recognition/rebuild, app/api/admin/recognition/retry-failed, app/api/admin/recognition/search-diagnostics, app/api/cron/ai-job-worker, app/api/cron/ai-queue-watchdog, app/api/cron/dress-checker-repair, app/api/dress-checker/correction, app/api/inventory/duplicate-check, app/api/inventory/photo-search, app/api/inventory, app/api/inventory/[id]
+- Sharp/native image (63): ../next-server, app/api/admin/ai/enhancement/reset-all, app/api/admin/ai/enhancement/retry, app/api/admin/ai/settings, app/api/admin/ai-debug, app/api/admin/ai-health, app/api/admin/ai-indexing/forensic, app/api/admin/ai-indexing, app/api/admin/dress-checker/confirm-same-dress, app/api/admin/dress-checker/corrections/export, app/api/admin/dress-checker/feedback, app/api/admin/dress-checker/lifecycle, app/api/admin/dress-checker-debug, app/api/admin/image-sync, app/api/admin/index-dress-photos, app/api/admin/inventory-ai-profile/[id]/refresh-embeddings, app/api/admin/inventory-ai-profile/[id]/refresh-fingerprints, app/api/admin/inventory-ai-profile/[id]/refresh-metadata, app/api/admin/inventory-ai-profile/[id]/regenerate, app/api/admin/recognition/compare, app/api/admin/recognition/diagnostics, app/api/admin/recognition/queue, app/api/admin/recognition/rebuild, app/api/admin/recognition/retry-failed, app/api/admin/recognition/search-diagnostics, app/api/admin/recognition/[id]/fingerprint, app/api/admin/test-all-slips, app/api/ai-tools/catalog-generator, app/api/ai-tools/catalog-generator/save, app/api/ai-tools/image-enhancer/preview, app/api/ai-tools/image-enhancer/save, app/api/booking/date-check, app/api/booking/[id]/cancel, app/api/booking/[id]/items/[itemId]/cancel, app/api/booking/[id], app/api/booking-delivery/[id]/id-photos, app/api/booking-delivery/[id]/save, app/api/cron/ai-job-worker, app/api/cron/ai-queue-watchdog, app/api/cron/blob-cleanup, app/api/cron/dress-checker-repair, app/api/dashboard/free-items, app/api/dress-checker/correction, app/api/health, app/api/incomplete-return/[id]/resolve, app/api/inventory/duplicate-check, app/api/inventory/photo-search, app/api/inventory, app/api/inventory/[id], app/api/jewellery-selection/[id]/add, app/api/jewellery-selection/[id]/available, app/api/jewellery-selection/[id]/photo, app/api/jewellery-selection/[id]/remove, app/api/packing-list/save-item, app/api/recycle-bin, app/api/recycle-bin/[id]/restore, app/api/recycle-bin/[id]/restore-check, app/api/recycle-bin/[id], app/api/return/[id]/save, app/api/returning-today, app/api/uploads/order-photo, app/booking-delivery/[id], app/jewellery-selection/[id]
+- PDF packages (1): app/api/internal/slip/render
+
+## Top 30 largest traced deployment files
+
+1. 61.79 MB — `node_modules/@sparticuz/chromium/bin/chromium.br`
+2. 20.20 MB — `node_modules/.prisma/client/query_engine-windows.dll.node`
+3. 18.23 MB — `node_modules/next/node_modules/@img/sharp-win32-x64/lib/libvips-42.dll`
+4. 18.20 MB — `node_modules/@xenova/transformers/node_modules/sharp/build/Release/libvips-42.dll`
+5. 18.20 MB — `node_modules/@xenova/transformers/node_modules/sharp/vendor/8.14.5/win32-x64/lib/libvips-42.dll`
+6. 18.08 MB — `node_modules/@img/sharp-win32-x64/lib/libvips-42.dll`
+7. 16.73 MB — `node_modules/.prisma/client/libquery_engine-rhel-openssl-3.0.x.so.node`
+8. 8.87 MB — `node_modules/onnxruntime-node/bin/napi-v3/win32/arm64/onnxruntime.dll`
+9. 8.84 MB — `node_modules/onnxruntime-node/bin/napi-v3/win32/x64/onnxruntime.dll`
+10. 7.10 MB — `public/booking-bills/BK-015337.pdf`
+11. 6.11 MB — `public/uploads/booking-bills/BK-015356.pdf`
+12. 5.47 MB — `public/uploads/studio/1041-transparent.png`
+13. 5.09 MB — `public/uploads/booking-bills/BK-015363.pdf`
+14. 5.03 MB — `public/uploads/booking-bills/BK-015357.pdf`
+15. 4.76 MB — `public/uploads/booking-bills/BK-015359.pdf`
+16. 4.67 MB — `public/uploads/originals/182d98e833234322af1864c0bba308d1.jpg`
+17. 4.67 MB — `public/uploads/originals/a524c80933f4438f899656fc4b321a78.jpg`
+18. 4.61 MB — `public/uploads/originals/75b560e406e04503b07ec4a694b0c1c5.jpg`
+19. 4.34 MB — `public/uploads/originals/9ab2e7c693bc4c378f5e49edfd625eba.jpg`
+20. 4.33 MB — `public/uploads/booking-bills/BK-015358.pdf`
+21. 4.33 MB — `public/uploads/booking-bills/BK-015361.pdf`
+22. 4.32 MB — `public/uploads/booking-bills/BK-015360.pdf`
+23. 3.97 MB — `public/uploads/dress-checker-corrections/0f8b5be2105e4cb5bb6c962494e2bfeb.jpg`
+24. 3.97 MB — `public/uploads/dress-checker-corrections/23fcbf348fe849c193776b414220674b.jpg`
+25. 3.97 MB — `public/uploads/dress-checker-corrections/3596d5d6e26a486f8be1c87e65e1350d.jpg`
+26. 3.97 MB — `public/uploads/dress-checker-corrections/d750c1b3765c48829e7ebfe134fdf78d.jpg`
+27. 3.92 MB — `public/uploads/dress-checker-corrections/03e86cc5817a443f8f88e95c9bab9198.jpg`
+28. 3.92 MB — `public/uploads/dress-checker-corrections/0b4a290c0e664fe3b23f498cf5ae67c5.jpg`
+29. 3.92 MB — `public/uploads/dress-checker-corrections/3bb8ffa1de724e20bb117e5f64ab384c.jpg`
+30. 3.92 MB — `public/uploads/dress-checker-corrections/435e21e50f3c4c79b4ea948631111e46.jpg`
+
+## Top 30 largest function traces
+
+1. 331.17 MB (482 files) — `app/api/cron/ai-job-worker`
+2. 331.17 MB (482 files) — `app/api/cron/ai-queue-watchdog`
+3. 331.16 MB (482 files) — `app/api/cron/dress-checker-repair`
+4. 330.31 MB (482 files) — `app/api/inventory/[id]`
+5. 330.31 MB (482 files) — `app/api/inventory`
+6. 330.30 MB (481 files) — `app/api/inventory/photo-search`
+7. 330.30 MB (481 files) — `app/api/admin/recognition/search-diagnostics`
+8. 330.22 MB (467 files) — `app/api/admin/ai-health`
+9. 330.21 MB (467 files) — `app/api/admin/ai/settings`
+10. 330.21 MB (467 files) — `app/api/admin/recognition/rebuild`
+11. 330.21 MB (467 files) — `app/api/admin/inventory-ai-profile/[id]/refresh-fingerprints`
+12. 330.21 MB (467 files) — `app/api/admin/inventory-ai-profile/[id]/refresh-embeddings`
+13. 330.21 MB (467 files) — `app/api/admin/ai/enhancement/reset-all`
+14. 330.21 MB (467 files) — `app/api/admin/inventory-ai-profile/[id]/refresh-metadata`
+15. 330.21 MB (467 files) — `app/api/admin/inventory-ai-profile/[id]/regenerate`
+16. 330.21 MB (467 files) — `app/api/admin/ai/enhancement/retry`
+17. 330.21 MB (467 files) — `app/api/admin/recognition/retry-failed`
+18. 330.21 MB (467 files) — `app/api/admin/recognition/queue`
+19. 329.88 MB (468 files) — `app/api/admin/ai-debug`
+20. 329.88 MB (468 files) — `app/api/admin/dress-checker-debug`
+21. 329.86 MB (466 files) — `app/api/admin/ai-indexing`
+22. 329.83 MB (462 files) — `app/api/dress-checker/correction`
+23. 329.83 MB (462 files) — `app/api/admin/dress-checker/corrections/export`
+24. 329.83 MB (460 files) — `app/api/admin/dress-checker/lifecycle`
+25. 329.83 MB (460 files) — `app/api/admin/index-dress-photos`
+26. 329.82 MB (459 files) — `app/api/inventory/duplicate-check`
+27. 329.79 MB (460 files) — `app/api/admin/dress-checker/feedback`
+28. 329.79 MB (460 files) — `app/api/admin/dress-checker/confirm-same-dress`
+29. 286.51 MB (436 files) — `app/api/booking/[id]`
+30. 286.45 MB (435 files) — `app/api/return/[id]/save`
+
+## Largest public files
+
+1. 7.10 MB — `public/booking-bills/BK-015337.pdf`
+2. 6.11 MB — `public/uploads/booking-bills/BK-015356.pdf`
+3. 5.47 MB — `public/uploads/studio/1041-transparent.png`
+4. 5.09 MB — `public/uploads/booking-bills/BK-015363.pdf`
+5. 5.03 MB — `public/uploads/booking-bills/BK-015357.pdf`
+6. 4.76 MB — `public/uploads/booking-bills/BK-015359.pdf`
+7. 4.67 MB — `public/uploads/originals/182d98e833234322af1864c0bba308d1.jpg`
+8. 4.67 MB — `public/uploads/originals/a524c80933f4438f899656fc4b321a78.jpg`
+9. 4.61 MB — `public/uploads/originals/75b560e406e04503b07ec4a694b0c1c5.jpg`
+10. 4.34 MB — `public/uploads/originals/9ab2e7c693bc4c378f5e49edfd625eba.jpg`
+11. 4.33 MB — `public/uploads/booking-bills/BK-015358.pdf`
+12. 4.33 MB — `public/uploads/booking-bills/BK-015361.pdf`
+13. 4.32 MB — `public/uploads/booking-bills/BK-015360.pdf`
+14. 3.97 MB — `public/uploads/dress-checker-corrections/0f8b5be2105e4cb5bb6c962494e2bfeb.jpg`
+15. 3.97 MB — `public/uploads/dress-checker-corrections/23fcbf348fe849c193776b414220674b.jpg`
+16. 3.97 MB — `public/uploads/dress-checker-corrections/3596d5d6e26a486f8be1c87e65e1350d.jpg`
+17. 3.97 MB — `public/uploads/dress-checker-corrections/d750c1b3765c48829e7ebfe134fdf78d.jpg`
+18. 3.92 MB — `public/uploads/dress-checker-corrections/03e86cc5817a443f8f88e95c9bab9198.jpg`
+19. 3.92 MB — `public/uploads/dress-checker-corrections/0b4a290c0e664fe3b23f498cf5ae67c5.jpg`
+20. 3.92 MB — `public/uploads/dress-checker-corrections/3bb8ffa1de724e20bb117e5f64ab384c.jpg`
+21. 3.92 MB — `public/uploads/dress-checker-corrections/435e21e50f3c4c79b4ea948631111e46.jpg`
+22. 3.92 MB — `public/uploads/dress-checker-corrections/562e3cb89aaf44619fbac0d9a81d85d4.jpg`
+23. 3.92 MB — `public/uploads/dress-checker-corrections/7ac2ea4289a44e8ea06d1122909a1220.jpg`
+24. 3.92 MB — `public/uploads/dress-checker-corrections/a2a15336fe0642f38683fcaa3c24872c.jpg`
+25. 3.92 MB — `public/uploads/dress-checker-corrections/a4acf8b54f064e818770d29ee99ddda1.jpg`
+26. 3.92 MB — `public/uploads/dress-checker-corrections/dbc04693ef7144ffa78b95454f99669a.jpg`
+27. 3.92 MB — `public/uploads/dress-checker-corrections/e4f20958986e485cbb28e99a5db35919.jpg`
+28. 3.92 MB — `public/uploads/dress-checker-corrections/f427052fd1a04ad4ac7b6489252f81a0.jpg`
+29. 3.90 MB — `public/uploads/originals/240ec5f73c4b4d548ae539704ad7ea72.jpg`
+30. 3.77 MB — `public/uploads/studio/1036-transparent.png`
+

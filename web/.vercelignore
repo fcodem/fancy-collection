@@ -1,0 +1,10 @@
+public/uploads/**
+public/booking-bills/**
+public/admin-forensics/**
+backups/**
+test-results/**
+playwright-report/**
+tmp/**
+**/*.pdf
+**/*.dump
+**/*.sql.gz

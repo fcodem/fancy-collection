@@ -1,5 +1,8 @@
 import { NextRequest } from "next/server";
-import { photoSearchInventory, type InventoryPhotoSearchFilters } from "@/lib/services/inventoryOps";
+import {
+  photoSearchInventory,
+  type InventoryPhotoSearchFilters,
+} from "@/lib/services/inventoryPhotoSearch";
 import { isDressCheckerDebugEnabled } from "@/lib/dressCheckerDebug";
 import { jsonError, jsonOk, requireUser, isResponse } from "@/lib/api";
 import { enforceRateLimit } from "@/lib/rateLimit";

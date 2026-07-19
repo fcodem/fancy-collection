@@ -1,6 +1,6 @@
 import { NextRequest } from "next/server";
 import { isResponse, jsonError, jsonOk, requireOwner } from "@/lib/api";
-import { photoSearchInventory } from "@/lib/services/inventoryOps";
+import { photoSearchInventory } from "@/lib/services/inventoryPhotoSearch";
 import { getDressCheckerSearchHealth } from "@/lib/dressChecker/searchHealth";
 import { enforceRateLimit } from "@/lib/rateLimit";
 

@@ -1,6 +1,6 @@
 import { NextRequest } from "next/server";
 import { jsonOk } from "@/lib/api";
-import { getPublicHealthStatus } from "@/lib/dressChecker/deploymentSafety";
+import { getPublicHealthStatus } from "@/lib/dressChecker/publicHealthStatus";
 
 export const dynamic = "force-dynamic";
 export const runtime = "nodejs";

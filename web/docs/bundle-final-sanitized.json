@@ -1,0 +1,578 @@
+{
+  "generatedAt": "2026-07-19T11:19:09.790Z",
+  "label": "final",
+  "buildDurationMs": 142220,
+  "metrics": {
+    "deployedFunctionCount": 85,
+    "functionCount": 297,
+    "apiFunctionCount": 202,
+    "pageFunctionCount": 95,
+    "traceCount": 303,
+    "largestFunction": {
+      "route": "app/api/cron/ai-job-worker",
+      "bytes": 127562633,
+      "fileCount": 482
+    },
+    "uniqueTracedBytes": 491878157,
+    "deployableUniqueTracedBytes": 255454111,
+    "nextOutputBytes": 918165977,
+    "buildCacheBytes": 875878739,
+    "publicBytes": 237396979,
+    "firstLoadJsBytes": 1062939,
+    "runtimeDataTracedFiles": 215,
+    "runtimeDataTracedBytes": 236424046
+  },
+  "routes": {
+    "chromium": [
+      "app/api/internal/slip/render"
+    ],
+    "aiNative": [
+      "app/api/admin/ai/enhancement/reset-all",
+      "app/api/admin/ai/enhancement/retry",
+      "app/api/admin/ai/settings",
+      "app/api/admin/ai-debug",
+      "app/api/admin/ai-health",
+      "app/api/admin/ai-indexing",
+      "app/api/admin/dress-checker/confirm-same-dress",
+      "app/api/admin/dress-checker/corrections/export",
+      "app/api/admin/dress-checker/feedback",
+      "app/api/admin/dress-checker/lifecycle",
+      "app/api/admin/dress-checker-debug",
+      "app/api/admin/index-dress-photos",
+      "app/api/admin/inventory-ai-profile/[id]/refresh-embeddings",
+      "app/api/admin/inventory-ai-profile/[id]/refresh-fingerprints",
+      "app/api/admin/inventory-ai-profile/[id]/refresh-metadata",
+      "app/api/admin/inventory-ai-profile/[id]/regenerate",
+      "app/api/admin/recognition/compare",
+      "app/api/admin/recognition/queue",
+      "app/api/admin/recognition/rebuild",
+      "app/api/admin/recognition/retry-failed",
+      "app/api/admin/recognition/search-diagnostics",
+      "app/api/cron/ai-job-worker",
+      "app/api/cron/ai-queue-watchdog",
+      "app/api/cron/dress-checker-repair",
+      "app/api/dress-checker/correction",
+      "app/api/inventory/duplicate-check",
+      "app/api/inventory/photo-search"
+    ],
+    "sharp": [
+      "../next-server",
+      "app/api/admin/ai/enhancement/reset-all",
+      "app/api/admin/ai/enhancement/retry",
+      "app/api/admin/ai/settings",
+      "app/api/admin/ai-debug",
+      "app/api/admin/ai-health",
+      "app/api/admin/ai-indexing/forensic",
+      "app/api/admin/ai-indexing",
+      "app/api/admin/dress-checker/confirm-same-dress",
+      "app/api/admin/dress-checker/corrections/export",
+      "app/api/admin/dress-checker/feedback",
+      "app/api/admin/dress-checker/lifecycle",
+      "app/api/admin/dress-checker-debug",
+      "app/api/admin/image-sync",
+      "app/api/admin/index-dress-photos",
+      "app/api/admin/inventory-ai-profile/[id]/refresh-embeddings",
+      "app/api/admin/inventory-ai-profile/[id]/refresh-fingerprints",
+      "app/api/admin/inventory-ai-profile/[id]/refresh-metadata",
+      "app/api/admin/inventory-ai-profile/[id]/regenerate",
+      "app/api/admin/recognition/compare",
+      "app/api/admin/recognition/diagnostics",
+      "app/api/admin/recognition/queue",
+      "app/api/admin/recognition/rebuild",
+      "app/api/admin/recognition/retry-failed",
+      "app/api/admin/recognition/search-diagnostics",
+      "app/api/admin/recognition/[id]/fingerprint",
+      "app/api/admin/test-all-slips",
+      "app/api/ai-tools/catalog-generator",
+      "app/api/ai-tools/catalog-generator/save",
+      "app/api/ai-tools/image-enhancer/preview",
+      "app/api/ai-tools/image-enhancer/save",
+      "app/api/booking/date-check",
+      "app/api/booking/[id]/cancel",
+      "app/api/booking/[id]/items/[itemId]/cancel",
+      "app/api/booking/[id]",
+      "app/api/booking-delivery/[id]/id-photos",
+      "app/api/booking-delivery/[id]/save",
+      "app/api/cron/ai-job-worker",
+      "app/api/cron/ai-queue-watchdog",
+      "app/api/cron/blob-cleanup",
+      "app/api/cron/dress-checker-repair",
+      "app/api/dashboard/free-items",
+      "app/api/dress-checker/correction",
+      "app/api/health",
+      "app/api/incomplete-return/[id]/resolve",
+      "app/api/inventory/duplicate-check",
+      "app/api/inventory/photo-search",
+      "app/api/inventory",
+      "app/api/inventory/[id]",
+      "app/api/jewellery-selection/[id]/add",
+      "app/api/jewellery-selection/[id]/available",
+      "app/api/jewellery-selection/[id]/photo",
+      "app/api/jewellery-selection/[id]/remove",
+      "app/api/packing-list/save-item",
+      "app/api/recycle-bin",
+      "app/api/recycle-bin/[id]/restore",
+      "app/api/recycle-bin/[id]/restore-check",
+      "app/api/recycle-bin/[id]",
+      "app/api/return/[id]/save",
+      "app/api/returning-today",
+      "app/api/uploads/order-photo",
+      "app/booking-delivery/[id]",
+      "app/jewellery-selection/[id]"
+    ],
+    "pdf": [
+      "app/api/internal/slip/render"
+    ]
+  },
+  "largestFunctions": [
+    {
+      "route": "app/api/cron/ai-job-worker",
+      "bytes": 127562633,
+      "localBytes": 347253496,
+      "fileCount": 482
+    },
+    {
+      "route": "app/api/cron/ai-queue-watchdog",
+      "bytes": 127562463,
+      "localBytes": 347253326,
+      "fileCount": 482
+    },
+    {
+      "route": "app/api/cron/dress-checker-repair",
+      "bytes": 127557628,
+      "localBytes": 347248491,
+      "fileCount": 482
+    },
+    {
+      "route": "app/api/admin/ai-health",
+      "bytes": 126564245,
+      "localBytes": 346255108,
+      "fileCount": 468
+    },
+    {
+      "route": "app/api/admin/ai/settings",
+      "bytes": 126562489,
+      "localBytes": 346253352,
+      "fileCount": 468
+    },
+    {
+      "route": "app/api/admin/recognition/rebuild",
+      "bytes": 126561153,
+      "localBytes": 346252016,
+      "fileCount": 468
+    },
+    {
+      "route": "app/api/admin/inventory-ai-profile/[id]/refresh-fingerprints",
+      "bytes": 126560673,
+      "localBytes": 346251536,
+      "fileCount": 468
+    },
+    {
+      "route": "app/api/admin/inventory-ai-profile/[id]/refresh-embeddings",
+      "bytes": 126560672,
+      "localBytes": 346251535,
+      "fileCount": 468
+    },
+    {
+      "route": "app/api/admin/ai/enhancement/reset-all",
+      "bytes": 126560666,
+      "localBytes": 346251529,
+      "fileCount": 468
+    },
+    {
+      "route": "app/api/admin/inventory-ai-profile/[id]/refresh-metadata",
+      "bytes": 126560631,
+      "localBytes": 346251494,
+      "fileCount": 468
+    },
+    {
+      "route": "app/api/admin/inventory-ai-profile/[id]/regenerate",
+      "bytes": 126560565,
+      "localBytes": 346251428,
+      "fileCount": 468
+    },
+    {
+      "route": "app/api/admin/ai/enhancement/retry",
+      "bytes": 126560509,
+      "localBytes": 346251372,
+      "fileCount": 468
+    },
+    {
+      "route": "app/api/admin/recognition/retry-failed",
+      "bytes": 126560242,
+      "localBytes": 346251105,
+      "fileCount": 468
+    },
+    {
+      "route": "app/api/admin/recognition/queue",
+      "bytes": 126560003,
+      "localBytes": 346250866,
+      "fileCount": 468
+    },
+    {
+      "route": "app/api/inventory/photo-search",
+      "bytes": 126219399,
+      "localBytes": 345910262,
+      "fileCount": 473
+    },
+    {
+      "route": "app/api/admin/recognition/search-diagnostics",
+      "bytes": 126218708,
+      "localBytes": 345909571,
+      "fileCount": 473
+    },
+    {
+      "route": "app/api/admin/ai-debug",
+      "bytes": 126215502,
+      "localBytes": 345906365,
+      "fileCount": 468
+    },
+    {
+      "route": "app/api/admin/dress-checker-debug",
+      "bytes": 126214487,
+      "localBytes": 345905350,
+      "fileCount": 468
+    },
+    {
+      "route": "app/api/admin/ai-indexing",
+      "bytes": 126188606,
+      "localBytes": 345879469,
+      "fileCount": 466
+    },
+    {
+      "route": "app/api/dress-checker/correction",
+      "bytes": 126164245,
+      "localBytes": 345855108,
+      "fileCount": 462
+    },
+    {
+      "route": "app/api/admin/dress-checker/corrections/export",
+      "bytes": 126163231,
+      "localBytes": 345854094,
+      "fileCount": 462
+    },
+    {
+      "route": "app/api/admin/dress-checker/lifecycle",
+      "bytes": 126157222,
+      "localBytes": 345848085,
+      "fileCount": 460
+    },
+    {
+      "route": "app/api/admin/index-dress-photos",
+      "bytes": 126155908,
+      "localBytes": 345846771,
+      "fileCount": 460
+    },
+    {
+      "route": "app/api/inventory/duplicate-check",
+      "bytes": 126150129,
+      "localBytes": 345840992,
+      "fileCount": 459
+    },
+    {
+      "route": "app/api/admin/dress-checker/feedback",
+      "bytes": 126114073,
+      "localBytes": 345804936,
+      "fileCount": 460
+    },
+    {
+      "route": "app/api/admin/dress-checker/confirm-same-dress",
+      "bytes": 126113415,
+      "localBytes": 345804278,
+      "fileCount": 460
+    },
+    {
+      "route": "app/api/admin/recognition/compare",
+      "bytes": 124879959,
+      "localBytes": 124879959,
+      "fileCount": 243
+    },
+    {
+      "route": "app/api/internal/slip/render",
+      "bytes": 77651258,
+      "localBytes": 77651258,
+      "fileCount": 937
+    },
+    {
+      "route": "app/booking-delivery/[id]",
+      "bytes": 64458483,
+      "localBytes": 284149346,
+      "fileCount": 419
+    },
+    {
+      "route": "app/jewellery-selection/[id]",
+      "bytes": 64004544,
+      "localBytes": 283695407,
+      "fileCount": 413
+    }
+  ],
+  "topFiles": [
+    {
+      "file": "node_modules/@sparticuz/chromium/bin/chromium.br",
+      "bytes": 64795438
+    },
+    {
+      "file": "node_modules/.prisma/client/query_engine-windows.dll.node",
+      "bytes": 21182976
+    },
+    {
+      "file": "node_modules/next/node_modules/@img/sharp-win32-x64/lib/libvips-42.dll",
+      "bytes": 19112960
+    },
+    {
+      "file": "node_modules/@xenova/transformers/node_modules/sharp/build/Release/libvips-42.dll",
+      "bytes": 19082240
+    },
+    {
+      "file": "node_modules/@xenova/transformers/node_modules/sharp/vendor/8.14.5/win32-x64/lib/libvips-42.dll",
+      "bytes": 19082240
+    },
+    {
+      "file": "node_modules/@img/sharp-win32-x64/lib/libvips-42.dll",
+      "bytes": 18956288
+    },
+    {
+      "file": "node_modules/.prisma/client/libquery_engine-rhel-openssl-3.0.x.so.node",
+      "bytes": 17547808
+    },
+    {
+      "file": "node_modules/onnxruntime-node/bin/napi-v3/win32/arm64/onnxruntime.dll",
+      "bytes": 9301912
+    },
+    {
+      "file": "node_modules/onnxruntime-node/bin/napi-v3/win32/x64/onnxruntime.dll",
+      "bytes": 9271704
+    },
+    {
+      "file": "node_modules/@sparticuz/chromium/bin/swiftshader.tar.br",
+      "bytes": 3577426
+    },
+    {
+      "file": ".next/server/chunks/3739.js",
+      "bytes": 1649245
+    },
+    {
+      "file": ".next/server/instrumentation.js",
+      "bytes": 1353860
+    },
+    {
+      "file": ".next/server/chunks/9486.js",
+      "bytes": 1336450
+    },
+    {
+      "file": "node_modules/@xenova/transformers/node_modules/sharp/build/Release/libglib-2.0-0.dll",
+      "bytes": 1184768
+    },
+    {
+      "file": "node_modules/@xenova/transformers/node_modules/sharp/vendor/8.14.5/win32-x64/lib/libglib-2.0-0.dll",
+      "bytes": 1184768
+    },
+    {
+      "file": "node_modules/@sparticuz/chromium/bin/al2023.tar.br",
+      "bytes": 1075840
+    },
+    {
+      "file": ".next/server/chunks/7664.js",
+      "bytes": 915768
+    },
+    {
+      "file": ".next/server/chunks/8275.js",
+      "bytes": 893553
+    },
+    {
+      "file": ".next/server/chunks/5453.js",
+      "bytes": 886631
+    },
+    {
+      "file": ".next/server/chunks/763.js",
+      "bytes": 875503
+    },
+    {
+      "file": "node_modules/next/dist/compiled/next-devtools/index.js",
+      "bytes": 822498
+    },
+    {
+      "file": "node_modules/@tootallnate/quickjs-emscripten/dist/generated/emscripten-module.WASM_RELEASE_SYNC.js",
+      "bytes": 632760
+    },
+    {
+      "file": "node_modules/onnxruntime-web/dist/ort-web.node.js",
+      "bytes": 547519
+    },
+    {
+      "file": "node_modules/next/dist/compiled/next-server/app-page-turbo-experimental.runtime.prod.js",
+      "bytes": 543496
+    },
+    {
+      "file": "node_modules/next/dist/compiled/next-server/app-page-experimental.runtime.prod.js",
+      "bytes": 543487
+    },
+    {
+      "file": "node_modules/next/dist/compiled/edge-runtime/index.js",
+      "bytes": 525805
+    },
+    {
+      "file": "node_modules/next/dist/compiled/next-server/app-page-turbo.runtime.prod.js",
+      "bytes": 518492
+    },
+    {
+      "file": "node_modules/next/dist/compiled/next-server/app-page.runtime.prod.js",
+      "bytes": 518483
+    },
+    {
+      "file": "node_modules/next/node_modules/@img/sharp-win32-x64/lib/sharp-win32-x64.node",
+      "bytes": 433152
+    },
+    {
+      "file": "node_modules/react-dom/cjs/react-dom-server.edge.development.js",
+      "bytes": 425439
+    }
+  ],
+  "publicFiles": [
+    {
+      "file": "public/icon-192x192.png",
+      "bytes": 218529
+    },
+    {
+      "file": "public/icon-512x512.png",
+      "bytes": 218529
+    },
+    {
+      "file": "public/images/fancy-collection-logo.png",
+      "bytes": 218529
+    },
+    {
+      "file": "public/images/fancy-collection-brand.png",
+      "bytes": 138973
+    },
+    {
+      "file": "public/sw.js",
+      "bytes": 70721
+    },
+    {
+      "file": "public/css/style.css",
+      "bytes": 42087
+    },
+    {
+      "file": "public/workbox-f4f81699.js",
+      "bytes": 22713
+    },
+    {
+      "file": "public/privacy.html",
+      "bytes": 12823
+    },
+    {
+      "file": "public/js/dress-suggest.js",
+      "bytes": 5777
+    },
+    {
+      "file": "public/emoji/1f468-200d-1f4bc.svg",
+      "bytes": 3211
+    },
+    {
+      "file": "public/fallback-ce627215c0e4a9af.js",
+      "bytes": 2805
+    },
+    {
+      "file": "public/data-deletion.html",
+      "bytes": 2425
+    },
+    {
+      "file": "public/emoji/1f5d3.svg",
+      "bytes": 2092
+    },
+    {
+      "file": "public/emoji/1f4c5.svg",
+      "bytes": 1923
+    },
+    {
+      "file": "public/emoji/1f4e6.svg",
+      "bytes": 1556
+    },
+    {
+      "file": "public/emoji/1f3db.svg",
+      "bytes": 1490
+    },
+    {
+      "file": "public/inventory-photo-worker.js",
+      "bytes": 1430
+    },
+    {
+      "file": "public/emoji/1f4a1.svg",
+      "bytes": 1078
+    },
+    {
+      "file": "public/emoji/1f4cb.svg",
+      "bytes": 892
+    },
+    {
+      "file": "public/manifest.json",
+      "bytes": 777
+    },
+    {
+      "file": "public/emoji/1f504.svg",
+      "bytes": 639
+    },
+    {
+      "file": "public/emoji/1f464.svg",
+      "bytes": 591
+    },
+    {
+      "file": "public/emoji/1f69a.svg",
+      "bytes": 591
+    },
+    {
+      "file": "public/emoji/26a0.svg",
+      "bytes": 548
+    },
+    {
+      "file": "public/emoji/2705.svg",
+      "bytes": 482
+    },
+    {
+      "file": "public/emoji/1f4ac.svg",
+      "bytes": 423
+    },
+    {
+      "file": "public/emoji/1f4de.svg",
+      "bytes": 391
+    },
+    {
+      "file": "public/emoji/1f512.svg",
+      "bytes": 318
+    },
+    {
+      "file": "public/worker-f97282c8b680443a.js",
+      "bytes": 313
+    },
+    {
+      "file": "public/emoji/1f4cd.svg",
+      "bytes": 277
+    }
+  ],
+  "baseline": {
+    "path": "docs/bundle-baseline.json",
+    "metrics": {
+      "functionCount": 297,
+      "apiFunctionCount": 202,
+      "pageFunctionCount": 95,
+      "traceCount": 303,
+      "largestFunction": {
+        "route": "app/api/cron/ai-job-worker",
+        "bytes": 452019039,
+        "fileCount": 599
+      },
+      "uniqueTracedBytes": 607319354,
+      "nextOutputBytes": 967719238,
+      "buildCacheBytes": 920690647,
+      "publicBytes": 237399953
+    },
+    "delta": {
+      "functionCount": 0,
+      "uniqueTracedBytes": -115441197,
+      "nextOutputBytes": -49553261,
+      "buildCacheBytes": -44811908,
+      "publicBytes": -2974
+    }
+  }
+}
