@@ -108,5 +108,5 @@ All fixes on branch `audit/all-premium-slips`, not pushed.
 
 ## 17. Commit
 
-**SHA:** `cbe2ca9`  
+**SHA:** `f993af8`  
 **Message:** `fix(slips): audit and unify premium slip rendering across all channels`
