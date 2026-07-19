@@ -11,6 +11,19 @@ import type {
   SlipPdfKind,
   SlipPdfRenderOptions,
 } from "@/lib/services/whatsapp/slipHtmlPdf.server";
+import {
+  cleanSlipTempDirs,
+  ensureSlipTempHeadroom,
+  measureSlipTempUsage,
+} from "@/lib/tmpSpace";
+import {
+  errorCodeFromUnknown,
+  isEnospcError,
+  PREMIUM_SLIP_RENDER_FAILED,
+  PremiumSlipRenderError,
+  isPremiumSlipRenderError,
+} from "@/lib/services/whatsapp/slipRenderErrors";
+import { logSlipRenderDiagnostic } from "@/lib/services/whatsapp/slipRenderDiagnostics";
 
 /**
  * The single Chromium-enabled slip renderer.
@@ -26,7 +39,6 @@ export const maxDuration = 60;
 const KINDS = new Set<SlipPdfKind>(["booking", "delivery", "return", "incomplete"]);
 
 export async function POST(req: NextRequest) {
-  // Read the raw body FIRST so the HMAC covers exactly what we parse.
   const rawBody = await req.text();
 
   const auth = verifySlipRenderAuth({
@@ -67,19 +79,57 @@ export async function POST(req: NextRequest) {
       ? (body.opts as SlipPdfRenderOptions)
       : undefined;
 
+  const started = Date.now();
+  const tmpBytesBefore = measureSlipTempUsage();
+  await ensureSlipTempHeadroom();
+
   try {
     const pdf = await renderSlipPdfDirect(kind, bookingId, origin, opts);
-    const body = new Uint8Array(pdf);
-    return new NextResponse(body, {
+    const tmpBytesAfter = measureSlipTempUsage();
+    logSlipRenderDiagnostic({
+      kind,
+      bookingId,
+      attempt: 1,
+      tmpBytesBefore,
+      tmpBytesAfter,
+      durationMs: Date.now() - started,
+      ok: true,
+    });
+    const bytes = new Uint8Array(pdf);
+    return new NextResponse(bytes, {
       status: 200,
       headers: {
         "content-type": "application/pdf",
-        "content-length": String(body.byteLength),
+        "content-length": String(bytes.byteLength),
         "cache-control": "no-store",
       },
     });
   } catch (e) {
-    console.error("[slip-render]", e instanceof Error ? e.message : e);
-    return NextResponse.json({ error: "Slip render failed" }, { status: 500 });
+    await cleanSlipTempDirs();
+    const tmpBytesAfter = measureSlipTempUsage();
+    const errorCode = errorCodeFromUnknown(e) ?? PREMIUM_SLIP_RENDER_FAILED;
+    logSlipRenderDiagnostic({
+      kind,
+      bookingId,
+      attempt: 1,
+      tmpBytesBefore,
+      tmpBytesAfter,
+      durationMs: Date.now() - started,
+      ok: false,
+      errorCode,
+    });
+
+    const retryable = isPremiumSlipRenderError(e) || errorCode === "ENOSPC";
+    const status = retryable ? 503 : 500;
+    const message = e instanceof Error ? e.message : "Slip render failed";
+    return NextResponse.json(
+      {
+        error: message,
+        code: PREMIUM_SLIP_RENDER_FAILED,
+        retryable,
+        errorCode,
+      },
+      { status },
+    );
   }
 }

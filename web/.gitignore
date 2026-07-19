@@ -56,5 +56,6 @@ next-env.d.ts
 
 # locally generated booking bill PDFs (dev without Blob)
 /public/booking-bills/
+/artifacts/
 .vercel
 .env*

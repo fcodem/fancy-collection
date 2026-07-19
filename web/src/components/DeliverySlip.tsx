@@ -4,6 +4,7 @@ import SlipBrandTitle from "@/components/SlipBrandTitle";
 import SlipLogo from "@/components/SlipLogo";
 import SlipMottoBanner from "@/components/SlipMottoBanner";
 import Emoji from "@/components/Emoji";
+import PremiumSlipMarker from "@/components/PremiumSlipMarker";
 import { WHATSAPP_CONTACT_LINE, WHATSAPP_TEAM_LINE, SLIP_TERMS } from "@/lib/slipConstants";
 
 export type DeliverySlipProps = {
@@ -38,6 +39,8 @@ export type DeliverySlipProps = {
     category: string;
     size: string;
     color?: string | null;
+    sku?: string | null;
+    photoUrl?: string | null;
     price: number;
     advance: number;
     remaining: number;
@@ -86,6 +89,7 @@ export default function DeliverySlip(props: DeliverySlipProps) {
   const slipNo = String(b.monthlySerial).padStart(2, "0");
   const displayAddress = businessAddress?.trim() || DEFAULT_ADDRESS;
   const displayPhone = businessPhone?.trim() || DEFAULT_PHONE;
+  const outfitItems = items.filter((it) => it.photoUrl);
 
   const deliveredDate = new Date(b.deliveredAt);
   const deliveredDateStr = deliveredDate.toLocaleDateString("en-IN", {
@@ -131,8 +135,8 @@ export default function DeliverySlip(props: DeliverySlipProps) {
         }
       ` }} />
 
-      <div id="delivery-slip-root" className="slip-container" style={{ background: "#fff", fontFamily: "system-ui, -apple-system, sans-serif", color: "#1a1a1a" }}>
-
+      <div id="delivery-slip-root" className="slip-container" style={{ background: "#fff", fontFamily: "system-ui, -apple-system, sans-serif", color: "#1a1a1a", position: "relative" }}>
+        <PremiumSlipMarker kind="delivery" />
         {/* DELIVERED banner — top */}
         <div className="no-break" style={{
           background: `linear-gradient(135deg, ${GOLD}, #e8c96a)`,
@@ -257,17 +261,17 @@ export default function DeliverySlip(props: DeliverySlipProps) {
           </div>
           <div style={{ borderRadius: 8, overflow: "hidden", border: `1px solid ${BORDER}` }}>
             <div style={{
-              display: "grid", gridTemplateColumns: "28px 1fr 80px 52px 60px 70px 70px 68px",
+              display: "grid", gridTemplateColumns: "28px 44px 1fr 80px 52px 60px 70px 70px 68px",
               background: G, color: "#fff", fontSize: 10, fontWeight: 700, padding: "8px 10px", gap: 4,
             }}>
-              <div>#</div><div>Item Name</div><div>Category</div><div>Size</div><div>Color</div>
+              <div>#</div><div>Photo</div><div>Item Name</div><div>Category</div><div>Size</div><div>Color</div>
               <div style={{ textAlign: "right" }}>Price</div>
               <div style={{ textAlign: "right" }}>Advance</div>
               <div style={{ textAlign: "right" }}>Balance</div>
             </div>
             {items.map((item, i) => (
               <div key={i} style={{
-                display: "grid", gridTemplateColumns: "28px 1fr 80px 52px 60px 70px 70px 68px",
+                display: "grid", gridTemplateColumns: "28px 44px 1fr 80px 52px 60px 70px 70px 68px",
                 background: item.isCancelled
                   ? "rgba(192,57,43,0.06)"
                   : item.isPendingPickup
@@ -283,8 +287,25 @@ export default function DeliverySlip(props: DeliverySlipProps) {
                   color: item.isCancelled ? RED : item.isPendingPickup ? "#c2410c" : GREY,
                   fontWeight: 600,
                 }}>{i + 1}</div>
+                <div>
+                  {item.photoUrl ? (
+                    /* eslint-disable-next-line @next/next/no-img-element */
+                    <img
+                      src={item.photoUrl}
+                      alt={item.dressName}
+                      style={{ width: 36, height: 36, objectFit: "cover", borderRadius: 6, border: `1px solid ${BORDER}` }}
+                    />
+                  ) : (
+                    <div style={{ width: 36, height: 36, borderRadius: 6, background: "#f3f4f6", border: `1px solid ${BORDER}` }} />
+                  )}
+                </div>
                 <div style={{ fontWeight: 600, overflow: "hidden", textOverflow: "ellipsis", whiteSpace: "nowrap" }}>
                   {item.dressName}
+                  {item.sku && (
+                    <span style={{ marginLeft: 6, fontSize: 9, fontWeight: 700, color: GREY, fontFamily: "monospace" }}>
+                      {item.sku}
+                    </span>
+                  )}
                   {item.isCancelled && (
                     <span style={{ marginLeft: 6, fontSize: 9, fontWeight: 800, color: "#fff", background: RED, padding: "2px 6px", borderRadius: 8, letterSpacing: "0.04em" }}>
                       CANCELLED{item.cancelRefunded ? " · ADV REFUNDED" : " · ADV KEPT"}
@@ -314,11 +335,12 @@ export default function DeliverySlip(props: DeliverySlipProps) {
               </div>
             ))}
             <div style={{
-              display: "grid", gridTemplateColumns: "28px 1fr 80px 52px 60px 70px 70px 68px",
+              display: "grid", gridTemplateColumns: "28px 44px 1fr 80px 52px 60px 70px 70px 68px",
               background: LIGHT_GREEN, borderTop: `2px solid ${G}`, padding: "8px 10px", gap: 4, fontSize: 12, fontWeight: 700,
             }}>
               <div />
-              <div style={{ gridColumn: "2 / 6", color: G, fontSize: 11, textTransform: "uppercase" }}>Total</div>
+              <div />
+              <div style={{ gridColumn: "3 / 7", color: G, fontSize: 11, textTransform: "uppercase" }}>Total</div>
               <div style={{ textAlign: "right" }}>{rs(b.totalPrice)}</div>
               <div style={{ textAlign: "right", color: SUCCESS }}>{rs(b.totalAdvance)}</div>
               <div style={{ textAlign: "right", color: b.totalRemaining > 0 ? RED : G }}>{rs(b.totalRemaining)}</div>
@@ -479,6 +501,57 @@ export default function DeliverySlip(props: DeliverySlipProps) {
           <div style={{ textAlign: "center", fontSize: 9, color: "#999", padding: "6px 0" }}>This is a computer-generated delivery slip.</div>
         </div>
       </div>
+
+      {outfitItems.map((it, i) => (
+        <div
+          key={`delivery-outfit-${it.dressName}-${i}`}
+          className="slip-outfit-page"
+          style={{
+            background: "#fff",
+            fontFamily: "system-ui, -apple-system, sans-serif",
+            color: "#1a1a1a",
+            display: "flex",
+            flexDirection: "column",
+          }}
+        >
+          <div style={{ background: `linear-gradient(135deg, ${G} 0%, #2d8a45 100%)`, padding: "14px 20px", textAlign: "center" }}>
+            <div style={{ fontSize: 10, fontWeight: 700, color: GOLD, textTransform: "uppercase", letterSpacing: "0.12em", marginBottom: 4 }}>
+              Delivered Outfit
+            </div>
+            <div style={{ fontSize: 20, fontWeight: 800, color: "#fff", fontFamily: "Georgia, serif" }}>{it.dressName}</div>
+            <div style={{ fontSize: 11, color: "rgba(255,255,255,0.9)", marginTop: 4 }}>
+              {it.category || "—"} · Size {it.size || "—"}{it.color ? ` · ${it.color}` : ""}
+              {it.sku ? ` · ${it.sku}` : ""}
+            </div>
+          </div>
+
+          <div style={{ display: "flex", alignItems: "center", justifyContent: "center", padding: "10px 16px 8px", background: "#fafafa" }}>
+            {/* eslint-disable-next-line @next/next/no-img-element */}
+            <img
+              src={it.photoUrl!}
+              alt={it.dressName}
+              style={{
+                width: "100%",
+                maxWidth: "178mm",
+                maxHeight: "220mm",
+                objectFit: "contain",
+                display: "block",
+                borderRadius: 8,
+                boxShadow: "0 4px 20px rgba(0,0,0,0.12)",
+              }}
+            />
+          </div>
+
+          <div style={{ background: G, padding: "10px 20px", display: "flex", alignItems: "center", justifyContent: "space-between", gap: 10 }}>
+            <SlipBrandTitle
+              name={businessName}
+              nameStyle={{ fontSize: 11, color: "#fff", fontWeight: 600 }}
+              badgeStyle={{ fontSize: 8, padding: "2px 6px" }}
+            />
+            <div style={{ fontSize: 10, color: GOLD, fontFamily: "monospace" }}>{b.publicBookingId}</div>
+          </div>
+        </div>
+      ))}
     </>
   );
 }

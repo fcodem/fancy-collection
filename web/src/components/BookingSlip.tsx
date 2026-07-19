@@ -5,6 +5,7 @@ import SlipBrandTitle from "@/components/SlipBrandTitle";
 import SlipLogo from "@/components/SlipLogo";
 import SlipMottoBanner from "@/components/SlipMottoBanner";
 import Emoji from "@/components/Emoji";
+import PremiumSlipMarker from "@/components/PremiumSlipMarker";
 import { WHATSAPP_CONTACT_LINE, WHATSAPP_TEAM_LINE, SLIP_TERMS } from "@/lib/slipConstants";
 
 export type BookingSlipProps = {
@@ -208,8 +209,8 @@ export default function BookingSlip(props: BookingSlipProps) {
         }
       ` }} />
 
-      <div id="booking-slip-root" style={{ background: "#fff", fontFamily: "system-ui, -apple-system, sans-serif", color: "#1a1a1a" }}>
-
+      <div id="booking-slip-root" style={{ background: "#fff", fontFamily: "system-ui, -apple-system, sans-serif", color: "#1a1a1a", position: "relative" }}>
+        <PremiumSlipMarker kind="booking" />
         {/* ══════════════════════════════════════════
             SECTION 1: HEADER
         ══════════════════════════════════════════ */}
