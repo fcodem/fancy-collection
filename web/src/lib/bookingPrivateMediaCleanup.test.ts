@@ -160,18 +160,18 @@ describe("booking private media schema + worker wiring", () => {
   });
 });
 
-describe("isBookingFullyReturnedForCleanup (unit)", async () => {
-  const { isBookingFullyReturnedForCleanup } = await import("./bookingPrivateMediaCleanup");
-
-  it("rejects non-returned status without DB", () => {
-    assert.equal(typeof isBookingFullyReturnedForCleanup, "function");
+describe("isBookingFullyReturnedForCleanup (static export)", () => {
+  it("exports gate helper without importing server-only module in tests", () => {
+    const cleanup = read("src/lib/bookingPrivateMediaCleanup.ts");
+    assert.match(cleanup, /export async function isBookingFullyReturnedForCleanup/);
   });
 });
 
-describe("scheduleBookingPrivateMediaCleanup idempotency (unit)", async () => {
-  const { scheduleBookingPrivateMediaCleanup } = await import("./bookingPrivateMediaCleanup");
-  it("exports scheduler", () => {
-    assert.equal(typeof scheduleBookingPrivateMediaCleanup, "function");
+describe("scheduleBookingPrivateMediaCleanup idempotency (static export)", () => {
+  it("exports scheduler via updateMany on ACTIVE rows", () => {
+    const cleanup = read("src/lib/bookingPrivateMediaCleanup.ts");
+    assert.match(cleanup, /export async function scheduleBookingPrivateMediaCleanup/);
+    assert.match(cleanup, /status: BOOKING_PRIVATE_MEDIA_STATUS\.ACTIVE/);
   });
 });
 

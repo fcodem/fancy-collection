@@ -14,15 +14,19 @@ Runs, in order (stops on first failure):
 2. `test:unit` — full `node:test` suite (231+ tests)
 3. `test:integration` — local Postgres integration checks
 4. `lint` — `next lint`
-5. `build` — `prisma generate && next build`
-6. `test:e2e` — Playwright E2E
-7. `perf:smoke` — performance smoke test against `BASE_URL`
+5. `verify:blob-config` — public + private Blob token presence (booleans only; enforced on Vercel/production-like)
+6. `verify:private-media-release` — static token-separation checks + critical private-media unit tests (see below)
+7. `build` — `prisma generate && next build`
+8. `test:e2e` — Playwright E2E
+9. `perf:smoke` — performance smoke test against `BASE_URL`
 
 ### Environment
 
 - `test:integration` needs a reachable local/staging Postgres (uses `DIRECT_URL`).
 - **Blob storage:** set `BLOB_READ_WRITE_TOKEN` (public catalogue/inventory) and
-  `ID_PROOF_BLOB_READ_WRITE_TOKEN` (private ID proofs only). Owner diagnostic:
+  `ID_PROOF_BLOB_READ_WRITE_TOKEN` (private booking media: ID proofs, order photos,
+  incomplete returns, jewellery selections). Legacy alias: `ID_PROOF_READ_WRITE_TOKEN`
+  (prefer the `ID_PROOF_BLOB_*` name). See `web/.env.example`. Owner diagnostic:
   `GET /api/admin/blob-storage` returns `{ publicBlobConfigured, privateIdProofBlobConfigured }`
   without token values. `npm run verify:blob-config` enforces both on Vercel/production-like envs.
 - `test:e2e` needs Playwright browsers installed (`npx playwright install`) and,
@@ -34,6 +38,27 @@ Runs, in order (stops on first failure):
 ```bash
 BASE_URL="https://<preview>.vercel.app" COOKIE="fc_session=..." npm run verify:release
 ```
+
+## Private media lifecycle gates (`verify:private-media-release`)
+
+Runs **after** lint and **before** build. Fails when:
+
+- Private booking upload paths reference `BLOB_READ_WRITE_TOKEN`
+- Inventory upload paths reference private tokens
+- `/api/uploads/private-media` would pass through raw stored blob URLs in JSON
+- Cleanup workers can delete `isPermanentInventoryMedia` paths without explicit replacement flag
+- Critical unit tests fail: `mediaClassification.test.ts`, `bookingPrivateMediaCleanup.test.ts`,
+  `idProofUpload.test.ts`, `privateMediaRelease.test.ts`
+
+Manual staging checks (full return path):
+
+- Create booking with order photo → deliver with ID proof → jewellery selection photo
+- Partial return → no private-media cleanup scheduled
+- Incomplete return photo → resolve → still no cleanup until **full return**
+- Full return → `BookingPrivateMedia` rows move to `PENDING_DELETE`
+- Cron `/api/cron/blob-cleanup` → private blobs deleted; inventory dress photos unchanged
+
+See `docs/private-media-lifecycle-final-report.md` for migration name, rollback, and test results.
 
 ## Required staging scenarios
 
