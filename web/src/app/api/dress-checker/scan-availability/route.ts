@@ -6,7 +6,7 @@ import {
   requireJsonContentType,
 } from "@/lib/api";
 import { createPerfTimer, withServerTiming } from "@/lib/perfTiming";
-import { getShopRevision } from "@/lib/realtime/revision";
+import { getFreshShopRevision } from "@/lib/realtime/revision";
 import {
   createBoundedTtlCache,
   hashScanCode,
@@ -75,7 +75,7 @@ export async function POST(request: NextRequest) {
     // Booking/realtime revision in the key invalidates cached answers as
     // soon as any staff mutation lands, well before the TTL runs out.
     perf.mark("cache");
-    const revision = await getShopRevision();
+    const revision = await getFreshShopRevision();
     const cacheKey = scanAvailabilityCacheKey({
       userId: user.id,
       revision,
@@ -98,7 +98,14 @@ export async function POST(request: NextRequest) {
     perf.set("codeLookupMs", result.timings.codeLookupMs);
     perf.set("conflictQueryMs", result.timings.conflictQueryMs);
     perf.set("classificationMs", result.timings.classificationMs);
-    perf.addQueries(cacheStatus === "hit" ? 0 : 2);
+    const queriedConflicts = ![
+      "CODE_NOT_FOUND",
+      "MAINTENANCE",
+      "INACTIVE",
+    ].includes(result.status);
+    perf.addQueries(
+      cacheStatus === "miss" ? (queriedConflicts ? 3 : 2) : 1,
+    );
 
     const timings = perf.finish({ kind: "read", forceLog: true });
     const payload = serializeScanAvailability(result, {

@@ -91,6 +91,7 @@ describe("Scan Dress Availability UI contracts", () => {
   const scanPage = read("src/app/inventory/search/scan/page.tsx");
   const photoPage = read("src/app/inventory/search/page.tsx");
   const camera = read("src/lib/cameraScanner.ts");
+  const bookingQr = read("src/components/SearchQrClient.tsx");
 
   it("keeps the existing AI/photo checker and adds a separate scan mode", () => {
     assert.match(photoPage, /InventorySearchClient/);
@@ -170,5 +171,12 @@ describe("Scan Dress Availability UI contracts", () => {
       assert.ok(!component.includes(banned), `scanner must not include ${banned}`);
       assert.ok(!scanPage.includes(banned), `scan page must not include ${banned}`);
     }
+  });
+
+  it("never confuses inventory dress codes with booking-record QR tokens", () => {
+    assert.match(component, /\/api\/dress-checker\/scan-availability/);
+    assert.doesNotMatch(component, /\/api\/booking\/qr\/resolve/);
+    assert.match(bookingQr, /\/api\/booking\/qr\/resolve/);
+    assert.doesNotMatch(bookingQr, /\/api\/dress-checker\/scan-availability/);
   });
 });

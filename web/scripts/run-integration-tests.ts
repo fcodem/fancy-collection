@@ -8,6 +8,12 @@ import { buildWhatsAppIdempotencyKey } from "../src/lib/mutationIdempotency";
 import { createHash } from "crypto";
 import { searchAvailableItems } from "../src/lib/services/availabilitySearch";
 import { getPackingListPage } from "../src/lib/services/packingList";
+import { createScannedDressAvailabilityService } from "../src/lib/services/scannedDressAvailability";
+import {
+  createBoundedTtlCache,
+  hashScanCode,
+  scanAvailabilityCacheKey,
+} from "../src/lib/services/scanAvailabilityApi";
 
 function assert(cond: unknown, msg: string): asserts cond {
   if (!cond) throw new Error(msg);
@@ -24,7 +30,11 @@ async function main() {
     throw new Error("Refusing non-local DATABASE_URL for integration tests");
   }
 
-  const prisma = new PrismaClient();
+  const observedQueries: string[] = [];
+  const prisma = new PrismaClient({
+    log: [{ emit: "event", level: "query" }],
+  });
+  prisma.$on("query", (event) => observedQueries.push(event.query));
   try {
     await prisma.$queryRaw`SELECT 1`;
 
@@ -138,6 +148,172 @@ async function main() {
         secondPage.free_items.every((item) => !firstIds.has(item.id)),
         "availability cursor pages must not overlap",
       );
+    }
+
+    // Scanned dress availability: physical-code resolution, one bounded
+    // booking query, cancellation/return handling, maintenance, cache
+    // revision invalidation, and five concurrent staff scan sessions.
+    const suffix = `${Date.now()}${Math.random().toString(16).slice(2, 8)}`;
+    const fixture = await prisma.clothingItem.create({
+      data: {
+        name: `Integration Scan Dress ${suffix}`,
+        sku: `IT-SCAN-${suffix}`,
+        category: "Integration",
+        size: "40",
+        color: "Red",
+        status: "available",
+        scanCodes: {
+          create: {
+            code: `FC-D-IT-${suffix}`,
+            normalizedCode: `FC-D-IT-${suffix}`.toUpperCase(),
+            format: "QR_CODE",
+            source: "SYSTEM_GENERATED_QR",
+            isPrimary: true,
+          },
+        },
+      },
+    });
+    const bookingIds: number[] = [];
+    try {
+      const scanService = createScannedDressAvailabilityService(prisma);
+      const scanInput = {
+        rawCode: `fc-d-it-${suffix}`,
+        deliveryDateTime: "2035-02-10T16:00:00+05:30",
+        returnDateTime: "2035-02-12T11:00:00+05:30",
+      };
+
+      observedQueries.length = 0;
+      const free = await scanService.checkScannedDressAvailability(scanInput);
+      assert(free.status === "AVAILABLE", "integration scan code must resolve to free dress");
+      assert(free.dress?.id === fixture.id, "scan code must resolve the correct physical dress");
+      const scanCodeQueries = observedQueries.filter((query) =>
+        /inventory_scan_codes/i.test(query),
+      );
+      const conflictQueries = observedQueries.filter((query) =>
+        /FROM\s+(?:"public"\.)?"bookings"/i.test(query),
+      );
+      assert(scanCodeQueries.length === 1, `expected one scan-code lookup, got ${scanCodeQueries.length}`);
+      assert(conflictQueries.length === 1, `expected one bounded booking query, got ${conflictQueries.length}`);
+      assert(/LIMIT/i.test(conflictQueries[0] || ""), "booking conflict query must be bounded");
+
+      const createBooking = async (opts: {
+        status?: string;
+        cancelled?: boolean;
+        returned?: boolean;
+      }) => {
+        const row = await prisma.booking.create({
+          data: {
+            bookingNumber: `IT-BK-${suffix}-${bookingIds.length}`,
+            customerName: "Integration Customer",
+            customerAddress: "Integration only",
+            contact1: "9800000000",
+            deliveryDate: new Date("2035-02-10T00:00:00.000Z"),
+            deliveryTime: "12:00 Noon",
+            returnDate: new Date("2035-02-12T00:00:00.000Z"),
+            returnTime: "12:00 Noon",
+            status: opts.status ?? "booked",
+            bookingItems: {
+              create: {
+                itemId: fixture.id,
+                dressName: fixture.name,
+                isCancelled: opts.cancelled ?? false,
+                isReturned: opts.returned ?? false,
+              },
+            },
+          },
+        });
+        bookingIds.push(row.id);
+        return row;
+      };
+
+      const cancelled = await createBooking({ cancelled: true });
+      const afterCancelled = await scanService.checkScannedDressAvailability(scanInput);
+      assert(afterCancelled.status === "AVAILABLE", "cancelled booking item must be ignored");
+      await prisma.booking.delete({ where: { id: cancelled.id } });
+      bookingIds.splice(bookingIds.indexOf(cancelled.id), 1);
+
+      const returned = await createBooking({ status: "delivered", returned: true });
+      const afterReturned = await scanService.checkScannedDressAvailability(scanInput);
+      assert(afterReturned.status === "AVAILABLE", "returned booking item must be ignored");
+      await prisma.booking.delete({ where: { id: returned.id } });
+      bookingIds.splice(bookingIds.indexOf(returned.id), 1);
+
+      const blocker = await createBooking({});
+      const booked = await scanService.checkScannedDressAvailability(scanInput);
+      assert(booked.status === "BOOKED", "active overlapping booking must block");
+      const serialized = JSON.stringify(booked);
+      for (const sensitive of ["customerAddress", "idPhoto", "securityDeposit", "totalPrice"]) {
+        assert(!serialized.includes(sensitive), `availability leaked ${sensitive}`);
+      }
+
+      // Revision-keyed cache misses immediately after a booking mutation.
+      const cache = createBoundedTtlCache<string>({ ttlMs: 20_000, maxEntries: 10 });
+      const revisionBefore = String(
+        (await prisma.activityLog.findFirst({ orderBy: { id: "desc" }, select: { id: true } }))?.id ?? 0,
+      );
+      const keyParts = {
+        userId: 1,
+        codeHash: hashScanCode(scanInput.rawCode.toUpperCase()),
+        deliveryDateTime: scanInput.deliveryDateTime,
+        returnDateTime: scanInput.returnDateTime,
+        excludeBookingId: null,
+      };
+      await cache.get(
+        scanAvailabilityCacheKey({ ...keyParts, revision: revisionBefore }),
+        async () => "BOOKED",
+      );
+      const activity = await prisma.activityLog.create({
+        data: {
+          username: "integration",
+          action: "create",
+          entity: "booking",
+          entityId: blocker.id,
+          label: "scan cache invalidation integration fixture",
+        },
+      });
+      const revisionAfter = String(activity.id);
+      const afterMutation = await cache.get(
+        scanAvailabilityCacheKey({ ...keyParts, revision: revisionAfter }),
+        async () => "BOOKED-REFRESHED",
+      );
+      assert(afterMutation.cacheStatus === "miss", "booking revision must invalidate scan cache");
+
+      // Five staff users × ten scans, at most five concurrent DB consumers.
+      const loadErrors: unknown[] = [];
+      await Promise.all(
+        Array.from({ length: 5 }, async () => {
+          for (let scan = 0; scan < 10; scan += 1) {
+            try {
+              const result = await scanService.checkScannedDressAvailability(scanInput);
+              assert(result.dress?.id === fixture.id, "concurrent result attached to wrong dress");
+            } catch (error) {
+              loadErrors.push(error);
+            }
+          }
+        }),
+      );
+      const poolFailures = loadErrors.filter((error) =>
+        /P2024|P2028|pool timeout|timed out fetching/i.test(String(error)),
+      );
+      assert(poolFailures.length === 0, "concurrent scans exhausted the Prisma pool");
+      assert(loadErrors.length === 0, `concurrent scan failures: ${loadErrors.join("; ")}`);
+
+      await prisma.booking.delete({ where: { id: blocker.id } });
+      bookingIds.splice(bookingIds.indexOf(blocker.id), 1);
+      await prisma.clothingItem.update({
+        where: { id: fixture.id },
+        data: { status: "maintenance" },
+      });
+      const maintenance = await scanService.checkScannedDressAvailability(scanInput);
+      assert(maintenance.status === "MAINTENANCE", "maintenance dress must short-circuit");
+    } finally {
+      if (bookingIds.length) {
+        await prisma.booking.deleteMany({ where: { id: { in: bookingIds } } });
+      }
+      await prisma.activityLog.deleteMany({
+        where: { label: "scan cache invalidation integration fixture" },
+      });
+      await prisma.clothingItem.delete({ where: { id: fixture.id } });
     }
 
     const packing = await getPackingListPage({

@@ -3,6 +3,28 @@ import "server-only";
 import prisma from "@/lib/prisma";
 import { memoryCachedQuery } from "@/lib/perfCache";
 
+let freshRevisionInflight: Promise<string> | null = null;
+
+/**
+ * Uncached mutation revision for correctness-sensitive short caches.
+ * Simultaneous callers share only the in-flight query; once it settles, the
+ * next request reads the database again so a booking mutation cannot remain
+ * hidden behind the polling cache's five-second TTL.
+ */
+export function getFreshShopRevision(): Promise<string> {
+  if (freshRevisionInflight) return freshRevisionInflight;
+  freshRevisionInflight = prisma.activityLog
+    .findFirst({
+      orderBy: { id: "desc" },
+      select: { id: true },
+    })
+    .then((latest) => String(latest?.id ?? 0))
+    .finally(() => {
+      freshRevisionInflight = null;
+    });
+  return freshRevisionInflight;
+}
+
 /**
  * Cheap monotonic shop revision for polling-mode realtime.
  *
@@ -16,13 +38,7 @@ import { memoryCachedQuery } from "@/lib/perfCache";
 export async function getShopRevision(): Promise<string> {
   return memoryCachedQuery(
     ["shop-realtime-revision"],
-    async () => {
-      const latest = await prisma.activityLog.findFirst({
-        orderBy: { id: "desc" },
-        select: { id: true },
-      });
-      return String(latest?.id ?? 0);
-    },
+    getFreshShopRevision,
     5,
   );
 }

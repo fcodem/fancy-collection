@@ -305,7 +305,7 @@ describe("scan availability route contract", () => {
   it("uses a short bounded revision-keyed cache and logs safe timing fields", () => {
     assert.match(route, /CACHE_TTL_MS = 20_000/);
     assert.match(route, /CACHE_MAX_ENTRIES/);
-    assert.match(route, /getShopRevision\(\)/);
+    assert.match(route, /getFreshShopRevision\(\)/);
     for (const field of [
       "authMs",
       "codeLookupMs",
