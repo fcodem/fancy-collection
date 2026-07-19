@@ -601,6 +601,7 @@ export default function BookingFormClient(props: Props) {
     if (now - lastRealtimeRefreshRef.current < 2_500) return;
     lastRealtimeRefreshRef.current = now;
     invalidateClientCache("avail:");
+    invalidateClientCache("datecheck:");
     void fetchAvailability(false);
   });
 
@@ -1108,7 +1109,10 @@ export default function BookingFormClient(props: Props) {
       router.replace(`/booking/new?confirmed=1&serial=${serial ?? ""}`);
       window.scrollTo(0, 0);
     }
-    else router.replace(props.afterSaveHref || `/booking/${bookingId}`);
+    else {
+      invalidateClientCache();
+      router.replace(props.afterSaveHref || `/booking/${bookingId}`);
+    }
 
     } catch (e) {
       printWindow?.close();

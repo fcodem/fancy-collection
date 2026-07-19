@@ -106,6 +106,29 @@ async function main() {
     return { rowCount: check.length };
   });
 
+  await run("bookingDateCheck (multi-item, 1000+ bookings)", async () => {
+    const sampleItems = await prisma.$queryRaw<Array<{ item_id: number; d1: Date; r1: Date }>>`
+      SELECT bi.item_id AS item_id, b.delivery_date AS d1, b.return_date AS r1
+      FROM bookings b
+      JOIN booking_items bi ON bi.booking_id = b.id
+      WHERE b.booking_number LIKE 'BENCH-BKG-%'
+        AND b.status IN ('booked', 'delivered')
+        AND bi.is_cancelled = false
+        AND bi.is_returned = false
+        AND bi.item_id IS NOT NULL
+      ORDER BY b.id DESC
+      LIMIT 5
+    `;
+    if (!sampleItems.length) throw new Error("no benchmark items");
+    const anchor = sampleItems[0];
+    const dIso = anchor.d1.toISOString().slice(0, 10);
+    const rIso = anchor.r1.toISOString().slice(0, 10);
+    const itemIds = sampleItems.map((s) => s.item_id);
+    const check = await bookingDateCheck(0, dIso, rIso, itemIds);
+    if (check.length !== itemIds.length) throw new Error("missing per-item results");
+    return { rowCount: check.length };
+  });
+
   await run("monthBasedSearchBookings", async () => {
     const result = await monthBasedSearchBookings("Bench Customer", today, "", "1", "25");
     if (!result.results?.length) throw new Error("empty");

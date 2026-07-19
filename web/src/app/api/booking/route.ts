@@ -8,9 +8,10 @@ import {
   requireJsonContentType,
   requireOperationId,
 } from "@/lib/api";
-import { BookingFormSchema } from "@/lib/validation";
+import { BookingFormSchema, formatZodValidationError } from "@/lib/validation";
 import { catalogPhotoRef } from "@/lib/catalogPhotoRef";
 import { createBookingWithSideEffects } from "@/lib/services/bookingCreateOrchestration";
+import type { BookingCreateTimings } from "@/lib/services/bookingCreateFast";
 import { createPerfTimer, withServerTiming } from "@/lib/perfTiming";
 
 export const maxDuration = 60;
@@ -23,6 +24,7 @@ export async function POST(req: NextRequest) {
   perf.mark("auth");
   const user = await requireUser();
   perf.endStage("authMs", "auth");
+  perf.addQueries(1);
   if (isResponse(user)) return user;
   try {
     perf.mark("parse");
@@ -47,12 +49,30 @@ export async function POST(req: NextRequest) {
       operation_id: operationId,
     };
     perf.setItemCount(Array.isArray(body.items) ? body.items.length : 0);
-    perf.mark("tx");
+    let createTimings: BookingCreateTimings | undefined;
+    const createStartedAt = Date.now();
+    // createBookingWithSideEffects performs one idempotency pre-check.
+    perf.addQueries(1);
     const result = await createBookingWithSideEffects(body, user, {}, {
       nextAfter: after,
       origin: req.nextUrl.origin,
+      onTiming: (timings) => {
+        createTimings = timings;
+      },
     });
-    perf.endStage("transactionMs", "tx");
+    if (createTimings) {
+      perf.set("preloadMs", createTimings.preloadMs);
+      perf.set("conflictMs", createTimings.conflictMs);
+      perf.set("transactionMs", createTimings.transactionMs);
+      perf.set("postCommitMs", createTimings.postCommitMs);
+      perf.addQueries(createTimings.queryCount);
+    } else {
+      // Idempotent replay returned from the single pre-check query.
+      perf.set("preloadMs", Date.now() - createStartedAt);
+      perf.set("conflictMs", 0);
+      perf.set("transactionMs", 0);
+      perf.set("postCommitMs", 0);
+    }
     const timings = perf.finish({ kind: "mutation" });
     return withServerTiming(
       jsonOk({
@@ -67,6 +87,12 @@ export async function POST(req: NextRequest) {
   } catch (e) {
     perf.finish({ kind: "mutation", forceLog: true });
     const msg = e instanceof Error ? e.message : "Failed to create booking";
+    if (/operation_id was already used with a different payload/i.test(msg)) {
+      return jsonError(msg, 409, {
+        code: "IDEMPOTENCY_CONFLICT",
+        retryable: false,
+      });
+    }
     return jsonError(msg);
   }
 }

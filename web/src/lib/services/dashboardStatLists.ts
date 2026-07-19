@@ -204,11 +204,19 @@ async function attachWarnings(
 
 export async function getDashboardStatListPage(
   listType: DashboardStatListType,
-  opts?: { page?: string | number | null; pageSize?: string | number | null },
+  opts?: {
+    page?: string | number | null;
+    pageSize?: string | number | null;
+    /** Edge-booking warnings are expensive; list pages skip them unless exporting PDF. */
+    includeWarnings?: boolean;
+  },
 ): Promise<DashboardStatListPage> {
   const { page, pageSize } = parseDashboardStatPageParams(opts?.page, opts?.pageSize);
   const { total, rows } = await fetchStatListPageRaw(listType, page, pageSize);
-  const bookings = await attachWarnings(rows);
+  const includeWarnings = opts?.includeWarnings ?? false;
+  const bookings = includeWarnings
+    ? await attachWarnings(rows)
+    : rows.map(serializeRow);
   return {
     listType,
     bookings,

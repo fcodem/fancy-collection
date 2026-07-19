@@ -1,11 +1,11 @@
 import "server-only";
 
-import prisma from "@/lib/prisma";
-import { createBooking, type BookingFormInput } from "@/lib/services/bookingCrud";
+import type { BookingFormInput } from "@/lib/services/bookingCrud";
 import {
-  scheduleBookingBillInTx,
-  processWhatsAppJobQueue,
-} from "@/lib/services/whatsapp/jobQueue";
+  createBookingFast,
+  findBookingCreateOperation,
+  type BookingCreateTimings,
+} from "@/lib/services/bookingCreateFast";
 import {
   createBookingWithSideEffectsCore,
   isPrismaClientRequestIdConflict,
@@ -19,23 +19,31 @@ export async function createBookingWithSideEffects(
   input: BookingFormInput & { client_request_id?: string },
   user: { id: number; username: string },
   overrides: Partial<BookingCreateCoreDeps> = {},
-  opts?: { nextAfter?: (fn: () => void | Promise<void>) => void; origin?: string },
+  opts?: {
+    nextAfter?: (fn: () => void | Promise<void>) => void;
+    origin?: string;
+    onTiming?: (timings: BookingCreateTimings) => void;
+  },
 ): Promise<BookingCreateResult> {
   const origin = opts?.origin || "";
   const deps: BookingCreateCoreDeps = {
     createBooking: (form, by) =>
-      createBooking(form as BookingFormInput, by, {
-        scheduleBillInTx: (tx, bookingId) =>
-          scheduleBookingBillInTx(tx, bookingId, origin, by),
-      }),
-    processWhatsAppJobQueue,
-    findByClientRequestId: async (key) => {
-      const row = await prisma.booking.findUnique({
-        where: { clientRequestId: key },
-        select: { id: true, monthlySerial: true },
-      });
-      return row;
+      createBookingFast(
+        form as BookingFormInput,
+        by,
+        origin,
+        opts?.onTiming,
+      ),
+    // Keep PDF/WhatsApp/Chromium modules out of the request bundle and import
+    // the worker graph only after the response has been committed.
+    processWhatsAppJobQueue: async (limit, queueOpts) => {
+      const { processWhatsAppJobQueue } = await import(
+        "@/lib/services/whatsapp/jobQueue"
+      );
+      return processWhatsAppJobQueue(limit, queueOpts);
     },
+    findByClientRequestId: (key, form) =>
+      findBookingCreateOperation(key, form as BookingFormInput),
     isClientRequestIdConflict: isPrismaClientRequestIdConflict,
     after:
       opts?.nextAfter ??

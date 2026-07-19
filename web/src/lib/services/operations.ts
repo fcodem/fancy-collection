@@ -1,4 +1,5 @@
-import prisma, { parseDateQ } from "../prisma";
+import prisma, { isSqliteDb, parseDateQ } from "../prisma";
+import { searchBookingDateCheck } from "./bookingDateCheckSearch";
 import { revalidateTag, unstable_cache } from "next/cache";
 import { activeBookingWhere } from "@/lib/bookingActiveStatus";
 import { whereBookingOverlapsPeriod, whereDeliveryInRange, whereReturnInRange, whereReturnOnAnyDates } from "../bookingDateQuery";
@@ -416,9 +417,28 @@ export async function bookingDateCheck(
   const dDateRaw = parseDate(deliveryDateStr);
   const rDateRaw = parseDate(returnDateStr);
   if (rDateRaw < dDateRaw) throw new Error("return before delivery");
+
+  if (!isSqliteDb()) {
+    return searchBookingDateCheck({
+      bookingId,
+      deliveryDate: deliveryDateStr,
+      returnDate: returnDateStr,
+      itemIds,
+    });
+  }
+
+  return bookingDateCheckLegacySqlite(bookingId, deliveryDateStr, returnDateStr, itemIds);
+}
+
+/** SQLite-only fallback (local dev). PostgreSQL uses single CTE in bookingDateCheckSearch. */
+async function bookingDateCheckLegacySqlite(
+  bookingId: number,
+  deliveryDateStr: string,
+  returnDateStr: string,
+  itemIds: number[],
+) {
   const dIso = deliveryDateStr.slice(0, 10);
   const rIso = returnDateStr.slice(0, 10);
-
   const excludeId = bookingId > 0 ? bookingId : undefined;
   const uniqueIds = [...new Set(itemIds)];
 
@@ -426,7 +446,6 @@ export async function bookingDateCheck(
   const deliveryOnReturnWhere = await whereDeliveryInRange(rIso, rIso);
   const overlapWhere = await whereBookingOverlapsPeriod(dIso, rIso);
 
-  // Peak concurrency ≤2 under connection_limit=3.
   const [items, overlapBookings] = await Promise.all([
     prisma.clothingItem.findMany({ where: { id: { in: uniqueIds } } }),
     prisma.booking.findMany({

@@ -48,12 +48,25 @@ function isSchemaUnavailable(e: unknown): boolean {
 
 type ClaimResult =
   | { kind: "reuse"; result: unknown }
-  | { kind: "execute"; operationId: string; requestHash: string };
+  | {
+      kind: "execute";
+      operationId: string;
+      requestHash: string;
+      /** Staging persisted by an earlier attempt of this operation (e.g. uploaded photo paths). */
+      staging: Record<string, unknown> | null;
+    };
 
 /**
  * Claim (or reclaim expired lease) a mutation receipt.
- * Business work must then run in a transaction that calls `completeMutationReceiptInTx`
- * before commit so a crash cannot leave the mutation committed while the receipt stays processing.
+ *
+ * Fast path is ONE atomic `INSERT … ON CONFLICT DO UPDATE … RETURNING`
+ * statement (the previous interactive transaction cost 4+ cross-region round
+ * trips per save). The conflict-refused path (completed / failed / lease held /
+ * payload mismatch) does one follow-up SELECT to classify the refusal.
+ *
+ * Business work must then run in a transaction that calls
+ * `completeMutationReceiptInTx` before commit so a crash cannot leave the
+ * mutation committed while the receipt stays processing.
  */
 export async function claimMutationReceipt(opts: IdempotentMutationOpts): Promise<ClaimResult> {
   const operationId = requireOperationId(opts.operationId);
@@ -63,93 +76,85 @@ export async function claimMutationReceipt(opts: IdempotentMutationOpts): Promis
   const leaseExpires = new Date(now.getTime() + leaseMs);
 
   try {
-    return await prisma.$transaction(async (tx) => {
-      const rows = await tx.$queryRaw<
-        Array<{
-          operation_id: string;
-          request_hash: string;
-          status: string;
-          result_json: unknown;
-          lease_expires_at: Date | null;
-        }>
-      >`
-        SELECT operation_id, request_hash, status, result_json, lease_expires_at
-        FROM mutation_receipts
-        WHERE operation_id = ${operationId}
-        FOR UPDATE
-      `;
+    // Insert a fresh claim, or atomically reclaim an expired lease for the SAME
+    // payload. The WHERE guard means a mismatched payload or an active lease
+    // never mutates the row — those cases return zero rows and are classified below.
+    const claimed = await prisma.$queryRaw<
+      Array<{ status: string; result_json: unknown }>
+    >`
+      INSERT INTO mutation_receipts (
+        operation_id, operation_type, booking_id, actor_user_id,
+        request_hash, status, claimed_at, lease_expires_at, created_at
+      ) VALUES (
+        ${operationId}, ${opts.operationType}, ${opts.bookingId ?? null}, ${opts.actorUserId ?? null},
+        ${requestHash}, 'processing', ${now}, ${leaseExpires}, ${now}
+      )
+      ON CONFLICT (operation_id) DO UPDATE SET
+        claimed_at = ${now},
+        lease_expires_at = ${leaseExpires},
+        error_message = NULL,
+        error_code = NULL
+      WHERE mutation_receipts.status = 'processing'
+        AND mutation_receipts.request_hash = ${requestHash}
+        AND (
+          mutation_receipts.lease_expires_at IS NULL
+          OR mutation_receipts.lease_expires_at <= ${now}
+        )
+      RETURNING status, result_json
+    `;
 
-      const existing = rows[0];
-      if (existing) {
-        if (existing.request_hash !== requestHash) {
-          throw new MutationIdempotencyError(
-            "OPERATION_PAYLOAD_MISMATCH",
-            "operation_id was already used with a different payload",
-            409,
-            false,
-          );
-        }
-        if (existing.status === "completed" && existing.result_json != null) {
-          return { kind: "reuse" as const, result: existing.result_json };
-        }
-        if (existing.status === "failed") {
-          throw new MutationIdempotencyError(
-            "OPERATION_PREVIOUSLY_FAILED",
-            "This operation_id previously failed. Start a new operation_id.",
-            409,
-            false,
-          );
-        }
-        if (existing.status === "processing") {
-          const leaseOk =
-            existing.lease_expires_at != null && new Date(existing.lease_expires_at) > now;
-          if (leaseOk) {
-            throw new MutationIdempotencyError(
-              "OPERATION_IN_PROGRESS",
-              "This operation is still processing",
-              409,
-              true,
-            );
-          }
-          await tx.mutationReceipt.update({
-            where: { operationId },
-            data: {
-              claimedAt: now,
-              leaseExpiresAt: leaseExpires,
-              errorMessage: null,
-              errorCode: null,
-            },
-          });
-          return { kind: "execute" as const, operationId, requestHash };
-        }
-      }
+    if (claimed.length > 0) {
+      const staging = claimed[0]?.result_json;
+      return {
+        kind: "execute" as const,
+        operationId,
+        requestHash,
+        staging:
+          staging && typeof staging === "object"
+            ? (staging as Record<string, unknown>)
+            : null,
+      };
+    }
 
-      try {
-        await tx.mutationReceipt.create({
-          data: {
-            operationId,
-            operationType: opts.operationType,
-            bookingId: opts.bookingId ?? null,
-            actorUserId: opts.actorUserId ?? null,
-            requestHash,
-            status: "processing",
-            claimedAt: now,
-            leaseExpiresAt: leaseExpires,
-          },
-        });
-      } catch (e) {
-        if ((e as { code?: string })?.code === "P2002") {
-          throw new MutationIdempotencyError(
-            "OPERATION_IN_PROGRESS",
-            "This operation is still processing",
-            409,
-            true,
-          );
-        }
-        throw e;
-      }
-      return { kind: "execute" as const, operationId, requestHash };
+    // Conflict refused — classify from the current row state.
+    const existing = await prisma.mutationReceipt.findUnique({
+      where: { operationId },
+      select: { requestHash: true, status: true, resultJson: true, leaseExpiresAt: true },
     });
+    if (!existing) {
+      // Row vanished between statements (cleanup race) — caller may retry.
+      throw new MutationIdempotencyError(
+        "OPERATION_IN_PROGRESS",
+        "This operation is still processing",
+        409,
+        true,
+      );
+    }
+    if (existing.requestHash !== requestHash) {
+      throw new MutationIdempotencyError(
+        "OPERATION_PAYLOAD_MISMATCH",
+        "operation_id was already used with a different payload",
+        409,
+        false,
+      );
+    }
+    if (existing.status === "completed" && existing.resultJson != null) {
+      return { kind: "reuse" as const, result: existing.resultJson };
+    }
+    if (existing.status === "failed") {
+      throw new MutationIdempotencyError(
+        "OPERATION_PREVIOUSLY_FAILED",
+        "This operation_id previously failed. Start a new operation_id.",
+        409,
+        false,
+      );
+    }
+    throw new MutationIdempotencyError(
+      "OPERATION_IN_PROGRESS",
+      "This operation is still processing",
+      409,
+      true,
+    );
   } catch (e) {
     if (e instanceof MutationIdempotencyError) throw e;
     if (isSchemaUnavailable(e)) {
@@ -371,24 +376,34 @@ export async function runIdempotentMutationInTx<T>(
   try {
     return await prisma.$transaction(
       async (tx) => {
-        const rows = await tx.$queryRaw<
-          Array<{
-            operation_id: string;
-            request_hash: string;
-            status: string;
-            result_json: unknown;
-            lease_expires_at: Date | null;
-          }>
-        >`
-          SELECT operation_id, request_hash, status, result_json, lease_expires_at
-          FROM mutation_receipts
-          WHERE operation_id = ${operationId}
-          FOR UPDATE
+        // One atomic claim statement (insert new, or reclaim expired lease for
+        // the same payload). Refusals return zero rows and are classified below.
+        const claimed = await tx.$queryRaw<Array<{ status: string }>>`
+          INSERT INTO mutation_receipts (
+            operation_id, operation_type, booking_id, actor_user_id,
+            request_hash, status, claimed_at, lease_expires_at, created_at
+          ) VALUES (
+            ${operationId}, ${opts.operationType}, ${opts.bookingId ?? null}, ${opts.actorUserId ?? null},
+            ${requestHash}, 'processing', ${now}, ${leaseExpires}, ${now}
+          )
+          ON CONFLICT (operation_id) DO UPDATE SET
+            claimed_at = ${now},
+            lease_expires_at = ${leaseExpires}
+          WHERE mutation_receipts.status = 'processing'
+            AND mutation_receipts.request_hash = ${requestHash}
+            AND (
+              mutation_receipts.lease_expires_at IS NULL
+              OR mutation_receipts.lease_expires_at <= ${now}
+            )
+          RETURNING status
         `;
 
-        const existing = rows[0];
-        if (existing) {
-          if (existing.request_hash !== requestHash) {
+        if (claimed.length === 0) {
+          const existing = await tx.mutationReceipt.findUnique({
+            where: { operationId },
+            select: { requestHash: true, status: true, resultJson: true },
+          });
+          if (existing && existing.requestHash !== requestHash) {
             throw new MutationIdempotencyError(
               "OPERATION_PAYLOAD_MISMATCH",
               "operation_id was already used with a different payload",
@@ -396,10 +411,10 @@ export async function runIdempotentMutationInTx<T>(
               false,
             );
           }
-          if (existing.status === "completed" && existing.result_json != null) {
-            return { result: existing.result_json as T, reused: true };
+          if (existing?.status === "completed" && existing.resultJson != null) {
+            return { result: existing.resultJson as T, reused: true };
           }
-          if (existing.status === "failed") {
+          if (existing?.status === "failed") {
             throw new MutationIdempotencyError(
               "OPERATION_PREVIOUSLY_FAILED",
               "This operation_id previously failed. Start a new operation_id.",
@@ -407,47 +422,12 @@ export async function runIdempotentMutationInTx<T>(
               false,
             );
           }
-          if (existing.status === "processing") {
-            const leaseOk =
-              existing.lease_expires_at != null && new Date(existing.lease_expires_at) > now;
-            if (leaseOk) {
-              throw new MutationIdempotencyError(
-                "OPERATION_IN_PROGRESS",
-                "This operation is still processing",
-                409,
-                true,
-              );
-            }
-            await tx.mutationReceipt.update({
-              where: { operationId },
-              data: { claimedAt: now, leaseExpiresAt: leaseExpires },
-            });
-          }
-        } else {
-          try {
-            await tx.mutationReceipt.create({
-              data: {
-                operationId,
-                operationType: opts.operationType,
-                bookingId: opts.bookingId ?? null,
-                actorUserId: opts.actorUserId ?? null,
-                requestHash,
-                status: "processing",
-                claimedAt: now,
-                leaseExpiresAt: leaseExpires,
-              },
-            });
-          } catch (e) {
-            if ((e as { code?: string })?.code === "P2002") {
-              throw new MutationIdempotencyError(
-                "OPERATION_IN_PROGRESS",
-                "This operation is still processing",
-                409,
-                true,
-              );
-            }
-            throw e;
-          }
+          throw new MutationIdempotencyError(
+            "OPERATION_IN_PROGRESS",
+            "This operation is still processing",
+            409,
+            true,
+          );
         }
 
         const result = await mutate(tx);
