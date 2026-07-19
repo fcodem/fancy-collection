@@ -1,6 +1,7 @@
 import { NextRequest } from "next/server";
 import { jsonError, jsonOk } from "@/lib/api";
 import { processBlobCleanupJobs } from "@/lib/blobCleanup";
+import { processPendingPrivateMediaCleanup } from "@/lib/bookingPrivateMediaCleanup";
 import { cleanupAbandonedMutationStaging } from "@/lib/mutationReceipt";
 
 export const maxDuration = 60;
@@ -20,7 +21,8 @@ export async function GET(req: NextRequest) {
       return { cleaned: 0, paths: 0 };
     });
     const summary = await processBlobCleanupJobs(25);
-    return jsonOk({ ok: true, abandoned_staging: abandoned, ...summary });
+    const privateMedia = await processPendingPrivateMediaCleanup(25);
+    return jsonOk({ ok: true, abandoned_staging: abandoned, ...summary, private_media: privateMedia });
   } catch (e) {
     console.error("[cron/blob-cleanup]", e instanceof Error ? e.message : e);
     return jsonError("Blob cleanup failed", 500);

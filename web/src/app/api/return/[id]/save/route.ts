@@ -32,6 +32,9 @@ import {
   toPublicErrorPayload,
 } from "@/lib/mutationReceipt";
 import { enqueueBlobCleanup } from "@/lib/blobCleanup";
+import { scheduleBookingPrivateMediaCleanup } from "@/lib/bookingPrivateMediaCleanup";
+import { trackBookingPrivateMedia } from "@/lib/bookingPrivateMediaTracking";
+import { BOOKING_PRIVATE_MEDIA_TYPES } from "@/lib/bookingPrivateMediaTypes";
 import { broadcastShopEvent } from "@/lib/realtime/broadcast";
 
 export const maxDuration = 60;
@@ -157,6 +160,46 @@ function drainQueueAfter(bookingId: number) {
       console.error("[return save] whatsapp queue error:", e);
     }
   });
+}
+
+async function trackUploadedReturnPhotos(
+  bookingId: number,
+  incompletePhoto?: string,
+  items?: IncompleteItemPayload[],
+) {
+  if (incompletePhoto) {
+    await trackBookingPrivateMedia({
+      bookingId,
+      blobUrl: incompletePhoto,
+      mediaType: BOOKING_PRIVATE_MEDIA_TYPES.INCOMPLETE_RETURN,
+    });
+  }
+  for (const item of items ?? []) {
+    if (item.is_incomplete && item.incomplete_photo) {
+      await trackBookingPrivateMedia({
+        bookingId,
+        blobUrl: item.incomplete_photo,
+        bookingItemId: item.booking_item_id,
+        mediaType: BOOKING_PRIVATE_MEDIA_TYPES.INCOMPLETE_RETURN,
+      });
+    }
+  }
+}
+
+async function runPostCommitReturnSideEffects(
+  bookingId: number,
+  deferredPaths: string[],
+  status?: string | null,
+) {
+  if (deferredPaths.length) {
+    await enqueueBlobCleanup(deferredPaths, {
+      reason: "return_post_commit_cleanup",
+      bookingId,
+    });
+  }
+  if (status === "returned") {
+    await scheduleBookingPrivateMediaCleanup(bookingId);
+  }
 }
 
 export async function POST(req: NextRequest, { params }: { params: Promise<{ id: string }> }) {
@@ -307,6 +350,8 @@ export async function POST(req: NextRequest, { params }: { params: Promise<{ id:
         }
         perf.endStage("photoUploadMs", "photo");
 
+        await trackUploadedReturnPhotos(bookingId, incomplete_photo, items);
+
         const result = await prisma.$transaction(async (tx) => {
           perf.mark("tx");
           const booking = await saveReturn(
@@ -367,11 +412,12 @@ export async function POST(req: NextRequest, { params }: { params: Promise<{ id:
           return payload;
         });
 
-        if (result._deferredPaths.length) {
-          await enqueueBlobCleanup(result._deferredPaths, {
-            reason: "return_post_commit_cleanup",
+        if (result._deferredPaths.length || result._status === "returned") {
+          await runPostCommitReturnSideEffects(
             bookingId,
-          });
+            result._deferredPaths,
+            result._status,
+          );
         }
         broadcastShopEvent({
           type: "booking.returned",
@@ -429,6 +475,7 @@ export async function POST(req: NextRequest, { params }: { params: Promise<{ id:
     };
 
     let deferredPaths: string[] = [];
+    let committedStatus: string | null | undefined;
     const { result, reused } = await runIdempotentMutationInTx(
       {
         operationId,
@@ -469,6 +516,7 @@ export async function POST(req: NextRequest, { params }: { params: Promise<{ id:
           ...(((booking as { photosToClear?: Array<string | null> }).photosToClear) ?? []),
           ...(((booking as { blobPathsToCleanup?: string[] }).blobPathsToCleanup) ?? []),
         ].filter((p): p is string => Boolean(p));
+        committedStatus = booking?.status;
 
         const slips = await scheduleReturnSlipsInTx(tx, booking ?? { bookingItems: [] }, {
           bookingId,
@@ -491,11 +539,8 @@ export async function POST(req: NextRequest, { params }: { params: Promise<{ id:
     );
 
     if (!reused) {
-      if (deferredPaths.length) {
-        await enqueueBlobCleanup(deferredPaths, {
-          reason: "return_post_commit_cleanup",
-          bookingId,
-        });
+      if (deferredPaths.length || committedStatus === "returned") {
+        await runPostCommitReturnSideEffects(bookingId, deferredPaths, committedStatus);
       }
       broadcastShopEvent({
         type: "booking.returned",

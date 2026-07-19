@@ -147,9 +147,9 @@ export async function processBlobCleanupJobs(limit = 20) {
         await prisma.blobCleanupJob.update({
           where: { id: job.id },
           data: {
-            status: "skipped",
+            status: "pending",
             lastError: "still_referenced",
-            completedAt: now,
+            scheduledAt: new Date(Date.now() + 30_000),
             leaseExpiresAt: null,
             claimedBy: null,
           },

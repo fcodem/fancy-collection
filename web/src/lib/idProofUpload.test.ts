@@ -96,6 +96,34 @@ describe("ID proof upload contracts (static)", () => {
     assert.doesNotMatch(idPhotosRoute, /saveUpload|saveFastInventoryPhoto|saveCompressedFromBuffer/);
   });
 
+  it("finalizeFullReturnIfComplete defers blob cleanup until after commit", () => {
+    const start = operations.indexOf("async function finalizeFullReturnIfComplete");
+    const end = operations.indexOf("async function syncIncompleteReturnStatus");
+    const block = operations.slice(start, end);
+    assert.doesNotMatch(block, /clearBookingIdPhotos|clearIncompletePhotos|enqueueBlobCleanup/);
+    assert.match(block, /collectFullReturnPhotoPaths/);
+    assert.match(block, /return paths/);
+  });
+
+  it("syncIncompleteReturnStatus defers blob cleanup when closing to returned", () => {
+    const start = operations.indexOf("async function syncIncompleteReturnStatus");
+    const end = operations.indexOf("function warnFromBooking");
+    const block = operations.slice(start, end);
+    assert.doesNotMatch(block, /clearBookingIdPhotos|clearIncompletePhotos|enqueueBlobCleanup/);
+    assert.match(block, /collectFullReturnPhotoPaths/);
+    assert.match(block, /return paths/);
+  });
+
+  it("blob cleanup reschedules still_referenced jobs instead of permanent skip", () => {
+    const blobCleanup = read("src/lib/blobCleanup.ts");
+    const start = blobCleanup.indexOf("if (await isBlobPathStillReferenced");
+    const block = blobCleanup.slice(start, start + 450);
+    assert.match(block, /status:\s*"pending"/);
+    assert.doesNotMatch(block, /status:\s*"skipped"/);
+    assert.match(block, /still_referenced/);
+    assert.match(block, /30_000/);
+  });
+
   it("order photo uploads use private booking media route", () => {
     const orderPhotoRoute = read("src/app/api/uploads/order-photo/route.ts");
     const jewellery = read("src/components/JewellerySelectionClient.tsx");
