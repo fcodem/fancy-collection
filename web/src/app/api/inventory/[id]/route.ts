@@ -9,7 +9,7 @@ import { computePipelineStatus, enqueueInventoryPhotoJobsDurable } from "@/lib/i
 import { saveFastInventoryPhotoWithThumb } from "@/lib/upload";
 import { enqueueBlobCleanup } from "@/lib/blobCleanup";
 import { broadcastShopEvent } from "@/lib/realtime/broadcast";
-import { invalidateInventoryCaches } from "@/lib/inventoryCacheTags";
+import { invalidateInventoryListCaches, invalidateInventoryCaches } from "@/lib/inventoryCacheTags";
 import { logActivity, snapshotInventory } from "@/lib/activityLog";
 import { cleanupRemovedInventoryPhoto } from "@/lib/dressChecker/photoRemovedCleanup";
 import {
@@ -208,42 +208,6 @@ export async function PUT(req: NextRequest, { params }: { params: Promise<{ id: 
     });
     committed = true;
 
-    if (result._uploadsToDelete.length) {
-      await enqueueBlobCleanup(result._uploadsToDelete, { reason: "inventory_photo_replaced" });
-    }
-    broadcastShopEvent({ type: "inventory.changed", itemIds: [itemId], by: user.username });
-    invalidateInventoryCaches();
-    void logActivity({
-      username: user.username,
-      action: "updated",
-      entity: "inventory",
-      entityId: itemId,
-      label: `Updated ${result._name} (${result._category})`,
-      before: result._beforeSnapshot,
-      after: snapshotInventory({
-        id: result.id,
-        name: result._name,
-        category: result._category,
-      } as unknown as Record<string, unknown>),
-    });
-    if (result._photoRemoved) {
-      after(async () => {
-        try {
-          await cleanupRemovedInventoryPhoto(itemId);
-        } catch (error) {
-          console.error("[inventory PUT] post-commit AI cleanup failed:", error);
-        }
-      });
-    } else if (result._hasPhoto && result._photoReplaced) {
-      after(async () => {
-        try {
-          await enqueueInventoryPhotoJobsDurable([itemId], "photo_replaced");
-        } catch (error) {
-          console.error("[inventory PUT] post-commit AI enqueue failed:", error);
-        }
-      });
-    }
-
     const {
       _uploadsToDelete: _a,
       _beforeSnapshot: _b,
@@ -254,6 +218,41 @@ export async function PUT(req: NextRequest, { params }: { params: Promise<{ id: 
       _hasPhoto: _g,
       ...publicResult
     } = result;
+
+    after(async () => {
+      if (result._uploadsToDelete.length) {
+        await enqueueBlobCleanup(result._uploadsToDelete, { reason: "inventory_photo_replaced" });
+      }
+      invalidateInventoryListCaches();
+      broadcastShopEvent({ type: "inventory.changed", itemIds: [itemId], by: user.username });
+      void logActivity({
+        username: user.username,
+        action: "updated",
+        entity: "inventory",
+        entityId: itemId,
+        label: `Updated ${result._name} (${result._category})`,
+        before: result._beforeSnapshot,
+        after: snapshotInventory({
+          id: result.id,
+          name: result._name,
+          category: result._category,
+        } as unknown as Record<string, unknown>),
+      });
+      if (result._photoRemoved) {
+        try {
+          await cleanupRemovedInventoryPhoto(itemId);
+        } catch (error) {
+          console.error("[inventory PUT] post-commit AI cleanup failed:", error);
+        }
+      } else if (result._hasPhoto && result._photoReplaced) {
+        try {
+          await enqueueInventoryPhotoJobsDurable([itemId], "photo_replaced");
+        } catch (error) {
+          console.error("[inventory PUT] post-commit AI enqueue failed:", error);
+        }
+      }
+    });
+
     return jsonOk(publicResult);
   } catch (e) {
     if (e instanceof MutationIdempotencyError) {

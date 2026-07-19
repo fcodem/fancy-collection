@@ -7,7 +7,7 @@ import { photoUrl } from "@/lib/photoUrl";
 import { computePipelineStatus, enqueueInventoryPhotoJobsDurable } from "@/lib/inventoryPhotoPipeline";
 import { saveFastInventoryPhotoWithThumb } from "@/lib/upload";
 import { broadcastShopEvent } from "@/lib/realtime/broadcast";
-import { invalidateInventoryCaches } from "@/lib/inventoryCacheTags";
+import { invalidateInventoryListCaches } from "@/lib/inventoryCacheTags";
 import { logActivity, snapshotInventory } from "@/lib/activityLog";
 import { createPerfTimer, withServerTiming } from "@/lib/perfTiming";
 import prisma from "@/lib/prisma";
@@ -217,35 +217,35 @@ export async function POST(req: NextRequest) {
     });
     committed = true;
 
-    broadcastShopEvent({
-      type: "inventory.changed",
-      itemIds: result.ids,
-      by: user.username,
-    });
-    invalidateInventoryCaches();
-    for (const snap of result._itemSnapshots || []) {
-      void logActivity({
-        username: user.username,
-        action: "created",
-        entity: "inventory",
-        entityId: snap.id,
-        label: `Added ${snap.name} (${snap.category}, ${snap.size || "—"})`,
-        after: snapshotInventory(snap as unknown as Record<string, unknown>),
-      });
-    }
+    const { _hasPhoto: _a, _itemSnapshots: _b, ...publicResult } = result;
+    const timings = perf.finish({ kind: "mutation" });
 
-    if (result._hasPhoto && result.ids.length) {
-      after(async () => {
+    after(async () => {
+      invalidateInventoryListCaches();
+      broadcastShopEvent({
+        type: "inventory.changed",
+        itemIds: result.ids,
+        by: user.username,
+      });
+      for (const snap of result._itemSnapshots || []) {
+        void logActivity({
+          username: user.username,
+          action: "created",
+          entity: "inventory",
+          entityId: snap.id,
+          label: `Added ${snap.name} (${snap.category}, ${snap.size || "—"})`,
+          after: snapshotInventory(snap as unknown as Record<string, unknown>),
+        });
+      }
+      if (result._hasPhoto && result.ids.length) {
         try {
           await enqueueInventoryPhotoJobsDurable(result.ids, "photo_created");
         } catch (error) {
           console.error("[inventory POST] post-commit AI enqueue failed:", error);
         }
-      });
-    }
+      }
+    });
 
-    const { _hasPhoto: _a, _itemSnapshots: _b, ...publicResult } = result;
-    const timings = perf.finish({ kind: "mutation" });
     return withServerTiming(jsonOk(publicResult), timings);
   } catch (e) {
     if (e instanceof MutationIdempotencyError) {

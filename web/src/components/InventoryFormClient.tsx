@@ -451,6 +451,7 @@ export default function InventoryFormClient({
 
   async function submit(e: React.FormEvent<HTMLFormElement>) {
     e.preventDefault();
+    if (saving) return;
     const form = new FormData(e.currentTarget);
     if (!isEdit && isMens) selectedSizes.forEach((s) => form.append("sizes[]", s));
     if (isJewellery) {
@@ -475,13 +476,12 @@ export default function InventoryFormClient({
             : null;
       let dup = dupCheckResult;
       if (!dup && currentPrepared) {
-        setStatusMessage("Checking for duplicates…");
         const pending =
           duplicatePromiseRef.current ||
           startDuplicateCheck(currentPrepared, category);
         dup = await Promise.race([
           pending,
-          new Promise<null>((resolve) => setTimeout(() => resolve(null), 1_500)),
+          new Promise<null>((resolve) => setTimeout(() => resolve(null), 400)),
         ]);
       }
       if (dup?.is_duplicate && dup.match) {
@@ -502,7 +502,7 @@ export default function InventoryFormClient({
   }
 
   async function confirmDuplicateSave() {
-    if (!pendingForm) return;
+    if (!pendingForm || saving) return;
     setDuplicateWarning(null);
     await saveForm(pendingForm, "/api/inventory", "POST");
     setPendingForm(null);
@@ -774,8 +774,8 @@ export default function InventoryFormClient({
               </p>
               <p style={{ fontSize: 13, color: "var(--text-muted)" }}>Continue adding as a new item?</p>
               <div style={{ display: "flex", gap: 8, marginTop: 16 }}>
-                <button type="button" className="btn btn-primary" onClick={() => void confirmDuplicateSave()}>
-                  Continue
+                <button type="button" className="btn btn-primary" disabled={saving} onClick={() => void confirmDuplicateSave()}>
+                  {saving ? "Saving…" : "Continue"}
                 </button>
                 <button
                   type="button"

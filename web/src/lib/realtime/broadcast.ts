@@ -4,7 +4,6 @@ import {
   invalidateBookingCaches,
   invalidateDeliveryReturnCaches,
 } from "@/lib/cacheInvalidation";
-import { invalidateInventoryCaches } from "@/lib/inventoryCacheTags";
 
 type BroadcastOpts = {
   type: ShopEventType;
@@ -26,15 +25,13 @@ export function broadcastShopEvent(opts: BroadcastOpts) {
     opts.type === "inventory.changed"
   ) {
     emitShopEvent({ type: "nav.refresh", at: new Date().toISOString() });
-    if (opts.type === "inventory.changed") {
-      invalidateInventoryCaches();
-    } else if (
+    if (
       opts.type === "booking.delivered" ||
       opts.type === "booking.returned" ||
       opts.type.includes("return")
     ) {
       invalidateDeliveryReturnCaches();
-    } else {
+    } else if (opts.type.startsWith("booking.") || opts.type === "packing.updated") {
       invalidateBookingCaches();
     }
   }
