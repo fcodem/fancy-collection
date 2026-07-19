@@ -49,6 +49,8 @@ model UserSession {
   userId     Int       @map("user_id")
   sessionId  String    @unique @map("session_id")
   active     Boolean   @default(true)
+  revision   Int       @default(1)
+  expiresAt  DateTime  @default(dbgenerated("(CURRENT_TIMESTAMP + INTERVAL '7 days')")) @map("expires_at")
   loginAt    DateTime  @default(now()) @map("login_at")
   lastSeen   DateTime  @default(now()) @map("last_seen")
   endedAt    DateTime? @map("ended_at")
