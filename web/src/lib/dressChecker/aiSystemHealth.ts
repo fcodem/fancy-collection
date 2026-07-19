@@ -9,6 +9,7 @@ import {
   CURRENT_RECOGNITION_VERSION,
 } from "./profileReadiness";
 import { getAiJobQueueStats, markOutdatedProfilesStaleAndEnqueue } from "./aiJobClient";
+import { getDurableWorkerHealth } from "./workerHeartbeat";
 
 export type AiSystemHealthReport = {
   generatedAt: string;

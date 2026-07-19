@@ -102,9 +102,11 @@ describe("mutations queue slips without waiting for Chromium", () => {
   it("booking create schedules the durable bill and defers processing", () => {
     const route = read("src/app/api/booking/route.ts");
     const orchestration = read("src/lib/services/bookingCreateOrchestration.ts");
+    const fast = read("src/lib/services/bookingCreateFast.ts");
     assert.match(route, /nextAfter: after/);
-    assert.match(orchestration, /scheduleBookingBillInTx/);
-    assert.doesNotMatch(`${route}\n${orchestration}`, /slipHtmlPdfDirect|pdfBrowserPool/);
+    assert.match(fast, /inserted_outbox|booking_bill/);
+    assert.match(orchestration, /processWhatsAppJobQueue/);
+    assert.doesNotMatch(`${route}\n${orchestration}\n${fast}`, /slipHtmlPdfDirect|pdfBrowserPool/);
   });
 
   it("delivery and return save queue in-transaction and drain only in after()", () => {
