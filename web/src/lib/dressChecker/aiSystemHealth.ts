@@ -103,6 +103,12 @@ export async function runAiSystemHealthAudit(opts: {
       cancelled: 0,
       deadLetter: 0,
       workerId: "unavailable",
+      oldestPendingAt: null,
+      oldestPendingAgeMs: null,
+      oldestProcessingAt: null,
+      oldestProcessingAgeMs: null,
+      lastSuccessfulJobAt: null,
+      lastSuccessfulJobId: null,
     })),
     getDressCheckerIndexStats().catch(() => ({
       totalProfiles: 0,
