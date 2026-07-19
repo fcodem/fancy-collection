@@ -1,8 +1,7 @@
 "use client";
 
-import { useEffect } from "react";
+import { useEffect, useState } from "react";
 import Link from "next/link";
-import * as Sentry from "@sentry/nextjs";
 
 export default function FinanceError({
   error,
@@ -11,14 +10,25 @@ export default function FinanceError({
   error: Error & { digest?: string };
   reset: () => void;
 }) {
+  const [retryCount, setRetryCount] = useState(0);
+
   useEffect(() => {
-    Sentry.captureException(error);
-  }, [error]);
+    // Auto-retry once on chunk load errors (stale PWA cache after deploy)
+    const isChunkError =
+      /loading chunk|failed to fetch|load failed|dynamically imported module/i.test(
+        error.message || "",
+      );
+    if (isChunkError && retryCount === 0) {
+      setRetryCount(1);
+      // Force reload the page to clear stale chunks
+      window.location.reload();
+      return;
+    }
+    console.error("[finance error boundary]", error);
+  }, [error, retryCount]);
 
   const message =
-    process.env.NODE_ENV === "production"
-      ? "This finance report could not be loaded. You can retry or return to the ledger."
-      : error.message || "Finance report error";
+    "This finance report could not be loaded. You can retry or return to the ledger.";
 
   return (
     <div className="card" style={{ maxWidth: 560, margin: "24px auto" }}>
@@ -26,7 +36,14 @@ export default function FinanceError({
         <h3 style={{ marginTop: 0 }}>Finance report unavailable</h3>
         <p style={{ color: "var(--text-muted)", marginBottom: 20 }}>{message}</p>
         <div style={{ display: "flex", gap: 12, flexWrap: "wrap" }}>
-          <button type="button" className="btn btn-primary" onClick={reset}>
+          <button
+            type="button"
+            className="btn btn-primary"
+            onClick={() => {
+              reset();
+              window.location.reload();
+            }}
+          >
             Retry
           </button>
           <Link href="/finance/ledger" className="btn btn-outline">

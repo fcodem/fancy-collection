@@ -1,11 +1,15 @@
 import { NextResponse } from "next/server";
 import { allLimit } from "@/lib/concurrency";
-import { jsonError, jsonOk, requireOwner, isResponse } from "@/lib/api";
+import { jsonError, jsonOk, isResponse } from "@/lib/api";
+import { getCurrentUserForLayout, isOwner } from "@/lib/auth";
 
 export const FINANCE_READ_TIMEOUT_MS = 25_000;
 
 export async function requireFinanceOwner() {
-  return requireOwner();
+  const user = await getCurrentUserForLayout();
+  if (!user) return jsonError("Please log in to continue.", 401);
+  if (!isOwner(user)) return jsonError("Access denied. Owner permission required.", 403);
+  return user;
 }
 
 export async function withFinanceTimeout<T>(
