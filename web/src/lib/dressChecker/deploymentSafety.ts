@@ -9,7 +9,7 @@ import {
   getAiJobQueueStats,
   markOutdatedProfilesStaleAndEnqueue,
   recoverExpiredProcessingLeases,
-} from "./aiJobQueue";
+} from "./aiJobClient";
 import {
   drainAiJobQueue,
   startAiJobWorker,

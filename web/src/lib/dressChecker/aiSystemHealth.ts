@@ -8,9 +8,7 @@ import {
   CURRENT_PIPELINE_VERSION,
   CURRENT_RECOGNITION_VERSION,
 } from "./profileReadiness";
-import { getAiJobQueueStats } from "./aiJobQueue";
-import { getDurableWorkerHealth } from "./workerHeartbeat";
-import { markOutdatedProfilesStaleAndEnqueue } from "./aiJobQueue";
+import { getAiJobQueueStats, markOutdatedProfilesStaleAndEnqueue } from "./aiJobClient";
 
 export type AiSystemHealthReport = {
   generatedAt: string;

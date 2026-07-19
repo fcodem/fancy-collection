@@ -2,13 +2,13 @@ import prisma, { parseDateQ, isSqliteDb } from "./prisma";
 import {
   whereBookingOverlapsPeriod,
   whereDeliveryInRange,
-  whereDeliveryInMonth,
   whereReturnInRange,
 } from "./bookingDateQuery";
 import { dressDisplayName, buildDressSearchWhere, serializeBookingItems } from "./dress";
 import { bookingListRecordFrom, bookingWarningRecordFrom, balanceLeftToCollect, securityCurrentlyHeld } from "./bookingDetails";
 import { isStarBooking } from "./starBooking";
-import { nextValidSerial, serialPositionToValue, generateNumber } from "./serial";
+import { generateNumber } from "./serial";
+import { previewNextMonthlySerial } from "./bookingSerialCounter";
 import { formatDate } from "./constants";
 import { resolveBookingStatus } from "./bookingStatus";
 import { cachedQuery } from "./perfCache";
@@ -300,30 +300,9 @@ export function serializeBookingForList(b: BookingWithItems) {
   };
 }
 
+/** Preview next serial from counter row — does not scan bookings or reserve a number. */
 export async function getNextMonthlySerial(deliveryDate: Date, client: DbClient = prisma) {
-  const monthWhere = await whereDeliveryInMonth(deliveryDate);
-
-  const [count, maxAgg] = await Promise.all([
-    client.booking.count({ where: monthWhere }),
-    client.booking.aggregate({ where: monthWhere, _max: { monthlySerial: true } }),
-  ]);
-
-  let candidate = serialPositionToValue(count + 1);
-  const maxSerial = maxAgg._max.monthlySerial ?? 0;
-  if (candidate <= maxSerial) {
-    candidate = nextValidSerial(maxSerial + 1);
-  }
-
-  for (let attempt = 0; attempt < 24; attempt++) {
-    const clash = await client.booking.findFirst({
-      where: { ...monthWhere, monthlySerial: candidate },
-      select: { id: true },
-    });
-    if (!clash) return candidate;
-    candidate = nextValidSerial(candidate + 1);
-  }
-
-  return candidate;
+  return previewNextMonthlySerial(deliveryDate, client);
 }
 
 export async function createBookingNumber() {

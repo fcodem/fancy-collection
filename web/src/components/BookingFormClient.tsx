@@ -951,6 +951,22 @@ export default function BookingFormClient(props: Props) {
 
     }
 
+    const dressWithoutId = selectedDresses.find((d) => d.id == null || d.id <= 0);
+    if (dressWithoutId) {
+      setError(`"${dressWithoutId.name}" has no inventory id — remove it and re-select from Available Items.`);
+      return;
+    }
+
+    const incompleteOrder = orders.find(
+      (o) =>
+        o.description.trim() &&
+        (!o.delivery_date?.trim() || !o.delivery_time?.trim()),
+    );
+    if (incompleteOrder) {
+      setError("Each custom order needs a delivery date and time.");
+      return;
+    }
+
     // Client date-check is advisory UI only — server transaction is authoritative.
     // Do not block save while a non-authoritative request is still loading.
 
@@ -985,11 +1001,11 @@ export default function BookingFormClient(props: Props) {
 
       return_time: returnTime,
 
-      venue,
+      venue: venue || undefined,
 
-      security_deposit: securityDeposit,
+      security_deposit: Number.isFinite(securityDeposit) && securityDeposit >= 0 ? securityDeposit : undefined,
 
-      common_notes: commonNotes,
+      common_notes: commonNotes || undefined,
 
       staff_names: staffNames,
 
@@ -1000,20 +1016,25 @@ export default function BookingFormClient(props: Props) {
 
       items: selectedDresses.map((d) => ({
 
-        item_id: d.id,
+        item_id: d.id as number,
 
         dress_name: d.name,
 
-        price: d.price,
+        price: Number.isFinite(d.price) ? d.price : 0,
 
-        advance: d.advance,
+        advance: Number.isFinite(d.advance) ? d.advance : 0,
 
-        notes: d.notes,
+        notes: d.notes || "",
 
       })),
 
       orders: orders
-        .filter((o) => o.description.trim())
+        .filter(
+          (o) =>
+            o.description.trim() &&
+            o.delivery_date?.trim() &&
+            o.delivery_time?.trim(),
+        )
         .map((o) => ({
           ...(o.id ? { id: o.id } : {}),
           description: o.description,

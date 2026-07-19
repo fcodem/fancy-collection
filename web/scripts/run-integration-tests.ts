@@ -4,6 +4,10 @@
  */
 import { PrismaClient } from "@prisma/client";
 import { allocateInventorySkusWithClient } from "../src/lib/inventorySkuAllocator";
+import {
+  allocateMonthlySerial,
+  previewNextMonthlySerial,
+} from "../src/lib/bookingSerialCounter";
 import { buildWhatsAppIdempotencyKey } from "../src/lib/mutationIdempotency";
 import { createHash } from "crypto";
 import { searchAvailableItems } from "../src/lib/services/availabilitySearch";
@@ -58,6 +62,65 @@ async function main() {
     ]);
     const set = new Set([...a, ...b]);
     assert(set.size === 6, `SKU collision detected: ${[...a, ...b].join(",")}`);
+
+    await prisma.$queryRaw`SELECT year_month FROM booking_serial_counter LIMIT 0`.catch(async () => {
+      /* table may not exist yet — migrate deploy should create it */
+    });
+    await prisma.$queryRaw`SELECT revision, expires_at FROM user_sessions LIMIT 0`;
+
+    const counterReadStart = performance.now();
+    await previewNextMonthlySerial("2030-06-15", prisma);
+    const counterReadMs = performance.now() - counterReadStart;
+    assert(counterReadMs < 100, `counter preview too slow: ${counterReadMs.toFixed(1)}ms`);
+
+    const ymA = "2030-06";
+    const ymB = "2030-07";
+    await prisma.bookingSerialCounter.deleteMany({
+      where: { yearMonth: { in: [ymA, ymB] } },
+    });
+
+    observedQueries.length = 0;
+    await previewNextMonthlySerial("2030-06-20", prisma);
+    const scannedBookingsOnPreview = observedQueries.some(
+      (q) => /FROM\s+"?bookings"?/i.test(q) && /monthly_serial|MAX\s*\(/i.test(q),
+    );
+    assert(!scannedBookingsOnPreview, "preview must not scan bookings for MAX(monthly_serial)");
+
+    const concurrentSerials = await Promise.all(
+      Array.from({ length: 10 }, () =>
+        prisma.$transaction((tx) => allocateMonthlySerial(tx, "2030-06-15")),
+      ),
+    );
+    assert(concurrentSerials.length === 10, "expected 10 concurrent allocations");
+    assert(new Set(concurrentSerials).size === 10, `duplicate serials: ${concurrentSerials.join(",")}`);
+
+    const julySerial = await prisma.$transaction((tx) => allocateMonthlySerial(tx, "2030-07-10"));
+    assert(!concurrentSerials.includes(julySerial), "month rollover must use separate counter");
+
+    const beforeRollback = await prisma.bookingSerialCounter.findUnique({
+      where: { yearMonth: ymA },
+      select: { lastSerial: true },
+    });
+    try {
+      await prisma.$transaction(async (tx) => {
+        await allocateMonthlySerial(tx, "2030-06-15");
+        throw new Error("integration rollback probe");
+      });
+    } catch (e) {
+      assert(String(e).includes("integration rollback probe"), "expected rollback probe error");
+    }
+    const afterRollback = await prisma.bookingSerialCounter.findUnique({
+      where: { yearMonth: ymA },
+      select: { lastSerial: true },
+    });
+    assert(
+      afterRollback?.lastSerial === beforeRollback?.lastSerial,
+      "rolled-back allocation must not advance counter",
+    );
+
+    await prisma.bookingSerialCounter.deleteMany({
+      where: { yearMonth: { in: [ymA, ymB] } },
+    });
 
     await prisma.$queryRaw`SELECT lease_expires_at FROM mutation_receipts LIMIT 0`;
     await prisma.$queryRaw`SELECT idempotency_key FROM whatsapp_send_ledger LIMIT 0`;

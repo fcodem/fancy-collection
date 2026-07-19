@@ -34,7 +34,10 @@ export type BookingCreateCoreDeps = {
     opts?: { bookingId?: number },
   ) => Promise<unknown>;
   /** Lookup by client_request_id (pre-create sequential retry + P2002 recovery). */
-  findByClientRequestId: (key: string) => Promise<{ id: number; monthlySerial: number } | null>;
+  findByClientRequestId: (
+    key: string,
+    input: BookingFormLike,
+  ) => Promise<{ id: number; monthlySerial: number } | null>;
   after: (fn: () => void | Promise<void>) => void;
   isClientRequestIdConflict?: (err: unknown) => boolean;
 };
@@ -60,7 +63,7 @@ export async function createBookingWithSideEffectsCore(
   const detectConflict = d.isClientRequestIdConflict ?? isPrismaClientRequestIdConflict;
 
   if (key) {
-    const existing = await d.findByClientRequestId(key);
+    const existing = await d.findByClientRequestId(key, input);
     if (existing) {
       return {
         id: existing.id,
@@ -75,7 +78,7 @@ export async function createBookingWithSideEffectsCore(
     booking = await d.createBooking(input, user.username);
   } catch (e) {
     if (key && detectConflict(e)) {
-      const existing = await d.findByClientRequestId(key);
+      const existing = await d.findByClientRequestId(key, input);
       if (existing) {
         return { id: existing.id, serial: existing.monthlySerial, reused: true };
       }

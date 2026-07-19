@@ -11,8 +11,13 @@ import {
   claimNextAiJob,
   completeAiJob,
   failOrRetryAiJob,
-  getAiJobQueueStats,
 } from "./aiJobQueue";
+import { getAiJobQueueStats } from "./aiJobClient";
+import {
+  AI_JOB_TIMEOUT_MS,
+  isDeterministicFailure,
+} from "./aiJobTypes";
+import { formatTmpSpace, measureTmpSpace } from "@/lib/tmpSpace";
 import { touchDurableWorkerHeartbeat, getDurableWorkerHealth } from "./workerHeartbeat";
 
 /** Local pump only — not a health signal. */
@@ -23,62 +28,90 @@ export async function getAiWorkerHealthDurable() {
   return getDurableWorkerHealth();
 }
 
+function withJobTimeout<T>(promise: Promise<T>, ms: number): Promise<T> {
+  let timer: ReturnType<typeof setTimeout> | undefined;
+  const timeout = new Promise<never>((_, reject) => {
+    timer = setTimeout(
+      () => reject(new Error(`Job timed out after ${ms}ms`)),
+      ms,
+    );
+  });
+  return Promise.race([promise, timeout]).finally(() => {
+    if (timer) clearTimeout(timer);
+  });
+}
+
 export async function processOneAiJob(): Promise<boolean> {
   const job = await claimNextAiJob();
   if (!job) return false;
 
-  console.log(`[ai-worker] PROCESSING job=${job.id} item=${job.itemId} reason=${job.reason}`);
+  const tmpBefore = await measureTmpSpace();
+  console.log(
+    `[ai-worker] PROCESSING job=${job.id} item=${job.itemId} reason=${job.reason} tmpBefore=${formatTmpSpace(tmpBefore)}`,
+  );
+
   try {
-    const { default: prisma } = await import("@/lib/prisma");
-    const { loadPhotoBuffer, PHOTO_SEARCH_MAX_BYTES } = await import("@/lib/services/siglipSearch");
-    const item = await prisma.clothingItem.findUnique({
-      where: { id: job.itemId },
-      select: { photo: true, originalPhoto: true },
-    });
-    const path = item?.originalPhoto || item?.photo;
-    if (path) {
-      const buf = await loadPhotoBuffer(path);
-      if (!buf) {
-        const outcome = await failOrRetryAiJob(job.id, "Photo unavailable or exceeds size limit", {
-          retryCount: job.maxRetries,
-          maxRetries: job.maxRetries,
-          itemId: job.itemId,
-        });
-        console.warn(
-          `[ai-worker] ${outcome} job=${job.id} item=${job.itemId} (preflight size>${PHOTO_SEARCH_MAX_BYTES})`,
-        );
-        return true;
-      }
-    }
-    const { processInventoryAiProfile } = await import("./processInventory");
-    const ok = await processInventoryAiProfile(job.itemId, job.reason);
-    if (ok) {
-      await completeAiJob(job.id);
-      console.log(`[ai-worker] READY job=${job.id} item=${job.itemId}`);
-    } else {
-      const outcome = await failOrRetryAiJob(job.id, "Indexing validation failed", {
-        retryCount: job.retryCount,
-        maxRetries: job.maxRetries,
-        itemId: job.itemId,
-      });
-      console.warn(`[ai-worker] ${outcome} job=${job.id} item=${job.itemId}`);
-    }
+    await withJobTimeout(runClaimedJob(job), AI_JOB_TIMEOUT_MS);
   } catch (err) {
     const message = err instanceof Error ? err.message : "Worker job failed";
     lastError = message;
-    // Native crashes / invalid-size patterns → dead-letter quickly to protect cron.
-    const fatalNative =
-      /invalid size|SIGABRT|heap|out of memory|ENOMEM|ENOSPC|no space left|Input image exceeds|limitInputPixels/i.test(
-        message,
-      );
+    const fatalNative = isDeterministicFailure(message);
     const outcome = await failOrRetryAiJob(job.id, message, {
       retryCount: fatalNative ? job.maxRetries : job.retryCount,
       maxRetries: job.maxRetries,
       itemId: job.itemId,
     });
     console.error(`[ai-worker] ${outcome} job=${job.id} item=${job.itemId}:`, message);
+  } finally {
+    const tmpAfter = await measureTmpSpace();
+    console.log(
+      `[ai-worker] job=${job.id} tmpAfter=${formatTmpSpace(tmpAfter)}`,
+    );
   }
   return true;
+}
+
+async function runClaimedJob(job: {
+  id: number;
+  itemId: number;
+  reason: string;
+  retryCount: number;
+  maxRetries: number;
+}): Promise<void> {
+  const { default: prisma } = await import("@/lib/prisma");
+  const { loadPhotoBuffer, PHOTO_SEARCH_MAX_BYTES } = await import("@/lib/services/siglipSearch");
+  const item = await prisma.clothingItem.findUnique({
+    where: { id: job.itemId },
+    select: { photo: true, originalPhoto: true },
+  });
+  const path = item?.originalPhoto || item?.photo;
+  if (path) {
+    const buf = await loadPhotoBuffer(path);
+    if (!buf) {
+      const outcome = await failOrRetryAiJob(job.id, "Photo unavailable or exceeds size limit", {
+        retryCount: job.maxRetries,
+        maxRetries: job.maxRetries,
+        itemId: job.itemId,
+      });
+      console.warn(
+        `[ai-worker] ${outcome} job=${job.id} item=${job.itemId} (preflight size>${PHOTO_SEARCH_MAX_BYTES})`,
+      );
+      return;
+    }
+  }
+  const { processInventoryAiProfile } = await import("./processInventory");
+  const ok = await processInventoryAiProfile(job.itemId, job.reason);
+  if (ok) {
+    await completeAiJob(job.id);
+    console.log(`[ai-worker] READY job=${job.id} item=${job.itemId}`);
+  } else {
+    const outcome = await failOrRetryAiJob(job.id, "Indexing validation failed", {
+      retryCount: job.retryCount,
+      maxRetries: job.maxRetries,
+      itemId: job.itemId,
+    });
+    console.warn(`[ai-worker] ${outcome} job=${job.id} item=${job.itemId}`);
+  }
 }
 
 /** Drain up to `limit` jobs (used by cron / admin Resume Queue). */
@@ -124,7 +157,7 @@ export function startAiJobWorker(opts: { intervalMs?: number; skipImmediateDrain
   workerTimer = setInterval(() => {
     void (async () => {
       try {
-        await drainAiJobQueue(2, { source: "process" });
+        await drainAiJobQueue(1, { source: "process" });
         lastError = null;
       } catch (e) {
         lastError = e instanceof Error ? e.message : "tick failed";

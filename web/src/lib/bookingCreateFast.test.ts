@@ -66,8 +66,10 @@ describe("booking create short atomic path", () => {
     const route = source("src/app/api/booking/route.ts");
     for (const stage of [
       "authMs",
-      "preloadMs",
-      "conflictMs",
+      "validationMs",
+      "inventoryReadMs",
+      "conflictCheckMs",
+      "serialAllocationMs",
       "transactionMs",
       "postCommitMs",
     ]) {

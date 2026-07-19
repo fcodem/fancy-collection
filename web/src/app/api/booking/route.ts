@@ -41,7 +41,7 @@ export async function POST(req: NextRequest) {
     const parseResult = BookingFormSchema.safeParse(raw);
     perf.endStage("validationMs", "validation");
     if (!parseResult.success) {
-      return jsonError(parseResult.error.issues[0]?.message || "Invalid input", 400);
+      return jsonError(formatZodValidationError(parseResult.error), 400);
     }
     const body = {
       ...parseResult.data,
@@ -61,15 +61,17 @@ export async function POST(req: NextRequest) {
       },
     });
     if (createTimings) {
-      perf.set("preloadMs", createTimings.preloadMs);
-      perf.set("conflictMs", createTimings.conflictMs);
+      perf.set("inventoryReadMs", createTimings.inventoryReadMs);
+      perf.set("conflictCheckMs", createTimings.conflictCheckMs);
+      perf.set("serialAllocationMs", createTimings.serialAllocationMs);
       perf.set("transactionMs", createTimings.transactionMs);
       perf.set("postCommitMs", createTimings.postCommitMs);
       perf.addQueries(createTimings.queryCount);
     } else {
       // Idempotent replay returned from the single pre-check query.
-      perf.set("preloadMs", Date.now() - createStartedAt);
-      perf.set("conflictMs", 0);
+      perf.set("inventoryReadMs", Date.now() - createStartedAt);
+      perf.set("conflictCheckMs", 0);
+      perf.set("serialAllocationMs", 0);
       perf.set("transactionMs", 0);
       perf.set("postCommitMs", 0);
     }

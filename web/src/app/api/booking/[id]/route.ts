@@ -10,7 +10,7 @@ import { formatDate } from "@/lib/constants";
 import {
   resetLateReminderOnDateChange,
 } from "@/lib/services/whatsapp/jobQueue";
-import { BookingFormSchema } from "@/lib/validation";
+import { BookingFormSchema, formatZodValidationError } from "@/lib/validation";
 
 export async function GET(_req: NextRequest, { params }: { params: Promise<{ id: string }> }) {
   const user = await requireUser();
@@ -44,7 +44,7 @@ export async function PUT(req: NextRequest, { params }: { params: Promise<{ id: 
     const raw = await req.json();
     const parseResult = BookingFormSchema.safeParse(raw);
     if (!parseResult.success) {
-      return jsonError(parseResult.error.issues[0]?.message || "Invalid input", 400);
+      return jsonError(formatZodValidationError(parseResult.error), 400);
     }
     const body = parseResult.data;
     const booking = await updateBooking(bookingId, body, user.username);

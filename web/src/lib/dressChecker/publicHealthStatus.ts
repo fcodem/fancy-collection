@@ -1,5 +1,5 @@
 import prisma from "@/lib/prisma";
-import { getAiJobQueueStats } from "./aiJobQueue";
+import { getAiJobQueueStats } from "./aiJobClient";
 import { getDurableWorkerHealth } from "./workerHeartbeat";
 import {
   CURRENT_MATCHING_VERSION,

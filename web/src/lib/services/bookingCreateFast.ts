@@ -29,8 +29,13 @@ type AtomicResult = {
 };
 
 export type BookingCreateTimings = {
-  preloadMs: number;
-  conflictMs: number;
+  /** Parallel pre-transaction reads (booking number, customer skip, inventory). */
+  inventoryReadMs: number;
+  /** Overlap check — folded into the atomic write when using one SQL statement. */
+  conflictCheckMs: number;
+  /** Monthly serial allocation — folded into the atomic write when using one SQL statement. */
+  serialAllocationMs: number;
+  /** Single atomic PostgreSQL write (locks, conflict, serial, inserts, outbox). */
   transactionMs: number;
   postCommitMs: number;
   queryCount: number;
@@ -77,7 +82,7 @@ export async function createBookingFast(
   const deliveryDate = parseDateQ(input.delivery_date);
   const returnDate = parseDateQ(input.return_date);
 
-  const preloadStarted = Date.now();
+  const inventoryReadStarted = Date.now();
   const [bookingNumber, skipCustomer, inventoryItems] = await Promise.all([
     createBookingNumber(),
     shouldSkipCustomerCreate(input.contact_1, input.whatsapp_no),
@@ -86,7 +91,7 @@ export async function createBookingFast(
       select: { id: true, category: true, size: true },
     }),
   ]);
-  const preloadMs = Date.now() - preloadStarted;
+  const inventoryReadMs = Date.now() - inventoryReadStarted;
 
   const itemMap = new Map<number, ItemRow>(inventoryItems.map((item) => [item.id, item]));
   for (const row of input.items) {
@@ -367,8 +372,9 @@ export async function createBookingFast(
   const conflict = rows.find((row) => row.resultKind === "conflict");
   if (conflict?.conflictItemId && conflict.conflictSerial != null) {
     onTiming?.({
-      preloadMs,
-      conflictMs: transactionMs,
+      inventoryReadMs,
+      conflictCheckMs: transactionMs,
+      serialAllocationMs: 0,
       transactionMs,
       postCommitMs: 0,
       queryCount: 4,
@@ -403,8 +409,9 @@ export async function createBookingFast(
         throw new Error("operation_id was already used with a different payload");
       }
       onTiming?.({
-        preloadMs,
-        conflictMs: transactionMs,
+        inventoryReadMs,
+        conflictCheckMs: 0,
+        serialAllocationMs: 0,
         transactionMs,
         postCommitMs: Date.now() - transactionStarted - transactionMs,
         queryCount: 5,
@@ -437,13 +444,15 @@ export async function createBookingFast(
     },
   });
 
+  const postCommitMs = Date.now() - startedAt - inventoryReadMs - transactionMs;
   onTiming?.({
-    preloadMs,
-    // Conflict protection is part of the single atomic SQL statement; this
-    // records that bounded combined stage rather than inventing a sub-query time.
-    conflictMs: transactionMs,
+    inventoryReadMs,
+    // Conflict + serial run inside the same atomic statement; sub-stages are 0
+    // on the success path so transactionMs is the authoritative write budget.
+    conflictCheckMs: 0,
+    serialAllocationMs: 0,
     transactionMs,
-    postCommitMs: Date.now() - startedAt - preloadMs - transactionMs,
+    postCommitMs,
     queryCount: 4,
   });
   return {
