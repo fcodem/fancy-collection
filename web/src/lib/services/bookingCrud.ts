@@ -5,8 +5,8 @@ import {
   findItemIdsStillInActiveBookings,
   formatItemConflictError,
   createBookingNumber,
-  getNextMonthlySerial,
 } from "../booking";
+import { allocateMonthlySerial, previewNextMonthlySerial } from "../bookingSerialCounter";
 import { lockInventoryItemsForBooking } from "../bookingItemLocks";
 import { parseDate, assertBookingDatesNotPast } from "../constants";
 import { shouldSkipCustomerCreate } from "./customersOps";
@@ -120,7 +120,7 @@ export async function createBooking(
       input.items,
     );
 
-    const monthlySerial = await getNextMonthlySerial(deliveryDate, tx);
+    const monthlySerial = await allocateMonthlySerial(tx, deliveryDate);
     const totalPrice = input.items.reduce((s, i) => s + i.price, 0);
     const totalAdvance = input.items.reduce((s, i) => s + i.advance, 0);
     const totalRemaining = totalPrice - totalAdvance;
@@ -422,7 +422,6 @@ export async function updateBooking(bookingId: number, input: BookingFormInput, 
 }
 
 export async function getNextSerialForDate(deliveryDateStr: string) {
-  const d = parseDate(deliveryDateStr);
-  const serial = await getNextMonthlySerial(d);
+  const serial = await previewNextMonthlySerial(deliveryDateStr);
   return { serial, display: String(serial).padStart(2, "0") };
 }
