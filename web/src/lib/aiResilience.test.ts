@@ -73,10 +73,14 @@ describe("owner AI queue controls", () => {
     assert.match(queue, /export async function retryOneAiJob/);
     assert.match(queue, /export async function ignoreDeadLetterAiJob/);
     assert.match(queue, /export async function removeDeadLetterAiJob/);
+    assert.match(queue, /export async function recoverExpiredProcessingLeases/);
+    assert.match(queue, /export async function retrySafeFailedAiJobs/);
     const route = read("src/app/api/admin/ai-indexing/route.ts");
     assert.match(route, /"retry_one"/);
     assert.match(route, /"ignore_dead_letter"/);
     assert.match(route, /"remove_dead_letter"/);
+    assert.match(route, /"recover_expired_leases"/);
+    assert.match(route, /"trigger_worker_run"/);
   });
 
   it("management-only actions never drain the queue", () => {

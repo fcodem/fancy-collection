@@ -267,8 +267,13 @@ export default function AppShell({
         .then((r) => parseResponseJson<{ banner?: string | null; worker?: { status?: string; displayLabel?: string } }>(r))
         .then((d) => {
           if (cancelled) return;
-          if (d.worker?.status === "OFFLINE") {
-            setAiHealthBanner(d.worker.displayLabel || "Queue worker offline.");
+          const status = d.worker?.status;
+          if (status === "OFFLINE" || status === "STALE" || status === "DISABLED") {
+            setAiHealthBanner(
+              d.banner ||
+                d.worker?.displayLabel ||
+                "AI indexing is offline or stale. Inventory and bookings are unaffected.",
+            );
           } else if (d.banner) {
             setAiHealthBanner(d.banner);
           } else {

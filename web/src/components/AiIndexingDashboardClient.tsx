@@ -3,7 +3,7 @@
 import { useCallback, useEffect, useState } from "react";
 
 type WorkerHealth = {
-  status?: "HEALTHY" | "DEGRADED" | "OFFLINE";
+  status?: "HEALTHY" | "DEGRADED" | "STALE" | "OFFLINE" | "DISABLED";
   healthy?: boolean;
   displayLabel?: string;
   mode?: string;
@@ -13,6 +13,9 @@ type WorkerHealth = {
   heartbeatAgeMs?: number | null;
   lastError?: string | null;
   source?: string | null;
+  expectedIntervalMs?: number;
+  nextExpectedRunAt?: string | null;
+  reason?: string;
 };
 
 type Forensic = {
@@ -41,7 +44,13 @@ type Health = {
   ok: boolean;
   blockers: string[];
   profiles: Record<string, number>;
-  queue: Record<string, number> & { workerId?: string; deadLetter?: number };
+  queue: Record<string, number | string | null | undefined> & {
+    workerId?: string;
+    deadLetter?: number;
+    oldestPendingAgeMs?: number | null;
+    oldestProcessingAgeMs?: number | null;
+    lastSuccessfulJobAt?: string | null;
+  };
   worker: WorkerHealth;
   infrastructure: Record<string, string>;
   versions: { pipeline: number; matching: number; recognition: number };
@@ -123,14 +132,9 @@ function formatAge(ms: number | null | undefined): string {
 }
 
 function workerLabel(worker: WorkerHealth, forensic?: Forensic | null): string {
-  if (forensic?.workerDisplayLabel) return forensic.workerDisplayLabel;
   if (worker.displayLabel) return worker.displayLabel;
-  if (worker.status === "HEALTHY" || worker.healthy) {
-    const mode = worker.mode || "";
-    if (mode.includes("LOCAL")) return "ONLINE (local)";
-    return "ONLINE (cron)";
-  }
-  if (worker.status === "DEGRADED") return "DEGRADED (cron)";
+  if (forensic?.workerDisplayLabel) return forensic.workerDisplayLabel;
+  if (worker.status) return worker.status;
   return "OFFLINE";
 }
 
@@ -202,11 +206,15 @@ export default function AiIndexingDashboardClient() {
   }
 
   const p = health?.profiles || {};
-  const workerOnline =
-    health?.worker.status === "HEALTHY" ||
-    health?.worker.status === "DEGRADED" ||
-    !!health?.worker.healthy ||
-    forensic?.workerHealthy;
+  const workerStatus = health?.worker.status;
+  const workerFresh = workerStatus === "HEALTHY" || workerStatus === "DEGRADED";
+  const panelTone = !health
+    ? "#fff5f5"
+    : workerStatus === "HEALTHY" && health.ok
+      ? "#f0fff4"
+      : workerFresh
+        ? "#fffff0"
+        : "#fff5f5";
 
   return (
     <div style={{ marginTop: 20 }}>
@@ -224,7 +232,7 @@ export default function AiIndexingDashboardClient() {
           <div
             style={{
               padding: 12,
-              background: workerOnline && health.ok ? "#f0fff4" : workerOnline ? "#fffff0" : "#fff5f5",
+              background: panelTone,
               borderRadius: 8,
               marginBottom: 16,
               fontSize: 13,
@@ -233,6 +241,8 @@ export default function AiIndexingDashboardClient() {
             <strong>AI SYSTEM HEALTH</strong> · engine v{health.versions.pipeline}
             <br />
             Queue Worker: <strong>{workerLabel(health.worker, forensic)}</strong>
+            {" · "}
+            Status: <strong>{health.worker.status || "—"}</strong>
             {" · "}
             Mode: {health.worker.mode || forensic?.workerMode || "—"}
             {" · "}
@@ -252,7 +262,17 @@ export default function AiIndexingDashboardClient() {
             {")"}
             {health.worker.source ? ` via ${health.worker.source}` : ""}
             <br />
+            Expected interval:{" "}
+            {health.worker.expectedIntervalMs != null
+              ? `${Math.round(health.worker.expectedIntervalMs / 60000)}m`
+              : "—"}
+            {" · "}
+            Next expected run: {health.worker.nextExpectedRunAt || "—"}
+            {health.worker.reason ? ` · ${health.worker.reason}` : ""}
+            <br />
             Last queue drain: {health.worker.lastDrainAt || forensic?.lastQueueDrain || "—"}
+            {" · "}
+            Last successful job: {health.queue.lastSuccessfulJobAt || health.worker.lastDrainAt || "—"}
             {" · "}
             Jobs processed today:{" "}
             {health.worker.processedJobsToday ?? forensic?.jobsProcessedToday ?? 0}
@@ -261,6 +281,10 @@ export default function AiIndexingDashboardClient() {
             <br />
             Queue: pending {health.queue.pending} · processing {health.queue.processing} · retrying{" "}
             {health.queue.retrying} · failed {health.queue.failed}
+            {" · "}
+            oldest pending age: {formatAge(health.queue.oldestPendingAgeMs)}
+            {" · "}
+            oldest processing age: {formatAge(health.queue.oldestProcessingAgeMs)}
             {forensic && (
               <>
                 <br />
@@ -320,6 +344,30 @@ export default function AiIndexingDashboardClient() {
           onClick={() => void action("resume_queue")}
         >
           Resume Queue
+        </button>
+        <button
+          type="button"
+          className="btn btn-outline btn-sm"
+          disabled={loading}
+          onClick={() => void action("recover_expired_leases")}
+        >
+          Recover Expired Leases
+        </button>
+        <button
+          type="button"
+          className="btn btn-outline btn-sm"
+          disabled={loading}
+          onClick={() => void action("retry_safe_failed")}
+        >
+          Retry Safe Failed
+        </button>
+        <button
+          type="button"
+          className="btn btn-outline btn-sm"
+          disabled={loading}
+          onClick={() => void action("trigger_worker_run")}
+        >
+          Trigger Worker Run
         </button>
         <button
           type="button"

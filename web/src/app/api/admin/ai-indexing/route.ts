@@ -160,23 +160,76 @@ export async function POST(req: NextRequest) {
       | "resume_dead_letter"
       | "retry_one"
       | "ignore_dead_letter"
-      | "remove_dead_letter";
+      | "remove_dead_letter"
+      | "recover_expired_leases"
+      | "retry_safe_failed"
+      | "move_to_dead_letter"
+      | "trigger_worker_run";
     itemIds?: number[];
     jobId?: number;
   };
 
   // Pure management actions must not spin up the worker or drain jobs.
-  const managementOnly = new Set(["ignore_dead_letter", "remove_dead_letter"]);
+  const managementOnly = new Set([
+    "ignore_dead_letter",
+    "remove_dead_letter",
+    "move_to_dead_letter",
+  ]);
 
   try {
     // Resume via durable drain — no in-process interval on Vercel.
     if (!managementOnly.has(body.action ?? "")) {
       if (process.env.VERCEL !== "1") {
         startAiJobWorker();
-      } else {
+      } else if (
+        body.action !== "recover_expired_leases" &&
+        body.action !== "retry_safe_failed"
+      ) {
         const { drainAiJobQueue } = await import("@/lib/dressChecker/aiJobWorker");
         await drainAiJobQueue(3, { source: "admin" });
       }
+    }
+
+    if (body.action === "recover_expired_leases") {
+      const { recoverExpiredProcessingLeases } = await import("@/lib/dressChecker/aiJobQueue");
+      const recovered = await recoverExpiredProcessingLeases();
+      return jsonOk({
+        ...recovered,
+        message: `Recovered ${recovered.recovered} expired processing lease(s)`,
+      });
+    }
+
+    if (body.action === "retry_safe_failed") {
+      const { retrySafeFailedAiJobs } = await import("@/lib/dressChecker/aiJobQueue");
+      const resumed = await retrySafeFailedAiJobs(50);
+      const drained = await drainAiJobQueue(Math.min(resumed, 5), { source: "admin" });
+      return jsonOk({
+        resumed,
+        ...drained,
+        message: `Retried ${resumed} safe failed job(s); drained ${drained.processed}`,
+      });
+    }
+
+    if (body.action === "move_to_dead_letter") {
+      const jobId = Number(body.jobId);
+      if (!Number.isFinite(jobId)) return jsonError("jobId required", 400);
+      const { moveDeterministicFailureToDeadLetter } = await import(
+        "@/lib/dressChecker/aiJobQueue"
+      );
+      const ok = await moveDeterministicFailureToDeadLetter(jobId);
+      if (!ok) return jsonError("Job not found or not eligible", 404);
+      return jsonOk({ message: `Moved job ${jobId} to dead letter` });
+    }
+
+    if (body.action === "trigger_worker_run") {
+      const { recoverStuckAiJobs } = await import("@/lib/dressChecker/deploymentSafety");
+      const stuck = await recoverStuckAiJobs().catch(() => ({ recovered: 0 }));
+      const drained = await drainAiJobQueue(1, { source: "admin_trigger" });
+      return jsonOk({
+        recovered: stuck.recovered,
+        ...drained,
+        message: `Triggered one worker run (recovered ${stuck.recovered}, processed ${drained.processed})`,
+      });
     }
 
     if (body.action === "retry_one") {

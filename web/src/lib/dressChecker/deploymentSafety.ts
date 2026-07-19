@@ -8,6 +8,7 @@ import {
   enqueueInventoryAiJob,
   getAiJobQueueStats,
   markOutdatedProfilesStaleAndEnqueue,
+  recoverExpiredProcessingLeases,
 } from "./aiJobQueue";
 import {
   drainAiJobQueue,
@@ -97,47 +98,10 @@ function checkEnv(): EnvCheck[] {
   ];
 }
 
-/** Recover jobs stuck in PROCESSING longer than 15 minutes. */
+/** Recover jobs stuck in PROCESSING past the lease window. */
 export async function recoverStuckAiJobs(): Promise<{ recovered: number; itemIds: number[] }> {
-  const cutoff = new Date(Date.now() - STUCK_JOB_THRESHOLD_MS);
-  const stuck = await prisma.inventoryAiJob.findMany({
-    where: {
-      status: AI_JOB_STATUS.PROCESSING,
-      OR: [
-        { lockedAt: { lt: cutoff } },
-        { AND: [{ lockedAt: null }, { startedAt: { lt: cutoff } }] },
-        { AND: [{ lockedAt: null }, { startedAt: null }, { updatedAt: { lt: cutoff } }] },
-      ],
-    },
-    take: 100,
-  });
-
-  const itemIds: number[] = [];
-  for (const job of stuck) {
-    await prisma.inventoryAiJob.update({
-      where: { id: job.id },
-      data: {
-        status: AI_JOB_STATUS.FAILED,
-        errorMessage: `Stuck in PROCESSING > ${STUCK_JOB_THRESHOLD_MS / 60000} minutes — auto-recovered`,
-        lastError: `Stuck PROCESSING since ${job.startedAt?.toISOString() || job.lockedAt?.toISOString() || "unknown"}`,
-        lockedAt: null,
-        lockedBy: null,
-        completedAt: new Date(),
-      },
-    });
-    await enqueueInventoryAiJob({
-      itemId: job.itemId,
-      reason: "stuck_job_recovery",
-      priority: 20,
-      staleExisting: true,
-    });
-    itemIds.push(job.itemId);
-  }
-
-  if (itemIds.length) {
-    console.warn(`[deployment-safety] recovered ${itemIds.length} stuck PROCESSING jobs`);
-  }
-  return { recovered: itemIds.length, itemIds };
+  const result = await recoverExpiredProcessingLeases(STUCK_JOB_THRESHOLD_MS);
+  return { recovered: result.recovered, itemIds: result.itemIds };
 }
 
 /**
@@ -162,11 +126,13 @@ export async function runQueueWatchdog(opts: { drainLimit?: number } = {}): Prom
   const durable = await getDurableWorkerHealth();
   let workerRestarted = false;
   let warning: string | undefined;
-  if (durable.status === "OFFLINE" || durable.status === "DEGRADED") {
+  if (durable.status === "OFFLINE" || durable.status === "STALE" || durable.status === "DEGRADED") {
     warning =
       durable.status === "OFFLINE"
         ? "Queue worker heartbeat offline — restarting drain"
-        : "Queue worker heartbeat degraded — draining now";
+        : durable.status === "STALE"
+          ? "Queue worker heartbeat stale — draining now"
+          : "Queue worker degraded — draining now";
     console.warn(`[deployment-safety] ${warning}`);
     // Drain only — never start setInterval from a Vercel request.
     workerRestarted = process.env.VERCEL !== "1";
@@ -280,13 +246,16 @@ export async function runDeploymentAudit(): Promise<DeploymentAuditReport> {
   }
 
   const durable = await getDurableWorkerHealth();
-  const workerHealthy = durable.status === "HEALTHY" || durable.status === "DEGRADED";
   if (durable.status === "OFFLINE") {
-    const msg = "Queue worker offline (no durable heartbeat within 10m)";
+    const msg = `Queue worker offline (${durable.reason})`;
     if (process.env.NODE_ENV === "production") criticalFailures.push(msg);
     else warnings.push(msg);
+  } else if (durable.status === "STALE") {
+    warnings.push(`Worker heartbeat stale — ${durable.reason}`);
   } else if (durable.status === "DEGRADED") {
-    warnings.push("Worker heartbeat degraded (3–10m) — cron may be delayed");
+    warnings.push(`Worker degraded — ${durable.reason}`);
+  } else if (durable.status === "DISABLED") {
+    warnings.push("AI worker intentionally disabled");
   }
 
   const ai = await runAiSystemHealthAudit();

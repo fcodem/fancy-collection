@@ -1,22 +1,41 @@
 /**
  * Durable AI worker heartbeat — ONLY source of truth for worker health.
  * Never use in-memory setInterval / process flags for health status.
+ *
+ * Statuses (from workerHealthLogic):
+ *   HEALTHY | DEGRADED | STALE | OFFLINE | DISABLED
+ *
+ * Thresholds are derived from the configured AI worker cron schedule
+ * (default: vercel.json `/api/cron/ai-job-worker`), not a hard-coded "OK".
  */
+import fs from "fs";
+import path from "path";
 import { hostname } from "os";
 import prisma from "@/lib/prisma";
+import {
+  cronScheduleToIntervalMs,
+  deriveWorkerHealth,
+  type QueueHealthSignals,
+  type WorkerMode,
+  type WorkerStatus,
+} from "./workerHealthLogic";
 
-export const HEARTBEAT_HEALTHY_MS = 3 * 60 * 1000;
-export const HEARTBEAT_DEGRADED_MS = 10 * 60 * 1000;
+export type { WorkerMode, WorkerStatus } from "./workerHealthLogic";
+export {
+  cronScheduleToIntervalMs,
+  deriveWorkerHealth,
+  displayLabelFor,
+  buildHeartbeatThresholds,
+} from "./workerHealthLogic";
 
-export type WorkerMode = "LOCAL_WORKER" | "CRON_WORKER" | "SERVERLESS_WORKER";
-
-export type WorkerStatus = "HEALTHY" | "DEGRADED" | "OFFLINE";
+/** Local pump default (npm run dress:worker / next start). */
+export const LOCAL_WORKER_INTERVAL_MS = 5_000;
 
 export type DurableWorkerHealth = {
   status: WorkerStatus;
-  /** @deprecated use status === "HEALTHY" */
+  /** True only when status === HEALTHY. Never means "online with stale heartbeat". */
   healthy: boolean;
-  mode: WorkerMode | "UNKNOWN";
+  mode: WorkerMode;
   displayLabel: string;
   workerId: string | null;
   hostname: string | null;
@@ -27,54 +46,87 @@ export type DurableWorkerHealth = {
   heartbeatAgeMs: number | null;
   lastError: string | null;
   source: string | null;
+  expectedIntervalMs: number;
+  nextExpectedRunAt: string | null;
+  reason: string;
 };
 
 const HOST = hostname();
 const WORKER_ID = `${HOST}:${process.pid}`;
 
+let cachedCronIntervalMs: number | null = null;
+
 function resolveMode(source: string | null | undefined): WorkerMode {
   const s = (source || "").toLowerCase();
-  if (s.includes("process") || s.includes("local") || s.includes("dress_worker") || s === "process_start") {
+  if (
+    s.includes("process") ||
+    s.includes("local") ||
+    s.includes("dress_worker") ||
+    s === "process_start"
+  ) {
     return "LOCAL_WORKER";
   }
   if (process.env.VERCEL === "1" || s.includes("serverless")) {
     return "SERVERLESS_WORKER";
   }
-  if (s.includes("cron") || s.includes("watchdog") || s.includes("repair") || s.includes("startup") || s.includes("admin") || s.includes("drain") || s.includes("self_heal") || s.includes("forensic")) {
+  if (
+    s.includes("cron") ||
+    s.includes("watchdog") ||
+    s.includes("repair") ||
+    s.includes("startup") ||
+    s.includes("admin") ||
+    s.includes("drain") ||
+    s.includes("self_heal") ||
+    s.includes("forensic")
+  ) {
     return process.env.VERCEL === "1" ? "SERVERLESS_WORKER" : "CRON_WORKER";
   }
   return process.env.VERCEL === "1" ? "SERVERLESS_WORKER" : "CRON_WORKER";
 }
 
-function modeDisplay(mode: WorkerMode | "UNKNOWN"): string {
-  if (mode === "LOCAL_WORKER") return "local";
-  if (mode === "SERVERLESS_WORKER") return "cron";
-  if (mode === "CRON_WORKER") return "cron";
-  return "unknown";
+/** Read `/api/cron/ai-job-worker` schedule from vercel.json (or env override). */
+export function resolveAiWorkerExpectedIntervalMs(mode?: WorkerMode): number {
+  const envOverride = Number(process.env.AI_WORKER_CRON_INTERVAL_MS || "");
+  if (Number.isFinite(envOverride) && envOverride > 0) return envOverride;
+
+  if (mode === "LOCAL_WORKER") {
+    const local = Number(process.env.AI_JOB_WORKER_INTERVAL_MS || LOCAL_WORKER_INTERVAL_MS);
+    return Number.isFinite(local) && local > 0 ? local : LOCAL_WORKER_INTERVAL_MS;
+  }
+
+  if (cachedCronIntervalMs != null) return cachedCronIntervalMs;
+
+  const candidates = [
+    path.join(process.cwd(), "vercel.json"),
+    path.join(process.cwd(), "web", "vercel.json"),
+  ];
+  for (const file of candidates) {
+    try {
+      if (!fs.existsSync(file)) continue;
+      const parsed = JSON.parse(fs.readFileSync(file, "utf8")) as {
+        crons?: Array<{ path?: string; schedule?: string }>;
+      };
+      const worker = parsed.crons?.find((c) => c.path === "/api/cron/ai-job-worker");
+      if (worker?.schedule) {
+        const ms = cronScheduleToIntervalMs(worker.schedule);
+        if (ms != null) {
+          cachedCronIntervalMs = ms;
+          return ms;
+        }
+      }
+    } catch {
+      /* ignore unreadable config */
+    }
+  }
+
+  // Safe default matching current production vercel.json (*/15).
+  cachedCronIntervalMs = 15 * 60_000;
+  return cachedCronIntervalMs;
 }
 
-function statusFromAge(ageMs: number | null, mode: WorkerMode | "UNKNOWN"): WorkerStatus {
-  if (ageMs == null || !Number.isFinite(ageMs)) return "OFFLINE";
-  // Vercel cron workers only heartbeat when cron runs — allow a full day + buffer.
-  const healthyMs =
-    mode === "SERVERLESS_WORKER" || mode === "CRON_WORKER"
-      ? 26 * 60 * 60 * 1000
-      : HEARTBEAT_HEALTHY_MS;
-  const degradedMs =
-    mode === "SERVERLESS_WORKER" || mode === "CRON_WORKER"
-      ? 30 * 60 * 60 * 1000
-      : HEARTBEAT_DEGRADED_MS;
-  if (ageMs < healthyMs) return "HEALTHY";
-  if (ageMs < degradedMs) return "DEGRADED";
-  return "OFFLINE";
-}
-
-function displayLabel(status: WorkerStatus, mode: WorkerMode | "UNKNOWN"): string {
-  if (status === "OFFLINE") return "OFFLINE";
-  const m = modeDisplay(mode);
-  if (status === "DEGRADED") return `DEGRADED (${m})`;
-  if (mode === "LOCAL_WORKER") return "ONLINE (local)";
-  return "ONLINE (cron)";
+export function isAiWorkerDisabled(): boolean {
+  const raw = (process.env.AI_WORKER_DISABLED || "").trim().toLowerCase();
+  return raw === "1" || raw === "true" || raw === "yes";
 }
 
 export async function ensureHeartbeatTable(): Promise<void> {
@@ -94,14 +146,24 @@ export async function ensureHeartbeatTable(): Promise<void> {
       updated_at          TIMESTAMPTZ NOT NULL DEFAULT NOW()
     )
   `);
-  // Evolve older schema (idempotent)
-  await prisma.$executeRawUnsafe(`ALTER TABLE inventory_ai_worker_heartbeats ADD COLUMN IF NOT EXISTS mode TEXT NOT NULL DEFAULT 'CRON_WORKER'`);
-  await prisma.$executeRawUnsafe(`ALTER TABLE inventory_ai_worker_heartbeats ADD COLUMN IF NOT EXISTS hostname TEXT NOT NULL DEFAULT 'unknown'`);
-  await prisma.$executeRawUnsafe(`ALTER TABLE inventory_ai_worker_heartbeats ADD COLUMN IF NOT EXISTS last_heartbeat_at TIMESTAMPTZ`);
-  await prisma.$executeRawUnsafe(`ALTER TABLE inventory_ai_worker_heartbeats ADD COLUMN IF NOT EXISTS processed_jobs INT NOT NULL DEFAULT 0`);
-  await prisma.$executeRawUnsafe(`ALTER TABLE inventory_ai_worker_heartbeats ADD COLUMN IF NOT EXISTS processed_jobs_today INT NOT NULL DEFAULT 0`);
-  await prisma.$executeRawUnsafe(`ALTER TABLE inventory_ai_worker_heartbeats ADD COLUMN IF NOT EXISTS processed_today_date DATE`);
-  // Backfill from legacy columns if present
+  await prisma.$executeRawUnsafe(
+    `ALTER TABLE inventory_ai_worker_heartbeats ADD COLUMN IF NOT EXISTS mode TEXT NOT NULL DEFAULT 'CRON_WORKER'`,
+  );
+  await prisma.$executeRawUnsafe(
+    `ALTER TABLE inventory_ai_worker_heartbeats ADD COLUMN IF NOT EXISTS hostname TEXT NOT NULL DEFAULT 'unknown'`,
+  );
+  await prisma.$executeRawUnsafe(
+    `ALTER TABLE inventory_ai_worker_heartbeats ADD COLUMN IF NOT EXISTS last_heartbeat_at TIMESTAMPTZ`,
+  );
+  await prisma.$executeRawUnsafe(
+    `ALTER TABLE inventory_ai_worker_heartbeats ADD COLUMN IF NOT EXISTS processed_jobs INT NOT NULL DEFAULT 0`,
+  );
+  await prisma.$executeRawUnsafe(
+    `ALTER TABLE inventory_ai_worker_heartbeats ADD COLUMN IF NOT EXISTS processed_jobs_today INT NOT NULL DEFAULT 0`,
+  );
+  await prisma.$executeRawUnsafe(
+    `ALTER TABLE inventory_ai_worker_heartbeats ADD COLUMN IF NOT EXISTS processed_today_date DATE`,
+  );
   try {
     await prisma.$executeRawUnsafe(`
       UPDATE inventory_ai_worker_heartbeats
@@ -164,9 +226,47 @@ export async function touchDurableWorkerHeartbeat(opts: {
   }
 }
 
+function offlineHealth(partial?: Partial<DurableWorkerHealth>): DurableWorkerHealth {
+  const expectedIntervalMs = resolveAiWorkerExpectedIntervalMs();
+  const derived = deriveWorkerHealth({
+    heartbeatAt: null,
+    expectedIntervalMs,
+    disabled: isAiWorkerDisabled(),
+  });
+  return {
+    status: derived.status,
+    healthy: false,
+    mode: "UNKNOWN",
+    displayLabel: derived.displayLabel,
+    workerId: null,
+    hostname: null,
+    lastHeartbeatAt: null,
+    lastDrainAt: null,
+    processedJobs: 0,
+    processedJobsToday: 0,
+    heartbeatAgeMs: null,
+    lastError: null,
+    source: null,
+    expectedIntervalMs: derived.expectedIntervalMs,
+    nextExpectedRunAt: null,
+    reason: derived.reason,
+    ...partial,
+  };
+}
+
 /** Pure DB health — never consults process memory. */
-export async function getDurableWorkerHealth(): Promise<DurableWorkerHealth> {
+export async function getDurableWorkerHealth(
+  queueSignals?: QueueHealthSignals,
+): Promise<DurableWorkerHealth> {
   try {
+    if (isAiWorkerDisabled()) {
+      return offlineHealth({
+        status: "DISABLED",
+        displayLabel: "DISABLED",
+        reason: "AI_WORKER_DISABLED is set",
+      });
+    }
+
     await ensureHeartbeatTable();
     const rows = await prisma.$queryRawUnsafe<
       Array<{
@@ -187,59 +287,42 @@ export async function getDurableWorkerHealth(): Promise<DurableWorkerHealth> {
     );
     const row = rows[0];
     if (!row?.last_heartbeat_at) {
-      return {
-        status: "OFFLINE",
-        healthy: false,
-        mode: "UNKNOWN",
-        displayLabel: "OFFLINE",
-        workerId: null,
-        hostname: null,
-        lastHeartbeatAt: null,
-        lastDrainAt: null,
-        processedJobs: 0,
-        processedJobsToday: 0,
-        heartbeatAgeMs: null,
-        lastError: null,
-        source: null,
-      };
+      return offlineHealth({ reason: "No durable heartbeat recorded" });
     }
 
-    const lastMs = new Date(row.last_heartbeat_at).getTime();
-    const ageMs = Date.now() - lastMs;
     const mode = (row.mode as WorkerMode) || resolveMode(row.source);
-    const status = statusFromAge(ageMs, mode);
+    const expectedIntervalMs = resolveAiWorkerExpectedIntervalMs(mode);
+    const derived = deriveWorkerHealth({
+      heartbeatAt: row.last_heartbeat_at,
+      mode,
+      expectedIntervalMs,
+      queue: queueSignals,
+      lastError: row.last_error,
+    });
 
     return {
-      status,
-      healthy: status === "HEALTHY",
+      status: derived.status,
+      healthy: derived.healthy,
       mode,
-      displayLabel: displayLabel(status, mode),
+      displayLabel: derived.displayLabel,
       workerId: row.worker_id,
       hostname: row.hostname,
       lastHeartbeatAt: new Date(row.last_heartbeat_at).toISOString(),
       lastDrainAt: row.last_drain_at ? new Date(row.last_drain_at).toISOString() : null,
       processedJobs: Number(row.processed_jobs || 0),
       processedJobsToday: Number(row.processed_jobs_today || 0),
-      heartbeatAgeMs: ageMs,
+      heartbeatAgeMs: derived.heartbeatAgeMs,
       lastError: row.last_error,
       source: row.source,
+      expectedIntervalMs: derived.expectedIntervalMs,
+      nextExpectedRunAt: derived.nextExpectedRunAt,
+      reason: derived.reason,
     };
   } catch (e) {
     console.warn("[ai-worker] durable heartbeat read failed:", e);
-    return {
-      status: "OFFLINE",
-      healthy: false,
-      mode: "UNKNOWN",
-      displayLabel: "OFFLINE",
-      workerId: null,
-      hostname: null,
-      lastHeartbeatAt: null,
-      lastDrainAt: null,
-      processedJobs: 0,
-      processedJobsToday: 0,
-      heartbeatAgeMs: null,
+    return offlineHealth({
       lastError: e instanceof Error ? e.message : "heartbeat read failed",
-      source: null,
-    };
+      reason: "Heartbeat read failed",
+    });
   }
 }

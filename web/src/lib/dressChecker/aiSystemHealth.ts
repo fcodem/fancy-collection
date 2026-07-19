@@ -74,7 +74,7 @@ export async function runAiSystemHealthAudit(opts: {
     }
   }
 
-  const [pgvector, embCol, jobsTable, heartbeatTable, byStatus, queue, worker, stats] = await Promise.all([
+  const [pgvector, embCol, jobsTable, heartbeatTable, byStatus, queue, stats] = await Promise.all([
     isPgvectorAvailable(),
     columnExists("inventory_ai_profiles", "embedding_vector"),
     tableExists("inventory_ai_jobs"),
@@ -104,7 +104,6 @@ export async function runAiSystemHealthAudit(opts: {
       deadLetter: 0,
       workerId: "unavailable",
     })),
-    getDurableWorkerHealth(),
     getDressCheckerIndexStats().catch(() => ({
       totalProfiles: 0,
       withEmbedding: 0,
@@ -117,6 +116,12 @@ export async function runAiSystemHealthAudit(opts: {
       processing: 0,
     })),
   ]);
+
+  const worker = await getDurableWorkerHealth({
+    failed: queue.failed,
+    deadLetter: queue.deadLetter ?? 0,
+    stale: queue.stale,
+  });
 
   const profiles = {
     READY: 0,
@@ -162,8 +167,10 @@ export async function runAiSystemHealthAudit(opts: {
       worker.mode === "CRON_WORKER" ||
       process.env.VERCEL === "1";
     if (!(cronish && pending === 0 && process.env.AI_WORKER_REQUIRED !== "1")) {
-      blockers.push("AI job worker OFFLINE (no durable heartbeat within window)");
+      blockers.push(`AI job worker OFFLINE (${worker.reason})`);
     }
+  } else if (worker.status === "STALE") {
+    blockers.push(`AI job worker STALE (${worker.reason})`);
   }
 
   const report: AiSystemHealthReport = {
