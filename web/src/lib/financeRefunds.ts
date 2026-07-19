@@ -2,10 +2,15 @@ import prisma from "./prisma";
 import { BASE_JEWELLERY, BASE_MENS, BASE_WOMENS } from "./constants";
 
 type BookingWithItems = {
-  refundAmount: number;
-  totalPrice: number;
-  price: number;
-  bookingItems: Array<{ category: string | null; price: number }>;
+  refundAmount: number | null;
+  totalPrice: number | null;
+  price: number | null;
+  bookingItems: Array<{
+    category: string | null;
+    price: number;
+    isCancelled?: boolean;
+    cancelRefundAmount?: number | null;
+  }>;
 };
 
 export async function getRefundsBetween(from: Date, to: Date) {

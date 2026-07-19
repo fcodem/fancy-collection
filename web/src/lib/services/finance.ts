@@ -203,7 +203,7 @@ export async function getDailySale(targetDateStr: string) {
     order_balance_collected,
     order_refund,
     orderCollectionSplit,
-  ] = await financeParallelLimit([
+  ] = await financeParallelLimit(
     () =>
       prisma.booking.findMany({
         where: {
@@ -236,7 +236,7 @@ export async function getDailySale(targetDateStr: string) {
     () => getOrderBalanceCollectedBetween(dayStartQ, dayEndQ),
     () => getOrderRefundsBetween(dayStartQ, dayEndQ),
     () => getOrderCollectionSplitBetween(dayStartQ, dayEndQ),
-  ]);
+  );
 
   const orderAdvanceSplit = orderAdvanceSplitByMode(bookingsToday);
 
@@ -380,7 +380,7 @@ export async function getDailyBooking(targetDateStr: string) {
   const dayStartQ = startOfDayQ(target);
   const dayEndQ = endOfDayQ(target);
 
-  const [bookings, deliveredToday] = await financeParallelLimit([
+  const [bookings, deliveredToday] = await financeParallelLimit(
     () =>
       prisma.booking.findMany({
         where: { ...activeBookingWhere(), createdAt: { gte: dayStartQ, lt: dayEndQ } },
@@ -397,7 +397,7 @@ export async function getDailyBooking(targetDateStr: string) {
         },
         include: financeBookingIncludeLite,
       }),
-  ]);
+  );
 
   const total_by_category: Record<string, number> = {};
   const dresses_by_category: Record<string, number> = {};
@@ -481,7 +481,7 @@ export async function getMonthlySale(monthStr: string) {
     order_refund,
     orderCounts,
     orderCollectionSplit,
-  ] = await financeParallelLimit([
+  ] = await financeParallelLimit(
     () =>
       prisma.booking.findMany({
         where: {
@@ -515,7 +515,7 @@ export async function getMonthlySale(monthStr: string) {
     () => getOrderRefundsBetween(monthStart, monthEnd),
     () => getOrderLifecycleCounts(monthStart, monthEnd),
     () => getOrderCollectionSplitBetween(monthStart, monthEnd),
-  ]);
+  );
 
   const advanceSplit = sumAdvanceByMode(bookings);
   const deliverySplit = sumRemainingByMode(deliveredInMonth);
@@ -663,7 +663,7 @@ export async function getYearlySale(fromStr?: string, toStr?: string) {
     order_refund,
     orderCounts,
     orderCollectionSplit,
-  ] = await financeParallelLimit([
+  ] = await financeParallelLimit(
     () =>
       prisma.booking.findMany({
         where: {
@@ -697,7 +697,7 @@ export async function getYearlySale(fromStr?: string, toStr?: string) {
     () => getOrderRefundsBetween(rangeStart, rangeEnd),
     () => getOrderLifecycleCounts(rangeStart, rangeEnd),
     () => getOrderCollectionSplitBetween(rangeStart, rangeEnd),
-  ]);
+  );
 
   const gross_advance = bookings.reduce((s, b) => s + bookingAdvanceAmount(b), 0);
   const advance_refunded = totalRefundAmount(refundsRange);

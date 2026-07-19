@@ -33,10 +33,12 @@ export async function withFinanceTimeout<T>(
 }
 
 /** Run independent finance read queries with pool-safe concurrency. */
-export async function financeParallelLimit<T>(
-  tasks: Array<() => Promise<T>>,
-): Promise<T[]> {
-  return allLimit(tasks, 3);
+export async function financeParallelLimit<T extends readonly unknown[]>(
+  ...taskFns: { [K in keyof T]: () => Promise<T[K]> }
+): Promise<{ [K in keyof T]: T[K] }> {
+  const runners = taskFns.map((fn) => () => fn()) as Array<() => Promise<unknown>>;
+  const results = await allLimit(runners, 3);
+  return results as { [K in keyof T]: T[K] };
 }
 
 export function normalizeFinancePayload(data: unknown): unknown {

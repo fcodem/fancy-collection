@@ -14,10 +14,10 @@ export async function GET(req: NextRequest) {
   );
 
   return handleFinanceGet(async () => {
-    const [summary, trend] = await financeParallelLimit<unknown>([
+    const [summary, trend] = await financeParallelLimit(
       () => getLedgerSummary(from, to),
       () => (trendMonth ? getLedgerTrend(trendMonth, trendMonths) : Promise.resolve(null)),
-    ]);
+    );
     return { ...(summary as Record<string, unknown>), trend };
   }, "Ledger");
 }
