@@ -41,12 +41,13 @@ describe("dashboard independent section architecture", () => {
     assert.match(essential, /dashboardCounts/);
   });
 
-  it("bounds every secondary list and applies a database statement timeout", () => {
+  it("bounds every secondary list via semaphore and client timeout", () => {
     const service = source("src/lib/services/dashboardSections.ts");
-    assert.match(service, /SET LOCAL statement_timeout/);
+    assert.match(service, /runDashboardRead/);
     const listQueries = service.match(/findMany\(\{[\s\S]*?take: LIST_LIMIT/g) ?? [];
     assert.equal(listQueries.length, 3);
     assert.doesNotMatch(service, /include:/);
+    assert.doesNotMatch(service, /\$transaction/);
   });
 
   it("dashboard requests contain no background job or PDF work", () => {

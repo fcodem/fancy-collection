@@ -12,23 +12,9 @@ import {
 } from "@/lib/constants";
 import { cachedQuery, memoryCachedQuery } from "@/lib/perfCache";
 import { INVENTORY_CACHE_TAGS } from "@/lib/inventoryCacheTags";
-import type { Prisma } from "@prisma/client";
+import { runDashboardRead } from "@/lib/services/dashboardRead";
 
 const LIST_LIMIT = 10;
-const SECTION_TIMEOUT_MS = 1_500;
-
-async function inTimedTransaction<T>(
-  work: (tx: Prisma.TransactionClient) => Promise<T>,
-  timeoutMs = SECTION_TIMEOUT_MS,
-): Promise<T> {
-  return prisma.$transaction(
-    async (tx) => {
-      await tx.$executeRawUnsafe(`SET LOCAL statement_timeout = '${timeoutMs}ms'`);
-      return work(tx);
-    },
-    { timeout: timeoutMs + 750, maxWait: 750 },
-  );
-}
 
 export async function getDashboardEssentialData() {
   return cachedQuery(
@@ -38,16 +24,17 @@ export async function getDashboardEssentialData() {
         ["dashboard-essential-mem"],
         async () => {
           const today = localTodayStart();
-          const rows = await prisma.$queryRaw<
-            Array<{
-              totalOrders: number;
-              delivered: number;
-              remainingToday: number;
-              returning: number;
-              lateReturns: number;
-              allUndelivered: number;
-            }>
-          >`
+          const rows = await runDashboardRead(() =>
+            prisma.$queryRaw<
+              Array<{
+                totalOrders: number;
+                delivered: number;
+                remainingToday: number;
+                returning: number;
+                lateReturns: number;
+                allUndelivered: number;
+              }>
+            >`
             SELECT
               COUNT(*) FILTER (
                 WHERE b.status NOT IN ('cancelled', 'postponed')
@@ -88,7 +75,8 @@ export async function getDashboardEssentialData() {
                   )
               )::int AS "allUndelivered"
             FROM bookings b
-          `;
+          `,
+          );
           const r = rows[0];
           const todayString = todayIso();
           return {
@@ -138,22 +126,24 @@ export async function getDashboardBusinessSummary() {
       memoryCachedQuery(
         ["dashboard-business-summary-mem"],
         async () => {
-          const rows = await prisma.$queryRaw<
-            Array<{
-              totalItems: number;
-              availableItems: number;
-              rentedItems: number;
-              totalCustomers: number;
-              activeRentals: number;
-            }>
-          >`
+          const rows = await runDashboardRead(() =>
+            prisma.$queryRaw<
+              Array<{
+                totalItems: number;
+                availableItems: number;
+                rentedItems: number;
+                totalCustomers: number;
+                activeRentals: number;
+              }>
+            >`
             SELECT
               (SELECT COUNT(*)::int FROM clothing_items) AS "totalItems",
               (SELECT COUNT(*)::int FROM clothing_items WHERE status = 'available') AS "availableItems",
               (SELECT COUNT(*)::int FROM clothing_items WHERE status = 'rented') AS "rentedItems",
               (SELECT COUNT(*)::int FROM customers) AS "totalCustomers",
               (SELECT COUNT(*)::int FROM rentals WHERE status IN ('active', 'overdue')) AS "activeRentals"
-          `;
+          `,
+          );
           return rows[0] ?? {
             totalItems: 0,
             availableItems: 0,
@@ -176,11 +166,13 @@ export async function getDashboardFinanceSummary() {
         ["dashboard-finance-summary-mem"],
         async () => {
           const monthStart = dateQ(new Date(monthStartIso()));
-          const rows = await prisma.$queryRaw<Array<{ monthlyRevenue: number; outstanding: number }>>`
+          const rows = await runDashboardRead(() =>
+            prisma.$queryRaw<Array<{ monthlyRevenue: number; outstanding: number }>>`
             SELECT
               COALESCE((SELECT SUM(amount) FROM payments WHERE paid_at >= ${monthStart}::timestamptz), 0)::float AS "monthlyRevenue",
               COALESCE((SELECT SUM(total - amount_paid) FROM invoices WHERE status IN ('unpaid', 'partial')), 0)::float AS outstanding
-          `;
+          `,
+          );
           return rows[0] ?? { monthlyRevenue: 0, outstanding: 0 };
         },
         45,
@@ -199,8 +191,8 @@ export async function getDashboardOrdersDueSoon() {
       memoryCachedQuery(
         ["dashboard-orders-due-soon-mem", today],
         () =>
-          inTimedTransaction((tx) =>
-            tx.bookingOrder.findMany({
+          runDashboardRead(() =>
+            prisma.bookingOrder.findMany({
               where: { status: "active", readyAt: null, deliveryDate: { lt: dueEnd } },
               orderBy: [{ deliveryDate: "asc" }, { id: "asc" }],
               take: LIST_LIMIT,
@@ -224,6 +216,7 @@ export async function getDashboardOrdersDueSoon() {
             }),
           ),
         20,
+        { staleOnError: true },
       ),
     20,
   );
@@ -237,8 +230,8 @@ export async function getDashboardOverdueRentals() {
       memoryCachedQuery(
         ["dashboard-overdue-rentals-mem", todayIso()],
         () =>
-          inTimedTransaction((tx) =>
-            tx.rental.findMany({
+          runDashboardRead(() =>
+            prisma.rental.findMany({
               where: { status: "active", endDate: { lt: today } },
               orderBy: [{ endDate: "asc" }, { id: "asc" }],
               take: LIST_LIMIT,
@@ -252,6 +245,7 @@ export async function getDashboardOverdueRentals() {
             }),
           ),
         20,
+        { staleOnError: true },
       ),
     20,
   );
@@ -265,8 +259,8 @@ export async function getDashboardReturningToday() {
       memoryCachedQuery(
         ["dashboard-returning-today-mem", todayIso()],
         () =>
-          inTimedTransaction((tx) =>
-            tx.booking.findMany({
+          runDashboardRead(() =>
+            prisma.booking.findMany({
               where: {
                 status: { in: ["booked", "delivered"] },
                 returnDate: { gte: today, lt: new Date(today.getTime() + 86_400_000) },
@@ -282,6 +276,7 @@ export async function getDashboardReturningToday() {
             }),
           ),
         20,
+        { staleOnError: true },
       ),
     20,
   );
@@ -294,12 +289,14 @@ export async function getDashboardAiHealth() {
       memoryCachedQuery(
         ["dashboard-ai-health-mem"],
         async () => {
-          const rows = await prisma.$queryRaw<Array<{ queued: number; failed: number }>>`
+          const rows = await runDashboardRead(() =>
+            prisma.$queryRaw<Array<{ queued: number; failed: number }>>`
             SELECT
               COUNT(*) FILTER (WHERE status IN ('pending', 'processing'))::int AS queued,
               COUNT(*) FILTER (WHERE status = 'failed')::int AS failed
             FROM inventory_ai_jobs
-          `;
+          `,
+          );
           return rows[0] ?? { queued: 0, failed: 0 };
         },
         45,

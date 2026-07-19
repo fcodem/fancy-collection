@@ -24,6 +24,7 @@ export function memoryCachedQuery<T>(
   key: string[],
   fn: () => Promise<T>,
   ttlSeconds = 60,
+  opts?: { staleOnError?: boolean },
 ): Promise<T> {
   const cacheKey = key.join(":");
   const now = Date.now();
@@ -35,10 +36,16 @@ export function memoryCachedQuery<T>(
   const pending = memoryPending.get(cacheKey) as Promise<T> | undefined;
   if (pending) return pending;
 
+  const staleFallback = opts?.staleOnError ? hit?.value : undefined;
+
   const run = fn()
     .then((value) => {
       memoryStore.set(cacheKey, { value, expiresAt: Date.now() + ttlSeconds * 1000 });
       return value;
+    })
+    .catch((error) => {
+      if (staleFallback !== undefined) return staleFallback;
+      throw error;
     })
     .finally(() => {
       memoryPending.delete(cacheKey);
