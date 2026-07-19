@@ -307,9 +307,14 @@ export default function InventoryListClient({
         <div className="card-header">
           <h3 className="card-title">Manage Inventory</h3>
           {isOwner && (
-            <PrefetchOnIntentLink href="/inventory/add" className="btn btn-primary btn-sm">
-              Add Item
-            </PrefetchOnIntentLink>
+            <>
+              <PrefetchOnIntentLink href="/inventory/add" className="btn btn-primary btn-sm">
+                Add Item
+              </PrefetchOnIntentLink>
+              <PrefetchOnIntentLink href="/inventory/print-codes" className="btn btn-outline-secondary btn-sm ms-2">
+                Print QR/Barcodes
+              </PrefetchOnIntentLink>
+            </>
           )}
         </div>
         <div className="card-body">

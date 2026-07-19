@@ -1,6 +1,6 @@
 import { AsyncSemaphore } from "@/lib/asyncSemaphore";
 
-const SECTION_TIMEOUT_MS = 1_500;
+const SECTION_TIMEOUT_MS = 4_000;
 
 /** Max 2 simultaneous dashboard DB reads per function instance. */
 export const dashboardReadSemaphore = new AsyncSemaphore(2);
