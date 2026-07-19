@@ -67,4 +67,4 @@ Committed on branch `fix/finance-navigation-and-rendering`. Untracked audit outp
 fix(finance): resolve navigation, CSP chart loading, and runtime safety
 ```
 
-**Commit SHA:** `f453110`
+**Commit SHA:** `c347fc3`
