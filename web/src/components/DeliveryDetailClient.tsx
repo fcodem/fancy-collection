@@ -13,7 +13,7 @@ import type { BookingForStandardDetails } from "@/lib/bookingDetails";
 import { WARNING_BOOKED_ON_RETURN, WARNING_RETURNING_ON_DELIVERY } from "@/lib/bookingDetails";
 import type { ItemWarningSource } from "@/lib/bookingWarningPdf";
 import { formatInr } from "@/lib/format";
-import { idProofUrl, photoUrl } from "@/lib/photoUrl";
+import { privateMediaUrl, bookingPhotoUrl, photoUrl } from "@/lib/photoUrl";
 import { compressImageFile } from "@/lib/clientImageCompress";
 import ZoomableImage from "@/components/ZoomableImage";
 import { deliverySlipHref, hasPartialDelivery } from "@/lib/bookingStatus";
@@ -854,7 +854,7 @@ export default function DeliveryDetailClient({
                     label={`ID photo ${slot}`}
                     modalTitle={`Capture ID Photo ${slot}`}
                     previewUrl={preview}
-                    savedUrl={saved ? idProofUrl(saved) : null}
+                    savedUrl={saved ? privateMediaUrl(saved) : null}
                     onCapture={(file) => onIdPhotoChange(slot, file)}
                   />
                 </div>
@@ -1262,7 +1262,7 @@ export default function DeliveryDetailClient({
                 >
                   <div style={{ display: "flex", alignItems: "center", gap: 12, marginBottom: 12, flexWrap: "wrap" }}>
                     {o.photo && (
-                      <ZoomableImage src={photoUrl(o.photo)} alt={o.description} overlayCaption={o.description} style={{ width: 48, height: 48, borderRadius: 8, objectFit: "cover" }} />
+                      <ZoomableImage src={privateMediaUrl(o.photo)} alt={o.description} overlayCaption={o.description} style={{ width: 48, height: 48, borderRadius: 8, objectFit: "cover" }} />
                     )}
                     <div style={{ flex: 1, minWidth: 180 }}>
                       <div style={{ fontWeight: 700 }}>{o.description}</div>
@@ -1344,7 +1344,7 @@ export default function DeliveryDetailClient({
               {jewellery.map((j) => (
                 <div key={j.id} style={{ display: "flex", gap: 12, padding: 12, border: "1px solid var(--border)", borderRadius: 10 }}>
                   {j.photo ? (
-                    <ZoomableImage src={photoUrl(j.photo)} alt={j.name} overlayCaption={j.name} style={{ width: 56, height: 56, borderRadius: 8, objectFit: "cover", flexShrink: 0 }} />
+                    <ZoomableImage src={bookingPhotoUrl(j.photo)} alt={j.name} overlayCaption={j.name} style={{ width: 56, height: 56, borderRadius: 8, objectFit: "cover", flexShrink: 0 }} />
                   ) : (
                     <div style={{ width: 56, height: 56, borderRadius: 8, background: "var(--cream-dark)", display: "flex", alignItems: "center", justifyContent: "center", color: "var(--text-muted)", flexShrink: 0 }}>
                       <i className="fa-solid fa-gem" />

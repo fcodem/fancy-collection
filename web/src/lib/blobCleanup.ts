@@ -1,7 +1,7 @@
 import "server-only";
 
 import prisma from "@/lib/prisma";
-import { deleteUploads } from "@/lib/upload";
+import { deleteUploads, isPermanentInventoryMedia, REFUSED_TO_DELETE_PERMANENT_INVENTORY_MEDIA } from "@/lib/upload";
 
 /** Enqueue Blob paths for deletion AFTER the business transaction commits. */
 export async function enqueueBlobCleanup(
@@ -128,6 +128,21 @@ export async function processBlobCleanupJobs(limit = 20) {
 
   for (const job of jobs) {
     try {
+      if (isPermanentInventoryMedia(job.blob_path)) {
+        await prisma.blobCleanupJob.update({
+          where: { id: job.id },
+          data: {
+            status: "failed",
+            lastError: REFUSED_TO_DELETE_PERMANENT_INVENTORY_MEDIA,
+            completedAt: now,
+            leaseExpiresAt: null,
+            claimedBy: null,
+          },
+        });
+        skipped += 1;
+        continue;
+      }
+
       if (await isBlobPathStillReferenced(job.blob_path)) {
         await prisma.blobCleanupJob.update({
           where: { id: job.id },

@@ -6,7 +6,10 @@
 const isProdLike = Boolean(process.env.VERCEL) || process.env.NODE_ENV === "production";
 
 const publicBlobConfigured = Boolean(process.env.BLOB_READ_WRITE_TOKEN?.trim());
-const privateIdProofBlobConfigured = Boolean(process.env.ID_PROOF_BLOB_READ_WRITE_TOKEN?.trim());
+const privateIdProofBlobConfigured = Boolean(
+  process.env.ID_PROOF_BLOB_READ_WRITE_TOKEN?.trim() ||
+    process.env.ID_PROOF_READ_WRITE_TOKEN?.trim(),
+);
 
 const report = { publicBlobConfigured, privateIdProofBlobConfigured };
 

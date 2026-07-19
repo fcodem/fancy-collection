@@ -33,7 +33,7 @@ import PaymentModePicker from "@/components/PaymentModePicker";
 import { inventoryItemMatches } from "@/lib/dress";
 import { todayIso, parseDate, isDateBeforeToday } from "@/lib/constants";
 import { formatInr } from "@/lib/format";
-import { photoUrl } from "@/lib/photoUrl";
+import { privateMediaUrl, photoUrl } from "@/lib/photoUrl";
 import { isAbortError } from "@/lib/bookingQrClient";
 import { useToast } from "@/components/ui/Toast";
 import { downloadBookingSlipPdf } from "@/lib/bookingSlipClient";
@@ -1775,7 +1775,7 @@ export default function BookingFormClient(props: Props) {
                       label={`Order #${i + 1} sample`}
                       modalTitle="Capture sample photo"
                       previewUrl={o.photoPreview}
-                      savedUrl={photoUrl(o.photo)}
+                      savedUrl={privateMediaUrl(o.photo)}
                       onCapture={(file) => uploadOrderPhoto(i, file)}
                       emptyHeight={100}
                     />

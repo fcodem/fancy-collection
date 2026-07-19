@@ -41,27 +41,29 @@ describe("ID proof upload contracts (static)", () => {
   const operations = read("src/lib/services/operations.ts");
 
   it("uses separate private token for ID proofs — never public token fallback", () => {
-    const start = upload.indexOf("export async function storePrivateIdProof");
-    const end = upload.indexOf("\n/** Private customer ID proof — never stored");
-    const saveBlock = upload.slice(start, end);
-    assert.match(saveBlock, /ID_PROOF_BLOB_READ_WRITE_TOKEN/);
-    assert.match(saveBlock, /access: "private"/);
-    assert.doesNotMatch(saveBlock, /process\.env\.BLOB_READ_WRITE_TOKEN/);
+    const privateMedia = read("src/lib/storage/privateBookingMedia.ts");
+    const uploadBlock = read("src/lib/upload.ts").slice(
+      read("src/lib/upload.ts").indexOf("export async function storePrivateIdProof"),
+      read("src/lib/upload.ts").indexOf("/** Private customer ID proof"),
+    );
+    assert.match(privateMedia, /ID_PROOF_BLOB_READ_WRITE_TOKEN/);
+    assert.match(privateMedia, /access: "private"/);
+    assert.doesNotMatch(privateMedia, /process\.env\.BLOB_READ_WRITE_TOKEN/);
+    assert.match(uploadBlock, /savePrivateBookingMedia/);
   });
 
   it("public inventory uploads still use BLOB_READ_WRITE_TOKEN", () => {
-    const start = upload.indexOf("async function storeBuffer");
-    const end = upload.indexOf("async function encodeOriginalBuffer");
-    const storeBlock = upload.slice(start, end);
-    assert.match(storeBlock, /BLOB_READ_WRITE_TOKEN/);
-    assert.match(storeBlock, /access = opts\?\.access \?\? "public"/);
+    const publicMedia = read("src/lib/storage/publicInventoryMedia.ts");
+    assert.match(publicMedia, /BLOB_READ_WRITE_TOKEN/);
+    assert.match(publicMedia, /access: "public"/);
   });
 
   it("id-proof proxy uses private token helpers", () => {
-    assert.match(idProofRoute, /requireIdProofBlobToken/);
-    assert.doesNotMatch(idProofRoute, /BLOB_READ_WRITE_TOKEN/);
-    assert.match(idProofRoute, /private, no-store/);
-    assert.match(idProofRoute, /nosniff/);
+    const serve = read("src/lib/storage/privateMediaServe.ts");
+    assert.match(serve, /requirePrivateMediaToken/);
+    assert.doesNotMatch(serve, /BLOB_READ_WRITE_TOKEN/);
+    assert.match(serve, /private, no-store/);
+    assert.match(serve, /nosniff/);
   });
 
   it("id-photos route maps typed errors to HTTP status codes", () => {
@@ -71,9 +73,9 @@ describe("ID proof upload contracts (static)", () => {
     assert.match(idPhotosRoute, /\[id-proof-upload\]/);
   });
 
-  it("return page uses idProofUrl helper for ID photos", () => {
-    assert.match(returnPage, /idProofUrl\(booking\.idPhoto1\)/);
-    assert.match(returnPage, /idProofUrl\(booking\.idPhoto2\)/);
+  it("return page uses privateMediaUrl helper for ID photos", () => {
+    assert.match(returnPage, /privateMediaUrl\(booking\.idPhoto1\)/);
+    assert.match(returnPage, /privateMediaUrl\(booking\.idPhoto2\)/);
   });
 
   it("delivery UI compresses before upload and shows status messages", () => {
@@ -92,6 +94,17 @@ describe("ID proof upload contracts (static)", () => {
 
   it("id-photos route does not import public catalogue upload helpers", () => {
     assert.doesNotMatch(idPhotosRoute, /saveUpload|saveFastInventoryPhoto|saveCompressedFromBuffer/);
+  });
+
+  it("order photo uploads use private booking media route", () => {
+    const orderPhotoRoute = read("src/app/api/uploads/order-photo/route.ts");
+    const jewellery = read("src/components/JewellerySelectionClient.tsx");
+    const bookingForm = read("src/components/BookingFormClient.tsx");
+    assert.match(orderPhotoRoute, /savePrivateBookingUpload/);
+    assert.match(orderPhotoRoute, /"orders"/);
+    assert.doesNotMatch(orderPhotoRoute, /\bsaveUpload\b/);
+    assert.match(jewellery, /\/api\/uploads\/order-photo/);
+    assert.match(bookingForm, /\/api\/uploads\/order-photo/);
   });
 });
 
@@ -134,8 +147,10 @@ describe("validateIdProofUpload", async () => {
 describe("storePrivateIdProof token behaviour", () => {
   it("requireIdProofBlobToken throws when unset on prod-like env", async () => {
     const prev = process.env.ID_PROOF_BLOB_READ_WRITE_TOKEN;
+    const prevAlias = process.env.ID_PROOF_READ_WRITE_TOKEN;
     const prevVercel = process.env.VERCEL;
     delete process.env.ID_PROOF_BLOB_READ_WRITE_TOKEN;
+    delete process.env.ID_PROOF_READ_WRITE_TOKEN;
     process.env.VERCEL = "1";
     const { storePrivateIdProof, IdProofUploadError } = await import("./upload");
     await assert.rejects(
@@ -144,6 +159,8 @@ describe("storePrivateIdProof token behaviour", () => {
     );
     if (prev) process.env.ID_PROOF_BLOB_READ_WRITE_TOKEN = prev;
     else delete process.env.ID_PROOF_BLOB_READ_WRITE_TOKEN;
+    if (prevAlias) process.env.ID_PROOF_READ_WRITE_TOKEN = prevAlias;
+    else delete process.env.ID_PROOF_READ_WRITE_TOKEN;
     if (prevVercel) process.env.VERCEL = prevVercel;
     else delete process.env.VERCEL;
   });

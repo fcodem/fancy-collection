@@ -2,7 +2,7 @@ import { NextRequest, after } from "next/server";
 import { createHash } from "crypto";
 import prisma from "@/lib/prisma";
 import { saveReturn } from "@/lib/services/operations";
-import { saveUpload } from "@/lib/upload";
+import { savePrivateBookingUpload } from "@/lib/upload";
 import {
   jsonError,
   jsonOk,
@@ -278,7 +278,7 @@ export async function POST(req: NextRequest, { params }: { params: Promise<{ id:
 
         if (jobs.length) {
           const uploaded = await mapPool(jobs, 2, async (job) => {
-            const path = await saveUpload(job.file);
+            const path = await savePrivateBookingUpload(job.file, "incomplete-returns");
             return { job, path };
           });
           const nextItemPhotos: Record<string, string> = { ...stagedByItem };
