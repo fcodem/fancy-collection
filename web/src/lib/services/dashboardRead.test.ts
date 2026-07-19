@@ -128,7 +128,7 @@ describe("dashboard list cache behaviour", () => {
 
     const loader = async () => {
       runs += 1;
-      await gate;
+      if (runs > 1) await gate;
       return [`v${runs}`];
     };
 
