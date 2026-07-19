@@ -136,6 +136,7 @@ model ClothingItem {
   bookingItems        BookingItem[]
   prospectLeadItems   ProspectLeadItem[]
   jewellerySelections BookingJewellery[]
+  scanCodes           InventoryScanCode[]
 
   @@index([status])
   @@index([category])
@@ -144,6 +145,27 @@ model ClothingItem {
   @@index([category, status])
   @@index([inventoryGroupId])
   @@map("clothing_items")
+}
+
+/// Scannable aliases for one physical rentable inventory unit.
+/// A ClothingItem is the physical unit; inventoryGroupId only groups sibling units.
+model InventoryScanCode {
+  id             Int      @id @default(autoincrement())
+  inventoryId    Int      @map("inventory_id")
+  code           String
+  normalizedCode String   @unique @map("normalized_code")
+  format         String
+  source         String
+  isPrimary      Boolean  @default(false) @map("is_primary")
+  active         Boolean  @default(true)
+  createdAt      DateTime @default(now()) @map("created_at")
+  updatedAt      DateTime @updatedAt @map("updated_at")
+
+  inventory ClothingItem @relation(fields: [inventoryId], references: [id], onDelete: Cascade)
+
+  @@index([inventoryId, active])
+  @@index([inventoryId, isPrimary])
+  @@map("inventory_scan_codes")
 }
 
 model ClothingItemReferencePhoto {
