@@ -1,6 +1,6 @@
 import { NextRequest } from "next/server";
 import { jsonOk, requireFastReadUser, isResponse } from "@/lib/api";
-import { searchAvailableItems } from "@/lib/services/availabilitySearch";
+import { getAvailableItemsSearch } from "@/lib/services/availabilitySearchApi";
 import { todayIso } from "@/lib/constants";
 
 export async function GET(req: NextRequest) {
@@ -9,7 +9,7 @@ export async function GET(req: NextRequest) {
   const sp = req.nextUrl.searchParams;
   const deliveryDate = sp.get("delivery_date") || todayIso();
   const returnDate = sp.get("return_date") || deliveryDate;
-  const data = await searchAvailableItems({
+  const { data } = await getAvailableItemsSearch({
     deliveryDate,
     returnDate,
     category: sp.get("category") || "",
@@ -21,5 +21,6 @@ export async function GET(req: NextRequest) {
     cursor: sp.get("cursor"),
     limit: Number(sp.get("limit") || 0) || undefined,
   });
-  return jsonOk(data);
+  const { audit: _audit, ...payload } = data;
+  return jsonOk(payload);
 }

@@ -1,39 +1,63 @@
 import { NextRequest } from "next/server";
-import { searchAvailableItems } from "@/lib/services/availabilitySearch";
+import {
+  getAvailableItemsSearch,
+  type AvailableItemsSearchResponse,
+} from "@/lib/services/availabilitySearchApi";
 import { jsonOk, requireFastReadUser, isResponse } from "@/lib/api";
 import { createPerfTimer, withServerTiming } from "@/lib/perfTiming";
+
+function buildSearchOpts(req: NextRequest) {
+  const sp = req.nextUrl.searchParams;
+  const exclude = parseInt(sp.get("exclude_booking") || "0", 10) || undefined;
+  return {
+    deliveryDate: sp.get("delivery_date") || "",
+    returnDate: sp.get("return_date") || "",
+    category: sp.get("category") || "",
+    excludeBookingId: exclude,
+    subCategory: sp.get("subcategory") || "",
+    size: sp.get("size") || "",
+    itemType: sp.get("type") || "",
+    group: sp.get("group") || "",
+    status: sp.get("status") || "",
+    search: sp.get("search") || "",
+    cursor: sp.get("cursor"),
+    limit: Number(sp.get("limit") || 0) || undefined,
+    includeTotal: sp.get("include_total") === "1",
+  };
+}
+
+function applyAuditTimings(
+  perf: ReturnType<typeof createPerfTimer>,
+  result: AvailableItemsSearchResponse,
+) {
+  const { data, cacheStatus } = result;
+  perf.setCacheStatus(cacheStatus);
+  perf.set("queryMs", data.audit.queryMs);
+  perf.set("serializeMs", data.audit.serializeMs);
+  perf.setItemCount(data.free_items.length);
+  perf.addQueries(cacheStatus === "hit" ? 0 : 1);
+}
 
 export async function GET(req: NextRequest) {
   const perf = createPerfTimer("GET /api/booking/available-items");
   const user = await requireFastReadUser(perf);
   if (isResponse(user)) return user;
 
-  const deliveryDate = req.nextUrl.searchParams.get("delivery_date") || "";
-  const returnDate = req.nextUrl.searchParams.get("return_date") || "";
-  const category = req.nextUrl.searchParams.get("category") || "";
-
-  if (!deliveryDate || !returnDate) {
-    return jsonOk({ free_items: [], returning_items: [], booked_on_return: [] });
+  const opts = buildSearchOpts(req);
+  if (!opts.deliveryDate || !opts.returnDate) {
+    return jsonOk({
+      free_items: [],
+      returning_on_delivery: [],
+      booked_on_return: [],
+    });
   }
 
-  const exclude = parseInt(req.nextUrl.searchParams.get("exclude_booking") || "0", 10) || undefined;
-  perf.mark("db");
-  // One live, bounded CTE query — New Booking must never show occupied inventory.
-  const data = await searchAvailableItems({
-    deliveryDate,
-    returnDate,
-    category,
-    excludeBookingId: exclude,
-    subCategory: req.nextUrl.searchParams.get("subcategory") || "",
-    size: req.nextUrl.searchParams.get("size") || "",
-    itemType: req.nextUrl.searchParams.get("type") || "",
-    group: req.nextUrl.searchParams.get("group") || "",
-    status: req.nextUrl.searchParams.get("status") || "",
-    search: req.nextUrl.searchParams.get("search") || "",
-    cursor: req.nextUrl.searchParams.get("cursor"),
-    limit: Number(req.nextUrl.searchParams.get("limit") || 0) || undefined,
-  });
-  perf.endStage("initialReadMs", "db");
+  perf.mark("cache");
+  const cached = await getAvailableItemsSearch(opts);
+  perf.endStage("cacheLookupMs", "cache");
+  applyAuditTimings(perf, cached);
+
+  const { audit: _audit, ...payload } = cached.data;
   const timings = perf.finish({ kind: "read" });
-  return withServerTiming(jsonOk(data), timings);
+  return withServerTiming(jsonOk(payload), timings);
 }
