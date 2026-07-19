@@ -141,7 +141,7 @@ describe("website health stays independent of AI outage", () => {
 
 describe("expired lease recovery and owner controls", () => {
   it("recovers expired processing leases without inventing duplicate jobs", () => {
-    const queue = read("src/lib/dressChecker/aiJobQueue.ts");
+    const queue = read("src/lib/dressChecker/aiJobClient.ts");
     assert.match(queue, /export async function recoverExpiredProcessingLeases/);
     assert.match(queue, /Lease expired/);
     assert.match(queue, /AI_JOB_STATUS\.RETRYING/);
@@ -160,7 +160,7 @@ describe("expired lease recovery and owner controls", () => {
   });
 
   it("queue stats expose ages and last successful job", () => {
-    const queue = read("src/lib/dressChecker/aiJobQueue.ts");
+    const queue = read("src/lib/dressChecker/aiJobClient.ts");
     assert.match(queue, /oldestPendingAgeMs/);
     assert.match(queue, /oldestProcessingAgeMs/);
     assert.match(queue, /lastSuccessfulJobAt/);
