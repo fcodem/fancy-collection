@@ -72,7 +72,7 @@ export function buildSlipPageUrl(
  *   pool. This keeps @sparticuz/chromium out of ~13 hot API bundles (smaller
  *   uploads, faster cold starts) while still producing the full HTML slip
  *   inline. If the renderer is unreachable/misconfigured, callers throw and the
- *   upstream jsPDF fallback (branded) takes over.
+ *   upstream callers decide retry/fallback policy (delivery slips never use jsPDF).
  */
 async function renderSlipViaEndpoint(
   kind: SlipPdfKind,
@@ -99,9 +99,23 @@ async function renderSlipViaEndpoint(
 
   if (!res.ok) {
     const detail = await res.text().catch(() => "");
-    throw new Error(
-      `Slip renderer failed (HTTP ${res.status})${detail ? `: ${detail.slice(0, 200)}` : ""}`,
-    );
+    let message = `Slip renderer failed (HTTP ${res.status})`;
+    if (detail) {
+      try {
+        const parsed = JSON.parse(detail) as {
+          error?: string;
+          code?: string;
+          errorCode?: string;
+        };
+        if (parsed.error) message = parsed.error;
+        if (parsed.code || parsed.errorCode) {
+          message = `${parsed.code || parsed.errorCode}: ${message}`;
+        }
+      } catch {
+        message += `: ${detail.slice(0, 200)}`;
+      }
+    }
+    throw new Error(message);
   }
 
   const ab = await res.arrayBuffer();

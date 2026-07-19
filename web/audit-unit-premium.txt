@@ -1,0 +1,1310 @@
+﻿node.exe : npm warn Unknown env config "devdir". This will stop working in the next major version of npm. See `npm 
+help npmrc` for supported config options.
+At line:1 char:1
++ & "C:\Program Files\nodejs/node.exe" "C:\Program Files\nodejs/node_mo ...
++ ~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~
+    + CategoryInfo          : NotSpecified: (npm warn Unknow...config options.:String) [], RemoteException
+    + FullyQualifiedErrorId : NativeCommandError
+ 
+
+> fancy-collection-web@1.0.0 test:unit
+> tsx --test src/lib/availabilitySearch.test.ts src/lib/bookingOverlap.test.ts src/lib/bookingOccupancy.test.ts src/lib/bookingPrefetchContracts.test.ts src/lib/aiResilience.test.ts src/lib/aiWorkerIsolation.test.ts src/lib/workerHeartbeatHealth.test.ts src/lib/catalogPhotoRef.test.ts src/lib/categoryIsolation.test.ts src/lib/chromiumIsolation.test.ts src/lib/concurrency.test.ts src/lib/dashboardIndependentSections.test.ts src/lib/dressScanSession.test.ts src/lib/idProofUpload.test.ts src/lib/inventoryFast.test.ts src/lib/inventoryScanManagement.test.ts src/lib/slipRenderAuth.test.ts src/lib/packingListFast.test.ts src/lib/photoHash.test.ts src/lib/photoHash.warmCool.test.ts src/lib/shellRoutes.test.ts src/lib/sessionCache.test.ts src/lib/staleValueCache.test.ts src/lib/shopEnquiry.test.ts src/lib/services/inventoryScanCode.test.ts src/lib/services/scannedDressAvailability.test.ts src/lib/services/scanAvailabilityApi.test.ts src/lib/services/healthScoreLogic.test.ts src/lib/services/execBriefingLogic.test.ts src/lib/services/bookingSearchCore.test.ts src/lib/services/inventoryList.test.ts src/lib/services/deliveryReturnSearch.test.ts src/lib/services/dashboardStatLists.test.ts src/lib/services/qrResolve.test.ts src/lib/realtime/config.test.ts src/lib/dressChecker/aiJobWorker.serverless.test.ts src/lib/perfBehavioural.test.ts src/lib/perfCache.concurrency.test.ts src/lib/businessTimezone.test.ts src/lib/navPerfContracts.test.ts src/lib/perfTiming.test.ts src/lib/clientRequestCache.test.ts src/lib/mutationIdempotency.test.ts src/lib/mutationReceipt.logic.test.ts src/lib/whatsappJobTiming.test.ts src/lib/poolAndAiSafety.test.ts src/lib/tmpSpace.test.ts src/lib/premiumDeliverySlip.test.ts src/lib/premiumSlip.test.ts src/lib/allPremiumSlips.test.ts
+
+Γû╢ AI worker resilience contracts
+  Γ£ö worker dynamically imports the model graph (deferred load) (1.4338ms)
+  Γ£ö photo-removed cleanup does not statically pull the recognition pipeline (0.7365ms)
+  Γ£ö has a deterministic-failure circuit breaker (native/ENOSPC ΓåÆ dead-letter fast) (0.4371ms)
+  Γ£ö claims one job atomically so two workers cannot process the same job (0.457ms)
+  Γ£ö processes one job per drain iteration (0.3856ms)
+  Γ£ö bounds decoded pixels to guard against decompression bombs (0.3506ms)
+  Γ£ö cleans temp files in finally (0.5258ms)
+Γ£ö AI worker resilience contracts (6.1864ms)
+Γû╢ website health decoupled from AI
+  Γ£ö website/overall health depends on the database, not AI degradation (0.4377ms)
+Γ£ö website health decoupled from AI (0.6632ms)
+Γû╢ owner AI queue controls
+  Γ£ö exposes retry-one, ignore and remove dead-letter (0.7115ms)
+  Γ£ö management-only actions never drain the queue (0.4082ms)
+Γ£ö owner AI queue controls (1.3614ms)
+Γû╢ inventory save stays usable when AI is offline
+  Γ£ö inventory routes only enqueue AI work, never process it inline (0.6266ms)
+Γ£ö inventory save stays usable when AI is offline (0.7794ms)
+Γû╢ AI worker isolation from normal routes
+  Γ£ö src/app/api/inventory/route.ts does not statically import the model graph (66.8063ms)
+  Γ£ö src/app/api/inventory/[id]/route.ts does not statically import the model graph (54.1844ms)
+  Γ£ö src/app/api/health/route.ts does not statically import the model graph (32.656ms)
+  Γ£ö src/app/api/booking/route.ts does not statically import the model graph (61.1679ms)
+  Γ£ö src/app/api/booking-delivery/[id]/save/route.ts does not statically import the model graph (65.0159ms)
+  Γ£ö src/app/api/return/[id]/save/route.ts does not statically import the model graph (62.5484ms)
+  Γ£ö worker path CAN reach the model graph (dynamic on the cron route) (25.1147ms)
+Γ£ö AI worker isolation from normal routes (369.5468ms)
+Γû╢ all premium slips ΓÇö no customer jsPDF fallback
+  Γ£ö does not import jsPDF fallback generators (1.3742ms)
+  Γ£û sendBookingBillWhatsApp fails retryable without jsPDF fallback (10.805ms)
+  Γ£û sendReturnReceiptWhatsApp fails retryable without jsPDF fallback (0.9738ms)
+  Γ£û sendDeliverySlipWhatsApp fails retryable without jsPDF fallback (0.6595ms)
+  Γ£û sendPartialReturnSlipWhatsApp fails retryable without jsPDF fallback (6.2474ms)
+  Γ£û sendIncompleteSlipWhatsApp fails retryable without jsPDF fallback (0.622ms)
+Γ£û all premium slips ΓÇö no customer jsPDF fallback (22.7632ms)
+Γû╢ premium slip components embed validation markers
+  Γ£ö BookingSlip (1.194ms)
+  Γ£ö DeliverySlip (0.9806ms)
+  Γ£ö ReturnSlip (1.7127ms)
+  Γ£ö IncompleteReturnSlip (2.2453ms)
+Γ£ö premium slip components embed validation markers (7.1612ms)
+Γû╢ slip data builders use catalog photos
+  Γ£ö delivery, return, booking, incomplete builders (2.3274ms)
+Γ£ö slip data builders use catalog photos (2.5897ms)
+Γû╢ single-query availability contracts
+  Γ£ö uses the required bounded CTE pipeline (1.588ms)
+  Γ£ö filters candidates before occupancy and excludes maintenance states (0.5144ms)
+  Γ£ö preserves modern, legacy, cancellation, returned and edit rules (0.3074ms)
+  Γ£ö cursor contains the complete category/name/id sort tuple (1.5786ms)
+  Γ£ö keeps unbooked jewellery parts available and excludes booked parts (0.5894ms)
+Γ£ö single-query availability contracts (6.4496ms)
+Γû╢ booking occupancy filters (cancelled/returned regression)
+  Γ£ö active booking item occupies inventory (1.1862ms)
+  Γ£ö cancelled booking item does not occupy inventory (0.2657ms)
+  Γ£ö returned booking item does not occupy inventory (0.1943ms)
+  Γ£ö cancelled and returned booking item does not occupy inventory (0.1895ms)
+  Γ£ö rows without item_id never occupy inventory (0.1978ms)
+Γ£ö booking occupancy filters (cancelled/returned regression) (3.9027ms)
+Γû╢ booking overlap business rules (regression spec)
+  Γ£ö allows same-day returnΓåÆdelivery handover with returning warning (2.4753ms)
+  Γ£ö allows same-day deliveryΓåÆreturn handover with booked warning (0.4297ms)
+  Γ£ö blocks true overlap (0.7292ms)
+  Γ£ö blocks partial overlap (27-29 vs 26-28) (0.4258ms)
+  Γ£ö blocks exact duplicate dates (0.8274ms)
+  Γ£ö allows booking ending on existing delivery day (booked warning) (0.9249ms)
+  Γ£ö allows booking starting on existing return day (returning warning) (0.598ms)
+  Γ£ö blocks when new period fully contains existing (0.5267ms)
+  Γ£ö blocks when existing fully contains new period (0.3153ms)
+  Γ£ö allows multiple non-overlapping bookings on adjacent days (0.5906ms)
+Γ£ö booking overlap business rules (regression spec) (12.5324ms)
+Γû╢ booking detail prefetch isolation
+  Γ£ö renders every action through intent-only links (1.9025ms)
+  Γ£ö intent links disable viewport prefetch (0.4893ms)
+Γ£ö booking detail prefetch isolation (4.6279ms)
+Γû╢ Asia/Kolkata business dates
+  Γ£ö todayIso is YYYY-MM-DD for India timezone (37.2905ms)
+  Γ£ö localTodayStart matches todayIso via UTC calendar midnight (0.9221ms)
+Γ£ö Asia/Kolkata business dates (39.7912ms)
+Γû╢ inventoryPhotoRef
+  Γ£ö returns empty string for undefined, null, and empty object (1.2986ms)
+  Γ£ö falls back to photo when no enhanced or original (0.2511ms)
+  Γ£ö uses latest photo while auto-enhancement is paused (ignores enhancedPhoto) (0.5339ms)
+  Γ£ö prefers photo over a stale originalPhoto (0.2533ms)
+  Γ£ö falls back to photo when originalPhoto and enhancedPhoto are null (0.203ms)
+Γ£ö inventoryPhotoRef (4.6254ms)
+Γû╢ catalogPhotoRef
+  Γ£ö always returns the uploaded photo regardless of variant (0.4294ms)
+  Γ£ö never throws on partially-created items (0.5346ms)
+Γ£ö catalogPhotoRef (1.2563ms)
+Γû╢ slipOutfitPhotoRef
+  Γ£ö returns the uploaded photo (0.3889ms)
+Γ£ö slipOutfitPhotoRef (0.7234ms)
+Γû╢ recognitionPhotoRef
+  Γ£ö returns empty string for undefined and null (0.3491ms)
+  Γ£ö uses uploaded photo while enhancement is paused (ignores recognitionImage) (0.5151ms)
+  Γ£ö falls back to uploaded photo (0.5307ms)
+Γ£ö recognitionPhotoRef (1.6943ms)
+Γû╢ category query isolation
+  Γ£ö QR scanner does not import or prefetch category-backed routes on mount (3.2692ms)
+  Γ£ö booking record does not load categories (0.5086ms)
+  Γ£ö category selector pages explicitly request the category service (0.6092ms)
+  Γ£ö category mutations invalidate the dedicated cache (0.6664ms)
+Γ£ö category query isolation (6.9038ms)
+Γû╢ Chromium isolation
+  Γ£ö imports Chromium/Puppeteer in exactly one module (112.7957ms)
+  Γ£ö traces Chromium into only the internal render function (1.873ms)
+  Γ£ö only the internal route imports the direct renderer (133.8539ms)
+  Γ£ö does not install the full Puppeteer browser package (0.6983ms)
+Γ£ö Chromium isolation (252.6685ms)
+Γû╢ native AI bundle isolation
+  Γ£ö keeps shared instrumentation free of worker/model imports (0.8077ms)
+  Γ£ö uses a lightweight health module without the worker graph (0.6944ms)
+  Γ£ö keeps photo-removal cleanup out of the recognition worker graph (0.7243ms)
+Γ£ö native AI bundle isolation (3.01ms)
+Γû╢ mutations queue slips without waiting for Chromium
+  Γ£ö booking create schedules the durable bill and defers processing (3.3083ms)
+  Γ£ö delivery and return save queue in-transaction and drain only in after() (1.1471ms)
+Γ£ö mutations queue slips without waiting for Chromium (4.8628ms)
+Γû╢ internal renderer authentication
+  Γ£ö verifies an HMAC (timestamp + nonce + body hash), not a plain secret (0.6666ms)
+  Γ£ö signs outgoing render requests (0.5313ms)
+  Γ£ö uses a timing-safe comparison and replay guard (0.4127ms)
+Γ£ö internal renderer authentication (1.8778ms)
+Γû╢ branded jsPDF fallback
+  Γ£ö embeds the logo in operation slip fallback (0.578ms)
+  Γ£ö does not use jsPDF fallback for delivery WhatsApp sends (1.4368ms)
+Γ£ö branded jsPDF fallback (2.293ms)
+Γû╢ clientRequestCache
+  Γ£ö yearMonthKey uses YYYY-MM (1.2588ms)
+  Γ£ö dedupes in-flight identical keys (27.6757ms)
+  Γ£ö does not cache failures (7.7085ms)
+Γ£ö clientRequestCache (38.6825ms)
+Γû╢ bounded concurrency
+  Γ£ö never runs more than the limit at once (61.2056ms)
+  Γ£ö preserves input order in results (48.9601ms)
+  Γ£ö runs everything when tasks fit under the limit (0.3991ms)
+Γ£ö bounded concurrency (112.3717ms)
+Γû╢ prisma concurrency gauge
+  Γ£ö tracks in-flight and high-water mark (2.3475ms)
+  Γ£ö never drops in-flight below zero (0.2357ms)
+Γ£ö prisma concurrency gauge (2.9219ms)
+Γû╢ dashboard independent section architecture
+  Γ£ö streams essential and secondary sections through separate Suspense boundaries (2.124ms)
+  Γ£ö isolates every streamed section with an error boundary (0.5799ms)
+  Γ£ö uses one bounded aggregate query for essential cards (3.8116ms)
+  Γ£ö bounds every secondary list and applies a database statement timeout (0.8207ms)
+  Γ£ö dashboard requests contain no background job or PDF work (0.4722ms)
+Γ£ö dashboard independent section architecture (10.0384ms)
+[ai-worker] startAiJobWorker ignored on Vercel ΓÇö use cron drainAiJobQueue instead
+Γû╢ AI worker serverless safety
+  Γ£ö startAiJobWorker is a no-op when VERCEL=1 (no setInterval) (23.3594ms)
+Γ£ö AI worker serverless safety (27.8661ms)
+Γû╢ scan booking window validation
+  Γ£ö builds explicit Asia/Kolkata instants (1.4084ms)
+  Γ£ö requires every date/time field and rejects invalid ranges (1.0292ms)
+Γ£ö scan booking window validation (4.0502ms)
+Γû╢ continuous scan duplicate suppression
+  Γ£ö normalizes text while preserving barcode leading zeros (0.5302ms)
+  Γ£ö locks duplicate decode callbacks synchronously for 1.5 seconds (1.4184ms)
+  Γ£ö suppresses session duplicates and permits explicit recheck/removal (0.327ms)
+  Γ£ö protects against late responses from old date generations (0.2781ms)
+Γ£ö continuous scan duplicate suppression (3.0603ms)
+Γû╢ Scan Dress Availability UI contracts
+  Γ£ö keeps the existing AI/photo checker and adds a separate scan mode (0.5933ms)
+  Γ£ö does not open the camera before validated dates (0.405ms)
+  Γ£ö keeps one camera session alive between successful scans (0.401ms)
+  Γ£ö uses a controlled request queue, AbortController and generation guard (0.3228ms)
+  Γ£ö supports all continuous scanning controls and keyboard scanners (0.4041ms)
+  Γ£ö renders visual status text and every booking/warning record (0.479ms)
+  Γ£ö does not import categories, dashboards, PDFs, AI, or inventory lists (0.3712ms)
+  Γ£ö never confuses inventory dress codes with booking-record QR tokens (0.2067ms)
+Γ£ö Scan Dress Availability UI contracts (3.9074ms)
+Γû╢ formDataToFile
+  Γ£ö accepts Blob uploads from mobile browsers (2.0137ms)
+  Γ£ö rejects empty blobs and string form fields (0.3148ms)
+Γ£ö formDataToFile (4.0558ms)
+Γû╢ ID proof upload contracts
+  Γ£ö stores ID proofs privately and skips sharp on Vercel (0.6177ms)
+  Γ£ö does not block delivery when optional ID photo upload fails (0.4367ms)
+Γ£ö ID proof upload contracts (1.3701ms)
+Γû╢ inventory keyset and filtering contracts
+  Γ£ö carries every newest sort field in the cursor (19.5171ms)
+  Γ£ö applies category and status without losing full group totals (0.7694ms)
+  Γ£ö returns thumbnails in summaries and loads originals only in detail (0.7506ms)
+Γ£ö inventory keyset and filtering contracts (22.755ms)
+Γû╢ one-click inventory save contracts
+  Γ£ö prepares photos in a worker and awaits one shared promise (0.8996ms)
+  Γ£ö uploads prepared files concurrently and defers AI work until after commit (0.9998ms)
+  Γ£ö clears photo fields and protects shared references before cleanup (0.8925ms)
+  Γ£ö uses one responsive unit tree and original-photo lightbox (0.6076ms)
+Γ£ö one-click inventory save contracts (4.003ms)
+Γû╢ shared camera scanner supports inventory barcodes
+  Γ£ö normalizes camera formats used by Android, iOS fallback and desktop (1.1473ms)
+  Γ£ö provides an actionable permission-denied message (0.6421ms)
+  Γ£ö extends the existing scanner rather than adding another camera engine (0.8977ms)
+Γ£ö shared camera scanner supports inventory barcodes (4.2004ms)
+Γû╢ inventory QR/barcode management contracts
+  Γ£ö supports scan confirmation and manual keyboard-scanner assignment (0.4786ms)
+  Γ£ö generates QR and Code 128 labels from one reusable internal code (0.3225ms)
+  Γ£ö authenticates every read and mutation authoritatively (1.5208ms)
+  Γ£ö protects duplicate and primary-code deactivation (2.3101ms)
+  Γ£ö scopes every operation to the selected physical inventory route (0.4977ms)
+  Γ£ö exposes management on add, edit, detail and appropriate quick view (3.312ms)
+  Γ£ö uses responsive wrapping and a viewport-bounded scanner modal (0.5597ms)
+Γ£ö inventory QR/barcode management contracts (11.2019ms)
+Γû╢ printable inventory labels
+  Γ£ö renders compact thermal and standard dimensions (1.5552ms)
+  Γ£ö prints business, dress, SKU, optional details and human-readable code (1.1133ms)
+  Γ£ö escapes inventory text before placing it in printable HTML (0.2991ms)
+Γ£ö printable inventory labels (3.2694ms)
+Γû╢ mutationIdempotency
+  Γ£ö hashes payloads stably regardless of key order (1.5932ms)
+  Γ£ö rejects different payloads for same operation (1.0688ms)
+  Γ£ö builds deterministic WhatsApp idempotency keys (0.3716ms)
+Γ£ö mutationIdempotency (4.876ms)
+Γû╢ mutation idempotency contracts
+  Γ£ö same payload hashes equal; different payload mismatches (2.0227ms)
+  Γ£ö WhatsApp keys ignore item id order but differ by scope/version (0.5199ms)
+  Γ£ö return and incomplete slips use distinct keys (0.2775ms)
+  Γ£ö structured idempotency errors expose machine-readable codes (0.4522ms)
+  Γ£ö multipart incomplete-return hash ignores blob URLs (0.5158ms)
+Γ£ö mutation idempotency contracts (5.9372ms)
+Γû╢ booking panel pagination contract
+  Γ£ö uses 50 rows per page (0.9779ms)
+  Γ£ö page windows do not overlap (0.2269ms)
+Γ£ö booking panel pagination contract (2.6628ms)
+Γû╢ auth layout cookie path contract
+  Γ£ö SessionData identity fields are defined for cookie-only layout auth (574.7858ms)
+Γ£ö auth layout cookie path contract (594.3023ms)
+Γû╢ session cache module
+  Γ£ö exports invalidate helpers for force-logout / role change (3.3468ms)
+  Γ£ö keeps mutation auth authoritative and separate from the read cache (0.691ms)
+Γ£ö session cache module (4.3667ms)
+Γû╢ advisory lock helper
+  Γ£ö exports lockInventoryItemsForBooking (6.9539ms)
+Γ£ö advisory lock helper (7.2266ms)
+Γû╢ fast packing list contracts
+  Γ£ö uses a complete delivery-date/time/id keyset cursor (2.7895ms)
+  Γ£ö bounds bookings, excludes cancelled items and filters category in SQL (0.6113ms)
+  Γ£ö loads active custom orders only for the visible booking page (0.3342ms)
+  Γ£ö coalesces text edits, immediately saves checkboxes and supports retry (0.5012ms)
+  Γ£ö defers PDF row construction until the download click (0.248ms)
+Γ£ö fast packing list contracts (6.4901ms)
+[booking] whatsapp queue error: Error: pdf/meta boom
+    at Object.processWhatsAppJobQueue (C:\Projects\ssdn-soft\web\src\lib\perfBehavioural.test.ts:135:17)
+    at <anonymous> (C:\Projects\ssdn-soft\web\src\lib\services\bookingCreateOrchestration.core.ts:88:15)
+    at <anonymous> (C:\Projects\ssdn-soft\web\src\lib\perfBehavioural.test.ts:140:25)
+Γû╢ booking create isolation
+  Γ£ö fails when createBooking throws (bill schedule failure) (17.8956ms)
+  Γ£ö succeeds when WhatsApp/PDF processing throws after response (21.5709ms)
+  Γ£ö detects Prisma P2002 on clientRequestId (1.1114ms)
+  Γ£ö sequential retry of same client_request_id skips createBooking via pre-check (48.0141ms)
+  Γ£ö lost-response retry returns existing booking without side effects (0.5868ms)
+  Γ£ö simultaneous client_request_id creates exactly one booking and one WhatsApp job (60.411ms)
+Γ£ö booking create isolation (151.9053ms)
+Γû╢ client UUID helper
+  Γ£ö generateUuidV4 returns a UUID-shaped string (not req- prefix) (1.0759ms)
+Γ£ö client UUID helper (1.3069ms)
+Γû╢ fetchJson GET dedupe
+  Γ£ö two simultaneous GETs for the same URL invoke fetch only once (49.3053ms)
+Γ£ö fetchJson GET dedupe (49.643ms)
+[ai-worker] startAiJobWorker ignored on Vercel ΓÇö use cron drainAiJobQueue instead
+[inventory] durable AI enqueue failed (items kept): Error: db enqueue failed
+    at TestContext.<anonymous> (C:\Projects\ssdn-soft\web\src\lib\perfBehavioural.test.ts:413:13)
+    at Test.runInAsyncScope (node:async_hooks:227:14)
+    at Test.run (node:internal/test_runner/test:1306:25)
+    at Test.start (node:internal/test_runner/test:1177:17)
+    at node:internal/test_runner/test:1769:71
+    at node:internal/per_context/primordials:466:82
+    at new Promise (<anonymous>)
+    at new SafePromise (node:internal/per_context/primordials:435:3)
+    at node:internal/per_context/primordials:466:9
+    at Array.map (<anonymous>)
+[inventory-pipeline] durable enqueue failed 2 Error: unique violation
+    at <anonymous> (C:\Projects\ssdn-soft\web\src\lib\perfBehavioural.test.ts:445:39)
+    at <anonymous> (C:\Projects\ssdn-soft\web\src\lib\inventoryPhotoPipeline.ts:85:9)
+    at Array.map (<anonymous>)
+    at enqueueInventoryPhotoJobsDurable (C:\Projects\ssdn-soft\web\src\lib\inventoryPhotoPipeline.ts:84:13)
+    at TestContext.<anonymous> (C:\Projects\ssdn-soft\web\src\lib\perfBehavioural.test.ts:441:26)
+    at Test.runInAsyncScope (node:async_hooks:227:14)
+    at Test.run (node:internal/test_runner/test:1306:25)
+    at Suite.processPendingSubtests (node:internal/test_runner/test:897:18)
+    at Test.postRun (node:internal/test_runner/test:1447:19)
+    at Test.run (node:internal/test_runner/test:1372:12)
+Γû╢ memoryCachedQuery concurrency
+  Γ£ö shares one pending promise across concurrent cache misses (28.7249ms)
+  Γ£ö does not permanently cache rejected promises (0.7734ms)
+Γ£ö memoryCachedQuery concurrency (29.7866ms)
+Γû╢ AI worker serverless interval
+  Γ£ö startAiJobWorker with VERCEL=1 does not call setInterval (2.7757ms)
+Γ£ö AI worker serverless interval (2.922ms)
+Γû╢ SessionHeartbeat skip routing
+  Γ£ö skips public/login routes and arms for protected routes (0.2552ms)
+  Γ£ö shouldSkipHeartbeat toggles only when crossing publicΓåöprotected boundary (0.1722ms)
+Γ£ö SessionHeartbeat skip routing (0.5647ms)
+Γû╢ inventory durable queue helpers
+  Γ£ö inventory remains saved when durable enqueue fails and returns warning (0.8605ms)
+  Γ£ö successfully writes durable AI queue records via awaited enqueue (3.6808ms)
+  Γ£ö returns warning without throwing when some enqueues fail (1.7639ms)
+Γ£ö inventory durable queue helpers (6.5655ms)
+Γû╢ memoryCachedQuery concurrent misses
+  Γ£ö deduplicates in-flight loaders for the same key (47.219ms)
+Γ£ö memoryCachedQuery concurrent misses (51.9258ms)
+[perf] route=test-route requestId=rmrs5i4um2chyt9 authMs=12 transactionMs=40 totalMs=1 queryCount=2 maxConcurrentQueries=0 itemCount=3 cold=true
+Γû╢ perfTiming
+  Γ£ö records stages and builds Server-Timing (3.8272ms)
+Γ£ö perfTiming (6.2804ms)
+Γû╢ photoHash
+  Γ£ö identical hashes score 100% (1.8805ms)
+  Γ£ö histogram intersection is 100% for identical colour profiles (0.4666ms)
+  Γ£ö combined score favours matching colour over mismatched structure (0.5844ms)
+  Γ£ö minimum match threshold is low enough for angle variants (1.2077ms)
+  Γ£ö blendVisualSearchScore favours design when colours are similar (0.3103ms)
+  Γ£ö blendVisualSearchScore penalises design when colours diverge (0.2106ms)
+  Γ£ö applyColorGate drops blue candidate for green query (0.5031ms)
+  Γ£ö finalPhotoSearchScore favours AI pattern for same-colour variants (0.2634ms)
+  Γ£ö finalPhotoSearchScore hard-rejects green vs blue family (0.2401ms)
+  Γ£ö computeImageFingerprint handles portrait and tiny images without extract errors (142.4997ms)
+Γ£ö photoHash (150.6423ms)
+Γû╢ warmCoolHueMismatchPenalty
+  Γ£ö penalises green catalog when query is warm multi-panel (2.4432ms)
+  Γ£ö no penalty when both warm panelled (0.5736ms)
+  Γ£ö hueMassProfile separates warm vs green (0.2878ms)
+Γ£ö warmCoolHueMismatchPenalty (5.4479ms)
+Γû╢ AI photo size fence
+  Γ£ö caps remote/local photo loads at 10MB (17.3173ms)
+Γ£ö AI photo size fence (18.9872ms)
+Γû╢ pool connection_limit policy
+  Γ£ö forces connection_limit=3 for supabase pooler URLs (1.0939ms)
+Γ£ö pool connection_limit policy (1.2986ms)
+Γû╢ premium delivery slip reliability
+  Γ£ö does not jsPDF-fallback delivery slips on render failure (1.925ms)
+  Γ£ö retries ENOSPC once in the browser pool with cleanup (0.4945ms)
+  Γ£ö caches Chromium extraction behind a promise lock (0.4182ms)
+  Γ£ö logs safe diagnostics from the render route (0.3927ms)
+Γ£ö premium delivery slip reliability (4.9391ms)
+Γû╢ premium delivery slip template parity
+  Γ£ö buildDeliverySlipData includes catalog photo and sku (3.376ms)
+  Γ£ö DeliverySlip renders premium markers not minimal fallback fields (0.5727ms)
+  Γ£ö minimal jsPDF fallback only exposes booking/customer/phone lines (0.4694ms)
+  Γ£ö WhatsApp and browser share the same HTML renderer endpoint (0.5541ms)
+Γ£ö premium delivery slip template parity (5.4629ms)
+Γû╢ premiumSlip
+  Γ£ö uses stable template version (1.2334ms)
+  Γ£ö accepts PDF with marker and required delivery labels (0.6214ms)
+  Γ£ö rejects tiny PDF without premium marker (0.7517ms)
+  Γ£ö rejects jsPDF-style fallback body (0.3716ms)
+  Γ£ö PremiumSlipRenderError is retryable with code (0.474ms)
+Γ£ö premiumSlip (5.4466ms)
+Γû╢ realtime config (perf regression)
+  Γ£ö default poll interval is 60 seconds when env unset (1.1087ms)
+  Γ£ö keeps nav.refresh and shop.changed as distinct event types (0.4101ms)
+Γ£ö realtime config (perf regression) (3.6362ms)
+Γû╢ classifyNumericSearch (search regression)
+  Γ£ö treats 1ΓÇô3 digits as monthly serial (19.2444ms)
+  Γ£ö treats >3 digits as phone/WhatsApp (0.274ms)
+  Γ£ö treats formatted phone numbers as phone when >3 digits extracted (0.4065ms)
+  Γ£ö returns null for non-numeric text (0.2203ms)
+Γ£ö classifyNumericSearch (search regression) (21.8493ms)
+Γû╢ dashboardStatLists paging
+  Γ£ö parses known list types only (23.0623ms)
+  Γ£ö clamps page size and computes skip (1.4205ms)
+Γ£ö dashboardStatLists paging (26.2969ms)
+Γû╢ deliveryReturnSearch contracts
+  Γ£ö keeps operational page size within target bounds (1.3859ms)
+  Γ£ö cursor carries every operational sort field (1.5323ms)
+  Γ£ö uses keyset pagination without count or offset scans (0.6785ms)
+  Γ£ö orders exact and prefix paths before bounded fuzzy fallback (0.5006ms)
+  Γ£ö excludes cancelled, delivered and returned item rows as appropriate (0.3907ms)
+Γ£ö deliveryReturnSearch contracts (6.4127ms)
+Γû╢ pctChange
+  Γ£ö computes positive change (1.1771ms)
+  Γ£ö computes negative change (0.265ms)
+  Γ£ö rounds to nearest whole percent (0.2111ms)
+  Γ£ö returns null when there is no baseline (0.2475ms)
+Γ£ö pctChange (3.7295ms)
+Γû╢ buildGreeting
+  Γ£ö uses time of day and the user's name (1.5009ms)
+  Γ£ö falls back to a neutral name (0.2291ms)
+Γ£ö buildGreeting (2.0288ms)
+Γû╢ deriveInsights
+  Γ£ö reports day-over-day revenue change with correct direction (29.838ms)
+  Γ£ö does not fabricate a day insight without a baseline (0.3343ms)
+  Γ£ö states category share only when supported by a number (0.3158ms)
+  Γ£ö reports idle inventory using the lookback window (0.3448ms)
+  Γ£ö projects month-over-month change from run-rate (0.3648ms)
+Γ£ö deriveInsights (31.8567ms)
+Γû╢ deriveRecommendations
+  Γ£ö recommends promoting an underutilized category with stock (0.5608ms)
+  Γ£ö recommends chasing outstanding balances and overdue returns (0.3171ms)
+  Γ£ö returns nothing when all metrics are clean (1.0393ms)
+Γ£ö deriveRecommendations (2.1288ms)
+Γû╢ deriveAlerts
+  Γ£ö flags overdue returns as critical (red) (0.4102ms)
+  Γ£ö escalates large outstanding balances to critical (0.2259ms)
+  Γ£ö flags very high utilization (0.1568ms)
+Γ£ö deriveAlerts (1.0321ms)
+Γû╢ deriveUpcoming
+  Γ£ö lists deliveries and returns scheduled today (0.3363ms)
+Γ£ö deriveUpcoming (0.4519ms)
+Γû╢ deriveForecasts
+  Γ£ö always labels every forecast as a historical prediction (0.424ms)
+  Γ£ö projects month revenue by run-rate (0.169ms)
+  Γ£ö averages historical months only when at least two are present (0.1565ms)
+  Γ£ö produces no forecasts without revenue or history (0.1052ms)
+Γ£ö deriveForecasts (1.0419ms)
+Γû╢ buildBriefingSections
+  Γ£ö assembles all sections and every forecast keeps its label (0.5107ms)
+Γ£ö buildBriefingSections (0.591ms)
+Γû╢ health weighting
+  Γ£ö weights sum to exactly 100 (1.0551ms)
+  Γ£ö component contribution equals round(weight * score / 100) (0.7676ms)
+Γ£ö health weighting (3.3018ms)
+Γû╢ pctChangeSafe
+  Γ£ö computes signed change and rounds (0.3123ms)
+  Γ£ö returns null without a baseline (0.19ms)
+Γ£ö pctChangeSafe (0.7466ms)
+Γû╢ subscore functions
+  Γ£ö scoreGrowth is neutral (60) with no baseline and clamps (0.374ms)
+  Γ£ö scoreOverdue decreases with count (0.2313ms)
+  Γ£ö scoreRepeat and scoreCancellation behave monotonically (0.3655ms)
+  Γ£ö scoreUtilization scales toward 100 (0.347ms)
+Γ£ö subscore functions (2.4781ms)
+Γû╢ scoreBand
+  Γ£ö maps score ranges to bands, colours and emojis (1.5477ms)
+Γ£ö scoreBand (1.7839ms)
+Γû╢ computeHealthScore
+  Γ£ö gives 100 / Excellent for perfect metrics with positives and no negatives (0.9564ms)
+  Γ£ö gives 0 / Critical for terrible metrics with negatives and recommendations (30.4943ms)
+  Γ£ö is deterministic (never random) (0.4305ms)
+  Γ£ö derives explanations from real metric numbers (not fabricated) (0.3955ms)
+  Γ£ö keeps the score within 0ΓÇô100 for arbitrary inputs (0.287ms)
+Γ£ö computeHealthScore (32.9669ms)
+Γû╢ inventoryList cursor helpers
+  Γ£ö encode/decode round-trips name sort cursor (20.9255ms)
+  Γ£ö encode/decode round-trips newest sort cursor (0.436ms)
+  Γ£ö decodeCursor rejects invalid payloads (0.393ms)
+Γ£ö inventoryList cursor helpers (23.4708ms)
+Γû╢ inventory group summaries
+  Γ£ö aggregates quantities by status (0.5543ms)
+  Γ£ö prefers thumbnailPhoto over full photo in summary (0.5283ms)
+  Γ£ö inventoryFallbackGroupKey strips unit suffix (0.3793ms)
+Γ£ö inventory group summaries (1.8978ms)
+Γû╢ inventory scan code normalization and generation
+  Γ£ö preserves leading zeroes and removes scanner line endings (18.4333ms)
+  Γ£ö rejects an empty or scanner-only invalid code (0.7465ms)
+  Γ£ö generates opaque, non-sequential internal dress codes (2.2058ms)
+Γ£ö inventory scan code normalization and generation (23.1711ms)
+Γû╢ inventory scan code service
+  Γ£ö assigns and resolves an existing printed barcode (4.2876ms)
+  Γ£ö assigns a generated QR code (0.4507ms)
+  Γ£ö rejects a duplicate code assigned to another physical dress (0.646ms)
+  Γ£ö allows multiple aliases for one dress and only one initial primary (0.4408ms)
+  Γ£ö does not resolve a deactivated code (0.7728ms)
+  Γ£ö gives two physical units different codes even when they share a product (3.851ms)
+  Γ£ö models cascade deletion of scan-code mappings (4.6894ms)
+Γ£ö inventory scan code service (16.0339ms)
+Γû╢ qr target helpers
+  Γ£ö normalizes unknown targets to booking (18.9853ms)
+  Γ£ö maps each target to its record path (0.5153ms)
+  Γ£ö prefetch family is the list route, not a record (0.264ms)
+Γ£ö qr target helpers (22.0237ms)
+Γû╢ resolveBookingQr
+  Γ£ö rejects an invalid signature WITHOUT any booking query (1.6985ms)
+  Γ£ö resolves a valid signed booking to /booking/:id (0.9366ms)
+  Γ£ö honours the jewellery target (0.9432ms)
+  Γ£ö honours delivery and return targets (0.7935ms)
+  Γ£ö returns not_found for a missing token (no write, no token assignment) (0.789ms)
+  Γ£ö trusts signatureVerified short-circuit (printed-URL page path) (1.0389ms)
+  Γ£ö serves a repeat scan from the short-lived cache (one DB call for two resolves) (0.6609ms)
+  Γ£ö coalesces simultaneous identical resolves into one DB call (0.9673ms)
+Γ£ö resolveBookingQr (9.1757ms)
+Γû╢ scan availability request validation
+  Γ£ö accepts a valid request and passes leading zeros through untouched (1.1214ms)
+  Γ£ö rejects missing/oversized codes and invalid dates with 400 (1.9946ms)
+Γ£ö scan availability request validation (4.8523ms)
+Γû╢ scan availability response contract
+  Γ£ö serializes AVAILABLE with the dress summary and timing (1.6052ms)
+  Γ£ö keeps BOOKED as HTTP 200 with blocking records (0.3952ms)
+  Γ£ö serializes both warning types with reasons (0.3553ms)
+  Γ£ö maps CODE_NOT_FOUND to HTTP 404 with a friendly error (0.3451ms)
+  Γ£ö never serializes documents, photos or financial fields (0.4081ms)
+Γ£ö scan availability response contract (3.7149ms)
+Γû╢ scan availability cache
+  Γ£ö hashes codes so keys and diagnostics never carry the scanned value (0.7278ms)
+  Γ£ö serves warm repeats as hits within the TTL (0.8264ms)
+  Γ£ö expires entries after the TTL ΓÇö never caches forever (21.4668ms)
+  Γ£ö invalidates after booking mutations because the revision keys the entry (0.5468ms)
+  Γ£ö coalesces concurrent duplicate requests into one load (0.3526ms)
+  Γ£ö stays bounded at maxEntries (0.5794ms)
+  Γ£ö does not cache failed loads (1.5876ms)
+Γ£ö scan availability cache (27.7434ms)
+Γû╢ scan availability route contract
+  Γ£ö authenticates via the fast read-session path before any work (0.4241ms)
+  Γ£ö maps invalid ranges to 409 and unexpected failures to a safe 500 (0.4372ms)
+  Γ£ö never logs or caches raw scanned values (0.6552ms)
+  Γ£ö uses a short bounded revision-keyed cache and logs safe timing fields (0.5554ms)
+  Γ£ö stays lean: no category/AI/PDF/Blob/image work on the scan path (0.5643ms)
+Γ£ö scan availability route contract (3.5777ms)
+Γû╢ Asia/Kolkata date-time parsing
+  Γ£ö interprets offset-less values as Kolkata wall time (26.4031ms)
+  Γ£ö keeps the Kolkata calendar date at the midnight boundary (0.5839ms)
+  Γ£ö snaps date-only inputs to the boundary of the day (0.3053ms)
+  Γ£ö rejects invalid or missing dates (1.0325ms)
+Γ£ö Asia/Kolkata date-time parsing (30.6392ms)
+Γû╢ booking free-text time parsing
+  Γ£ö parses the booking form's time vocabulary (0.6731ms)
+  Γ£ö returns null for unparseable values instead of guessing (0.2294ms)
+Γ£ö booking free-text time parsing (1.6326ms)
+Γû╢ checkScannedDressAvailability
+  Γ£ö returns AVAILABLE with lean dress details for a free dress (4.4526ms)
+  Γ£ö returns BOOKED for a genuine overlap with lean record details (2.5851ms)
+  Γ£ö warns when an existing booking returns on the requested delivery day (0.7442ms)
+  Γ£ö warns when the next booking starts on the requested return day (0.7198ms)
+  Γ£ö returns WARNING_BOTH_BOUNDARIES when both boundary handovers occur (0.5951ms)
+  Γ£ö hard blocks a same-day handover with a genuine time overlap (0.5315ms)
+  Γ£ö blocks when the next booking on the return day starts before the return time (0.5559ms)
+  Γ£ö ignores cancelled bookings and cancelled booking items (1.3486ms)
+  Γ£ö ignores returned booking items (partial return preserved) (0.5175ms)
+  Γ£ö still blocks on legacy single-item bookings without item rows (0.6637ms)
+  Γ£ö returns MAINTENANCE without running the booking query (0.3332ms)
+  Γ£ö returns INACTIVE for retired inventory (0.1886ms)
+  Γ£ö returns CODE_NOT_FOUND for an unknown code (0.4424ms)
+  Γ£ö returns CODE_NOT_FOUND for a deactivated code (0.295ms)
+  Γ£ö resolves every alias code of the same dress to the same answer (0.8136ms)
+  Γ£ö classifies boundaries by Kolkata calendar date at midnight edges (0.5405ms)
+  Γ£ö excludes the booking being edited (0.5035ms)
+  Γ£ö validates code, dates, range and excludeBookingId (1.6997ms)
+Γ£ö checkScannedDressAvailability (19.1043ms)
+Γû╢ sessionCache
+  Γ£ö hashes session ids (never stores raw key as lookup value) (1.993ms)
+  Γ£ö returns undefined on miss and value on hit (1.7927ms)
+  Γ£ö stores null for inactive sessions so callers skip DB briefly (0.5022ms)
+  Γ£ö invalidateCachedSession removes one session (0.5203ms)
+  Γ£ö invalidateCachedSessionsForUser removes all entries for that user (0.6267ms)
+  Γ£ö coalesces simultaneous validations into one loader call (33.4828ms)
+  Γ£ö user A cache cannot be read via user B session id (0.8647ms)
+  Γ£ö reports miss then hit and avoids the second validation query (0.4267ms)
+  Γ£ö rejects an invalid session and caches the negative result briefly (0.5382ms)
+  Γ£ö force logout invalidation removes cached access immediately (0.4029ms)
+  Γ£ö deactivation/role invalidation replaces stale identity (0.5366ms)
+  Γ£ö invalidation during an in-flight read cannot repopulate stale access (0.3619ms)
+Γ£ö sessionCache (44.6177ms)
+Γû╢ isBareRoute (shell layout regression)
+  Γ£ö login and offline skip shell (1.7852ms)
+  Γ£ö print/slip routes skip shell (0.3977ms)
+  Γ£ö app routes use shell (0.3343ms)
+Γ£ö isBareRoute (shell layout regression) (4.1365ms)
+Γû╢ shopEnquiry helpers
+  Γ£ö parseOptionalEnquiryDate returns null for empty values (1.1589ms)
+  Γ£ö parseOptionalEnquiryDate parses ISO date prefix (1.9693ms)
+  Γ£ö shopEnquiryWriteData maps API body to prisma fields (0.518ms)
+  Γ£ö shopEnquiryWriteData clears dressNeededDate when omitted (0.2425ms)
+  Γ£ö serializeShopEnquiry exposes dress_needed_date (1.5058ms)
+Γ£ö shopEnquiry helpers (7.5659ms)
+Γû╢ slip render auth
+  Γ£ö accepts a freshly signed request (4.2652ms)
+  Γ£ö rejects a replayed nonce (0.8962ms)
+  Γ£ö rejects a tampered body (0.4452ms)
+  Γ£ö rejects an expired timestamp (0.4144ms)
+  Γ£ö rejects a bad signature without touching booking work (0.5209ms)
+  Γ£ö rejects missing headers (0.2541ms)
+Γ£ö slip render auth (8.5943ms)
+Γû╢ staleValueCache
+  Γ£ö coalesces concurrent refreshes (2.6944ms)
+  Γ£ö returns stale successful data when refresh fails (0.8913ms)
+  Γ£ö does not permanently cache a cold failure (1.8394ms)
+  Γ£ö invalidation triggers one refresh and retains stale fallback (1.673ms)
+Γ£ö staleValueCache (8.9821ms)
+Γû╢ whatsapp job timing policy
+  Γ£ö stuck recovery exceeds execution timeout (1.5731ms)
+  Γ£ö canonical success status is done not completed (0.3107ms)
+Γ£ö whatsapp job timing policy (4.2408ms)
+Γû╢ cron schedule ΓåÆ expected interval
+  Γ£ö parses */15 as 15 minutes (0.8302ms)
+  Γ£ö parses * * * * * as 1 minute (0.1218ms)
+  Γ£ö parses hourly step schedules (0.1628ms)
+  Γ£ö treats daily fixed schedules as 24 hours (0.154ms)
+Γ£ö cron schedule ΓåÆ expected interval (2.207ms)
+Γû╢ AI worker heartbeat health derivation
+  Γ£ö fresh heartbeat ΓåÆ HEALTHY (1.3181ms)
+  Γ£ö failures with recent heartbeat ΓåÆ DEGRADED (0.1712ms)
+  Γ£ö old heartbeat beyond 2 intervals ΓåÆ STALE (0.1424ms)
+  Γ£ö very old heartbeat (20h) ΓåÆ OFFLINE, never ONLINE (0.2307ms)
+  Γ£ö missing heartbeat ΓåÆ OFFLINE (0.1826ms)
+  Γ£ö disabled flag ΓåÆ DISABLED (0.2506ms)
+  Γ£ö exposes next expected run from last heartbeat + interval (0.1301ms)
+Γ£ö AI worker heartbeat health derivation (2.7941ms)
+Γû╢ website health stays independent of AI outage
+  Γ£ö public health keeps website ok tied to database only (0.5196ms)
+  Γ£ö does not hard-code worker ONLINE/OK labels in heartbeat module (0.3717ms)
+Γ£ö website health stays independent of AI outage (1.0273ms)
+Γû╢ expired lease recovery and owner controls
+  Γ£ö recovers expired processing leases without inventing duplicate jobs (0.4875ms)
+  Γ£ö exposes owner actions for lease recovery, safe retry, dead letter, trigger (0.2664ms)
+  Γ£ö queue stats expose ages and last successful job (0.2247ms)
+Γ£ö expired lease recovery and owner controls (1.1141ms)
+Γû╢ AI stays off critical business paths
+  Γ£ö booking and inventory mutation routes do not import the AI worker (0.4745ms)
+Γ£ö AI stays off critical business paths (0.5425ms)
+Γä╣ tests 368
+Γä╣ suites 102
+Γä╣ pass 363
+Γä╣ fail 5
+Γä╣ cancelled 0
+Γä╣ skipped 0
+Γä╣ todo 0
+Γä╣ duration_ms 4870.9714
+
+Γ£û failing tests:
+
+test at src\lib\allPremiumSlips.test.ts:2:2658
+Γ£û sendBookingBillWhatsApp fails retryable without jsPDF fallback (10.805ms)
+  AssertionError [ERR_ASSERTION]: The input did not match the regular expression /PREMIUM_SLIP_RENDER_FAILED/. Input:
+  
+  'export async function sendBookingBillWhatsApp(\r\n' +
+    '  bookingId: number,\r\n' +
+    '  requestOrigin?: string,\r\n' +
+    '): Promise<WhatsAppSendOutcome> {\r\n' +
+    '  const booking = await prisma.booking.findUnique({\r\n' +
+    '    where: { id: bookingId },\r\n' +
+    '    include: {\r\n' +
+    '      bookingItems: {\r\n' +
+    '        include: { item: { select: { color: true, photo: true } } },\r\n' +
+    '      },\r\n' +
+    '    },\r\n' +
+    '  });\r\n' +
+    '  if (!booking) return { ok: false, error: "Booking not found" };\r\n' +
+    '\r\n' +
+    '  const phoneRaw = booking.whatsappNo?.trim() || booking.contact1?.trim() || "";\r\n' +
+    '  if (!phoneRaw) return { ok: false, error: "No WhatsApp number on booking" };\r\n' +
+    '  if (!normalizeIndianPhone(phoneRaw)) {\r\n' +
+    '    return { ok: false, error: `Invalid phone number: ${phoneRaw}` };\r\n' +
+    '  }\r\n' +
+    '\r\n' +
+    '  if (!isWhatsAppConfigured()) {\r\n' +
+    '    return { ok: false, error: "WhatsApp Meta API is not configured.", skipped: true };\r\n' +
+    '  }\r\n' +
+    '\r\n' +
+    '  const publicBookingId = resolvePublicBookingId(booking);\r\n' +
+    '\r\n' +
+    '  if (!booking.publicBookingId) {\r\n' +
+    '    await prisma.booking.update({\r\n' +
+    '      where: { id: bookingId },\r\n' +
+    '      data: { publicBookingId },\r\n' +
+    '    });\r\n' +
+    '  }\r\n' +
+    '\r\n' +
+    '  let pdfBuffer: Buffer;\r\n' +
+    '  try {\r\n' +
+    '    pdfBuffer = await generateValidatedPremiumSlipPdf("booking", bookingId, () =>\r\n' +
+    '      generateBookingSlipPdf(bookingId, requestOrigin),\r\n' +
+    '    );\r\n' +
+    '  } catch (htmlErr) {\r\n' +
+    '    const htmlMsg = htmlErr instanceof Error ? htmlErr.message : "HTML PDF failed";\r\n' +
+    '    return failPremiumSlipRender({\r\n' +
+    '      kind: "booking",\r\n' +
+    '      bookingId,\r\n' +
+    '      publicBookingId,\r\n' +
+    '      phoneRaw,\r\n' +
+    '      filename: bookingSlipPdfFilename(publicBookingId),\r\n' +
+    '      htmlMsg,\r\n' +
+    '      logTag: "sendBookingBillWhatsApp",\r\n' +
+    '    });\r\n' +
+    '  }\r\n' +
+    '\r\n' +
+    '  let pdfUrl = "";\r\n' +
+    '  try {\r\n' +
+    '    pdfUrl = await uploadBookingSlipPdf(pdfBuffer, publicBookingId);\r\n' +
+    '    await prisma.booking.update({\r\n' +
+    '      where: { id: bookingId },\r\n' +
+    '      data: { qrCodeUrl: pdfUrl },\r\n' +
+    '    }).catch(() => {});\r\n' +
+    '  } catch (e) {\r\n' +
+    '    console.warn("[sendBookingBillWhatsApp] Archive upload failed:", e);\r\n' +
+    '  }\r\n' +
+    '\r\n' +
+    '  const filename = bookingSlipPdfFilename(publicBookingId);\r\n' +
+    '  const details = bookingSlipDetailsFromBooking(booking);\r\n' +
+    '  const caption = buildBookingSlipCaption(details);\r\n' +
+    '\r\n' +
+    '  const uploaded = await uploadWhatsAppMedia(pdfBuffer, filename);\r\n' +
+    '  if (!uploaded.ok) {\r\n' +
+    '    await saveWhatsAppOutboundMessage({\r\n' +
+    '      bookingId,\r\n' +
+    '      phone: phoneRaw,\r\n' +
+    '      messageType: "document",\r\n' +
+    '      body: caption,\r\n' +
+    '      mediaUrl: pdfUrl || null,\r\n' +
+    '      filename,\r\n' +
+    '      metaMessageId: null,\r\n' +
+    '      status: "failed",\r\n' +
+    '      error: uploaded.error ?? "Media upload failed",\r\n' +
+    '      isAutomated: true,\r\n' +
+    '    });\r\n' +
+    '    await prisma.booking.update({\r\n' +
+    '      where: { id: bookingId },\r\n' +
+    '      data: { whatsappStatus: "failed", whatsappError: uploaded.error },\r\n' +
+    '    }).catch(() => {});\r\n' +
+    '    return { ok: false, error: uploaded.error, phone: phoneRaw };\r\n' +
+    '  }\r\n' +
+    '\r\n' +
+    '  const templateStatus = await getBookingBillTemplateStatus();\r\n' +
+    '  const sessionOpen = await isWhatsAppSessionOpen(phoneRaw);\r\n' +
+    '  const templateReady = templateStatus.ready && templateStatus.kind === "document";\r\n' +
+    '\r\n' +
+    '  // Prefer free-form PDF while the 24h session is open (current caption).\r\n' +
+    '  // Cold sends use the APPROVED DOCUMENT template (v3/v2/pdf fallbacks).\r\n' +
+    '  let usedTemplate = false;\r\n' +
+    '  let docResult;\r\n' +
+    '\r\n' +
+    '  if (sessionOpen) {\r\n' +
+    '    docResult = await sendWhatsAppDocumentByMediaId(\r\n' +
+    '      phoneRaw,\r\n' +
+    '      uploaded.mediaId,\r\n' +
+    '      filename,\r\n' +
+    '      caption,\r\n' +
+    '    );\r\n' +
+    '    if (!docResult.ok && templateReady) {\r\n' +
+    '      usedTemplate = true;\r\n' +
+    '      docResult = await sendBookingBillViaTemplate({\r\n' +
+    '        phone: phoneRaw,\r\n' +
+    '        mediaId: uploaded.mediaId,\r\n' +
+    '        filename,\r\n' +
+    '        details,\r\n' +
+    '        publicBookingId,\r\n' +
+    '        kind: "document",\r\n' +
+    '        language: templateStatus.language,\r\n' +
+    '        templateName: templateStatus.name,\r\n' +
+    '      });\r\n' +
+    '    }\r\n' +
+    '  } else if (templateReady) {\r\n' +
+    '    usedTemplate = true;\r\n' +
+    '    docResult = await sendBookingBillViaTemplate({\r\n' +
+    '      phone: phoneRaw,\r\n' +
+    '      mediaId: uploaded.mediaId,\r\n' +
+    '      filename,\r\n' +
+    '      details,\r\n' +
+    '      publicBookingId,\r\n' +
+    '      kind: "document",\r\n' +
+    '      language: templateStatus.language,\r\n' +
+    '      templateName: templateStatus.name,\r\n' +
+    '    });\r\n' +
+    '  } else {\r\n' +
+    '    const err =\r\n' +
+    '      templateStatus.error ||\r\n' +
+    '      `WhatsApp DOCUMENT template "${templateStatus.name}" is not APPROVED yet ` +\r\n' +
+    '        `(status: ${templateStatus.status ?? "missing"}). ` +\r\n' +
+    '        `Cold sends need an approved PDF (DOCUMENT) template ΓÇö not the URL/link template. ` +\r\n' +
+    '        `Ask the customer to send Hi, then resend the bill, or wait for Meta approval of "booking_slip_v3".`;\r\n' +
+    '    docResult = { ok: false as const, error: err };\r\n' +
+    '  }\r\n' +
+    '\r\n' +
+    '  // Session free-form blocked by Meta ΓåÆ retry DOCUMENT template if ready.\r\n' +
+    '  if (\r\n' +
+    '    !usedTemplate &&\r\n' +
+    '    !docResult.ok &&\r\n' +
+    '    isOutsideCustomerCareWindowError(docResult) &&\r\n' +
+    '    templateReady\r\n' +
+    '  ) {\r\n' +
+    '    usedTemplate = true;\r\n' +
+    '    docResult = await sendBookingBillViaTemplate({\r\n' +
+    '      phone: phoneRaw,\r\n' +
+    '      mediaId: uploaded.mediaId,\r\n' +
+    '      filename,\r\n' +
+    '      details,\r\n' +
+    '      publicBookingId,\r\n' +
+    '      kind: "document",\r\n' +
+    '      language: templateStatus.language,\r\n' +
+    '      templateName: templateStatus.name,\r\n' +
+    '    });\r\n' +
+    '  }\r\n' +
+    '\r\n' +
+    '  await saveWhatsAppOutboundMessage({\r\n' +
+    '    bookingId,\r\n' +
+    '    phone: phoneRaw,\r\n' +
+    '    messageType: usedTemplate ? "template" : "document",\r\n' +
+    '    body: caption,\r\n' +
+    '    mediaUrl: pdfUrl || null,\r\n' +
+    '    filename,\r\n' +
+    '    metaMessageId: docResult.ok ? docResult.messageId : null,\r\n' +
+    '    status: docResult.ok ? "sent" : "failed",\r\n' +
+    '    error: docResult.ok ? null : (docResult.error ?? null),\r\n' +
+    '    isAutomated: true,\r\n' +
+    '  });\r\n' +
+    '\r\n' +
+    '  if (!docResult.ok) {\r\n' +
+    '    await prisma.booking.update({\r\n' +
+    '      where: { id: bookingId },\r\n' +
+    '      data: { whatsappStatus: "failed", whatsappError: docResult.error },\r\n' +
+    '    }).catch(() => {});\r\n' +
+    '    return { ok: false, error: docResult.error, phone: phoneRaw };\r\n' +
+    '  }\r\n' +
+    '\r\n' +
+    '  await prisma.booking.update({\r\n' +
+    '    where: { id: bookingId },\r\n' +
+    '    data: {\r\n' +
+    '      whatsappStatus: "sent",\r\n' +
+    '      whatsappSentAt: new Date(),\r\n' +
+    '      whatsappError: null,\r\n' +
+    '    },\r\n' +
+    '  }).catch(() => {});\r\n' +
+    '\r\n' +
+    '  return { ok: true, phone: phoneRaw, messageId: docResult.messageId };\r\n' +
+    '}\r\n' +
+    '\r\n'
+  
+      at TestContext.<anonymous> (C:\Projects\ssdn-soft\web\src\lib\allPremiumSlips.test.ts:64:14)
+      at Test.runInAsyncScope (node:async_hooks:227:14)
+      at Test.run (node:internal/test_runner/test:1306:25)
+      at Suite.processPendingSubtests (node:internal/test_runner/test:897:18)
+      at Test.postRun (node:internal/test_runner/test:1447:19)
+      at Test.run (node:internal/test_runner/test:1372:12)
+      at async Promise.all (index 0)
+      at async Suite.run (node:internal/test_runner/test:1771:7)
+      at async startSubtestAfterBootstrap (node:internal/test_runner/harness:385:3) {
+    generatedMessage: true,
+    code: 'ERR_ASSERTION',
+    actual: 'export async function sendBookingBillWhatsApp(\r\n  bookingId: number,\r\n  requestOrigin?: string,\r\n): Promise<WhatsAppSendOutcome> {\r\n  const booking = await prisma.booking.findUnique({\r\n    where: { id: bookingId },\r\n    include: {\r\n      bookingItems: {\r\n        include: { item: { select: { color: true, photo: true } } },\r\n      },\r\n    },\r\n  });\r\n  if (!booking) return { ok: false, error: "Booking not found" };\r\n\r\n  const phoneRaw = booking.whatsappNo?.trim() || booking.contact1?.trim() || "";\r\n  if (!phoneRaw) return { ok: false, error: "No WhatsApp number on booking" };\r\n  if (!normalizeIndianPhone(phoneRaw)) {\r\n    return { ok: false, error: `Invalid phone number: ${phoneRaw}` };\r\n  }\r\n\r\n  if (!isWhatsAppConfigured()) {\r\n    return { ok: false, error: "WhatsApp Meta API is not configured.", skipped: true };\r\n  }\r\n\r\n  const publicBookingId = resolvePublicBookingId(booking);\r\n\r\n  if (!booking.publicBookingId) {\r\n    await prisma.booking.update({\r\n      where: { id: bookingId },\r\n      data: { publicBookingId },\r\n    });\r\n  }\r\n\r\n  let pdfBuffer: Buffer;\r\n  try {\r\n    pdfBuffer = await generateValidatedPremiumSlipPdf("booking", bookingId, () =>\r\n      generateBookingSlipPdf(bookingId, requestOrigin),\r\n    );\r\n  } catch (htmlErr) {\r\n    const htmlMsg = htmlErr instanceof Error ? htmlErr.message : "HTML PDF failed";\r\n    return failPremiumSlipRender({\r\n      kind: "booking",\r\n      bookingId,\r\n      publicBookingId,\r\n      phoneRaw,\r\n      filename: bookingSlipPdfFilename(publicBookingId),\r\n      htmlMsg,\r\n      logTag: "sendBookingBillWhatsApp",\r\n    });\r\n  }\r\n\r\n  let pdfUrl = "";\r\n  try {\r\n    pdfUrl = await uploadBookingSlipPdf(pdfBuffer, publicBookingId);\r\n    await prisma.booking.update({\r\n      where: { id: bookingId },\r\n      data: { qrCodeUrl: pdfUrl },\r\n    }).catch(() => {});\r\n  } catch (e) {\r\n    console.warn("[sendBookingBillWhatsApp] Archive upload failed:", e);\r\n  }\r\n\r\n  const filename = bookingSlipPdfFilename(publicBookingId);\r\n  const details = bookingSlipDetailsFromBooking(booking);\r\n  const caption = buildBookingSlipCaption(details);\r\n\r\n  const uploaded = await uploadWhatsAppMedia(pdfBuffer, filename);\r\n  if (!uploaded.ok) {\r\n    await saveWhatsAppOutboundMessage({\r\n      bookingId,\r\n      phone: phoneRaw,\r\n      messageType: "document",\r\n      body: caption,\r\n      mediaUrl: pdfUrl || null,\r\n      filename,\r\n      metaMessageId: null,\r\n      status: "failed",\r\n      error: uploaded.error ?? "Media upload failed",\r\n      isAutomated: true,\r\n    });\r\n    await prisma.booking.update({\r\n      where: { id: bookingId },\r\n      data: { whatsappStatus: "failed", whatsappError: uploaded.error },\r\n    }).catch(() => {});\r\n    return { ok: false, error: uploaded.error, phone: phoneRaw };\r\n  }\r\n\r\n  const templateStatus = await getBookingBillTemplateStatus();\r\n  const sessionOpen = await isWhatsAppSessionOpen(phoneRaw);\r\n  const templateReady = templateStatus.ready && templateStatus.kind === "document";\r\n\r\n  // Prefer free-form PDF while the 24h session is open (current caption).\r\n  // Cold sends use the APPROVED DOCUMENT template (v3/v2/pdf fallbacks).\r\n  let usedTemplate = false;\r\n  let docResult;\r\n\r\n  if (sessionOpen) {\r\n    docResult = await sendWhatsAppDocumentByMediaId(\r\n      phoneRaw,\r\n      uploaded.mediaId,\r\n      filename,\r\n      caption,\r\n    );\r\n    if (!docResult.ok && templateReady) {\r\n      usedTemplate = true;\r\n      docResult = await sendBookingBillViaTemplate({\r\n        phone: phoneRaw,\r\n        mediaId: uploaded.mediaId,\r\n        filename,\r\n        details,\r\n        publicBookingId,\r\n        kind: "document",\r\n        language: templateStatus.language,\r\n        templateName: templateStatus.name,\r\n      });\r\n    }\r\n  } else if (templateReady) {\r\n    usedTemplate = true;\r\n    docResult = await sendBookingBillViaTemplate({\r\n      phone: phoneRaw,\r\n      mediaId: uploaded.mediaId,\r\n      filename,\r\n      details,\r\n      publicBookingId,\r\n      kind: "document",\r\n      language: templateStatus.language,\r\n      templateName: templateStatus.name,\r\n    });\r\n  } else {\r\n    const err =\r\n      templateStatus.error ||\r\n      `WhatsApp DOCUMENT template "${templateStatus.name}" is not APPROVED yet ` +\r\n        `(status: ${templateStatus.status ?? "missing"}). ` +\r\n        `Cold sends need an approved PDF (DOCUMENT) template ΓÇö not the URL/link template. ` +\r\n        `Ask the customer to send Hi, then resend the bill, or wait for Meta approval of "booking_slip_v3".`;\r\n    docResult = { ok: false as const, error: err };\r\n  }\r\n\r\n  // Session free-form blocked by Meta ΓåÆ retry DOCUMENT template if ready.\r\n  if (\r\n    !usedTemplate &&\r\n    !docResult.ok &&\r\n    isOutsideCustomerCareWindowError(docResult) &&\r\n    templateReady\r\n  ) {\r\n    usedTemplate = true;\r\n    docResult = await sendBookingBillViaTemplate({\r\n      phone: phoneRaw,\r\n      mediaId: uploaded.mediaId,\r\n      filename,\r\n      details,\r\n      publicBookingId,\r\n      kind: "document",\r\n      language: templateStatus.language,\r\n      templateName: templateStatus.name,\r\n    });\r\n  }\r\n\r\n  await saveWhatsAppOutboundMessage({\r\n    bookingId,\r\n    phone: phoneRaw,\r\n    messageType: usedTemplate ? "template" : "document",\r\n    body: caption,\r\n    mediaUrl: pdfUrl || null,\r\n    filename,\r\n    metaMessageId: docResult.ok ? docResult.messageId : null,\r\n    status: docResult.ok ? "sent" : "failed",\r\n    error: docResult.ok ? null : (docResult.error ?? null),\r\n    isAutomated: true,\r\n  });\r\n\r\n  if (!docResult.ok) {\r\n    await prisma.booking.update({\r\n      where: { id: bookingId },\r\n      data: { whatsappStatus: "failed", whatsappError: docResult.error },\r\n    }).catch(() => {});\r\n    return { ok: false, error: docResult.error, phone: phoneRaw };\r\n  }\r\n\r\n  await prisma.booking.update({\r\n    where: { id: bookingId },\r\n    data: {\r\n      whatsappStatus: "sent",\r\n      whatsappSentAt: new Date(),\r\n      whatsappError: null,\r\n    },\r\n  }).catch(() => {});\r\n\r\n  return { ok: true, phone: phoneRaw, messageId: docResult.messageId };\r\n}\r\n\r\n',
+    expected: /PREMIUM_SLIP_RENDER_FAILED/,
+    operator: 'match',
+    diff: 'simple'
+  }
+
+test at src\lib\allPremiumSlips.test.ts:2:2658
+Γ£û sendReturnReceiptWhatsApp fails retryable without jsPDF fallback (0.9738ms)
+  AssertionError [ERR_ASSERTION]: The input did not match the regular expression /PREMIUM_SLIP_RENDER_FAILED/. Input:
+  
+  'export async function sendReturnReceiptWhatsApp(\r\n' +
+    '  bookingId: number,\r\n' +
+    '  requestOrigin?: string,\r\n' +
+    '): Promise<WhatsAppSendOutcome> {\r\n' +
+    '  const booking = await fetchBookingForSlip(bookingId);\r\n' +
+    '  if (!booking) return { ok: false, error: "Booking not found" };\r\n' +
+    '  if (booking.status !== "returned") {\r\n' +
+    '    return { ok: false, error: "Booking must be returned to send return receipt" };\r\n' +
+    '  }\r\n' +
+    '\r\n' +
+    '  const phoneRaw = booking.whatsappNo?.trim() || booking.contact1?.trim() || "";\r\n' +
+    '  if (!phoneRaw) return { ok: false, error: "No WhatsApp number on booking" };\r\n' +
+    '  if (!normalizeIndianPhone(phoneRaw)) {\r\n' +
+    '    return { ok: false, error: `Invalid phone number: ${phoneRaw}` };\r\n' +
+    '  }\r\n' +
+    '  if (!isWhatsAppConfigured()) {\r\n' +
+    '    return { ok: false, error: "WhatsApp Meta API is not configured.", skipped: true };\r\n' +
+    '  }\r\n' +
+    '\r\n' +
+    '  const unnotified = booking.bookingItems.filter(\r\n' +
+    '    (bi) => bi.isDelivered && !bi.returnSlipNotifiedAt,\r\n' +
+    '  );\r\n' +
+    '  if (unnotified.length === 0) {\r\n' +
+    '    return { ok: true, phone: phoneRaw, skipped: true };\r\n' +
+    '  }\r\n' +
+    '\r\n' +
+    '  const publicBookingId = resolvePublicBookingId(booking);\r\n' +
+    '\r\n' +
+    '  let pdfBuffer: Buffer;\r\n' +
+    '  try {\r\n' +
+    '    pdfBuffer = await generateValidatedPremiumSlipPdf("return", bookingId, () =>\r\n' +
+    '      generateReturnSlipPdf(bookingId, requestOrigin, { scope: "full" }),\r\n' +
+    '      { scope: "full" },\r\n' +
+    '    );\r\n' +
+    '  } catch (htmlErr) {\r\n' +
+    '    const htmlMsg = htmlErr instanceof Error ? htmlErr.message : "HTML PDF failed";\r\n' +
+    '    return failPremiumSlipRender({\r\n' +
+    '      kind: "return",\r\n' +
+    '      bookingId,\r\n' +
+    '      publicBookingId,\r\n' +
+    '      phoneRaw,\r\n' +
+    '      filename: returnReceiptPdfFilename(publicBookingId),\r\n' +
+    '      htmlMsg,\r\n' +
+    '      logTag: "sendReturnReceiptWhatsApp",\r\n' +
+    '    });\r\n' +
+    '  }\r\n' +
+    '\r\n' +
+    '  let pdfUrl = "";\r\n' +
+    '  try {\r\n' +
+    '    pdfUrl = await uploadReturnSlipPdf(pdfBuffer, publicBookingId);\r\n' +
+    '  } catch (e) {\r\n' +
+    '    console.warn("[sendReturnReceiptWhatsApp] Archive upload failed:", e);\r\n' +
+    '  }\r\n' +
+    '\r\n' +
+    '  const filename = returnReceiptPdfFilename(publicBookingId);\r\n' +
+    '  const bookingDetails = bookingSlipDetailsFromBooking(booking);\r\n' +
+    '  const details = returnSlipDetailsFromBooking(booking);\r\n' +
+    '  const caption = buildReturnSlipCaption(details);\r\n' +
+    '\r\n' +
+    '  const docResult = await sendSlipDocument({\r\n' +
+    '    bookingId,\r\n' +
+    '    phoneRaw,\r\n' +
+    '    caption,\r\n' +
+    '    filename,\r\n' +
+    '    pdfBuffer,\r\n' +
+    '    pdfUrl,\r\n' +
+    '    templateKey: "return_slip",\r\n' +
+    '    customerName: booking.customerName,\r\n' +
+    '    publicBookingId,\r\n' +
+    '    bodyParamsForTemplate: (templateName) =>\r\n' +
+    '      returnSlipBodyParamsForTemplate(templateName, {\r\n' +
+    '        ...details,\r\n' +
+    '        serialNo: bookingDetails.serialNo,\r\n' +
+    '        returnDate: bookingDetails.returnDate,\r\n' +
+    '        returnTime: bookingDetails.returnTime,\r\n' +
+    '        totalDresses: bookingDetails.totalDresses,\r\n' +
+    '      }),\r\n' +
+    '  });\r\n' +
+    '\r\n' +
+    '  if (!docResult.ok) {\r\n' +
+    '    return { ok: false, error: docResult.error, phone: phoneRaw };\r\n' +
+    '  }\r\n' +
+    '\r\n' +
+    '  await prisma.bookingItem.updateMany({\r\n' +
+    '    where: {\r\n' +
+    '      bookingId,\r\n' +
+    '      isDelivered: true,\r\n' +
+    '      returnSlipNotifiedAt: null,\r\n' +
+    '    },\r\n' +
+    '    data: { returnSlipNotifiedAt: new Date() },\r\n' +
+    '  });\r\n' +
+    '\r\n' +
+    '  return { ok: true, phone: phoneRaw, messageId: docResult.messageId };\r\n' +
+    '}\r\n' +
+    '\r\n'
+  
+      at TestContext.<anonymous> (C:\Projects\ssdn-soft\web\src\lib\allPremiumSlips.test.ts:64:14)
+      at Test.runInAsyncScope (node:async_hooks:227:14)
+      at Test.run (node:internal/test_runner/test:1306:25)
+      at Suite.processPendingSubtests (node:internal/test_runner/test:897:18)
+      at Test.postRun (node:internal/test_runner/test:1447:19)
+      at Test.run (node:internal/test_runner/test:1372:12)
+      at async Suite.processPendingSubtests (node:internal/test_runner/test:897:7) {
+    generatedMessage: true,
+    code: 'ERR_ASSERTION',
+    actual: 'export async function sendReturnReceiptWhatsApp(\r\n  bookingId: number,\r\n  requestOrigin?: string,\r\n): Promise<WhatsAppSendOutcome> {\r\n  const booking = await fetchBookingForSlip(bookingId);\r\n  if (!booking) return { ok: false, error: "Booking not found" };\r\n  if (booking.status !== "returned") {\r\n    return { ok: false, error: "Booking must be returned to send return receipt" };\r\n  }\r\n\r\n  const phoneRaw = booking.whatsappNo?.trim() || booking.contact1?.trim() || "";\r\n  if (!phoneRaw) return { ok: false, error: "No WhatsApp number on booking" };\r\n  if (!normalizeIndianPhone(phoneRaw)) {\r\n    return { ok: false, error: `Invalid phone number: ${phoneRaw}` };\r\n  }\r\n  if (!isWhatsAppConfigured()) {\r\n    return { ok: false, error: "WhatsApp Meta API is not configured.", skipped: true };\r\n  }\r\n\r\n  const unnotified = booking.bookingItems.filter(\r\n    (bi) => bi.isDelivered && !bi.returnSlipNotifiedAt,\r\n  );\r\n  if (unnotified.length === 0) {\r\n    return { ok: true, phone: phoneRaw, skipped: true };\r\n  }\r\n\r\n  const publicBookingId = resolvePublicBookingId(booking);\r\n\r\n  let pdfBuffer: Buffer;\r\n  try {\r\n    pdfBuffer = await generateValidatedPremiumSlipPdf("return", bookingId, () =>\r\n      generateReturnSlipPdf(bookingId, requestOrigin, { scope: "full" }),\r\n      { scope: "full" },\r\n    );\r\n  } catch (htmlErr) {\r\n    const htmlMsg = htmlErr instanceof Error ? htmlErr.message : "HTML PDF failed";\r\n    return failPremiumSlipRender({\r\n      kind: "return",\r\n      bookingId,\r\n      publicBookingId,\r\n      phoneRaw,\r\n      filename: returnReceiptPdfFilename(publicBookingId),\r\n      htmlMsg,\r\n      logTag: "sendReturnReceiptWhatsApp",\r\n    });\r\n  }\r\n\r\n  let pdfUrl = "";\r\n  try {\r\n    pdfUrl = await uploadReturnSlipPdf(pdfBuffer, publicBookingId);\r\n  } catch (e) {\r\n    console.warn("[sendReturnReceiptWhatsApp] Archive upload failed:", e);\r\n  }\r\n\r\n  const filename = returnReceiptPdfFilename(publicBookingId);\r\n  const bookingDetails = bookingSlipDetailsFromBooking(booking);\r\n  const details = returnSlipDetailsFromBooking(booking);\r\n  const caption = buildReturnSlipCaption(details);\r\n\r\n  const docResult = await sendSlipDocument({\r\n    bookingId,\r\n    phoneRaw,\r\n    caption,\r\n    filename,\r\n    pdfBuffer,\r\n    pdfUrl,\r\n    templateKey: "return_slip",\r\n    customerName: booking.customerName,\r\n    publicBookingId,\r\n    bodyParamsForTemplate: (templateName) =>\r\n      returnSlipBodyParamsForTemplate(templateName, {\r\n        ...details,\r\n        serialNo: bookingDetails.serialNo,\r\n        returnDate: bookingDetails.returnDate,\r\n        returnTime: bookingDetails.returnTime,\r\n        totalDresses: bookingDetails.totalDresses,\r\n      }),\r\n  });\r\n\r\n  if (!docResult.ok) {\r\n    return { ok: false, error: docResult.error, phone: phoneRaw };\r\n  }\r\n\r\n  await prisma.bookingItem.updateMany({\r\n    where: {\r\n      bookingId,\r\n      isDelivered: true,\r\n      returnSlipNotifiedAt: null,\r\n    },\r\n    data: { returnSlipNotifiedAt: new Date() },\r\n  });\r\n\r\n  return { ok: true, phone: phoneRaw, messageId: docResult.messageId };\r\n}\r\n\r\n',
+    expected: /PREMIUM_SLIP_RENDER_FAILED/,
+    operator: 'match',
+    diff: 'simple'
+  }
+
+test at src\lib\allPremiumSlips.test.ts:2:2658
+Γ£û sendDeliverySlipWhatsApp fails retryable without jsPDF fallback (0.6595ms)
+  AssertionError [ERR_ASSERTION]: The input did not match the regular expression /PREMIUM_SLIP_RENDER_FAILED/. Input:
+  
+  'export async function sendDeliverySlipWhatsApp(\r\n' +
+    '  bookingId: number,\r\n' +
+    '  payload: SlipSendPayload,\r\n' +
+    '  requestOrigin?: string,\r\n' +
+    '): Promise<WhatsAppSendOutcome> {\r\n' +
+    '  const booking = await fetchBookingForSlip(bookingId);\r\n' +
+    '  if (!booking) return { ok: false, error: "Booking not found" };\r\n' +
+    '\r\n' +
+    '  const phoneRaw = booking.whatsappNo?.trim() || booking.contact1?.trim() || "";\r\n' +
+    '  if (!phoneRaw) return { ok: false, error: "No WhatsApp number on booking" };\r\n' +
+    '  if (!normalizeIndianPhone(phoneRaw)) {\r\n' +
+    '    return { ok: false, error: `Invalid phone number: ${phoneRaw}` };\r\n' +
+    '  }\r\n' +
+    '  if (!isWhatsAppConfigured()) {\r\n' +
+    '    return { ok: false, error: "WhatsApp Meta API is not configured.", skipped: true };\r\n' +
+    '  }\r\n' +
+    '\r\n' +
+    '  if (await deliverySlipAlreadySent(bookingId, payload)) {\r\n' +
+    '    return { ok: true, phone: phoneRaw, skipped: true };\r\n' +
+    '  }\r\n' +
+    '\r\n' +
+    '  const publicBookingId = resolvePublicBookingId(booking);\r\n' +
+    '  const itemIds = slipItemIds(payload);\r\n' +
+    '\r\n' +
+    '  let pdfBuffer: Buffer;\r\n' +
+    '  try {\r\n' +
+    '    pdfBuffer = await generateValidatedPremiumSlipPdf(\r\n' +
+    '      "delivery",\r\n' +
+    '      bookingId,\r\n' +
+    '      () =>\r\n' +
+    '        generateDeliverySlipPdf(bookingId, requestOrigin, {\r\n' +
+    '          scope: payload.scope,\r\n' +
+    '          bookingItemId: payload.scope === "single" ? payload.bookingItemId : undefined,\r\n' +
+    '          bookingItemIds: itemIds.length ? itemIds : undefined,\r\n' +
+    '        }),\r\n' +
+    '      { scope: payload.scope, itemIds: itemIds.length ? itemIds : undefined },\r\n' +
+    '    );\r\n' +
+    '  } catch (htmlErr) {\r\n' +
+    '    const htmlMsg = htmlErr instanceof Error ? htmlErr.message : "HTML PDF failed";\r\n' +
+    '    return failPremiumSlipRender({\r\n' +
+    '      kind: "delivery",\r\n' +
+    '      bookingId,\r\n' +
+    '      publicBookingId,\r\n' +
+    '      phoneRaw,\r\n' +
+    '      filename: deliverySlipPdfFilename(publicBookingId),\r\n' +
+    '      htmlMsg,\r\n' +
+    '      logTag: "sendDeliverySlipWhatsApp",\r\n' +
+    '    });\r\n' +
+    '  }\r\n' +
+    '\r\n' +
+    '  const suffix =\r\n' +
+    '    payload.scope === "single" && payload.bookingItemId\r\n' +
+    '      ? `_item${payload.bookingItemId}`\r\n' +
+    '      : payload.scope === "combined"\r\n' +
+    '        ? "_partial"\r\n' +
+    '        : "";\r\n' +
+    '  let pdfUrl = "";\r\n' +
+    '  try {\r\n' +
+    '    pdfUrl = await uploadDeliverySlipPdf(pdfBuffer, publicBookingId, suffix);\r\n' +
+    '  } catch (e) {\r\n' +
+    '    console.warn("[sendDeliverySlipWhatsApp] Archive upload failed:", e);\r\n' +
+    '  }\r\n' +
+    '\r\n' +
+    '  const filename = deliverySlipPdfFilename(publicBookingId, suffix);\r\n' +
+    '  const bookingDetails = bookingSlipDetailsFromBooking(booking);\r\n' +
+    '  const details = deliverySlipDetailsFromBooking(booking);\r\n' +
+    '  const caption = buildDeliverySlipCaption(details);\r\n' +
+    '\r\n' +
+    '  const result = await sendSlipDocument({\r\n' +
+    '    bookingId,\r\n' +
+    '    phoneRaw,\r\n' +
+    '    caption,\r\n' +
+    '    filename,\r\n' +
+    '    pdfBuffer,\r\n' +
+    '    pdfUrl,\r\n' +
+    '    templateKey: "delivery_slip",\r\n' +
+    '    customerName: booking.customerName,\r\n' +
+    '    publicBookingId,\r\n' +
+    '    bodyParamsForTemplate: (templateName) =>\r\n' +
+    '      deliverySlipBodyParamsForTemplate(templateName, {\r\n' +
+    '        ...details,\r\n' +
+    '        pickupDate: bookingDetails.pickupDate,\r\n' +
+    '        pickupTime: bookingDetails.pickupTime,\r\n' +
+    '      }),\r\n' +
+    '  });\r\n' +
+    '  if (result.ok) {\r\n' +
+    '    const markIds =\r\n' +
+    '      itemIds.length > 0\r\n' +
+    '        ? itemIds\r\n' +
+    '        : (\r\n' +
+    '            await prisma.bookingItem.findMany({\r\n' +
+    '              where: { bookingId, isDelivered: true, deliverySlipNotifiedAt: null },\r\n' +
+    '              select: { id: true },\r\n' +
+    '            })\r\n' +
+    '          ).map((r) => r.id);\r\n' +
+    '    await markDeliverySlipNotified(markIds);\r\n' +
+    '  }\r\n' +
+    '  return result;\r\n' +
+    '}\r\n' +
+    '\r\n'
+  
+      at TestContext.<anonymous> (C:\Projects\ssdn-soft\web\src\lib\allPremiumSlips.test.ts:64:14)
+      at Test.runInAsyncScope (node:async_hooks:227:14)
+      at Test.run (node:internal/test_runner/test:1306:25)
+      at Suite.processPendingSubtests (node:internal/test_runner/test:897:18)
+      at Test.postRun (node:internal/test_runner/test:1447:19)
+      at Test.run (node:internal/test_runner/test:1372:12)
+      at async Suite.processPendingSubtests (node:internal/test_runner/test:897:7) {
+    generatedMessage: true,
+    code: 'ERR_ASSERTION',
+    actual: 'export async function sendDeliverySlipWhatsApp(\r\n  bookingId: number,\r\n  payload: SlipSendPayload,\r\n  requestOrigin?: string,\r\n): Promise<WhatsAppSendOutcome> {\r\n  const booking = await fetchBookingForSlip(bookingId);\r\n  if (!booking) return { ok: false, error: "Booking not found" };\r\n\r\n  const phoneRaw = booking.whatsappNo?.trim() || booking.contact1?.trim() || "";\r\n  if (!phoneRaw) return { ok: false, error: "No WhatsApp number on booking" };\r\n  if (!normalizeIndianPhone(phoneRaw)) {\r\n    return { ok: false, error: `Invalid phone number: ${phoneRaw}` };\r\n  }\r\n  if (!isWhatsAppConfigured()) {\r\n    return { ok: false, error: "WhatsApp Meta API is not configured.", skipped: true };\r\n  }\r\n\r\n  if (await deliverySlipAlreadySent(bookingId, payload)) {\r\n    return { ok: true, phone: phoneRaw, skipped: true };\r\n  }\r\n\r\n  const publicBookingId = resolvePublicBookingId(booking);\r\n  const itemIds = slipItemIds(payload);\r\n\r\n  let pdfBuffer: Buffer;\r\n  try {\r\n    pdfBuffer = await generateValidatedPremiumSlipPdf(\r\n      "delivery",\r\n      bookingId,\r\n      () =>\r\n        generateDeliverySlipPdf(bookingId, requestOrigin, {\r\n          scope: payload.scope,\r\n          bookingItemId: payload.scope === "single" ? payload.bookingItemId : undefined,\r\n          bookingItemIds: itemIds.length ? itemIds : undefined,\r\n        }),\r\n      { scope: payload.scope, itemIds: itemIds.length ? itemIds : undefined },\r\n    );\r\n  } catch (htmlErr) {\r\n    const htmlMsg = htmlErr instanceof Error ? htmlErr.message : "HTML PDF failed";\r\n    return failPremiumSlipRender({\r\n      kind: "delivery",\r\n      bookingId,\r\n      publicBookingId,\r\n      phoneRaw,\r\n      filename: deliverySlipPdfFilename(publicBookingId),\r\n      htmlMsg,\r\n      logTag: "sendDeliverySlipWhatsApp",\r\n    });\r\n  }\r\n\r\n  const suffix =\r\n    payload.scope === "single" && payload.bookingItemId\r\n      ? `_item${payload.bookingItemId}`\r\n      : payload.scope === "combined"\r\n        ? "_partial"\r\n        : "";\r\n  let pdfUrl = "";\r\n  try {\r\n    pdfUrl = await uploadDeliverySlipPdf(pdfBuffer, publicBookingId, suffix);\r\n  } catch (e) {\r\n    console.warn("[sendDeliverySlipWhatsApp] Archive upload failed:", e);\r\n  }\r\n\r\n  const filename = deliverySlipPdfFilename(publicBookingId, suffix);\r\n  const bookingDetails = bookingSlipDetailsFromBooking(booking);\r\n  const details = deliverySlipDetailsFromBooking(booking);\r\n  const caption = buildDeliverySlipCaption(details);\r\n\r\n  const result = await sendSlipDocument({\r\n    bookingId,\r\n    phoneRaw,\r\n    caption,\r\n    filename,\r\n    pdfBuffer,\r\n    pdfUrl,\r\n    templateKey: "delivery_slip",\r\n    customerName: booking.customerName,\r\n    publicBookingId,\r\n    bodyParamsForTemplate: (templateName) =>\r\n      deliverySlipBodyParamsForTemplate(templateName, {\r\n        ...details,\r\n        pickupDate: bookingDetails.pickupDate,\r\n        pickupTime: bookingDetails.pickupTime,\r\n      }),\r\n  });\r\n  if (result.ok) {\r\n    const markIds =\r\n      itemIds.length > 0\r\n        ? itemIds\r\n        : (\r\n            await prisma.bookingItem.findMany({\r\n              where: { bookingId, isDelivered: true, deliverySlipNotifiedAt: null },\r\n              select: { id: true },\r\n            })\r\n          ).map((r) => r.id);\r\n    await markDeliverySlipNotified(markIds);\r\n  }\r\n  return result;\r\n}\r\n\r\n',
+    expected: /PREMIUM_SLIP_RENDER_FAILED/,
+    operator: 'match',
+    diff: 'simple'
+  }
+
+test at src\lib\allPremiumSlips.test.ts:2:2658
+Γ£û sendPartialReturnSlipWhatsApp fails retryable without jsPDF fallback (6.2474ms)
+  AssertionError [ERR_ASSERTION]: The input did not match the regular expression /PREMIUM_SLIP_RENDER_FAILED/. Input:
+  
+  'export async function sendPartialReturnSlipWhatsApp(\r\n' +
+    '  bookingId: number,\r\n' +
+    '  payload: SlipSendPayload,\r\n' +
+    '  requestOrigin?: string,\r\n' +
+    '): Promise<WhatsAppSendOutcome> {\r\n' +
+    '  const booking = await fetchBookingForSlip(bookingId);\r\n' +
+    '  if (!booking) return { ok: false, error: "Booking not found" };\r\n' +
+    '\r\n' +
+    '  const phoneRaw = booking.whatsappNo?.trim() || booking.contact1?.trim() || "";\r\n' +
+    '  if (!phoneRaw) return { ok: false, error: "No WhatsApp number on booking" };\r\n' +
+    '  if (!normalizeIndianPhone(phoneRaw)) {\r\n' +
+    '    return { ok: false, error: `Invalid phone number: ${phoneRaw}` };\r\n' +
+    '  }\r\n' +
+    '  if (!isWhatsAppConfigured()) {\r\n' +
+    '    return { ok: false, error: "WhatsApp Meta API is not configured.", skipped: true };\r\n' +
+    '  }\r\n' +
+    '\r\n' +
+    '  if (await returnSlipAlreadySent(bookingId, payload)) {\r\n' +
+    '    return { ok: true, phone: phoneRaw, skipped: true };\r\n' +
+    '  }\r\n' +
+    '\r\n' +
+    '  const publicBookingId = resolvePublicBookingId(booking);\r\n' +
+    '  const itemIds = slipItemIds(payload);\r\n' +
+    '\r\n' +
+    '  let pdfBuffer: Buffer;\r\n' +
+    '  try {\r\n' +
+    '    pdfBuffer = await generateValidatedPremiumSlipPdf(\r\n' +
+    '      "return",\r\n' +
+    '      bookingId,\r\n' +
+    '      () =>\r\n' +
+    '        generateReturnSlipPdf(bookingId, requestOrigin, {\r\n' +
+    '          scope: payload.scope === "full" ? "full" : payload.scope,\r\n' +
+    '          bookingItemId: payload.scope === "single" ? payload.bookingItemId : undefined,\r\n' +
+    '          bookingItemIds: itemIds.length ? itemIds : undefined,\r\n' +
+    '        }),\r\n' +
+    '      { scope: payload.scope, itemIds: itemIds.length ? itemIds : undefined },\r\n' +
+    '    );\r\n' +
+    '  } catch (htmlErr) {\r\n' +
+    '    const htmlMsg = htmlErr instanceof Error ? htmlErr.message : "HTML PDF failed";\r\n' +
+    '    return failPremiumSlipRender({\r\n' +
+    '      kind: "return",\r\n' +
+    '      bookingId,\r\n' +
+    '      publicBookingId,\r\n' +
+    '      phoneRaw,\r\n' +
+    '      filename: returnSlipPdfFilename(publicBookingId),\r\n' +
+    '      htmlMsg,\r\n' +
+    '      logTag: "sendPartialReturnSlipWhatsApp",\r\n' +
+    '    });\r\n' +
+    '  }\r\n' +
+    '\r\n' +
+    '  const suffix =\r\n' +
+    '    payload.scope === "single" && payload.bookingItemId\r\n' +
+    '      ? `_item${payload.bookingItemId}`\r\n' +
+    '      : payload.scope === "combined"\r\n' +
+    '        ? "_partial"\r\n' +
+    '        : "";\r\n' +
+    '  let pdfUrl = "";\r\n' +
+    '  try {\r\n' +
+    '    pdfUrl = await uploadReturnSlipPdf(pdfBuffer, publicBookingId, suffix);\r\n' +
+    '  } catch (e) {\r\n' +
+    '    console.warn("[sendPartialReturnSlipWhatsApp] Archive upload failed:", e);\r\n' +
+    '  }\r\n' +
+    '\r\n' +
+    '  const filename = returnSlipPdfFilename(publicBookingId, suffix);\r\n' +
+    '  const bookingDetails = bookingSlipDetailsFromBooking(booking);\r\n' +
+    '  const details = returnSlipDetailsFromBooking(booking);\r\n' +
+    '  const caption = buildReturnSlipCaption(details);\r\n' +
+    '\r\n' +
+    '  const result = await sendSlipDocument({\r\n' +
+    '    bookingId,\r\n' +
+    '    phoneRaw,\r\n' +
+    '    caption,\r\n' +
+    '    filename,\r\n' +
+    '    pdfBuffer,\r\n' +
+    '    pdfUrl,\r\n' +
+    '    templateKey: "return_slip",\r\n' +
+    '    customerName: booking.customerName,\r\n' +
+    '    publicBookingId,\r\n' +
+    '    bodyParamsForTemplate: (templateName) =>\r\n' +
+    '      returnSlipBodyParamsForTemplate(templateName, {\r\n' +
+    '        ...details,\r\n' +
+    '        serialNo: bookingDetails.serialNo,\r\n' +
+    '        returnDate: bookingDetails.returnDate,\r\n' +
+    '        returnTime: bookingDetails.returnTime,\r\n' +
+    '        totalDresses: bookingDetails.totalDresses,\r\n' +
+    '      }),\r\n' +
+    '  });\r\n' +
+    '  if (result.ok) {\r\n' +
+    '    const markIds =\r\n' +
+    '      itemIds.length > 0\r\n' +
+    '        ? itemIds\r\n' +
+    '        : (\r\n' +
+    '            await prisma.bookingItem.findMany({\r\n' +
+    '              where: {\r\n' +
+    '                bookingId,\r\n' +
+    '                isReturned: true,\r\n' +
+    '                isIncompleteReturn: false,\r\n' +
+    '                returnSlipNotifiedAt: null,\r\n' +
+    '              },\r\n' +
+    '              select: { id: true },\r\n' +
+    '            })\r\n' +
+    '          ).map((r) => r.id);\r\n' +
+    '    await markReturnSlipNotified(markIds);\r\n' +
+    '  }\r\n' +
+    '  return result;\r\n' +
+    '}\r\n' +
+    '\r\n'
+  
+      at TestContext.<anonymous> (C:\Projects\ssdn-soft\web\src\lib\allPremiumSlips.test.ts:64:14)
+      at Test.runInAsyncScope (node:async_hooks:227:14)
+      at Test.run (node:internal/test_runner/test:1306:25)
+      at Suite.processPendingSubtests (node:internal/test_runner/test:897:18)
+      at Test.postRun (node:internal/test_runner/test:1447:19)
+      at Test.run (node:internal/test_runner/test:1372:12)
+      at async Suite.processPendingSubtests (node:internal/test_runner/test:897:7) {
+    generatedMessage: true,
+    code: 'ERR_ASSERTION',
+    actual: 'export async function sendPartialReturnSlipWhatsApp(\r\n  bookingId: number,\r\n  payload: SlipSendPayload,\r\n  requestOrigin?: string,\r\n): Promise<WhatsAppSendOutcome> {\r\n  const booking = await fetchBookingForSlip(bookingId);\r\n  if (!booking) return { ok: false, error: "Booking not found" };\r\n\r\n  const phoneRaw = booking.whatsappNo?.trim() || booking.contact1?.trim() || "";\r\n  if (!phoneRaw) return { ok: false, error: "No WhatsApp number on booking" };\r\n  if (!normalizeIndianPhone(phoneRaw)) {\r\n    return { ok: false, error: `Invalid phone number: ${phoneRaw}` };\r\n  }\r\n  if (!isWhatsAppConfigured()) {\r\n    return { ok: false, error: "WhatsApp Meta API is not configured.", skipped: true };\r\n  }\r\n\r\n  if (await returnSlipAlreadySent(bookingId, payload)) {\r\n    return { ok: true, phone: phoneRaw, skipped: true };\r\n  }\r\n\r\n  const publicBookingId = resolvePublicBookingId(booking);\r\n  const itemIds = slipItemIds(payload);\r\n\r\n  let pdfBuffer: Buffer;\r\n  try {\r\n    pdfBuffer = await generateValidatedPremiumSlipPdf(\r\n      "return",\r\n      bookingId,\r\n      () =>\r\n        generateReturnSlipPdf(bookingId, requestOrigin, {\r\n          scope: payload.scope === "full" ? "full" : payload.scope,\r\n          bookingItemId: payload.scope === "single" ? payload.bookingItemId : undefined,\r\n          bookingItemIds: itemIds.length ? itemIds : undefined,\r\n        }),\r\n      { scope: payload.scope, itemIds: itemIds.length ? itemIds : undefined },\r\n    );\r\n  } catch (htmlErr) {\r\n    const htmlMsg = htmlErr instanceof Error ? htmlErr.message : "HTML PDF failed";\r\n    return failPremiumSlipRender({\r\n      kind: "return",\r\n      bookingId,\r\n      publicBookingId,\r\n      phoneRaw,\r\n      filename: returnSlipPdfFilename(publicBookingId),\r\n      htmlMsg,\r\n      logTag: "sendPartialReturnSlipWhatsApp",\r\n    });\r\n  }\r\n\r\n  const suffix =\r\n    payload.scope === "single" && payload.bookingItemId\r\n      ? `_item${payload.bookingItemId}`\r\n      : payload.scope === "combined"\r\n        ? "_partial"\r\n        : "";\r\n  let pdfUrl = "";\r\n  try {\r\n    pdfUrl = await uploadReturnSlipPdf(pdfBuffer, publicBookingId, suffix);\r\n  } catch (e) {\r\n    console.warn("[sendPartialReturnSlipWhatsApp] Archive upload failed:", e);\r\n  }\r\n\r\n  const filename = returnSlipPdfFilename(publicBookingId, suffix);\r\n  const bookingDetails = bookingSlipDetailsFromBooking(booking);\r\n  const details = returnSlipDetailsFromBooking(booking);\r\n  const caption = buildReturnSlipCaption(details);\r\n\r\n  const result = await sendSlipDocument({\r\n    bookingId,\r\n    phoneRaw,\r\n    caption,\r\n    filename,\r\n    pdfBuffer,\r\n    pdfUrl,\r\n    templateKey: "return_slip",\r\n    customerName: booking.customerName,\r\n    publicBookingId,\r\n    bodyParamsForTemplate: (templateName) =>\r\n      returnSlipBodyParamsForTemplate(templateName, {\r\n        ...details,\r\n        serialNo: bookingDetails.serialNo,\r\n        returnDate: bookingDetails.returnDate,\r\n        returnTime: bookingDetails.returnTime,\r\n        totalDresses: bookingDetails.totalDresses,\r\n      }),\r\n  });\r\n  if (result.ok) {\r\n    const markIds =\r\n      itemIds.length > 0\r\n        ? itemIds\r\n        : (\r\n            await prisma.bookingItem.findMany({\r\n              where: {\r\n                bookingId,\r\n                isReturned: true,\r\n                isIncompleteReturn: false,\r\n                returnSlipNotifiedAt: null,\r\n              },\r\n              select: { id: true },\r\n            })\r\n          ).map((r) => r.id);\r\n    await markReturnSlipNotified(markIds);\r\n  }\r\n  return result;\r\n}\r\n\r\n',
+    expected: /PREMIUM_SLIP_RENDER_FAILED/,
+    operator: 'match',
+    diff: 'simple'
+  }
+
+test at src\lib\allPremiumSlips.test.ts:2:2658
+Γ£û sendIncompleteSlipWhatsApp fails retryable without jsPDF fallback (0.622ms)
+  AssertionError [ERR_ASSERTION]: The input did not match the regular expression /PREMIUM_SLIP_RENDER_FAILED/. Input:
+  
+  'export async function sendIncompleteSlipWhatsApp(\r\n' +
+    '  bookingId: number,\r\n' +
+    '  payload: SlipSendPayload,\r\n' +
+    '  requestOrigin?: string,\r\n' +
+    '): Promise<WhatsAppSendOutcome> {\r\n' +
+    '  const booking = await fetchBookingForSlip(bookingId);\r\n' +
+    '  if (!booking) return { ok: false, error: "Booking not found" };\r\n' +
+    '\r\n' +
+    '  const phoneRaw = booking.whatsappNo?.trim() || booking.contact1?.trim() || "";\r\n' +
+    '  if (!phoneRaw) return { ok: false, error: "No WhatsApp number on booking" };\r\n' +
+    '  if (!normalizeIndianPhone(phoneRaw)) {\r\n' +
+    '    return { ok: false, error: `Invalid phone number: ${phoneRaw}` };\r\n' +
+    '  }\r\n' +
+    '  if (!isWhatsAppConfigured()) {\r\n' +
+    '    return { ok: false, error: "WhatsApp Meta API is not configured.", skipped: true };\r\n' +
+    '  }\r\n' +
+    '\r\n' +
+    '  const itemIds = slipItemIds(payload);\r\n' +
+    '  const ids =\r\n' +
+    '    itemIds.length > 0\r\n' +
+    '      ? itemIds\r\n' +
+    '      : booking.bookingItems\r\n' +
+    '          .filter((bi) => bi.isIncompleteReturn && !bi.returnSlipNotifiedAt)\r\n' +
+    '          .map((bi) => bi.id);\r\n' +
+    '\r\n' +
+    '  if (ids.length === 0) {\r\n' +
+    '    return { ok: true, phone: phoneRaw, skipped: true };\r\n' +
+    '  }\r\n' +
+    '\r\n' +
+    '  const publicBookingId = resolvePublicBookingId(booking);\r\n' +
+    '\r\n' +
+    '  let pdfBuffer: Buffer;\r\n' +
+    '  try {\r\n' +
+    '    pdfBuffer = await generateValidatedPremiumSlipPdf(\r\n' +
+    '      "incomplete",\r\n' +
+    '      bookingId,\r\n' +
+    '      () =>\r\n' +
+    '        generateIncompleteSlipPdf(bookingId, requestOrigin, {\r\n' +
+    '          scope: payload.scope === "full" ? "combined" : payload.scope,\r\n' +
+    '          bookingItemId: payload.scope === "single" ? payload.bookingItemId : undefined,\r\n' +
+    '          bookingItemIds: ids,\r\n' +
+    '        }),\r\n' +
+    '      { scope: payload.scope, itemIds: ids },\r\n' +
+    '    );\r\n' +
+    '  } catch (htmlErr) {\r\n' +
+    '    const htmlMsg = htmlErr instanceof Error ? htmlErr.message : "HTML PDF failed";\r\n' +
+    '    return failPremiumSlipRender({\r\n' +
+    '      kind: "incomplete",\r\n' +
+    '      bookingId,\r\n' +
+    '      publicBookingId,\r\n' +
+    '      phoneRaw,\r\n' +
+    '      filename: incompleteSlipPdfFilename(publicBookingId),\r\n' +
+    '      htmlMsg,\r\n' +
+    '      logTag: "sendIncompleteSlipWhatsApp",\r\n' +
+    '    });\r\n' +
+    '  }\r\n' +
+    '\r\n' +
+    '  const suffix =\r\n' +
+    '    payload.scope === "single" && payload.bookingItemId\r\n' +
+    '      ? `_item${payload.bookingItemId}`\r\n' +
+    '      : payload.scope === "combined"\r\n' +
+    '        ? "_partial"\r\n' +
+    '        : "";\r\n' +
+    '  let pdfUrl = "";\r\n' +
+    '  try {\r\n' +
+    '    pdfUrl = await uploadIncompleteSlipPdf(pdfBuffer, publicBookingId, suffix);\r\n' +
+    '  } catch (e) {\r\n' +
+    '    console.warn("[sendIncompleteSlipWhatsApp] Archive upload failed:", e);\r\n' +
+    '  }\r\n' +
+    '\r\n' +
+    '  const filename = incompleteSlipPdfFilename(publicBookingId, suffix);\r\n' +
+    '  const details = incompleteSlipDetailsFromBooking(booking, ids.length || 1);\r\n' +
+    '  const caption = buildIncompleteSlipCaption(details);\r\n' +
+    '\r\n' +
+    '  const result = await sendSlipDocument({\r\n' +
+    '    bookingId,\r\n' +
+    '    phoneRaw,\r\n' +
+    '    caption,\r\n' +
+    '    filename,\r\n' +
+    '    pdfBuffer,\r\n' +
+    '    pdfUrl,\r\n' +
+    '    templateKey: "incomplete_return_slip",\r\n' +
+    '    customerName: booking.customerName,\r\n' +
+    '    publicBookingId,\r\n' +
+    '    bodyParamsForTemplate: (templateName) =>\r\n' +
+    '      incompleteSlipBodyParamsForTemplate(templateName, details),\r\n' +
+    '  });\r\n' +
+    '  if (result.ok) {\r\n' +
+    '    await markReturnSlipNotified(ids);\r\n' +
+    '  }\r\n' +
+    '  return result;\r\n' +
+    '}\r\n'
+  
+      at TestContext.<anonymous> (C:\Projects\ssdn-soft\web\src\lib\allPremiumSlips.test.ts:64:14)
+      at Test.runInAsyncScope (node:async_hooks:227:14)
+      at Test.run (node:internal/test_runner/test:1306:25)
+      at Suite.processPendingSubtests (node:internal/test_runner/test:897:18)
+      at Test.postRun (node:internal/test_runner/test:1447:19)
+      at Test.run (node:internal/test_runner/test:1372:12)
+      at async Suite.processPendingSubtests (node:internal/test_runner/test:897:7) {
+    generatedMessage: true,
+    code: 'ERR_ASSERTION',
+    actual: 'export async function sendIncompleteSlipWhatsApp(\r\n  bookingId: number,\r\n  payload: SlipSendPayload,\r\n  requestOrigin?: string,\r\n): Promise<WhatsAppSendOutcome> {\r\n  const booking = await fetchBookingForSlip(bookingId);\r\n  if (!booking) return { ok: false, error: "Booking not found" };\r\n\r\n  const phoneRaw = booking.whatsappNo?.trim() || booking.contact1?.trim() || "";\r\n  if (!phoneRaw) return { ok: false, error: "No WhatsApp number on booking" };\r\n  if (!normalizeIndianPhone(phoneRaw)) {\r\n    return { ok: false, error: `Invalid phone number: ${phoneRaw}` };\r\n  }\r\n  if (!isWhatsAppConfigured()) {\r\n    return { ok: false, error: "WhatsApp Meta API is not configured.", skipped: true };\r\n  }\r\n\r\n  const itemIds = slipItemIds(payload);\r\n  const ids =\r\n    itemIds.length > 0\r\n      ? itemIds\r\n      : booking.bookingItems\r\n          .filter((bi) => bi.isIncompleteReturn && !bi.returnSlipNotifiedAt)\r\n          .map((bi) => bi.id);\r\n\r\n  if (ids.length === 0) {\r\n    return { ok: true, phone: phoneRaw, skipped: true };\r\n  }\r\n\r\n  const publicBookingId = resolvePublicBookingId(booking);\r\n\r\n  let pdfBuffer: Buffer;\r\n  try {\r\n    pdfBuffer = await generateValidatedPremiumSlipPdf(\r\n      "incomplete",\r\n      bookingId,\r\n      () =>\r\n        generateIncompleteSlipPdf(bookingId, requestOrigin, {\r\n          scope: payload.scope === "full" ? "combined" : payload.scope,\r\n          bookingItemId: payload.scope === "single" ? payload.bookingItemId : undefined,\r\n          bookingItemIds: ids,\r\n        }),\r\n      { scope: payload.scope, itemIds: ids },\r\n    );\r\n  } catch (htmlErr) {\r\n    const htmlMsg = htmlErr instanceof Error ? htmlErr.message : "HTML PDF failed";\r\n    return failPremiumSlipRender({\r\n      kind: "incomplete",\r\n      bookingId,\r\n      publicBookingId,\r\n      phoneRaw,\r\n      filename: incompleteSlipPdfFilename(publicBookingId),\r\n      htmlMsg,\r\n      logTag: "sendIncompleteSlipWhatsApp",\r\n    });\r\n  }\r\n\r\n  const suffix =\r\n    payload.scope === "single" && payload.bookingItemId\r\n      ? `_item${payload.bookingItemId}`\r\n      : payload.scope === "combined"\r\n        ? "_partial"\r\n        : "";\r\n  let pdfUrl = "";\r\n  try {\r\n    pdfUrl = await uploadIncompleteSlipPdf(pdfBuffer, publicBookingId, suffix);\r\n  } catch (e) {\r\n    console.warn("[sendIncompleteSlipWhatsApp] Archive upload failed:", e);\r\n  }\r\n\r\n  const filename = incompleteSlipPdfFilename(publicBookingId, suffix);\r\n  const details = incompleteSlipDetailsFromBooking(booking, ids.length || 1);\r\n  const caption = buildIncompleteSlipCaption(details);\r\n\r\n  const result = await sendSlipDocument({\r\n    bookingId,\r\n    phoneRaw,\r\n    caption,\r\n    filename,\r\n    pdfBuffer,\r\n    pdfUrl,\r\n    templateKey: "incomplete_return_slip",\r\n    customerName: booking.customerName,\r\n    publicBookingId,\r\n    bodyParamsForTemplate: (templateName) =>\r\n      incompleteSlipBodyParamsForTemplate(templateName, details),\r\n  });\r\n  if (result.ok) {\r\n    await markReturnSlipNotified(ids);\r\n  }\r\n  return result;\r\n}\r\n',
+    expected: /PREMIUM_SLIP_RENDER_FAILED/,
+    operator: 'match',
+    diff: 'simple'
+  }

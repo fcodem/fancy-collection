@@ -14,6 +14,7 @@ import SlipBrandTitle from "@/components/SlipBrandTitle";
 import SlipLogo from "@/components/SlipLogo";
 import SlipMottoBanner from "@/components/SlipMottoBanner";
 import Emoji from "@/components/Emoji";
+import PremiumSlipMarker from "@/components/PremiumSlipMarker";
 import { privateMediaUrl, photoUrl } from "@/lib/photoUrl";
 
 export type IncompleteReturnSlipProps = {
@@ -48,6 +49,7 @@ export type IncompleteReturnSlipProps = {
     notes?: string | null;
     securityHeld: number;
     photo?: string | null;
+    catalogPhotoUrl?: string | null;
   }>;
   returnedItems: Array<{
     dressName: string;
@@ -157,8 +159,10 @@ export default function IncompleteReturnSlip(props: IncompleteReturnSlipProps) {
           fontFamily: "system-ui, -apple-system, sans-serif",
           color: SLIP_DARK,
           background: "#fff",
+          position: "relative",
         }}
       >
+        <PremiumSlipMarker kind="incomplete" />
         <header
           style={{
             background: `linear-gradient(135deg, #c2410c 0%, ${SLIP_AMBER} 100%)`,
@@ -325,6 +329,13 @@ export default function IncompleteReturnSlip(props: IncompleteReturnSlipProps) {
                     <td data-label="Item" style={{ padding: "10px 12px" }}>
                       <div style={{ fontWeight: 700 }}>{item.dressName}</div>
                       {item.color && <div style={{ fontSize: 12, color: SLIP_GREY }}>Color: {item.color}</div>}
+                      {item.catalogPhotoUrl && (
+                        <img
+                          src={item.catalogPhotoUrl}
+                          alt={`${item.dressName} reference`}
+                          style={{ width: 56, height: 56, objectFit: "cover", borderRadius: 6, marginTop: 6, border: `1px solid ${SLIP_BORDER}` }}
+                        />
+                      )}
                       {item.photo && (
                         <img
                           src={photoUrl(item.photo)}

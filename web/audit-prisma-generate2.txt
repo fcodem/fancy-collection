@@ -1,0 +1,7 @@
+npm warn Unknown env config "devdir". This will stop working in the next major version of npm. See `npm help npmrc` for supported config options.
+Environment variables loaded from .env
+Prisma schema loaded from prisma\schema.prisma
+Error: 
+EPERM: operation not permitted, rename 'C:\Projects\ssdn-soft\web\node_modules\.prisma\client\query_engine-windows.dll.node.tmp31420' -> 'C:\Projects\ssdn-soft\web\node_modules\.prisma\client\query_engine-windows.dll.node'
+
+

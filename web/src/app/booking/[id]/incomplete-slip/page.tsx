@@ -46,7 +46,7 @@ export default async function IncompleteSlipPage({
     where: { id: bookingId },
     include: {
       bookingItems: {
-        include: { item: { select: { color: true } } },
+        include: { item: { select: { color: true, photo: true, originalPhoto: true, sku: true } } },
       },
     },
   });

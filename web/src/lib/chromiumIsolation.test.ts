@@ -51,9 +51,13 @@ describe("Chromium isolation", () => {
   });
 
   it("only the internal route imports the direct renderer", () => {
-    const importers = srcFiles.filter((f) =>
-      /slipHtmlPdfDirect\.server/.test(fs.readFileSync(f, "utf8")) && !/slipHtmlPdfDirect\.server\.ts$/.test(f),
-    );
+    const importers = srcFiles.filter((f) => {
+      if (/\.test\.tsx?$/.test(f)) return false;
+      return (
+        /slipHtmlPdfDirect\.server/.test(fs.readFileSync(f, "utf8")) &&
+        !/slipHtmlPdfDirect\.server\.ts$/.test(f)
+      );
+    });
     const rel = importers.map((f) => path.relative(root, f).replace(/\\/g, "/"));
     assert.deepEqual(rel, ["src/app/api/internal/slip/render/route.ts"]);
   });
@@ -150,5 +154,17 @@ describe("branded jsPDF fallback", () => {
     const fallback = read("src/lib/services/whatsapp/operationSlipPdfFallback.ts");
     assert.match(fallback, /loadSlipLogoDataUrl/);
     assert.match(fallback, /addImage/);
+  });
+
+  it("does not use jsPDF fallback for delivery WhatsApp sends", () => {
+    const delivery = read("src/lib/services/whatsapp/automatedMessages.ts").slice(
+      read("src/lib/services/whatsapp/automatedMessages.ts").indexOf(
+        "export async function sendDeliverySlipWhatsApp",
+      ),
+      read("src/lib/services/whatsapp/automatedMessages.ts").indexOf(
+        "export async function sendPartialReturnSlipWhatsApp",
+      ),
+    );
+    assert.doesNotMatch(delivery, /generateOperationSlipPdfFallback\(\s*["']delivery["']/);
   });
 });

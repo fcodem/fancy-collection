@@ -75,6 +75,7 @@ type BookingWithItems = {
     deliveredAt?: Date | null;
     item: {
       color: string | null;
+      sku?: string | null;
       photo?: string | null;
       originalPhoto?: string | null;
       enhancedPhoto?: string | null;
@@ -137,11 +138,14 @@ export type BuildDeliverySlipOptions = {
 };
 
 function mapSlipItem(bi: BookingWithItems["bookingItems"][number]) {
+  const catalogRef = bi.item ? inventoryPhotoRef(bi.item) : "";
   return {
     dressName: bi.dressName,
     category: bi.category || "",
     size: bi.size || "",
     color: bi.item?.color ?? null,
+    sku: bi.item?.sku?.trim() || null,
+    photoUrl: catalogRef ? photoUrl(catalogRef) || null : null,
     price: bi.price,
     advance: bi.advance,
     remaining: bi.remaining,
@@ -330,11 +334,14 @@ export type BuildReturnSlipOptions = {
 };
 
 function mapReturnSlipItem(bi: BookingWithItems["bookingItems"][number]) {
+  const catalogRef = bi.item ? inventoryPhotoRef(bi.item) : "";
   return {
     dressName: bi.dressName,
     category: bi.category || "",
     size: bi.size || "",
     color: bi.item?.color ?? null,
+    sku: bi.item?.sku?.trim() || null,
+    photoUrl: catalogRef ? photoUrl(catalogRef) || null : null,
     price: bi.price,
     advance: bi.advance,
     remaining: bi.remaining,
@@ -636,15 +643,19 @@ export function buildIncompleteSlipData(
 
   const incompleteItems = booking.bookingItems
     .filter(incompleteFilter)
-    .map((bi) => ({
-      dressName: bi.dressName,
-      category: bi.category || "",
-      size: bi.size || "",
-      color: bi.item?.color ?? null,
-      notes: bi.itemIncompleteNotes || bi.notes,
-      securityHeld: bi.itemSecurityHeld,
-      photo: bi.itemIncompletePhoto,
-    }));
+    .map((bi) => {
+      const catalogRef = bi.item ? inventoryPhotoRef(bi.item) : "";
+      return {
+        dressName: bi.dressName,
+        category: bi.category || "",
+        size: bi.size || "",
+        color: bi.item?.color ?? null,
+        notes: bi.itemIncompleteNotes || bi.notes,
+        securityHeld: bi.itemSecurityHeld,
+        photo: bi.itemIncompletePhoto,
+        catalogPhotoUrl: catalogRef ? photoUrl(catalogRef) || null : null,
+      };
+    });
 
   if (
     incompleteItems.length === 0 &&
@@ -658,6 +669,7 @@ export function buildIncompleteSlipData(
       notes: booking.incompleteNotes,
       securityHeld: booking.securityHeld,
       photo: booking.incompletePhoto,
+      catalogPhotoUrl: null,
     });
   }
 

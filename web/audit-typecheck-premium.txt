@@ -1,0 +1,19 @@
+﻿node.exe : npm warn Unknown env config "devdir". This will stop working in the next major version of npm. See `npm 
+help npmrc` for supported config options.
+At line:1 char:1
++ & "C:\Program Files\nodejs/node.exe" "C:\Program Files\nodejs/node_mo ...
++ ~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~
+    + CategoryInfo          : NotSpecified: (npm warn Unknow...config options.:String) [], RemoteException
+    + FullyQualifiedErrorId : NativeCommandError
+ 
+
+> fancy-collection-web@1.0.0 typecheck
+> tsc --noEmit
+
+.next/types/app/finance/page.ts(2,24): error TS2307: Cannot find module '../../../../src/app/finance/page.js' or its corresponding type declarations.
+.next/types/app/finance/page.ts(5,29): error TS2307: Cannot find module '../../../../src/app/finance/page.js' or its corresponding type declarations.
+.next/types/validator.ts(458,39): error TS2307: Cannot find module '../../src/app/finance/page.js' or its corresponding type declarations.
+src/app/api/internal/slip/render/route.ts(18,8): error TS2307: Cannot find module '@/lib/slipTempCleanup' or its corresponding type declarations.
+src/lib/services/whatsapp/pdfBrowserPool.ts(15,8): error TS2307: Cannot find module '@/lib/slipTempCleanup' or its corresponding type declarations.
+src/lib/services/whatsapp/slipRenderErrors.ts(8,8): error TS2307: Cannot find module '@/lib/slipTempCleanup' or its corresponding type declarations.
+src/lib/services/whatsapp/slipRenderErrors.ts(17,19): error TS2304: Cannot find name 'PREMIUM_SLIP_RENDER_FAILED'.

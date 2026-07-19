@@ -2,7 +2,18 @@ import "server-only";
 
 import fs from "fs";
 import path from "path";
+import { randomUUID } from "crypto";
 import type { Browser, Page } from "puppeteer-core";
+import {
+  cleanSlipTempDirs,
+  ensureSlipTempHeadroom,
+  getTmpDir,
+  measureSlipTempUsage,
+  TMP_USAGE_WARN_BYTES,
+  isEnospcError,
+  errorCodeFromUnknown,
+} from "@/lib/slipTempCleanup";
+import { SlipRenderPoolError } from "./slipRenderErrors";
 
 const CHROME_ARGS = [
   "--no-sandbox",
@@ -16,13 +27,10 @@ const CHROME_ARGS = [
   "--font-render-hinting=none",
 ];
 
-const IDLE_CLOSE_MS = 120_000;
 const MAX_RENDER_ATTEMPTS = 2;
 
-let browserInstance: Browser | null = null;
-let browserLaunch: Promise<Browser> | null = null;
 let renderQueue: Promise<unknown> = Promise.resolve();
-let idleTimer: ReturnType<typeof setTimeout> | null = null;
+let chromiumExecutablePromise: Promise<string> | null = null;
 
 function resolveChromeExecutable(): string | undefined {
   const candidates: string[] = [
@@ -58,20 +66,12 @@ function resolveChromeExecutable(): string | undefined {
   }
 
   for (const candidate of candidates) {
-    const path = candidate.trim();
-    if (path && fs.existsSync(path)) return path;
+    const trimmed = candidate.trim();
+    if (trimmed && fs.existsSync(trimmed)) return trimmed;
   }
   return undefined;
 }
 
-/**
- * Vercel Fluid Compute omits AWS Lambda env vars that @sparticuz/chromium uses
- * to unpack AL2023 libs (libnss3.so). Hint the runtime before import, then set
- * LD_LIBRARY_PATH to the extracted binary directory.
- *
- * Next/NFT sometimes drops `node_modules/@sparticuz/chromium/bin` from the
- * serverless bundle — fall back to the official remote pack URL when bin is missing.
- */
 const CHROMIUM_REMOTE_PACK =
   process.env.CHROMIUM_PACK_URL?.trim() ||
   "https://github.com/Sparticuz/chromium/releases/download/v149.0.0/chromium-v149.0.0-pack.x64.tar";
@@ -87,7 +87,16 @@ function resolveLocalChromiumBin(): string | undefined {
   return undefined;
 }
 
-async function launchServerlessBrowser(): Promise<Browser> {
+async function extractChromiumExecutable(): Promise<string> {
+  await ensureSlipTempHeadroom();
+  const usage = measureSlipTempUsage();
+  if (usage >= TMP_USAGE_WARN_BYTES) {
+    throw new SlipRenderPoolError(
+      "Insufficient /tmp headroom before Chromium extraction",
+      "ENOSPC",
+    );
+  }
+
   if (!process.env.AWS_LAMBDA_JS_RUNTIME) {
     const major = Number(process.versions.node.split(".")[0]) || 22;
     process.env.AWS_LAMBDA_JS_RUNTIME = `nodejs${major}.x`;
@@ -95,7 +104,6 @@ async function launchServerlessBrowser(): Promise<Browser> {
 
   const chromiumMod = await import("@sparticuz/chromium");
   const chromium = chromiumMod.default;
-  const puppeteer = await import("puppeteer-core");
 
   try {
     chromium.setGraphicsMode = false;
@@ -124,76 +132,76 @@ async function launchServerlessBrowser(): Promise<Browser> {
       : execDir;
   }
 
-  return puppeteer.default.launch({
-    args: [...chromium.args, "--hide-scrollbars", "--disable-web-security"],
-    defaultViewport: { width: 794, height: 1123 },
-    executablePath,
-    headless: true,
-  });
+  return executablePath;
 }
 
-async function launchFreshBrowser(): Promise<Browser> {
-  const isServerless = Boolean(process.env.VERCEL || process.env.AWS_LAMBDA_FUNCTION_VERSION);
-
-  if (isServerless) {
-    return launchServerlessBrowser();
-  }
-
-  const systemChrome = resolveChromeExecutable();
-  if (systemChrome) {
-    const puppeteerCore = await import("puppeteer-core");
-    return puppeteerCore.default.launch({
-      executablePath: systemChrome,
-      headless: true,
-      args: CHROME_ARGS,
+/** One cached Chromium executable path per warm instance — guarded by a promise lock. */
+async function resolveChromiumExecutable(): Promise<string> {
+  if (!chromiumExecutablePromise) {
+    chromiumExecutablePromise = extractChromiumExecutable().catch((err) => {
+      chromiumExecutablePromise = null;
+      throw err;
     });
   }
-
-  const hint =
-    "Install Google Chrome/Edge or set CHROME_PATH in .env.local.";
-  throw new Error(`Chrome/Chromium not found for PDF generation. ${hint}`);
+  return chromiumExecutablePromise;
 }
 
-async function getBrowser(): Promise<Browser> {
-  if (browserInstance?.connected) return browserInstance;
+function createProfileDir(): string {
+  return path.join(getTmpDir(), `puppeteer_dev_chrome_profile-${randomUUID()}`);
+}
 
-  if (!browserLaunch) {
-    browserLaunch = launchFreshBrowser()
-      .then((browser) => {
-        browserInstance = browser;
-        browser.on("disconnected", () => {
-          browserInstance = null;
-          browserLaunch = null;
-        });
-        return browser;
-      })
-      .catch((err) => {
-        browserLaunch = null;
-        throw err;
+async function launchRenderBrowser(): Promise<{ browser: Browser; profileDir: string }> {
+  const profileDir = createProfileDir();
+  const isServerless = Boolean(process.env.VERCEL || process.env.AWS_LAMBDA_FUNCTION_VERSION);
+
+  try {
+    if (isServerless) {
+      const executablePath = await resolveChromiumExecutable();
+      const chromiumMod = await import("@sparticuz/chromium");
+      const chromium = chromiumMod.default;
+      const puppeteer = await import("puppeteer-core");
+      const browser = await puppeteer.default.launch({
+        args: [
+          ...chromium.args,
+          "--hide-scrollbars",
+          "--disable-web-security",
+          `--user-data-dir=${profileDir}`,
+        ],
+        defaultViewport: { width: 794, height: 1123 },
+        executablePath,
+        headless: true,
+        userDataDir: profileDir,
       });
-  }
+      return { browser, profileDir };
+    }
 
-  return browserLaunch;
+    const systemChrome = resolveChromeExecutable();
+    if (systemChrome) {
+      const puppeteerCore = await import("puppeteer-core");
+      const browser = await puppeteerCore.default.launch({
+        executablePath: systemChrome,
+        headless: true,
+        args: [...CHROME_ARGS, `--user-data-dir=${profileDir}`],
+        userDataDir: profileDir,
+      });
+      return { browser, profileDir };
+    }
+
+    throw new SlipRenderPoolError(
+      "Chrome/Chromium not found for PDF generation. Install Google Chrome/Edge or set CHROME_PATH.",
+      "CHROME_NOT_FOUND",
+    );
+  } catch (err) {
+    await fs.promises.rm(profileDir, { recursive: true, force: true }).catch(() => {});
+    throw err;
+  }
 }
 
-async function closeBrowser() {
-  if (idleTimer) {
-    clearTimeout(idleTimer);
-    idleTimer = null;
-  }
-  const browser = browserInstance;
-  browserInstance = null;
-  browserLaunch = null;
+async function disposeRenderBrowser(browser: Browser | null, profileDir: string): Promise<void> {
   if (browser?.connected) {
     await browser.close().catch(() => {});
   }
-}
-
-function scheduleIdleClose() {
-  if (idleTimer) clearTimeout(idleTimer);
-  idleTimer = setTimeout(() => {
-    void closeBrowser();
-  }, IDLE_CLOSE_MS);
+  await fs.promises.rm(profileDir, { recursive: true, force: true }).catch(() => {});
 }
 
 function enqueueRender<T>(fn: () => Promise<T>): Promise<T> {
@@ -203,10 +211,6 @@ function enqueueRender<T>(fn: () => Promise<T>): Promise<T> {
     () => undefined,
   );
   return run;
-}
-
-async function resetBrowser() {
-  await closeBrowser();
 }
 
 export type HtmlToPdfOptions = {
@@ -221,9 +225,16 @@ export async function renderHtmlUrlToPdf(opts: HtmlToPdfOptions): Promise<Buffer
     let lastError: unknown;
 
     for (let attempt = 1; attempt <= MAX_RENDER_ATTEMPTS; attempt++) {
+      let browser: Browser | null = null;
       let page: Page | null = null;
+      let profileDir = "";
+
       try {
-        const browser = await getBrowser();
+        if (attempt > 1 || measureSlipTempUsage() >= TMP_USAGE_WARN_BYTES) {
+          await cleanSlipTempDirs();
+        }
+
+        ({ browser, profileDir } = await launchRenderBrowser());
         page = await browser.newPage();
         page.setDefaultNavigationTimeout(90_000);
         page.setDefaultTimeout(60_000);
@@ -231,7 +242,10 @@ export async function renderHtmlUrlToPdf(opts: HtmlToPdfOptions): Promise<Buffer
         const viewport = opts.viewport ?? { width: 794, height: 1123 };
         await page.setViewport({ ...viewport, deviceScaleFactor: 1 });
 
-        const response = await page.goto(opts.url, { waitUntil: "networkidle0", timeout: 90_000 });
+        const response = await page.goto(opts.url, {
+          waitUntil: "networkidle0",
+          timeout: 90_000,
+        });
         if (!response || !response.ok()) {
           const status = response?.status() ?? "unknown";
           throw new Error(`PDF page failed to load (HTTP ${status})`);
@@ -263,17 +277,33 @@ export async function renderHtmlUrlToPdf(opts: HtmlToPdfOptions): Promise<Buffer
           timeout: 60_000,
         });
 
-        scheduleIdleClose();
         return Buffer.from(pdf);
       } catch (err) {
         lastError = err;
-        await resetBrowser();
+        const enospc = isEnospcError(err);
+        if (enospc && attempt < MAX_RENDER_ATTEMPTS) {
+          await cleanSlipTempDirs();
+          continue;
+        }
         if (attempt >= MAX_RENDER_ATTEMPTS) break;
+        if (enospc) break;
       } finally {
         if (page) await page.close().catch(() => {});
+        await disposeRenderBrowser(browser, profileDir);
       }
     }
 
-    throw lastError instanceof Error ? lastError : new Error("PDF generation failed");
+    const code = errorCodeFromUnknown(lastError);
+    if (isEnospcError(lastError)) {
+      throw new SlipRenderPoolError("Slip PDF render failed: /tmp full (ENOSPC)", "ENOSPC");
+    }
+    if (lastError instanceof SlipRenderPoolError) throw lastError;
+    const msg = lastError instanceof Error ? lastError.message : "PDF generation failed";
+    throw new SlipRenderPoolError(msg, code);
   });
+}
+
+/** Test hook — reset cached Chromium extraction between tests. */
+export function __resetChromiumExecutableCacheForTests(): void {
+  chromiumExecutablePromise = null;
 }

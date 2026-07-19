@@ -1,4 +1,5 @@
 import { CustomOrdersSection, type SlipOrderDisplay } from "@/components/BookingSlip";
+import PremiumSlipMarker from "@/components/PremiumSlipMarker";
 import SlipBrandTitle from "@/components/SlipBrandTitle";
 import SlipLogo from "@/components/SlipLogo";
 import SlipMottoBanner from "@/components/SlipMottoBanner";
@@ -58,6 +59,8 @@ export type ReturnSlipProps = {
     category: string;
     size: string;
     color?: string | null;
+    sku?: string | null;
+    photoUrl?: string | null;
     price: number;
     advance: number;
     remaining: number;
@@ -87,6 +90,7 @@ export default function ReturnSlip(props: ReturnSlipProps) {
   const slipNo = slipPadSerial(b.monthlySerial);
   const displayPhone = businessPhone?.trim() || SLIP_DEFAULT_PHONE;
   const displayAddress = businessAddress?.trim() || SLIP_DEFAULT_ADDRESS;
+  const outfitItems = items.filter((it) => it.photoUrl);
 
   const remainingCollected = b.remainingCollected ?? 0;
   const securityRefunded = b.securityRefunded ?? 0;
@@ -187,10 +191,12 @@ export default function ReturnSlip(props: ReturnSlipProps) {
         className="slip-container"
         style={{
           fontFamily: "system-ui, -apple-system, sans-serif",
+          position: "relative",
           color: SLIP_DARK,
           background: "#fff",
         }}
       >
+        <PremiumSlipMarker kind="return" />
         <header
           style={{
             background: `linear-gradient(135deg, ${SLIP_GREEN} 0%, #2f8e49 100%)`,
@@ -618,6 +624,41 @@ export default function ReturnSlip(props: ReturnSlipProps) {
           </div>
         </footer>
       </div>
+
+      {outfitItems.map((it, idx) => (
+        <div
+          key={`${it.dressName}-${idx}`}
+          className="slip-outfit-page no-break"
+          style={{
+            background: "#fff",
+            fontFamily: "system-ui, -apple-system, sans-serif",
+            marginTop: 16,
+            borderRadius: 12,
+            overflow: "hidden",
+            border: `1px solid ${SLIP_BORDER}`,
+          }}
+        >
+          <div style={{ background: SLIP_LIGHT_GREEN, padding: "12px 16px", borderBottom: `1px solid ${SLIP_BORDER}` }}>
+            <div style={{ fontWeight: 800, color: SLIP_GREEN, fontSize: 13, textTransform: "uppercase" }}>
+              Returned Item Reference
+            </div>
+            <div style={{ fontWeight: 700, fontSize: 16, marginTop: 4 }}>
+              {it.dressName}
+              {it.sku ? ` · ${it.sku}` : ""}
+            </div>
+            <div style={{ fontSize: 12, color: SLIP_GREY, marginTop: 2 }}>
+              {it.category || "—"} · Size {it.size || "—"}
+            </div>
+          </div>
+          <div style={{ padding: 16, textAlign: "center" }}>
+            <img
+              src={it.photoUrl!}
+              alt={it.dressName}
+              style={{ maxWidth: "100%", maxHeight: 420, objectFit: "contain", borderRadius: 8 }}
+            />
+          </div>
+        </div>
+      ))}
     </>
   );
 }
