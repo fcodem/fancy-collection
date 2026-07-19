@@ -14,7 +14,16 @@ import {
 } from "./sessionCache";
 
 function ident(id: number, username = `u${id}`): CachedSessionIdentity {
-  return { id, username, role: "staff", staffId: id, staff: null, active: true };
+  return {
+    id,
+    username,
+    role: "staff",
+    staffId: id,
+    staff: null,
+    sessionRevision: 1,
+    expiresAt: "2099-01-01T00:00:00.000Z",
+    active: true,
+  };
 }
 
 describe("sessionCache", () => {
@@ -121,6 +130,14 @@ describe("sessionCache", () => {
     const after = await validateSessionWithCache("role", async () => owner, 13);
     assert.equal(after.value?.role, "owner");
     assert.equal(after.status, "miss");
+  });
+
+  it("never serves an expired local entry", async () => {
+    setCachedSession("expired", ident(31), 5);
+    await new Promise((r) => setTimeout(r, 15));
+    const after = await validateSessionWithCache("expired", async () => null, 31);
+    assert.equal(after.status, "miss");
+    assert.equal(after.value, null);
   });
 
   it("invalidation during an in-flight read cannot repopulate stale access", async () => {

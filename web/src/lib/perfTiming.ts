@@ -8,6 +8,8 @@ export type PerfStage =
   | "authMs"
   | "cookieAuthMs"
   | "cookieDecryptMs"
+  | "localCacheMs"
+  | "sharedCacheMs"
   | "sessionCacheMs"
   | "sessionDbMs"
   | "authTotalMs"
@@ -18,9 +20,10 @@ export type PerfStage =
   | "cacheLookupMs"
   | "dbWaitMs"
   | "validationMs"
-  | "codeLookupMs"
-  | "conflictQueryMs"
-  | "classificationMs"
+  | "inventoryReadMs"
+  | "preloadMs"
+  | "conflictMs"
+  | "serialAllocationMs"
   | "initialReadMs"
   | "lockMs"
   | "conflictCheckMs"
@@ -40,6 +43,7 @@ export type PerfStage =
   | "duplicateCheckMs"
   | "uploadMs"
   | "outboxMs"
+  | "postCommitMs"
   | "cacheMs"
   | "totalMs";
 
@@ -53,7 +57,16 @@ export type PerfTimings = Partial<Record<PerfStage, number>> & {
   route?: string;
   requestId?: string;
   cacheStatus?: "hit" | "miss" | "bypass" | "coalesced";
-  authCacheStatus?: "hit" | "miss" | "bypass" | "coalesced";
+  authCacheStatus?:
+    | "local-hit"
+    | "local-miss"
+    | "local-coalesced"
+    | "shared-hit"
+    | "shared-miss"
+    | "shared-bypass"
+    | "shared-error"
+    | "db-miss"
+    | "bypass";
 };
 
 const GLOBAL_COLD_KEY = "__fc_perf_warm__";
@@ -147,6 +160,8 @@ const LOG_STAGES: PerfStage[] = [
   "authMs",
   "cookieAuthMs",
   "cookieDecryptMs",
+    "localCacheMs",
+    "sharedCacheMs",
   "sessionCacheMs",
   "sessionDbMs",
   "authTotalMs",
@@ -157,9 +172,8 @@ const LOG_STAGES: PerfStage[] = [
   "cacheLookupMs",
   "dbWaitMs",
   "validationMs",
-  "codeLookupMs",
-  "conflictQueryMs",
-  "classificationMs",
+  "inventoryReadMs",
+  "serialAllocationMs",
   "initialReadMs",
   "lockMs",
   "conflictCheckMs",
@@ -179,6 +193,7 @@ const LOG_STAGES: PerfStage[] = [
   "duplicateCheckMs",
   "uploadMs",
   "outboxMs",
+  "postCommitMs",
   "cacheMs",
   "totalMs",
 ];

@@ -11,6 +11,8 @@ export type CachedSessionIdentity = {
   role: string;
   staffId: number | null;
   staff: null;
+  sessionRevision: number;
+  expiresAt: string;
   /** User account still active when cached. */
   active: true;
 };
@@ -67,7 +69,10 @@ export function getCachedSession(sessionId: string): CachedSessionIdentity | nul
   const key = hashSessionId(sessionId);
   const entry = store.get(key);
   if (!entry) return undefined;
-  if (entry.expiresAt <= Date.now()) {
+  if (
+    entry.expiresAt <= Date.now() ||
+    (entry.value && Date.parse(entry.value.expiresAt) <= Date.now())
+  ) {
     store.delete(key);
     return undefined;
   }
@@ -81,7 +86,10 @@ export function setCachedSession(
 ) {
   const now = Date.now();
   pruneExpired(now);
-  store.set(hashSessionId(sessionId), { value, expiresAt: now + ttlMs });
+  store.set(hashSessionId(sessionId), {
+    value,
+    expiresAt: now + ttlMs,
+  });
 }
 
 export function invalidateCachedSession(sessionId: string) {
@@ -143,21 +151,21 @@ export async function validateSessionWithCache(
   }
 
   const generation = generations.get(key) ?? 0;
-  const dbStarted = performance.now();
   const run = loader()
-    .then((value) => {
-      // Logout/force-logout/deactivation may have invalidated this lookup while
-      // it was in flight. Never let its stale result restore cached access.
-      if ((generations.get(key) ?? 0) === generation) {
-        setCachedSession(sessionId, value);
-      }
-      return value;
-    })
-    .finally(() => {
-      if (pending.get(key)?.promise === run) pending.delete(key);
-    });
-
+      .then((value) => {
+        // Logout/force-logout/deactivation may have invalidated this lookup while
+        // it was in flight. Never let its stale result restore cached access.
+        if ((generations.get(key) ?? 0) === generation) {
+          setCachedSession(sessionId, value);
+        }
+        return value;
+      })
+      .finally(() => {
+        if (pending.get(key)?.promise === run) pending.delete(key);
+      });
   pending.set(key, { promise: run, userId, generation });
+
+  const dbStarted = performance.now();
   const value = await run;
   return {
     value,

@@ -43,6 +43,8 @@ export async function requireFastReadUser(
 ): Promise<AuthUser | NextResponse> {
   const { user, timings } = await getFastReadUserResult();
   perf?.set("cookieDecryptMs", timings.cookieDecryptMs);
+  perf?.set("localCacheMs", timings.localCacheMs);
+  perf?.set("sharedCacheMs", timings.sharedCacheMs);
   perf?.set("sessionCacheMs", timings.sessionCacheMs);
   perf?.set("sessionDbMs", timings.sessionDbMs);
   perf?.set("authTotalMs", timings.authTotalMs);

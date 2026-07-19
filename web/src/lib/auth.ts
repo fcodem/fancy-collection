@@ -10,12 +10,22 @@ import prisma from "./prisma";
 import { LOGIN_REQUEST_TTL_MINUTES } from "./constants";
 import { isWerkzeugHash, verifyWerkzeugPassword } from "./werkzeugPassword";
 import {
+  clearSessionCache,
   invalidateCachedSession,
   invalidateCachedSessionsForUser,
+  hashSessionId,
   validateSessionWithCache,
   type CachedSessionIdentity,
   type SessionCacheStatus,
 } from "./sessionCache";
+import {
+  invalidateAllSharedSessions,
+  invalidateSharedSession,
+  invalidateSharedSessionsForUser,
+  validateSessionWithSharedCache,
+  type SharedSessionCacheStatus,
+  type SharedSessionValidation,
+} from "./sharedReadSessionCache";
 
 export interface SessionData {
   userId?: number;
@@ -25,6 +35,8 @@ export interface SessionData {
   username?: string;
   role?: string;
   staffId?: number | null;
+  sessionRevision?: number;
+  sessionExpiresAt?: string;
 }
 
 export type SessionIdentity = {
@@ -37,10 +49,16 @@ export type SessionIdentity = {
 
 export type FastReadAuthTimings = {
   cookieDecryptMs: number;
+  localCacheMs: number;
+  sharedCacheMs: number;
   sessionCacheMs: number;
   sessionDbMs: number;
   authTotalMs: number;
-  cacheStatus: SessionCacheStatus | "bypass";
+  cacheStatus:
+    | `local-${SessionCacheStatus}`
+    | SharedSessionCacheStatus
+    | "db-miss"
+    | "bypass";
 };
 
 export type FastReadAuthResult = {
@@ -124,9 +142,16 @@ async function loadActiveSessionUser(
   userId: number,
   sessionId: string,
   updateLastSeen: boolean,
+  expectedRevision?: number,
 ) {
   const userSession = await prisma.userSession.findFirst({
-    where: { sessionId, userId, active: true },
+    where: {
+      sessionId,
+      userId,
+      active: true,
+      expiresAt: { gt: new Date() },
+      ...(expectedRevision ? { revision: expectedRevision } : {}),
+    },
     include: {
       user: {
         select: {
@@ -155,13 +180,23 @@ async function loadActiveSessionUser(
     }
   }
 
-  return userSession.user;
+  return {
+    user: userSession.user,
+    revision: userSession.revision,
+    expiresAt: userSession.expiresAt,
+  };
 }
 
 async function resolveSessionUser(updateLastSeen: boolean) {
   const session = await getSession();
   if (!session.userId || !session.sessionId) return null;
-  return loadActiveSessionUser(session.userId, session.sessionId, updateLastSeen);
+  const loaded = await loadActiveSessionUser(
+    session.userId,
+    session.sessionId,
+    updateLastSeen,
+    session.sessionRevision,
+  );
+  return loaded?.user ?? null;
 }
 
 /**
@@ -173,8 +208,9 @@ export const getCurrentUser = cache(async () => resolveSessionUser(true));
 /**
  * Fast read path for list/suggestion APIs:
  * 1. Decode signed Iron Session cookie (no DB)
- * 2. Validate via bounded active-session cache (~20s)
- * 3. Coalesce simultaneous validations for the same session
+ * 2. Validate revision/expiry through the shared 15s Data Cache gate
+ * 3. Reuse bounded local identity memory and coalesce concurrent misses
+ * 4. Fall back to the authoritative database on shared miss/outage
  * Force-logout / deactivation / role / password reset invalidate the cache immediately.
  */
 export const getFastReadUserResult = cache(async (): Promise<FastReadAuthResult> => {
@@ -187,6 +223,8 @@ export const getFastReadUserResult = cache(async (): Promise<FastReadAuthResult>
       user: null,
       timings: {
         cookieDecryptMs,
+        localCacheMs: 0,
+        sharedCacheMs: 0,
         sessionCacheMs: 0,
         sessionDbMs: 0,
         authTotalMs: performance.now() - authStarted,
@@ -197,31 +235,133 @@ export const getFastReadUserResult = cache(async (): Promise<FastReadAuthResult>
 
   const userId = session.userId;
   const sessionId = session.sessionId;
+  const cookieRevision = session.sessionRevision;
+  const cookieExpiresAt = session.sessionExpiresAt;
+  const cookieExpiryMs = cookieExpiresAt ? Date.parse(cookieExpiresAt) : Number.NaN;
+  if (cookieExpiresAt && (!Number.isFinite(cookieExpiryMs) || cookieExpiryMs <= Date.now())) {
+    return {
+      user: null,
+      timings: {
+        cookieDecryptMs,
+        localCacheMs: 0,
+        sharedCacheMs: 0,
+        sessionCacheMs: 0,
+        sessionDbMs: 0,
+        authTotalMs: performance.now() - authStarted,
+        cacheStatus: "bypass",
+      },
+    };
+  }
+
+  const layered =
+    Boolean(cookieRevision) &&
+    Boolean(cookieExpiresAt) &&
+    Boolean(session.username) &&
+    Boolean(session.role);
+  let sharedCacheMs = 0;
+  let measuredDbMs = 0;
+  let layeredStatus: SharedSessionCacheStatus | "db-miss" = "db-miss";
+  let sharedValue: SharedSessionValidation | null = null;
+
+  // The shared gate is checked on every revised-cookie request, including a
+  // local identity hit. Therefore another function's force-logout/tag
+  // invalidation cannot be bypassed by stale process memory.
+  if (layered) {
+    const shared = await validateSessionWithSharedCache(
+      { sessionId, userId, revision: cookieRevision! },
+      async (): Promise<SharedSessionValidation> => {
+        const loaded = await loadActiveSessionUser(
+          userId,
+          sessionId,
+          false,
+          cookieRevision,
+        );
+        if (!loaded) {
+          return {
+            sessionHash: hashSessionId(sessionId),
+            active: false,
+            userId,
+            role: session.role!,
+            revision: cookieRevision!,
+            expiresAt: cookieExpiresAt!,
+          };
+        }
+        return {
+          sessionHash: hashSessionId(sessionId),
+          active: loaded.user.active,
+          userId: loaded.user.id,
+          role: loaded.user.role,
+          revision: loaded.revision,
+          expiresAt: loaded.expiresAt.toISOString(),
+        };
+      },
+    );
+    sharedCacheMs = shared.sharedCacheMs;
+    measuredDbMs = shared.sessionDbMs;
+    layeredStatus = shared.status;
+    sharedValue = shared.value;
+    if (!sharedValue?.active) {
+      invalidateCachedSession(sessionId);
+      return {
+        user: null,
+        timings: {
+          cookieDecryptMs,
+          localCacheMs: 0,
+          sharedCacheMs,
+          sessionCacheMs: 0,
+          sessionDbMs: measuredDbMs,
+          authTotalMs: performance.now() - authStarted,
+          cacheStatus: layeredStatus,
+        },
+      };
+    }
+  }
 
   const validation = await validateSessionWithCache(
     sessionId,
     async () => {
-      const user = await loadActiveSessionUser(userId, sessionId, false);
-      if (!user) return null;
-      const identity: CachedSessionIdentity = {
-        id: user.id,
-        username: user.username,
-        role: user.role,
-        staffId: user.staffId ?? null,
+      if (sharedValue) {
+        return {
+          id: sharedValue.userId,
+          username: session.username!,
+          role: sharedValue.role,
+          staffId: session.staffId ?? null,
+          staff: null,
+          sessionRevision: sharedValue.revision,
+          expiresAt: sharedValue.expiresAt,
+          active: true,
+        };
+      }
+
+      // Compatibility path for cookies issued before revision/expiry existed.
+      const dbStarted = performance.now();
+      const loaded = await loadActiveSessionUser(userId, sessionId, false);
+      measuredDbMs = performance.now() - dbStarted;
+      if (!loaded) return null;
+      return {
+        id: loaded.user.id,
+        username: loaded.user.username,
+        role: loaded.user.role,
+        staffId: loaded.user.staffId ?? null,
         staff: null,
+        sessionRevision: loaded.revision,
+        expiresAt: loaded.expiresAt.toISOString(),
         active: true,
       };
-      return identity;
     },
     userId,
   );
   const cached = validation.value;
+  const cacheStatus =
+    layered ? layeredStatus : (`local-${validation.status}` as const);
   const timings: FastReadAuthTimings = {
     cookieDecryptMs,
+    localCacheMs: validation.cacheLookupMs,
+    sharedCacheMs,
     sessionCacheMs: validation.cacheLookupMs,
-    sessionDbMs: validation.sessionDbMs,
+    sessionDbMs: measuredDbMs,
     authTotalMs: performance.now() - authStarted,
-    cacheStatus: validation.status,
+    cacheStatus,
   };
 
   if (!cached) return { user: null, timings };
@@ -230,11 +370,19 @@ export const getFastReadUserResult = cache(async (): Promise<FastReadAuthResult>
     invalidateCachedSession(sessionId);
     return { user: null, timings };
   }
+  if (
+    cookieRevision &&
+    (cached.sessionRevision !== cookieRevision ||
+      cached.expiresAt !== cookieExpiresAt)
+  ) {
+    invalidateCachedSession(sessionId);
+    return { user: null, timings };
+  }
   return {
     user: {
       id: cached.id,
       username: cached.username,
-      role: cached.role,
+      role: sharedValue?.role ?? cached.role,
       staffId: cached.staffId,
       active: true as const,
       staff: null,
@@ -250,11 +398,15 @@ export const getCurrentUserReadOnly = cache(
 async function createUserSessionRecord(userId: number) {
   await prisma.userSession.updateMany({
     where: { userId, active: true },
-    data: { active: false, endedAt: new Date() },
+    data: { active: false, endedAt: new Date(), revision: { increment: 1 } },
   });
+  await invalidateReadSessionCachesForUser(userId);
   const sessionId = uuidv4().replace(/-/g, "");
-  await prisma.userSession.create({ data: { userId, sessionId, active: true } });
-  return sessionId;
+  const expiresAt = new Date(Date.now() + 7 * 24 * 60 * 60 * 1000);
+  return prisma.userSession.create({
+    data: { userId, sessionId, active: true, revision: 1, expiresAt },
+    select: { sessionId: true, revision: true, expiresAt: true },
+  });
 }
 
 async function loadUserIdentityFields(userId: number) {
@@ -267,11 +419,13 @@ async function loadUserIdentityFields(userId: number) {
 async function writeSessionIdentity(
   session: Awaited<ReturnType<typeof getSession>> | SessionData,
   userId: number,
-  sessionId: string,
+  sessionRecord: { sessionId: string; revision: number; expiresAt: Date },
 ) {
   const user = await loadUserIdentityFields(userId);
   session.userId = userId;
-  session.sessionId = sessionId;
+  session.sessionId = sessionRecord.sessionId;
+  session.sessionRevision = sessionRecord.revision;
+  session.sessionExpiresAt = sessionRecord.expiresAt.toISOString();
   session.username = user?.username;
   session.role = user?.role;
   session.staffId = user?.staffId ?? null;
@@ -305,8 +459,8 @@ export const getCurrentUserForLayout = cache(async () => {
 
 export async function establishUserLogin(userId: number) {
   const session = await getSession();
-  const sessionId = await createUserSessionRecord(userId);
-  await writeSessionIdentity(session, userId, sessionId);
+  const sessionRecord = await createUserSessionRecord(userId);
+  await writeSessionIdentity(session, userId, sessionRecord);
   await session.save();
 }
 
@@ -318,9 +472,9 @@ export async function establishUserLoginWithRedirect(
 ) {
   const url = typeof redirectTo === "string" ? new URL(redirectTo, req.url) : redirectTo;
   const response = NextResponse.redirect(url);
-  const sessionId = await createUserSessionRecord(userId);
+  const sessionRecord = await createUserSessionRecord(userId);
   const session = await getIronSession<SessionData>(req, response, getSessionOptions());
-  await writeSessionIdentity(session, userId, sessionId);
+  await writeSessionIdentity(session, userId, sessionRecord);
   await session.save();
   return response;
 }
@@ -333,9 +487,9 @@ export async function establishUserLoginWithJson<T>(
   status = 200,
 ) {
   const response = NextResponse.json(body, { status });
-  const sessionId = await createUserSessionRecord(userId);
+  const sessionRecord = await createUserSessionRecord(userId);
   const session = await getIronSession<SessionData>(req, response, getSessionOptions());
-  await writeSessionIdentity(session, userId, sessionId);
+  await writeSessionIdentity(session, userId, sessionRecord);
   await session.save();
   return response;
 }
@@ -405,13 +559,19 @@ export async function endUserSession(sessionId?: string, endedById?: number) {
   if (row) {
     await prisma.userSession.update({
       where: { id: row.id },
-      data: { active: false, endedAt: new Date(), endedById: endedById || null },
+      data: {
+        active: false,
+        endedAt: new Date(),
+        endedById: endedById || null,
+        revision: { increment: 1 },
+      },
     });
-    invalidateCachedSessionsForUser(row.userId);
   }
-  invalidateCachedSession(sid);
-  if (!sessionId) {
-    session.destroy();
+  try {
+    if (row) await invalidateReadSessionCachesForUser(row.userId);
+    await invalidateReadSessionCaches(sid);
+  } finally {
+    if (!sessionId) session.destroy();
   }
 }
 
@@ -419,9 +579,29 @@ export async function endUserSession(sessionId?: string, endedById?: number) {
 export async function invalidateAllSessionsForUser(userId: number, endedById?: number) {
   await prisma.userSession.updateMany({
     where: { userId, active: true },
-    data: { active: false, endedAt: new Date(), endedById: endedById ?? null },
+    data: {
+      active: false,
+      endedAt: new Date(),
+      endedById: endedById ?? null,
+      revision: { increment: 1 },
+    },
   });
+  await invalidateReadSessionCachesForUser(userId);
+}
+
+export async function invalidateReadSessionCaches(sessionId: string) {
+  invalidateCachedSession(sessionId);
+  await invalidateSharedSession(sessionId);
+}
+
+export async function invalidateReadSessionCachesForUser(userId: number) {
   invalidateCachedSessionsForUser(userId);
+  await invalidateSharedSessionsForUser(userId);
+}
+
+export async function invalidateAllReadSessionCaches() {
+  clearSessionCache();
+  await invalidateAllSharedSessions();
 }
 
 export async function findUserForLogin(identifier: string) {

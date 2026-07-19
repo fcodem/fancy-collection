@@ -1,12 +1,12 @@
 import { NextRequest } from "next/server";
 import { bookingDateCheck } from "@/lib/services/operations";
-import { jsonError, jsonOk, requireUser, isResponse } from "@/lib/api";
+import { jsonError, jsonOk, requireFastReadUser, isResponse } from "@/lib/api";
 import { createPerfTimer, withServerTiming } from "@/lib/perfTiming";
 
 export async function GET(req: NextRequest) {
   const perf = createPerfTimer("GET /api/booking/date-check");
   perf.mark("auth");
-  const user = await requireUser();
+  const user = await requireFastReadUser(perf);
   perf.endStage("authMs", "auth");
   if (isResponse(user)) return user;
   try {

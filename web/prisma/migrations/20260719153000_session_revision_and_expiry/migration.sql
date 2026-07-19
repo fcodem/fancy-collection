@@ -1,0 +1,18 @@
+ALTER TABLE "user_sessions"
+  ADD COLUMN IF NOT EXISTS "revision" INTEGER NOT NULL DEFAULT 1,
+  ADD COLUMN IF NOT EXISTS "expires_at" TIMESTAMP(3);
+
+UPDATE "user_sessions"
+SET "expires_at" = "login_at" + INTERVAL '7 days'
+WHERE "expires_at" IS NULL;
+
+ALTER TABLE "user_sessions"
+  ALTER COLUMN "expires_at" SET NOT NULL,
+  ALTER COLUMN "expires_at"
+    SET DEFAULT (CURRENT_TIMESTAMP + INTERVAL '7 days');
+
+ALTER TABLE "user_sessions"
+  DROP CONSTRAINT IF EXISTS "user_sessions_revision_positive";
+
+ALTER TABLE "user_sessions"
+  ADD CONSTRAINT "user_sessions_revision_positive" CHECK ("revision" > 0);

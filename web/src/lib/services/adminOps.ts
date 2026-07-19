@@ -1,7 +1,11 @@
 import prisma from "../prisma";
 import { activeBookingWhere } from "@/lib/bookingActiveStatus";
 import { dressDisplayName } from "../dress";
-import { hashPassword, invalidateAllSessionsForUser } from "../auth";
+import {
+  hashPassword,
+  invalidateAllReadSessionCaches,
+  invalidateReadSessionCachesForUser,
+} from "../auth";
 import { assertStrongPassword } from "../passwordPolicy";
 import { invalidateCategoryCache } from "../categories";
 import {
@@ -100,10 +104,16 @@ export async function getStaffWithoutAccounts() {
 
 export async function changeUserRole(userId: number, role: string, currentUserId: number) {
   if (userId === currentUserId) throw new Error("Cannot change your own role.");
-  const updated = await prisma.user.update({ where: { id: userId }, data: { role } });
-  // Role must take effect immediately — drop read-session cache for this user.
-  const { invalidateCachedSessionsForUser } = await import("../sessionCache");
-  invalidateCachedSessionsForUser(userId);
+  // Existing encrypted cookies carry the old role/revision. Incrementing the
+  // authoritative revision makes them fail closed and require a fresh login.
+  const [updated] = await prisma.$transaction([
+    prisma.user.update({ where: { id: userId }, data: { role } }),
+    prisma.userSession.updateMany({
+      where: { userId, active: true },
+      data: { revision: { increment: 1 } },
+    }),
+  ]);
+  await invalidateReadSessionCachesForUser(userId);
   return updated;
 }
 
@@ -111,11 +121,20 @@ export async function resetUserPassword(userId: number, password: string, endedB
   const target = await prisma.user.findUnique({ where: { id: userId } });
   if (!target) throw new Error("User not found");
   assertStrongPassword(password, { role: target.role, username: target.username });
-  const updated = await prisma.user.update({
-    where: { id: userId },
-    data: { passwordHash: await hashPassword(password) },
-  });
-  await invalidateAllSessionsForUser(userId, endedById);
+  const passwordHash = await hashPassword(password);
+  const [updated] = await prisma.$transaction([
+    prisma.user.update({ where: { id: userId }, data: { passwordHash } }),
+    prisma.userSession.updateMany({
+      where: { userId, active: true },
+      data: {
+        active: false,
+        endedAt: new Date(),
+        endedById: endedById ?? null,
+        revision: { increment: 1 },
+      },
+    }),
+  ]);
+  await invalidateReadSessionCachesForUser(userId);
   return updated;
 }
 
@@ -123,11 +142,23 @@ export async function toggleUserActive(userId: number, currentUserId: number) {
   if (userId === currentUserId) throw new Error("Cannot deactivate yourself.");
   const user = await prisma.user.findUnique({ where: { id: userId } });
   if (!user) throw new Error("User not found");
-  const updated = await prisma.user.update({ where: { id: userId }, data: { active: !user.active } });
-  if (!updated.active) {
-    await invalidateAllSessionsForUser(userId, currentUserId);
+  if (user.active) {
+    const [updated] = await prisma.$transaction([
+      prisma.user.update({ where: { id: userId }, data: { active: false } }),
+      prisma.userSession.updateMany({
+        where: { userId, active: true },
+        data: {
+          active: false,
+          endedAt: new Date(),
+          endedById: currentUserId,
+          revision: { increment: 1 },
+        },
+      }),
+    ]);
+    await invalidateReadSessionCachesForUser(userId);
+    return updated;
   }
-  return updated;
+  return prisma.user.update({ where: { id: userId }, data: { active: true } });
 }
 
 export async function changeOwnPassword(userId: number, currentPassword: string, newPassword: string) {
@@ -138,11 +169,20 @@ export async function changeOwnPassword(userId: number, currentPassword: string,
     throw new Error("Current password is incorrect.");
   }
   assertStrongPassword(newPassword, { role: user.role, username: user.username });
-  const updated = await prisma.user.update({
-    where: { id: userId },
-    data: { passwordHash: await hashPassword(newPassword) },
-  });
-  await invalidateAllSessionsForUser(userId, userId);
+  const passwordHash = await hashPassword(newPassword);
+  const [updated] = await prisma.$transaction([
+    prisma.user.update({ where: { id: userId }, data: { passwordHash } }),
+    prisma.userSession.updateMany({
+      where: { userId, active: true },
+      data: {
+        active: false,
+        endedAt: new Date(),
+        endedById: userId,
+        revision: { increment: 1 },
+      },
+    }),
+  ]);
+  await invalidateReadSessionCachesForUser(userId);
   return updated;
 }
 
@@ -375,4 +415,5 @@ export async function resetAllData() {
     prisma.clothingItem.deleteMany(),
     prisma.customer.deleteMany(),
   ]);
+  await invalidateAllReadSessionCaches();
 }
