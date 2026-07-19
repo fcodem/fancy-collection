@@ -18,6 +18,9 @@ export type PerfStage =
   | "cacheLookupMs"
   | "dbWaitMs"
   | "validationMs"
+  | "codeLookupMs"
+  | "conflictQueryMs"
+  | "classificationMs"
   | "initialReadMs"
   | "lockMs"
   | "conflictCheckMs"
@@ -154,6 +157,9 @@ const LOG_STAGES: PerfStage[] = [
   "cacheLookupMs",
   "dbWaitMs",
   "validationMs",
+  "codeLookupMs",
+  "conflictQueryMs",
+  "classificationMs",
   "initialReadMs",
   "lockMs",
   "conflictCheckMs",
