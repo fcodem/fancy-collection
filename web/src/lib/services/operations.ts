@@ -11,7 +11,7 @@ import { isStarBooking } from "../starBooking";
 import { getAvailableItemsApi, bookingUsesItem, findItemIdsStillInActiveBookings } from "../booking";
 import { broadcastShopEvent } from "../realtime/broadcast";
 import { logActivity, snapshotBooking } from "../activityLog";
-import { saveIdProofUpload } from "../upload";
+import { saveIdProofUpload, IdProofUploadError, deleteUpload } from "../upload";
 import { syncBookingStatusFromItems } from "../syncBookingStatusFromItems";
 import { cachedQuery } from "../perfCache";
 import { serializeActiveOrders } from "../slipBookingData";
@@ -1145,6 +1145,7 @@ export async function saveDeliveryIdPhotos(
   let idPhoto1 = booking.idPhoto1;
   let idPhoto2 = booking.idPhoto2;
   const pathsToCleanup: string[] = [];
+  let partialFailure: { slot: 1 | 2; code: string; message: string } | undefined;
 
   const file1 = data.id_photo_1;
   const file2 = data.id_photo_2;
@@ -1152,12 +1153,30 @@ export async function saveDeliveryIdPhotos(
     Boolean(f) && typeof f === "object" && "size" in (f as object) && (f as File).size > 0;
 
   if (isUpload(file1)) {
-    if (idPhoto1) pathsToCleanup.push(idPhoto1);
     idPhoto1 = await saveIdProofUpload(file1);
+    if (booking.idPhoto1 && booking.idPhoto1 !== idPhoto1) {
+      pathsToCleanup.push(booking.idPhoto1);
+    }
   }
+
   if (isUpload(file2)) {
-    if (idPhoto2) pathsToCleanup.push(idPhoto2);
-    idPhoto2 = await saveIdProofUpload(file2);
+    try {
+      const uploaded = await saveIdProofUpload(file2);
+      if (booking.idPhoto2 && booking.idPhoto2 !== uploaded) {
+        pathsToCleanup.push(booking.idPhoto2);
+      }
+      idPhoto2 = uploaded;
+    } catch (e) {
+      if (e instanceof IdProofUploadError && isUpload(file1) && idPhoto1 !== booking.idPhoto1) {
+        partialFailure = { slot: 2, code: e.code, message: e.message };
+      } else {
+        if (isUpload(file1) && idPhoto1 !== booking.idPhoto1) {
+          await deleteUpload(idPhoto1);
+          idPhoto1 = booking.idPhoto1;
+        }
+        throw e;
+      }
+    }
   }
 
   if (idPhoto1 === booking.idPhoto1 && idPhoto2 === booking.idPhoto2) {
@@ -1184,7 +1203,7 @@ export async function saveDeliveryIdPhotos(
     after: { idPhoto1: result.idPhoto1, idPhoto2: result.idPhoto2 },
   });
 
-  return result;
+  return { booking: result, partialFailure };
 }
 
 type SaveReturnData = {

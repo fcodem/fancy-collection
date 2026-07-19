@@ -1,7 +1,7 @@
 "use client";
 
 import Link from "next/link";
-import { useEffect, useState } from "react";
+import { useEffect, useRef, useState } from "react";
 import { BookingRecordDetails } from "@/components/BookingRecordDetails";
 import BookingItemWarningsBlock, {
   BookingItemWarningsSection,
@@ -14,6 +14,7 @@ import { WARNING_BOOKED_ON_RETURN, WARNING_RETURNING_ON_DELIVERY } from "@/lib/b
 import type { ItemWarningSource } from "@/lib/bookingWarningPdf";
 import { formatInr } from "@/lib/format";
 import { idProofUrl, photoUrl } from "@/lib/photoUrl";
+import { compressImageFile } from "@/lib/clientImageCompress";
 import ZoomableImage from "@/components/ZoomableImage";
 import { deliverySlipHref, hasPartialDelivery } from "@/lib/bookingStatus";
 import { navigatePrintTab, openBlankPrintTab, withSlipPrintQuery } from "@/lib/slipPrintUrl";
@@ -142,6 +143,9 @@ export default function DeliveryDetailClient({
   const [savedIdPhoto2, setSavedIdPhoto2] = useState(idPhoto2);
   const [savingIdPhotos, setSavingIdPhotos] = useState(false);
   const [idPhotoMessage, setIdPhotoMessage] = useState("");
+  const [idPhotoUploadFailed, setIdPhotoUploadFailed] = useState(false);
+  const idPhotoUploadGenRef = useRef(0);
+  const idPhotoAutoUploadRef = useRef(0);
   const [paymentMode, setPaymentMode] = useState<PaymentMode>(
     booking.remainingPaymentMode === "online" ? "online" : "cash",
   );
@@ -498,10 +502,16 @@ export default function DeliveryDetailClient({
     }
   }
 
+  async function prepareIdPhotoForUpload(file: File): Promise<File> {
+    if (/heic|heif/i.test(file.type) || /\.heic$|\.heif$/i.test(file.name)) {
+      throw new Error("HEIC/HEIF is not supported. Retake or upload as JPG.");
+    }
+    return compressImageFile(file, { maxEdge: 1700, quality: 0.83 });
+  }
+
   async function saveIdPhotos(
     files?: { slot1?: File | null; slot2?: File | null },
-  ): Promise<{ ok: true } | { ok: false; message: string }> {
-    // Ignore accidental click Event if someone wires onClick={saveIdPhotos}.
+  ): Promise<{ ok: true } | { ok: false; message: string; retryable?: boolean }> {
     const isEventLike =
       !!files &&
       typeof files === "object" &&
@@ -512,34 +522,71 @@ export default function DeliveryDetailClient({
     if (!f1 && !f2) {
       const message = "Choose at least one photo to upload.";
       setIdPhotoMessage(message);
-      return { ok: false, message };
+      setIdPhotoUploadFailed(true);
+      return { ok: false, message, retryable: true };
     }
+
+    const uploadGen = ++idPhotoUploadGenRef.current;
     setSavingIdPhotos(true);
-    setIdPhotoMessage("");
+    setIdPhotoUploadFailed(false);
+    setIdPhotoMessage("Preparing ID photo…");
+
     try {
-      const form = new FormData();
-      if (f1) form.append("id_photo_1", f1);
-      if (f2) form.append("id_photo_2", f2);
-      const res = await fetch(`/api/booking-delivery/${booking.id}/id-photos`, {
-        method: "POST",
-        body: form,
-        credentials: "same-origin",
-      });
-      const data = await res.json();
-      if (!res.ok) {
-        const message = data.error || "Failed to save ID photos";
-        setIdPhotoMessage(message);
-        return { ok: false, message };
+      let prepared1: File | null = null;
+      let prepared2: File | null = null;
+      if (f1) {
+        prepared1 = await prepareIdPhotoForUpload(f1);
+        if (uploadGen !== idPhotoUploadGenRef.current) {
+          return { ok: false, message: "Upload cancelled.", retryable: false };
+        }
       }
-      if (data.id_photo_1) setSavedIdPhoto1(data.id_photo_1);
-      if (data.id_photo_2) setSavedIdPhoto2(data.id_photo_2);
-      setIdPhoto1File(null);
-      setIdPhoto2File(null);
-      if (idPhoto1Preview) URL.revokeObjectURL(idPhoto1Preview);
-      if (idPhoto2Preview) URL.revokeObjectURL(idPhoto2Preview);
-      setIdPhoto1Preview(null);
-      setIdPhoto2Preview(null);
-      setIdPhotoMessage("ID photos saved — they will show on the return page.");
+      if (f2) {
+        if (f1) setIdPhotoMessage("Preparing ID photo 2…");
+        prepared2 = await prepareIdPhotoForUpload(f2);
+        if (uploadGen !== idPhotoUploadGenRef.current) {
+          return { ok: false, message: "Upload cancelled.", retryable: false };
+        }
+      }
+
+      setIdPhotoMessage("Uploading ID photo…");
+
+      if (prepared1 && prepared2) {
+        const first = await postIdPhotoSlot(1, prepared1);
+        if (!first.ok) {
+          setIdPhotoMessage(first.message);
+          setIdPhotoUploadFailed(true);
+          return { ok: false, message: first.message, retryable: first.retryable };
+        }
+        if (uploadGen !== idPhotoUploadGenRef.current) {
+          return { ok: false, message: "Upload cancelled.", retryable: false };
+        }
+        setIdPhotoMessage("Uploading ID photo 2…");
+        const second = await postIdPhotoSlot(2, prepared2);
+        if (!second.ok) {
+          if (first.savedUrl) setSavedIdPhoto1(first.savedUrl);
+          clearIdPhotoSlotState(1);
+          setIdPhotoMessage(
+            `${second.message} Photo 1 was saved; photo 2 was not.`,
+          );
+          setIdPhotoUploadFailed(true);
+          return { ok: false, message: second.message, retryable: second.retryable };
+        }
+        applyIdPhotoSaveSuccess(1, first.savedUrl);
+        applyIdPhotoSaveSuccess(2, second.savedUrl);
+        setIdPhotoMessage("ID photo saved");
+        return { ok: true };
+      }
+
+      const slot = prepared1 ? 1 : 2;
+      const file = prepared1 ?? prepared2!;
+      const result = await postIdPhotoSlot(slot, file);
+      if (!result.ok) {
+        setIdPhotoMessage(result.message);
+        setIdPhotoUploadFailed(true);
+        return { ok: false, message: result.message, retryable: result.retryable };
+      }
+      applyIdPhotoSaveSuccess(slot, result.savedUrl);
+      setIdPhotoMessage("ID photo saved");
       return { ok: true };
     } catch (e) {
       const message =
@@ -549,9 +596,62 @@ export default function DeliveryDetailClient({
             ? String((e as { message: unknown }).message)
             : "Failed to save ID photos";
       setIdPhotoMessage(message);
-      return { ok: false, message };
+      setIdPhotoUploadFailed(true);
+      return { ok: false, message, retryable: true };
     } finally {
       setSavingIdPhotos(false);
+    }
+  }
+
+  async function postIdPhotoSlot(
+    slot: 1 | 2,
+    file: File,
+  ): Promise<{ ok: true; savedUrl: string | null } | { ok: false; message: string; retryable: boolean }> {
+    const form = new FormData();
+    form.append(slot === 1 ? "id_photo_1" : "id_photo_2", file);
+    const res = await fetch(`/api/booking-delivery/${booking.id}/id-photos`, {
+      method: "POST",
+      body: form,
+      credentials: "same-origin",
+    });
+    const data = (await res.json()) as {
+      ok?: boolean;
+      error?: string;
+      code?: string;
+      id_photo_1?: string | null;
+      id_photo_2?: string | null;
+      warning?: string;
+    };
+    if (!res.ok || data.ok === false) {
+      const message = data.error || "Failed to save ID photo";
+      return { ok: false, message, retryable: data.code !== "NO_FILE" };
+    }
+    const savedUrl = slot === 1 ? data.id_photo_1 ?? null : data.id_photo_2 ?? null;
+    if (data.warning) {
+      return { ok: false, message: data.warning, retryable: true };
+    }
+    return { ok: true, savedUrl };
+  }
+
+  function clearIdPhotoSlotState(slot: 1 | 2) {
+    if (slot === 1) {
+      setIdPhoto1File(null);
+      if (idPhoto1Preview) URL.revokeObjectURL(idPhoto1Preview);
+      setIdPhoto1Preview(null);
+    } else {
+      setIdPhoto2File(null);
+      if (idPhoto2Preview) URL.revokeObjectURL(idPhoto2Preview);
+      setIdPhoto2Preview(null);
+    }
+  }
+
+  function applyIdPhotoSaveSuccess(slot: 1 | 2, savedUrl: string | null) {
+    if (slot === 1) {
+      if (savedUrl) setSavedIdPhoto1(savedUrl);
+      clearIdPhotoSlotState(1);
+    } else {
+      if (savedUrl) setSavedIdPhoto2(savedUrl);
+      clearIdPhotoSlotState(2);
     }
   }
 
@@ -577,13 +677,18 @@ export default function DeliveryDetailClient({
       setIdPhoto2Preview(file ? URL.createObjectURL(file) : null);
     }
     setIdPhotoMessage("");
+    setIdPhotoUploadFailed(false);
     if (file) {
-      // Auto-upload so deliver / return see the photo without a separate Save click.
-      void saveIdPhotos(
-        slot === 1
-          ? { slot1: file, slot2: idPhoto2File }
-          : { slot1: idPhoto1File, slot2: file },
-      );
+      const ticket = ++idPhotoAutoUploadRef.current;
+      void (async () => {
+        await Promise.resolve();
+        if (ticket !== idPhotoAutoUploadRef.current) return;
+        await saveIdPhotos(
+          slot === 1
+            ? { slot1: file, slot2: null }
+            : { slot1: null, slot2: file },
+        );
+      })();
     }
   }
 
@@ -765,9 +870,28 @@ export default function DeliveryDetailClient({
             >
               {savingIdPhotos ? "Saving…" : "Save ID Photos"}
             </button>
+            {idPhotoUploadFailed && (idPhoto1File || idPhoto2File) && !savingIdPhotos && (
+              <button
+                type="button"
+                className="btn btn-outline btn-sm"
+                onClick={() => void saveIdPhotos()}
+              >
+                Retry
+              </button>
+            )}
             {idPhotoMessage && (
-              <span style={{ fontSize: 13, color: idPhotoMessage.includes("saved") ? "var(--success)" : "var(--text-muted)" }}>
+              <span
+                style={{
+                  fontSize: 13,
+                  color: idPhotoMessage.includes("saved") ? "var(--success)" : "var(--danger, #c0392b)",
+                }}
+              >
                 {idPhotoMessage}
+              </span>
+            )}
+            {idPhotoUploadFailed && (
+              <span style={{ fontSize: 12, color: "var(--text-muted)" }}>
+                ID image was not saved — delivery can continue.
               </span>
             )}
           </div>

@@ -21,6 +21,10 @@ Runs, in order (stops on first failure):
 ### Environment
 
 - `test:integration` needs a reachable local/staging Postgres (uses `DIRECT_URL`).
+- **Blob storage:** set `BLOB_READ_WRITE_TOKEN` (public catalogue/inventory) and
+  `ID_PROOF_BLOB_READ_WRITE_TOKEN` (private ID proofs only). Owner diagnostic:
+  `GET /api/admin/blob-storage` returns `{ publicBlobConfigured, privateIdProofBlobConfigured }`
+  without token values. `npm run verify:blob-config` enforces both on Vercel/production-like envs.
 - `test:e2e` needs Playwright browsers installed (`npx playwright install`) and,
   depending on config, a running app.
 - `perf:smoke` needs `BASE_URL` (and `COOKIE` for authenticated routes). Without

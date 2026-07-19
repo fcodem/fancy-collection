@@ -6,8 +6,9 @@ import { getCurrentUser } from "@/lib/auth";
 import { jsonError, jsonOk } from "@/lib/api";
 import { enforceRateLimit } from "@/lib/rateLimit";
 import { getClientIpFromRequest } from "@/lib/loginRateLimit";
+import { requireIdProofBlobToken } from "@/lib/upload";
 
-/** Only proxy same-app uploads or Vercel Blob URLs — blocks open SSRF via ?url=. */
+/** Only proxy same-app uploads or private ID-proof Blob URLs — blocks open SSRF via ?url=. */
 function isAllowedProofUrl(raw: string, req: NextRequest): boolean {
   const url = raw.trim();
   if (!url) return false;
@@ -49,11 +50,24 @@ function blobPathname(url: string): string | null {
   }
 }
 
+function privateResponseHeaders(contentType: string): HeadersInit {
+  return {
+    "Content-Type": contentType,
+    "Cache-Control": "private, no-store",
+    "X-Content-Type-Options": "nosniff",
+  };
+}
+
 async function signedGetUrl(blobUrl: string): Promise<string | null> {
   const pathname = blobPathname(blobUrl);
-  const token = process.env.BLOB_READ_WRITE_TOKEN?.trim();
-  if (!pathname || !token) return null;
-  const validUntil = Date.now() + 90_000; // ~90 seconds
+  if (!pathname) return null;
+  let token: string;
+  try {
+    token = requireIdProofBlobToken();
+  } catch {
+    return null;
+  }
+  const validUntil = Date.now() + 90_000;
   const issued = await issueSignedToken({
     pathname,
     operations: ["get"],
@@ -98,28 +112,30 @@ export async function GET(req: NextRequest) {
       }
 
       try {
-        const result = await get(url, {
-          access: "private",
-          token: process.env.BLOB_READ_WRITE_TOKEN,
-        });
-        if (result?.stream) {
-          return new Response(result.stream as unknown as BodyInit, {
-            headers: {
-              "Content-Type": result.blob.contentType || "image/jpeg",
-              "Cache-Control": "private, no-store",
-            },
+        let token: string | undefined;
+        try {
+          token = requireIdProofBlobToken();
+        } catch {
+          token = undefined;
+        }
+        if (token) {
+          const result = await get(url, {
+            access: "private",
+            token,
           });
+          if (result?.stream) {
+            return new Response(result.stream as unknown as BodyInit, {
+              headers: privateResponseHeaders(result.blob.contentType || "image/jpeg"),
+            });
+          }
         }
       } catch {
-        // Legacy public blobs only.
+        // Legacy public blobs for historical id-proof paths only.
       }
       const upstream = await fetch(url);
       if (!upstream.ok) return jsonError("Not found", 404);
       return new Response(upstream.body, {
-        headers: {
-          "Content-Type": upstream.headers.get("Content-Type") ?? "image/jpeg",
-          "Cache-Control": "private, no-store",
-        },
+        headers: privateResponseHeaders(upstream.headers.get("Content-Type") ?? "image/jpeg"),
       });
     }
 
@@ -127,10 +143,7 @@ export async function GET(req: NextRequest) {
     const localPath = join(process.cwd(), "public", rel.startsWith("uploads/") ? rel : `uploads/${rel}`);
     const bytes = await readFile(localPath);
     return new Response(bytes, {
-      headers: {
-        "Content-Type": "image/jpeg",
-        "Cache-Control": "private, no-store",
-      },
+      headers: privateResponseHeaders("image/jpeg"),
     });
   } catch {
     return jsonError("Failed to fetch file", 500);
