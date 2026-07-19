@@ -167,6 +167,17 @@ async function main() {
       "men group must skip jewellery occupancy checks",
     );
 
+    const jewelleryAvailability = await searchAvailableItems({
+      deliveryDate: "2035-04-15",
+      returnDate: "2035-04-18",
+      group: "jewellery",
+      limit: 5,
+    });
+    assert(
+      jewelleryAvailability.audit.jewelleryChecks === true,
+      "jewellery group must run part occupancy checks",
+    );
+
     clearAvailableItemsSearchCache();
     const coalesceOpts = {
       deliveryDate: "2035-03-01",
