@@ -1,4 +1,4 @@
-generator client {
+﻿generator client {
   provider      = "prisma-client-js"
   // native = local Windows/Mac; rhel-openssl-3.0.x = Vercel Node serverless
   binaryTargets = ["native", "rhel-openssl-3.0.x"]
@@ -101,7 +101,7 @@ model ClothingItem {
   hasEarrings     Boolean  @default(false) @map("has_earrings")
   hasTeeka        Boolean  @default(false) @map("has_teeka")
   hasPasa         Boolean  @default(false) @map("has_pasa")
-  /** Shared id for variants created in one inventory save (sizes × qty). */
+  /** Shared id for variants created in one inventory save (sizes ├ù qty). */
   inventoryGroupId String?  @map("inventory_group_id")
   aiFingerprint   String?  @map("ai_fingerprint")
   aiIndexedAt     DateTime? @map("ai_indexed_at")
@@ -769,7 +769,7 @@ model DressCheckerPositivePair {
   @@map("dress_checker_positive_pairs")
 }
 
-/// Permanent GPT bridal fingerprint — extracted once at index time, never on every search.
+/// Permanent GPT bridal fingerprint ΓÇö extracted once at index time, never on every search.
 model InventoryAiFingerprint {
   id                 Int       @id @default(autoincrement())
   itemId             Int       @map("item_id")
@@ -913,7 +913,7 @@ model DressSearchFeedback {
   @@map("dress_search_feedback")
 }
 
-/// Enterprise AI Inventory Profile — semantic metadata, versioned embeddings, health.
+/// Enterprise AI Inventory Profile ΓÇö semantic metadata, versioned embeddings, health.
 model InventoryAiProfile {
   itemId Int @id @map("item_id")
 
@@ -1004,7 +1004,7 @@ model InventoryAiProfile {
   @@map("inventory_ai_profiles")
 }
 
-/// Durable AI indexing job queue (Postgres-backed — survives process restart).
+/// Durable AI indexing job queue (Postgres-backed ΓÇö survives process restart).
 model InventoryAiJob {
   id           Int       @id @default(autoincrement())
   itemId       Int       @map("item_id")
@@ -1032,7 +1032,7 @@ model InventoryAiJob {
   @@map("inventory_ai_jobs")
 }
 
-/// Durable singleton heartbeat — source of truth for worker health (serverless-safe).
+/// Durable singleton heartbeat ΓÇö source of truth for worker health (serverless-safe).
 model InventoryAiWorkerHeartbeat {
   id                 Int       @id @default(1)
   workerId           String    @default("unknown") @map("worker_id")
@@ -1050,7 +1050,7 @@ model InventoryAiWorkerHeartbeat {
   @@map("inventory_ai_worker_heartbeats")
 }
 
-/// Append-only version history — never overwrite previous embedding/metadata snapshots.
+/// Append-only version history ΓÇö never overwrite previous embedding/metadata snapshots.
 model InventoryAiProfileVersion {
   id        Int      @id @default(autoincrement())
   itemId    Int      @map("item_id")
@@ -1098,7 +1098,7 @@ model InventoryAiProfileTag {
   @@map("inventory_ai_profile_tags")
 }
 
-/// Manual administrator overrides — AI originals preserved in versions.
+/// Manual administrator overrides ΓÇö AI originals preserved in versions.
 model InventoryAiProfileOverride {
   itemId Int @id @map("item_id")
 
@@ -1171,7 +1171,7 @@ model MutationReceipt {
   @@map("mutation_receipts")
 }
 
-/** Deferred Blob deletions — never block business transactions. */
+/** Deferred Blob deletions ΓÇö never block business transactions. */
 model BlobCleanupJob {
   id             Int       @id @default(autoincrement())
   blobPath       String    @map("blob_path")
