@@ -346,6 +346,15 @@ model Booking {
   @@index([customerName, deliveryDate])
   @@map("bookings")
 }
+/** Concurrency-safe monthly serial allocator (replaces MAX scan on bookings). */
+model BookingSerialCounter {
+  yearMonth  String   @id @map("year_month") @db.VarChar(7)
+  lastSerial Int      @default(0) @map("last_serial")
+  updatedAt  DateTime @default(now()) @updatedAt @map("updated_at")
+
+  @@map("booking_serial_counter")
+}
+
 
 model BookingItem {
   id            Int     @id @default(autoincrement())
