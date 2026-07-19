@@ -30,7 +30,7 @@ const NAV_MAIN = [
   { href: "/booking-list", label: "Booked Items", icon: "fa-list-check" },
   { href: "/returning-today", label: "Returning Today (Alternate)", icon: "fa-arrows-rotate" },
   { href: "/inventory/search", label: "Dress Search", icon: "fa-shirt" },
-  { href: "/inventory/search/scan", label: "Dress Availability Scanner", icon: "fa-qrcode" },
+  { href: "/dress-checker?mode=scan-availability", label: "Dress Availability Scanner", icon: "fa-qrcode", noPrefetch: true },
   { href: "/inventory", label: "Manage Inventory", icon: "fa-layer-group" },
   { href: "/search-qr", label: "Search QR Code", icon: "fa-qrcode" },
   { href: "/late-return", label: "Late Returns", icon: "fa-hourglass-end" },
@@ -93,7 +93,7 @@ const ALL_NAV = [
 function pageTitle(pathname: string) {
   const exact = ALL_NAV.find((n) => n.href === pathname);
   if (exact) return exact.label;
-  if (pathname.startsWith("/inventory/search/scan")) return "Scan Dress Availability";
+  if (pathname.startsWith("/inventory/search/scan") || pathname.startsWith("/dress-checker")) return "Scan Dress Availability";
   if (pathname.startsWith("/ai-features")) return "AI Features";
   if (pathname.startsWith("/search-qr")) return "Search QR Code";
   if (pathname.startsWith("/late-return")) return "Late Returns";
@@ -451,12 +451,25 @@ function AppLayoutInner({
         <SidebarBrandMark />
         <nav className="sidebar-nav">
           <div className="nav-section-label">Main Menu</div>
-          {NAV_MAIN.map((item) => (
+          {NAV_MAIN.map((item) => {
+            const baseHref = item.href.split("?")[0];
+            const scannerNav = baseHref === "/dress-checker";
+            const active = scannerNav
+              ? pathname.startsWith("/dress-checker") ||
+                pathname.startsWith("/inventory/search/scan")
+              : pathname === item.href || pathname.startsWith(`${item.href}/`);
+            return (
             <Link
               key={item.href}
               href={item.href}
-              prefetch={PREFETCH.has(item.href) || undefined}
-              className={`nav-item ${pathname === item.href ? "active" : ""}`}
+              prefetch={
+                "noPrefetch" in item && item.noPrefetch
+                  ? false
+                  : PREFETCH.has(baseHref)
+                    ? true
+                    : undefined
+              }
+              className={`nav-item ${active ? "active" : ""}`}
               onClick={navClick}
             >
               <i className={`fa-solid ${item.icon}`} /> <span className="nav-label">{item.label}</span>
@@ -464,7 +477,8 @@ function AppLayoutInner({
                 <span className="nav-badge">{overdueDelivery}</span>
               )}
             </Link>
-          ))}
+            );
+          })}
           <div className="nav-section-label" style={{ marginTop: 8 }}>Other</div>
           {NAV_COMMON.filter((item) => isOwner || item.href !== "/manage-categories").map((item) => (
             <Link

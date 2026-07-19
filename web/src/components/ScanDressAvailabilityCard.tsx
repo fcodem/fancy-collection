@@ -1,7 +1,7 @@
 import Link from "next/link";
 
 export const SCAN_DRESS_AVAILABILITY_HREF =
-  "/inventory/search/scan?mode=scan-availability";
+  "/dress-checker?mode=scan-availability";
 
 export default function ScanDressAvailabilityCard() {
   return (

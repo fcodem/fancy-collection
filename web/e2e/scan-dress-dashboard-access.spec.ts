@@ -1,7 +1,7 @@
 import { expect, test, type Page, type Request } from "@playwright/test";
 
 const hasAuthState = Boolean(process.env.E2E_STORAGE_STATE?.trim());
-const SCANNER_HREF = "/inventory/search/scan?mode=scan-availability";
+const SCANNER_HREF = "/dress-checker?mode=scan-availability";
 const MOCK_BOOKING_ID = 900;
 
 type MockStatus =
