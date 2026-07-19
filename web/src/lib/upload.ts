@@ -1,11 +1,33 @@
-import { writeFile, mkdir, unlink } from "fs/promises";
 import { join } from "path";
 import { randomUUID } from "crypto";
-import { put, del } from "@vercel/blob";
 import sharp from "sharp";
 import { ALLOWED_EXTENSIONS } from "./constants";
+import {
+  deletePermanentInventoryImage,
+  isPermanentInventoryMedia,
+  savePermanentInventoryImage,
+  PermanentInventoryMediaError,
+  REFUSED_TO_DELETE_PERMANENT_INVENTORY_MEDIA,
+} from "./storage/publicInventoryMedia";
+import {
+  deletePrivateBookingMedia,
+  isPrivateBookingMedia,
+  requirePrivateMediaToken,
+  savePrivateBookingMedia,
+  PrivateMediaError,
+} from "./storage/privateBookingMedia";
 
-export { photoUrl } from "./photoUrl";
+export { photoUrl, idProofUrl, privateMediaUrl, bookingPhotoUrl } from "./photoUrl";
+export {
+  isPermanentInventoryMedia,
+  REFUSED_TO_DELETE_PERMANENT_INVENTORY_MEDIA,
+  PermanentInventoryMediaError,
+} from "./storage/publicInventoryMedia";
+export {
+  isPrivateBookingMedia,
+  requirePrivateMediaToken,
+  APPROVED_PRIVATE_MEDIA_FOLDERS,
+} from "./storage/privateBookingMedia";
 
 const MAX_IMAGE_EDGE = 1280;
 const JPEG_QUALITY = 72;
@@ -14,39 +36,6 @@ const ORIGINAL_JPEG_QUALITY = 78;
 function extFromName(name: string) {
   const parts = name.split(".");
   return parts.length > 1 ? parts[parts.length - 1].toLowerCase() : "jpg";
-}
-
-async function storeBuffer(
-  bytes: Buffer,
-  relativePath: string,
-  opts?: { access?: "public" | "private" },
-): Promise<string> {
-  const access = opts?.access ?? "public";
-  const token = process.env.BLOB_READ_WRITE_TOKEN?.trim();
-  if (token) {
-    try {
-      const blob = await put(`uploads/${relativePath}`, bytes, {
-        access,
-        token,
-        multipart: bytes.length > 4 * 1024 * 1024,
-      });
-      return blob.url;
-    } catch (e) {
-      const detail = e instanceof Error ? e.message : "Blob upload failed";
-      throw new Error(`Photo upload to Vercel Blob failed: ${detail}`);
-    }
-  }
-  if (process.env.VERCEL || process.env.NODE_ENV === "production") {
-    throw new Error(
-      "Cannot save photo: BLOB_READ_WRITE_TOKEN is missing from this deployment. " +
-        "Vercel → Settings → Environment Variables → add BLOB_READ_WRITE_TOKEN for Production → Redeploy.",
-    );
-  }
-  const dir = join(process.cwd(), "public", "uploads", relativePath.split("/").slice(0, -1).join("/"));
-  await mkdir(dir, { recursive: true });
-  const filename = relativePath.split("/").pop()!;
-  await writeFile(join(process.cwd(), "public", "uploads", relativePath), bytes);
-  return relativePath.includes("/") ? relativePath : filename;
 }
 
 async function encodeOriginalBuffer(raw: Buffer, filename: string): Promise<{ bytes: Buffer; outExt: string }> {
@@ -73,8 +62,8 @@ async function encodeOriginalBuffer(raw: Buffer, filename: string): Promise<{ by
 
 async function saveOriginalFromBuffer(raw: Buffer, filename: string): Promise<string> {
   const { bytes, outExt } = await encodeOriginalBuffer(raw, filename);
-  const path = `originals/${randomUUID().replace(/-/g, "")}.${outExt}`;
-  return storeBuffer(bytes, path);
+  const path = `${randomUUID().replace(/-/g, "")}.${outExt}`;
+  return savePermanentInventoryImage(bytes, "dresses", path);
 }
 
 export async function saveCompressedFromBuffer(
@@ -82,10 +71,19 @@ export async function saveCompressedFromBuffer(
   subfolder = "",
   opts?: { access?: "public" | "private" },
 ): Promise<string> {
+  if (opts?.access === "private") {
+    const bytes = await compressImageBuffer(raw);
+    return savePrivateBookingMedia(bytes, "orders");
+  }
   const bytes = await compressImageBuffer(raw);
   const filename = `${randomUUID().replace(/-/g, "")}.jpg`;
-  const path = subfolder ? `${subfolder.replace(/\/$/, "")}/${filename}` : filename;
-  return storeBuffer(bytes, path, opts);
+  const folder =
+    subfolder === "marketing" || subfolder === "enhanced"
+      ? "dresses"
+      : subfolder === "thumbs" || subfolder === "thumbnails"
+        ? "thumbnails"
+        : "dresses";
+  return savePermanentInventoryImage(bytes, folder, filename);
 }
 
 /** Preserve original upload — EXIF rotate only, no resize or heavy compression. */
@@ -96,8 +94,8 @@ export async function saveOriginalUpload(file: File): Promise<string> {
 
 /** Store a recognition-preprocessed image (never shown to customers). */
 export async function saveRecognitionBuffer(bytes: Buffer, itemId: number): Promise<string> {
-  const filename = `recognition/${itemId}-rec.jpg`;
-  return storeBuffer(bytes, filename);
+  const filename = `${itemId}-rec.jpg`;
+  return savePermanentInventoryImage(bytes, "recognition", filename);
 }
 
 /**
@@ -119,8 +117,8 @@ export async function saveInventoryThumbnailFromBuffer(raw: Buffer): Promise<str
       .resize(320, 320, { fit: "inside", withoutEnlargement: true })
       .webp({ quality: 72 })
       .toBuffer();
-    const path = `thumbs/${randomUUID().replace(/-/g, "")}.webp`;
-    return await storeBuffer(bytes, path);
+    const filename = `${randomUUID().replace(/-/g, "")}.webp`;
+    return await savePermanentInventoryImage(bytes, "thumbnails", filename);
   } catch (e) {
     console.error(
       "[upload] thumbnail generation skipped:",
@@ -148,8 +146,8 @@ export async function saveFastInventoryPhotoWithThumb(
 
   let photo: string;
   if (process.env.VERCEL) {
-    const path = `${randomUUID().replace(/-/g, "")}.jpg`;
-    photo = await storeBuffer(raw, path);
+    const filename = `${randomUUID().replace(/-/g, "")}.jpg`;
+    photo = await savePermanentInventoryImage(raw, "dresses", filename);
   } else {
     try {
       photo = await saveCompressedFromBuffer(raw);
@@ -158,8 +156,8 @@ export async function saveFastInventoryPhotoWithThumb(
         "[upload] compress failed, uploading raw bytes:",
         e instanceof Error ? e.message : e,
       );
-      const path = `${randomUUID().replace(/-/g, "")}.${outExt}`;
-      photo = await storeBuffer(raw, path);
+      const filename = `${randomUUID().replace(/-/g, "")}.${outExt}`;
+      photo = await savePermanentInventoryImage(raw, "dresses", filename);
     }
   }
 
@@ -176,6 +174,7 @@ export async function compressImageBuffer(buffer: Buffer): Promise<Buffer> {
     .toBuffer();
 }
 
+/** @deprecated Prefer savePrivateBookingMedia for booking contexts. Public generic upload for admin/tools. */
 export async function saveUpload(file: File): Promise<string> {
   const ext = extFromName(file.name);
   if (!ALLOWED_EXTENSIONS.includes(ext)) throw new Error("Invalid file type");
@@ -183,7 +182,6 @@ export async function saveUpload(file: File): Promise<string> {
     throw new Error("Image must be under 8 MB.");
   }
   const raw = Buffer.from(await file.arrayBuffer());
-  // Validate bytes are a real image and reject absurd dimensions.
   const meta = await sharp(raw, { failOn: "none", limitInputPixels: 40_000_000 }).metadata();
   if (!meta.format || !["jpeg", "jpg", "png", "webp"].includes(meta.format)) {
     throw new Error("File content is not a supported image.");
@@ -194,14 +192,57 @@ export async function saveUpload(file: File): Promise<string> {
   return saveCompressedFromBuffer(raw);
 }
 
+/** Save compressed private booking media (orders, incomplete returns, etc.). */
+export async function savePrivateBookingUpload(
+  file: File,
+  folder: "orders" | "incomplete-returns" | "jewellery-selections",
+): Promise<string> {
+  const ext = extFromName(file.name);
+  if (!ALLOWED_EXTENSIONS.includes(ext)) throw new Error("Invalid file type");
+  if (file.size > 8 * 1024 * 1024) {
+    throw new Error("Image must be under 8 MB.");
+  }
+  const raw = Buffer.from(await file.arrayBuffer());
+  const meta = await sharp(raw, { failOn: "none", limitInputPixels: 40_000_000 }).metadata();
+  if (!meta.format || !["jpeg", "jpg", "png", "webp"].includes(meta.format)) {
+    throw new Error("File content is not a supported image.");
+  }
+  if ((meta.width || 0) > 8000 || (meta.height || 0) > 8000) {
+    throw new Error("Image dimensions are too large.");
+  }
+  const bytes = await compressImageBuffer(raw);
+  return savePrivateBookingMedia(bytes, folder);
+}
+
 /** Remove a stored upload (local filename or Vercel Blob URL). */
-export async function deleteUpload(stored: string | null | undefined): Promise<void> {
+export async function deleteUpload(
+  stored: string | null | undefined,
+  opts?: { allowInventoryReplacement?: boolean },
+): Promise<void> {
   if (!stored?.trim()) return;
 
+  if (isPermanentInventoryMedia(stored) && !opts?.allowInventoryReplacement) {
+    throw new PermanentInventoryMediaError(
+      "Refusing to delete permanent inventory media without explicit inventory replacement.",
+    );
+  }
+
+  if (isPrivateBookingMedia(stored)) {
+    await deletePrivateBookingMedia(stored);
+    return;
+  }
+
+  if (isPermanentInventoryMedia(stored)) {
+    await deletePermanentInventoryImage(stored, opts);
+    return;
+  }
+
   if (stored.startsWith("http://") || stored.startsWith("https://")) {
-    if (process.env.BLOB_READ_WRITE_TOKEN) {
+    const token = process.env.BLOB_READ_WRITE_TOKEN?.trim();
+    if (token) {
       try {
-        await del(stored);
+        const { del } = await import("@vercel/blob");
+        await del(stored, { token });
       } catch {
         /* file may already be gone */
       }
@@ -211,47 +252,194 @@ export async function deleteUpload(stored: string | null | undefined): Promise<v
 
   const filename = stored.replace(/^uploads\//, "").replace(/^\//, "");
   try {
+    const { unlink } = await import("fs/promises");
     await unlink(join(process.cwd(), "public", "uploads", filename));
   } catch {
     /* file may already be gone */
   }
 }
 
-export async function deleteUploads(stored: Array<string | null | undefined>): Promise<void> {
-  await Promise.all(stored.map((s) => deleteUpload(s)));
+export async function deleteUploads(
+  stored: Array<string | null | undefined>,
+  opts?: { allowInventoryReplacement?: boolean },
+): Promise<void> {
+  await Promise.all(stored.map((s) => deleteUpload(s, opts)));
 }
 
-function assertIdProofFile(file: File, raw: Buffer): void {
-  const ext = extFromName(file.name);
-  if (!ALLOWED_EXTENSIONS.includes(ext) && !String(file.type || "").startsWith("image/")) {
-    throw new Error("Invalid file type");
+export class IdProofUploadError extends PrivateMediaError {
+  constructor(
+    message: string,
+    code: PrivateMediaError["code"],
+    options?: { cause?: unknown },
+  ) {
+    super(message, code, options);
+    this.name = "IdProofUploadError";
   }
-  if (file.size > 5 * 1024 * 1024) {
-    throw new Error("ID proof must be under 5 MB.");
-  }
-  if (!raw.length) throw new Error("Empty ID proof file.");
 }
 
-/** Private customer ID proof — never stored in public catalogue paths. */
+export function requireIdProofBlobToken(): string {
+  return requirePrivateMediaToken();
+}
+
+export function getBlobStorageConfig(): {
+  publicBlobConfigured: boolean;
+  privateIdProofBlobConfigured: boolean;
+} {
+  return {
+    publicBlobConfigured: Boolean(process.env.BLOB_READ_WRITE_TOKEN?.trim()),
+    privateIdProofBlobConfigured: Boolean(
+      process.env.ID_PROOF_BLOB_READ_WRITE_TOKEN?.trim() ||
+        process.env.ID_PROOF_READ_WRITE_TOKEN?.trim(),
+    ),
+  };
+}
+
+export function idProofErrorHttpStatus(code: IdProofUploadError["code"]): number {
+  switch (code) {
+    case "PRIVATE_BLOB_NOT_CONFIGURED":
+      return 503;
+    case "FILE_TOO_LARGE":
+      return 413;
+    case "INVALID_FILE":
+    case "EMPTY_FILE":
+      return 415;
+    case "BLOB_UPLOAD_FAILED":
+      return 502;
+    default:
+      return 500;
+  }
+}
+
+const ID_PROOF_MAX_BYTES = 5 * 1024 * 1024;
+const ID_PROOF_MIME = new Set(["image/jpeg", "image/png", "image/webp"]);
+const ID_PROOF_EXT = new Set(["jpg", "jpeg", "png", "webp"]);
+
+function detectHeic(raw: Buffer): boolean {
+  if (raw.length < 12) return false;
+  const brand = raw.subarray(4, 12).toString("ascii");
+  return /heic|heif|mif1|msf1/i.test(brand);
+}
+
+function sniffIdProofExtension(raw: Buffer): "jpg" | "png" | "webp" | null {
+  if (raw.length >= 3 && raw[0] === 0xff && raw[1] === 0xd8 && raw[2] === 0xff) return "jpg";
+  if (
+    raw.length >= 8 &&
+    raw[0] === 0x89 &&
+    raw[1] === 0x50 &&
+    raw[2] === 0x4e &&
+    raw[3] === 0x47
+  ) {
+    return "png";
+  }
+  if (raw.length >= 12 && raw.subarray(0, 4).toString("ascii") === "RIFF") {
+    if (raw.subarray(8, 12).toString("ascii") === "WEBP") return "webp";
+  }
+  return null;
+}
+
+function normalizeIdProofExtension(ext: string): "jpg" | "png" | "webp" | null {
+  const lower = ext.toLowerCase();
+  if (lower === "jpeg") return "jpg";
+  if (ID_PROOF_EXT.has(lower)) return lower as "jpg" | "png" | "webp";
+  return null;
+}
+
+/** Validates bytes/MIME — shared by local and Vercel (no Sharp on serverless). */
+export function validateIdProofUpload(file: File, raw: Buffer): "jpg" | "png" | "webp" {
+  if (!raw.length) {
+    throw new IdProofUploadError("ID photo file is empty.", "EMPTY_FILE");
+  }
+  if (raw.length > ID_PROOF_MAX_BYTES) {
+    throw new IdProofUploadError("ID photo must be 5 MB or smaller.", "FILE_TOO_LARGE");
+  }
+
+  const mime = String(file.type || "")
+    .trim()
+    .toLowerCase();
+  if (/heic|heif/.test(mime) || detectHeic(raw)) {
+    throw new IdProofUploadError(
+      "HEIC/HEIF is not supported. Retake or upload as JPG.",
+      "INVALID_FILE",
+    );
+  }
+
+  const sniffed = sniffIdProofExtension(raw);
+  if (!sniffed) {
+    throw new IdProofUploadError(
+      "Unsupported image. Use JPG, PNG, or WEBP.",
+      "INVALID_FILE",
+    );
+  }
+
+  const nameExt = normalizeIdProofExtension(extFromName(file.name));
+  if (nameExt && nameExt !== sniffed) {
+    throw new IdProofUploadError(
+      "File extension does not match image content.",
+      "INVALID_FILE",
+    );
+  }
+
+  if (mime && ID_PROOF_MIME.has(mime)) {
+    const expectedMime =
+      sniffed === "jpg" ? "image/jpeg" : sniffed === "png" ? "image/png" : "image/webp";
+    if (mime !== expectedMime) {
+      throw new IdProofUploadError(
+        "Image type does not match file content.",
+        "INVALID_FILE",
+      );
+    }
+  } else if (mime && mime !== "application/octet-stream") {
+    throw new IdProofUploadError(
+      "Unsupported image type. Use JPG, PNG, or WEBP.",
+      "INVALID_FILE",
+    );
+  }
+
+  return sniffed;
+}
+
+export async function storePrivateIdProof(
+  bytes: Buffer,
+  extension: "jpg" | "png" | "webp",
+): Promise<string> {
+  try {
+    return await savePrivateBookingMedia(bytes, "id-proofs", extension);
+  } catch (e) {
+    if (e instanceof PrivateMediaError) {
+      throw new IdProofUploadError(e.message, e.code, { cause: e });
+    }
+    throw e;
+  }
+}
+
+/** Private customer ID proof — never stored in public catalogue paths or public token. */
 export async function saveIdProofUpload(file: File): Promise<string> {
   const raw = Buffer.from(await file.arrayBuffer());
-  assertIdProofFile(file, raw);
+  const extension = validateIdProofUpload(file, raw);
 
-  // Tablet camera captures are often multi-MB. Running sharp on Vercel serverless
-  // can OOM and fail delivery even though ID photos are optional.
   if (process.env.VERCEL) {
-    const ext = extFromName(file.name);
-    const outExt = ALLOWED_EXTENSIONS.includes(ext) ? (ext === "jpeg" ? "jpg" : ext) : "jpg";
-    const filename = `${randomUUID().replace(/-/g, "")}.${outExt}`;
-    return storeBuffer(raw, `id-proofs/${filename}`, { access: "private" });
+    return storePrivateIdProof(raw, extension);
   }
 
-  const meta = await sharp(raw, { failOn: "none", limitInputPixels: 40_000_000 }).metadata();
-  if (!meta.format || !["jpeg", "jpg", "png", "webp"].includes(meta.format)) {
-    throw new Error("ID proof must be a valid image file.");
+  try {
+    const meta = await sharp(raw, { failOn: "none", limitInputPixels: 40_000_000 }).metadata();
+    if (!meta.format || !["jpeg", "jpg", "png", "webp"].includes(meta.format)) {
+      throw new IdProofUploadError(
+        "ID proof must be a valid image file.",
+        "INVALID_FILE",
+      );
+    }
+    if ((meta.width || 0) > 8000 || (meta.height || 0) > 8000) {
+      throw new IdProofUploadError("ID proof image dimensions are too large.", "INVALID_FILE");
+    }
+  } catch (e) {
+    if (e instanceof IdProofUploadError) throw e;
+    throw new IdProofUploadError(
+      "ID proof must be a valid image file.",
+      "INVALID_FILE",
+      { cause: e },
+    );
   }
-  if ((meta.width || 0) > 8000 || (meta.height || 0) > 8000) {
-    throw new Error("ID proof image dimensions are too large.");
-  }
-  return saveCompressedFromBuffer(raw, "id-proofs", { access: "private" });
+
+  return storePrivateIdProof(raw, extension);
 }

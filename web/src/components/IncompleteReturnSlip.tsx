@@ -14,7 +14,7 @@ import SlipBrandTitle from "@/components/SlipBrandTitle";
 import SlipLogo from "@/components/SlipLogo";
 import SlipMottoBanner from "@/components/SlipMottoBanner";
 import Emoji from "@/components/Emoji";
-import { photoUrl } from "@/lib/photoUrl";
+import { privateMediaUrl, photoUrl } from "@/lib/photoUrl";
 
 export type IncompleteReturnSlipProps = {
   booking: {
@@ -406,7 +406,7 @@ export default function IncompleteReturnSlip(props: IncompleteReturnSlipProps) {
               {b.incompleteNotes && <p style={{ margin: 0, fontSize: 14, lineHeight: 1.5 }}>{b.incompleteNotes}</p>}
               {b.incompletePhoto && (
                 <img
-                  src={photoUrl(b.incompletePhoto)}
+                  src={privateMediaUrl(b.incompletePhoto)}
                   alt="Incomplete return"
                   style={{ maxWidth: 200, maxHeight: 160, objectFit: "cover", borderRadius: 8, marginTop: 10, border: `1px solid ${SLIP_BORDER}` }}
                 />

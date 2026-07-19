@@ -27,7 +27,7 @@ export async function clearIdentificationIndex(itemId: number, reason: string): 
   });
   if (item?.recognitionImage) {
     const { deleteUpload } = await import("./upload");
-    void deleteUpload(item.recognitionImage);
+    void deleteUpload(item.recognitionImage, { allowInventoryReplacement: true });
   }
   logDressChecker({
     timestamp: new Date().toISOString(),

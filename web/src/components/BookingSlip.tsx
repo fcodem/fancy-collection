@@ -1,5 +1,5 @@
 import type { ReactNode } from "react";
-import { photoUrl } from "@/lib/photoUrl";
+import { privateMediaUrl } from "@/lib/photoUrl";
 import ZoomableImage from "@/components/ZoomableImage";
 import SlipBrandTitle from "@/components/SlipBrandTitle";
 import SlipLogo from "@/components/SlipLogo";
@@ -105,17 +105,17 @@ export function CustomOrdersSection({ orders, showPhoto = true, zoomable = false
             <div style={{ width: 20, height: 20, borderRadius: "50%", background: "#f0ead2", display: "flex", alignItems: "center", justifyContent: "center", fontSize: 10, color: "#8a6d1a", fontWeight: 600 }}>{i + 1}</div>
             <div>
               <div style={{ fontWeight: 600, color: "#1a1a1a" }}>{o.description}</div>
-              {showPhoto && o.photo && photoUrl(o.photo) ? (
+              {showPhoto && o.photo && privateMediaUrl(o.photo) ? (
                 zoomable ? (
                   <ZoomableImage
-                    src={photoUrl(o.photo)!}
+                    src={privateMediaUrl(o.photo)!}
                     alt="Order sample"
                     overlayCaption={o.description}
                     style={{ marginTop: 4, maxHeight: 64, maxWidth: 90, borderRadius: 6, border: `1px solid ${BORDER}`, objectFit: "cover" }}
                   />
                 ) : (
                   /* eslint-disable-next-line @next/next/no-img-element */
-                  <img src={photoUrl(o.photo)!} alt="Order sample" style={{ marginTop: 4, maxHeight: 64, maxWidth: 90, borderRadius: 6, border: `1px solid ${BORDER}`, objectFit: "cover" }} />
+                  <img src={privateMediaUrl(o.photo)!} alt="Order sample" style={{ marginTop: 4, maxHeight: 64, maxWidth: 90, borderRadius: 6, border: `1px solid ${BORDER}`, objectFit: "cover" }} />
                 )
               ) : null}
             </div>

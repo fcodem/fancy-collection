@@ -1,6 +1,6 @@
 import { NextRequest } from "next/server";
 import { requireUser, isResponse, jsonError, jsonOk } from "@/lib/api";
-import { saveUpload } from "@/lib/upload";
+import { savePrivateBookingUpload } from "@/lib/upload";
 import { enforceRateLimit } from "@/lib/rateLimit";
 import { getClientIpFromRequest } from "@/lib/loginRateLimit";
 
@@ -28,7 +28,7 @@ export async function POST(req: NextRequest) {
   }
 
   try {
-    const stored = await saveUpload(file);
+    const stored = await savePrivateBookingUpload(file, "orders");
     return jsonOk({ photo: stored });
   } catch (e) {
     return jsonError(e instanceof Error ? e.message : "Upload failed", 400);

@@ -15,6 +15,8 @@ import { logActivity, snapshotBooking } from "../activityLog";
 import { formatPublicBookingId } from "./whatsapp/publicBookingId";
 import { newPublicAccessToken } from "@/lib/publicRateLimit";
 import { generateBookingQrToken } from "../bookingQr";
+import { trackBookingPrivateMedia } from "../bookingPrivateMediaTracking";
+import { BOOKING_PRIVATE_MEDIA_TYPES } from "../bookingPrivateMediaTypes";
 
 export type BookingItemInput = {
   item_id: number;
@@ -220,6 +222,21 @@ export async function createBooking(
   });
 
   broadcastShopEvent({ type: "booking.created", bookingId: booking.id, status: booking.status, by });
+
+  void prisma.bookingOrder
+    .findMany({ where: { bookingId: booking.id }, select: { id: true, photo: true } })
+    .then(async (orders) => {
+      for (const order of orders) {
+        if (!order.photo) continue;
+        await trackBookingPrivateMedia({
+          bookingId: booking.id,
+          blobUrl: order.photo,
+          bookingOrderId: order.id,
+          mediaType: BOOKING_PRIVATE_MEDIA_TYPES.ORDER_PHOTO,
+        });
+      }
+    })
+    .catch(() => {});
 
   void prisma.booking
     .findUnique({ where: { id: booking.id }, include: { bookingItems: true } })

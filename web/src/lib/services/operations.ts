@@ -12,7 +12,9 @@ import { isStarBooking } from "../starBooking";
 import { getAvailableItemsApi, bookingUsesItem, findItemIdsStillInActiveBookings } from "../booking";
 import { broadcastShopEvent } from "../realtime/broadcast";
 import { logActivity, snapshotBooking } from "../activityLog";
-import { saveIdProofUpload } from "../upload";
+import { saveIdProofUpload, IdProofUploadError, deleteUpload } from "../upload";
+import { trackBookingPrivateMedia } from "../bookingPrivateMediaTracking";
+import { BOOKING_PRIVATE_MEDIA_TYPES } from "../bookingPrivateMediaTypes";
 import { syncBookingStatusFromItems } from "../syncBookingStatusFromItems";
 import { cachedQuery } from "../perfCache";
 import { serializeActiveOrders } from "../slipBookingData";
@@ -35,57 +37,45 @@ export async function repairAllBookingStatuses() {
   return fixed;
 }
 
-async function clearBookingIdPhotos(booking: {
-  id: number;
+function collectFullReturnPhotoPaths(booking: {
+  incompletePhoto?: string | null;
   idPhoto1?: string | null;
   idPhoto2?: string | null;
-}) {
-  const { enqueueBlobCleanup } = await import("@/lib/blobCleanup");
-  await enqueueBlobCleanup([booking.idPhoto1, booking.idPhoto2], {
-    reason: "clear_id_photos",
-    bookingId: booking.id,
-  });
-}
-
-async function clearIncompletePhotos(booking: {
-  id: number;
-  incompletePhoto?: string | null;
   bookingItems?: Array<{ itemIncompletePhoto?: string | null }>;
-}) {
-  const paths = [
+}): string[] {
+  return [
     booking.incompletePhoto,
+    booking.idPhoto1,
+    booking.idPhoto2,
     ...(booking.bookingItems?.map((bi) => bi.itemIncompletePhoto) ?? []),
-  ];
-  const { enqueueBlobCleanup } = await import("@/lib/blobCleanup");
-  await enqueueBlobCleanup(paths, { reason: "clear_incomplete_photos", bookingId: booking.id });
+  ].filter((p): p is string => !!p);
 }
 
 /** When every delivered dress is returned (none incomplete), close the booking. */
 async function finalizeFullReturnIfComplete(
   bookingId: number,
   tx: Prisma.TransactionClient,
-) {
+): Promise<string[]> {
   const booking = await tx.booking.findUnique({
     where: { id: bookingId },
     include: { bookingItems: true },
   });
   if (!booking || booking.status === "returned" || booking.status === "cancelled" || booking.status === "incomplete_return") {
-    return;
+    return [];
   }
 
   const delivered = booking.bookingItems.filter((bi) => bi.isDelivered && !bi.isCancelled);
-  if (!delivered.length) return;
+  if (!delivered.length) return [];
 
   // Partial delivery: keep booking open so remaining dresses can still be handed over.
   const undelivered = booking.bookingItems.filter((bi) => !bi.isDelivered && !bi.isCancelled);
-  if (undelivered.length > 0) return;
+  if (undelivered.length > 0) return [];
 
   const allReturned = delivered.every((bi) => bi.isReturned);
   const anyIncomplete = delivered.some((bi) => bi.isIncompleteReturn);
-  if (!allReturned || anyIncomplete) return;
+  if (!allReturned || anyIncomplete) return [];
 
-  await clearIncompletePhotos(booking);
-  await clearBookingIdPhotos(booking);
+  const paths = collectFullReturnPhotoPaths(booking);
   await tx.booking.update({
     where: { id: bookingId },
     data: {
@@ -98,18 +88,19 @@ async function finalizeFullReturnIfComplete(
       idPhoto2: null,
     },
   });
+  return paths;
 }
 
 /** After an incomplete dress is returned, recalculate held security or close the booking. */
 async function syncIncompleteReturnStatus(
   bookingId: number,
   tx: Prisma.TransactionClient,
-) {
+): Promise<string[]> {
   const booking = await tx.booking.findUnique({
     where: { id: bookingId },
     include: { bookingItems: true },
   });
-  if (!booking || booking.status !== "incomplete_return") return;
+  if (!booking || booking.status !== "incomplete_return") return [];
 
   const delivered = booking.bookingItems.filter((bi) => bi.isDelivered);
   const incomplete = delivered.filter((bi) => bi.isIncompleteReturn);
@@ -118,8 +109,7 @@ async function syncIncompleteReturnStatus(
   if (incomplete.length === 0) {
     const allReturned = delivered.length > 0 && delivered.every((bi) => bi.isReturned);
     if (allReturned) {
-      await clearIncompletePhotos(booking);
-      await clearBookingIdPhotos(booking);
+      const paths = collectFullReturnPhotoPaths(booking);
       await tx.booking.update({
         where: { id: bookingId },
         data: {
@@ -131,13 +121,13 @@ async function syncIncompleteReturnStatus(
           idPhoto2: null,
         },
       });
-    } else {
-      await tx.booking.update({
-        where: { id: bookingId },
-        data: { securityHeld: 0 },
-      });
+      return paths;
     }
-    return;
+    await tx.booking.update({
+      where: { id: bookingId },
+      data: { securityHeld: 0 },
+    });
+    return [];
   }
 
   const noteParts = incomplete
@@ -154,6 +144,7 @@ async function syncIncompleteReturnStatus(
       incompleteNotes: noteParts.length ? noteParts.join(" | ") : booking.incompleteNotes,
     },
   });
+  return [];
 }
 
 function warnFromBooking(b: {
@@ -1164,6 +1155,7 @@ export async function saveDeliveryIdPhotos(
   let idPhoto1 = booking.idPhoto1;
   let idPhoto2 = booking.idPhoto2;
   const pathsToCleanup: string[] = [];
+  let partialFailure: { slot: 1 | 2; code: string; message: string } | undefined;
 
   const file1 = data.id_photo_1;
   const file2 = data.id_photo_2;
@@ -1171,12 +1163,30 @@ export async function saveDeliveryIdPhotos(
     Boolean(f) && typeof f === "object" && "size" in (f as object) && (f as File).size > 0;
 
   if (isUpload(file1)) {
-    if (idPhoto1) pathsToCleanup.push(idPhoto1);
     idPhoto1 = await saveIdProofUpload(file1);
+    if (booking.idPhoto1 && booking.idPhoto1 !== idPhoto1) {
+      pathsToCleanup.push(booking.idPhoto1);
+    }
   }
+
   if (isUpload(file2)) {
-    if (idPhoto2) pathsToCleanup.push(idPhoto2);
-    idPhoto2 = await saveIdProofUpload(file2);
+    try {
+      const uploaded = await saveIdProofUpload(file2);
+      if (booking.idPhoto2 && booking.idPhoto2 !== uploaded) {
+        pathsToCleanup.push(booking.idPhoto2);
+      }
+      idPhoto2 = uploaded;
+    } catch (e) {
+      if (e instanceof IdProofUploadError && isUpload(file1) && idPhoto1 !== booking.idPhoto1) {
+        partialFailure = { slot: 2, code: e.code, message: e.message };
+      } else {
+        if (isUpload(file1) && idPhoto1 !== booking.idPhoto1) {
+          await deleteUpload(idPhoto1);
+          idPhoto1 = booking.idPhoto1;
+        }
+        throw e;
+      }
+    }
   }
 
   if (idPhoto1 === booking.idPhoto1 && idPhoto2 === booking.idPhoto2) {
@@ -1187,6 +1197,21 @@ export async function saveDeliveryIdPhotos(
     where: { id: bookingId },
     data: { idPhoto1, idPhoto2 },
   });
+
+  if (idPhoto1 && idPhoto1 !== booking.idPhoto1) {
+    await trackBookingPrivateMedia({
+      bookingId,
+      blobUrl: idPhoto1,
+      mediaType: BOOKING_PRIVATE_MEDIA_TYPES.ID_PROOF,
+    });
+  }
+  if (idPhoto2 && idPhoto2 !== booking.idPhoto2) {
+    await trackBookingPrivateMedia({
+      bookingId,
+      blobUrl: idPhoto2,
+      mediaType: BOOKING_PRIVATE_MEDIA_TYPES.ID_PROOF,
+    });
+  }
 
   if (pathsToCleanup.length) {
     const { enqueueBlobCleanup } = await import("@/lib/blobCleanup");
@@ -1203,7 +1228,7 @@ export async function saveDeliveryIdPhotos(
     after: { idPhoto1: result.idPhoto1, idPhoto2: result.idPhoto2 },
   });
 
-  return result;
+  return { booking: result, partialFailure };
 }
 
 type SaveReturnData = {
@@ -1277,13 +1302,13 @@ async function runMarkItemReturnedInTx(
         itemSecurityHeld: 0,
       },
     });
-    await syncIncompleteReturnStatus(bookingId, tx);
+    pathsToCleanup.push(...(await syncIncompleteReturnStatus(bookingId, tx)));
   } else {
     await tx.bookingItem.updateMany({
       where: { id: bi.id },
       data: { isReturned: true, isIncompleteReturn: false },
     });
-    await finalizeFullReturnIfComplete(bookingId, tx);
+    pathsToCleanup.push(...(await finalizeFullReturnIfComplete(bookingId, tx)));
   }
 
   if (bi.itemId != null) {
@@ -1361,8 +1386,8 @@ async function runMarkItemsReturnedInTx(
     });
   }
 
-  await syncIncompleteReturnStatus(bookingId, tx);
-  await finalizeFullReturnIfComplete(bookingId, tx);
+  pathsToCleanup.push(...(await syncIncompleteReturnStatus(bookingId, tx)));
+  pathsToCleanup.push(...(await finalizeFullReturnIfComplete(bookingId, tx)));
 
   const booking = await tx.booking.findUnique({
     where: { id: bookingId },
@@ -1497,8 +1522,8 @@ export async function saveReturn(
     if (!data.booking_item_id) {
       const b = await loadBooking();
       if (!b.bookingItems.length) {
-        await clearBookingIdPhotos(b);
-        await runInReturnTx(options?.tx, async (tx) => {
+        const photosToClear = [b.idPhoto1, b.idPhoto2].filter((p): p is string => !!p);
+        const legacyBooking = await runInReturnTx(options?.tx, async (tx) => {
           await tx.$executeRaw`SELECT id FROM bookings WHERE id = ${bookingId} FOR UPDATE`;
           await tx.booking.update({
             where: { id: bookingId },
@@ -1516,7 +1541,25 @@ export async function saveReturn(
               data: { status: "available" },
             });
           }
+          return tx.booking.findUnique({
+            where: { id: bookingId },
+            include: { bookingItems: true },
+          });
         });
+
+        if (options?.tx) {
+          if (!legacyBooking) throw new Error("Booking not found");
+          return Object.assign(legacyBooking, {
+            newlyReturnedItemIds: [],
+            deferSideEffects: true as const,
+            photosToClear,
+          });
+        }
+
+        if (photosToClear.length) {
+          const { enqueueBlobCleanup } = await import("@/lib/blobCleanup");
+          await enqueueBlobCleanup(photosToClear, { reason: "full_return", bookingId });
+        }
       } else {
         throw new Error("Dress not specified.");
       }

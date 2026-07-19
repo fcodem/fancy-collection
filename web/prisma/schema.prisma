@@ -335,6 +335,7 @@ model Booking {
   whatsAppJobs          WhatsAppJob[]
   whatsAppMessages      WhatsAppMessage[]
   whatsAppConversations WhatsAppConversation[]
+  privateMedia          BookingPrivateMedia[]
 
   @@index([deliveryDate, status])
   @@index([returnDate, status])
@@ -1212,6 +1213,30 @@ model InventorySkuCounter {
   nextValue BigInt @default(1) @map("next_value")
 
   @@map("inventory_sku_counter")
+}
+
+model BookingPrivateMedia {
+  id             Int       @id @default(autoincrement())
+  bookingId      Int       @map("booking_id")
+  bookingItemId  Int?      @map("booking_item_id")
+  bookingOrderId Int?      @map("booking_order_id")
+  mediaType      String    @map("media_type")
+  blobUrl        String    @map("blob_url")
+  blobPathname   String?   @map("blob_pathname")
+  status         String    @default("ACTIVE")
+  deleteAfter    DateTime? @map("delete_after")
+  deletedAt      DateTime? @map("deleted_at")
+  deleteAttempts Int       @default(0) @map("delete_attempts")
+  lastErrorCode  String?   @map("last_error_code")
+  createdAt      DateTime  @default(now()) @map("created_at")
+  updatedAt      DateTime  @updatedAt @map("updated_at")
+
+  booking Booking @relation(fields: [bookingId], references: [id], onDelete: Cascade)
+
+  @@index([bookingId, status])
+  @@index([status, deleteAfter])
+  @@index([bookingId, blobUrl])
+  @@map("booking_private_media")
 }
 
 /** Prevents duplicate WhatsApp sends after worker timeouts. */

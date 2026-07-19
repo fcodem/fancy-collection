@@ -11,6 +11,8 @@ import { formatDate } from "../constants";
 import { logActivity } from "../activityLog";
 
 import { deleteUpload } from "../upload";
+import { trackBookingPrivateMedia, shouldTrackBookingPrivateMedia } from "../bookingPrivateMediaTracking";
+import { BOOKING_PRIVATE_MEDIA_TYPES } from "../bookingPrivateMediaTypes";
 
 import {
 
@@ -741,6 +743,14 @@ export async function updateJewellerySelectionPhoto(
   }
 
   await prisma.bookingJewellery.update({ where: { id: selectionId }, data: { photo: newPhoto } });
+
+  if (newPhoto && shouldTrackBookingPrivateMedia(newPhoto)) {
+    await trackBookingPrivateMedia({
+      bookingId,
+      blobUrl: newPhoto,
+      mediaType: BOOKING_PRIVATE_MEDIA_TYPES.JEWELLERY_SELECTION,
+    });
+  }
 
   logActivity({
     username: by || "system",

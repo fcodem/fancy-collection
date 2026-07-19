@@ -3,7 +3,7 @@ import ResolveButton from "@/components/ResolveButton";
 import { StandardBookingTableCells, StandardBookingTableHead } from "@/components/BookingDetailsColumns";
 import { serializeStandardBookingDetails, incompleteReturnSecuritySummary } from "@/lib/bookingDetails";
 import IncompleteSecuritySummaryBox from "@/components/IncompleteSecuritySummaryBox";
-import { photoUrl } from "@/lib/photoUrl";
+import { privateMediaUrl, photoUrl } from "@/lib/photoUrl";
 import { pdfCurrency } from "@/lib/pdfFormat";
 import { formatDate } from "@/lib/constants";
 import DownloadPdfButton from "@/components/DownloadPdfButton";
@@ -163,9 +163,9 @@ export default async function IncompleteReturnPage() {
                             {b.bookingItems
                               .filter((bi) => bi.itemIncompletePhoto)
                               .map((bi) => (
-                                <a key={bi.id} href={photoUrl(bi.itemIncompletePhoto!)} target="_blank" rel="noreferrer" title={bi.dressName}>
+                                <a key={bi.id} href={privateMediaUrl(bi.itemIncompletePhoto!)} target="_blank" rel="noreferrer" title={bi.dressName}>
                                   <img
-                                    src={photoUrl(bi.itemIncompletePhoto!)}
+                                    src={privateMediaUrl(bi.itemIncompletePhoto!)}
                                     alt={bi.dressName}
                                     style={{ width: 56, height: 56, objectFit: "cover", borderRadius: 6, border: "1px solid var(--border)" }}
                                   />
@@ -173,9 +173,9 @@ export default async function IncompleteReturnPage() {
                               ))}
                           </div>
                         ) : b.incompletePhoto ? (
-                          <a href={photoUrl(b.incompletePhoto)} target="_blank" rel="noreferrer">
+                          <a href={privateMediaUrl(b.incompletePhoto)} target="_blank" rel="noreferrer">
                             <img
-                              src={photoUrl(b.incompletePhoto)}
+                              src={privateMediaUrl(b.incompletePhoto)}
                               alt="Incomplete"
                               style={{ width: 56, height: 56, objectFit: "cover", borderRadius: 6, border: "1px solid var(--border)" }}
                             />
