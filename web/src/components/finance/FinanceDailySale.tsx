@@ -3,10 +3,12 @@
 import { useEffect, useState } from "react";
 import { FinanceCategorySaleTable } from "@/components/finance/FinanceCategorySaleTable";
 import { FinanceChart } from "@/components/finance/FinanceChart";
+import { FinanceChartSection } from "@/components/finance/FinanceChartSection";
 import { fetchFinanceJson } from "@/components/finance/financeFetch";
 import { FinanceInactiveStats } from "@/components/finance/FinanceInactiveStats";
 import { FinanceOrdersSummary } from "@/components/finance/FinanceOrdersSummary";
 import { CUSTOM_ORDERS_CATEGORY } from "@/lib/financeBookingAmounts";
+import { categoryLabelKeys, numberMap, numberValue } from "@/lib/finance/safeNumbers";
 import { formatInr } from "@/lib/format";
 
 export default function FinanceDailySalePage({ todayIso }: { todayIso: string }) {
@@ -63,20 +65,15 @@ export default function FinanceDailySalePage({ todayIso }: { todayIso: string })
     order_refund?: number;
   } | null;
 
-  const advanceByCategory = d?.advance_by_category || {};
-  const balanceByCategory = d?.balance_by_category || {};
-  const catLabels = [
-    ...new Set([
-      ...Object.keys(advanceByCategory),
-      ...Object.keys(balanceByCategory),
-    ]),
-  ].sort();
+  const advanceByCategory = numberMap(d?.advance_by_category);
+  const balanceByCategory = numberMap(d?.balance_by_category);
+  const catLabels = categoryLabelKeys(advanceByCategory, balanceByCategory);
   const catValues = catLabels.map(
-    (cat) => (advanceByCategory[cat] || 0) + (balanceByCategory[cat] || 0),
+    (cat) => numberValue(advanceByCategory[cat]) + numberValue(balanceByCategory[cat]),
   );
-  const dressCounts = { ...(d?.dresses_by_category || {}) };
-  if ((d?.orders_booked ?? 0) > 0) {
-    dressCounts[CUSTOM_ORDERS_CATEGORY] = Number(d?.orders_booked);
+  const dressCounts = numberMap(d?.dresses_by_category);
+  if (numberValue(d?.orders_booked) > 0) {
+    dressCounts[CUSTOM_ORDERS_CATEGORY] = numberValue(d?.orders_booked);
   }
 
   return (
@@ -134,7 +131,9 @@ export default function FinanceDailySalePage({ todayIso }: { todayIso: string })
             {catLabels.length > 0 ? (
               <>
                 <div style={{ marginBottom: 24 }}>
-                  <FinanceChart type="pie" labels={catLabels} values={catValues} title="Sale by Category" height={280} />
+                  <FinanceChartSection title="Sale by Category">
+                    <FinanceChart type="pie" labels={catLabels} values={catValues} title="Sale by Category" height={280} />
+                  </FinanceChartSection>
                 </div>
                 <FinanceCategorySaleTable
                   advanceByCategory={advanceByCategory}

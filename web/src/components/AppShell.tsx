@@ -486,7 +486,13 @@ function AppLayoutInner({
             <>
               <div className="nav-section-label" style={{ marginTop: 8 }}>Finance</div>
               {NAV_FINANCE.map((item) => (
-                <Link key={item.href} href={item.href} className={`nav-item ${pathname === item.href || pathname.startsWith(item.href + "/") ? "active" : ""}`} onClick={navClick}>
+                <Link
+                  key={item.href}
+                  href={item.href}
+                  prefetch={false}
+                  className={`nav-item ${pathname === item.href || pathname.startsWith(item.href + "/") ? "active" : ""}`}
+                  onClick={navClick}
+                >
                   <i className={`fa-solid ${item.icon}`} /> <span className="nav-label">{item.label}</span>
                 </Link>
               ))}
