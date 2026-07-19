@@ -21,7 +21,7 @@ export async function POST(req: NextRequest) {
     return jsonError("Invalid request", 400);
   }
 
-  const timings = perf.finish({ kind: "skip" });
+  const timings = perf.finish({ kind: "read" });
   return withServerTiming(
     jsonOk({
       ok: true,
