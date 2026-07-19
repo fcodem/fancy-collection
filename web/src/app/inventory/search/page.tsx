@@ -12,7 +12,7 @@ export default async function InventorySearchPage() {
         <span className="btn btn-primary btn-sm" aria-current="page">
           AI / Photo Dress Checker
         </span>
-        <Link href="/inventory/search/scan" className="btn btn-outline btn-sm">
+        <Link href="/inventory/search/scan" prefetch={false} className="btn btn-outline btn-sm">
           <i className="fa-solid fa-qrcode" /> Scan Dress Availability
         </Link>
       </div>

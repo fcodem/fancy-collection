@@ -4,6 +4,7 @@ import Link from "next/link";
 import { useRouter } from "next/navigation";
 import { useCallback, useEffect, useRef, useState } from "react";
 import DressNameSuggestInput from "@/components/DressNameSuggestInput";
+import ScanDressAvailabilityCard from "@/components/ScanDressAvailabilityCard";
 import { formatDate } from "@/lib/constants";
 import { formatInr } from "@/lib/format";
 import { fetchJson, parseResponseJson } from "@/lib/fetchJson";
@@ -420,6 +421,8 @@ export default function DashboardView({
           )}
         </div>
       </div>
+
+      <ScanDressAvailabilityCard />
 
       <div className="page-banner" style={{ marginBottom: 22, background: "linear-gradient(135deg, var(--primary-dark), var(--primary))", borderRadius: "var(--radius)", padding: "18px 26px", color: "white", display: "flex", justifyContent: "space-between", alignItems: "center", flexWrap: "wrap", gap: 12 }}>
         <div style={{ display: "flex", alignItems: "center", gap: 14 }}>

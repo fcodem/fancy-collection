@@ -108,3 +108,57 @@ export function isCurrentScanGeneration(
 ): boolean {
   return requestGeneration === currentGeneration;
 }
+
+export const DRESS_SCAN_SESSION_STORAGE_KEY = "dress-scan-availability-session";
+
+export type PersistedScanSession = {
+  deliveryDate: string;
+  deliveryTime: string;
+  returnDate: string;
+  returnTime: string;
+  phase: "dates" | "scanning";
+  rows: unknown[];
+};
+
+export function readPersistedScanSession(): PersistedScanSession | null {
+  if (typeof window === "undefined") return null;
+  try {
+    const raw = window.sessionStorage.getItem(DRESS_SCAN_SESSION_STORAGE_KEY);
+    if (!raw) return null;
+    const parsed = JSON.parse(raw) as PersistedScanSession;
+    if (
+      typeof parsed.deliveryDate !== "string" ||
+      typeof parsed.deliveryTime !== "string" ||
+      typeof parsed.returnDate !== "string" ||
+      typeof parsed.returnTime !== "string" ||
+      (parsed.phase !== "dates" && parsed.phase !== "scanning") ||
+      !Array.isArray(parsed.rows)
+    ) {
+      return null;
+    }
+    return parsed;
+  } catch {
+    return null;
+  }
+}
+
+export function writePersistedScanSession(session: PersistedScanSession): void {
+  if (typeof window === "undefined") return;
+  try {
+    window.sessionStorage.setItem(
+      DRESS_SCAN_SESSION_STORAGE_KEY,
+      JSON.stringify(session),
+    );
+  } catch {
+    /* ignore quota / private mode */
+  }
+}
+
+export function clearPersistedScanSession(): void {
+  if (typeof window === "undefined") return;
+  try {
+    window.sessionStorage.removeItem(DRESS_SCAN_SESSION_STORAGE_KEY);
+  } catch {
+    /* ignore */
+  }
+}

@@ -1,13 +1,22 @@
 "use client";
 
+import Link from "next/link";
 import { useCallback, useEffect, useRef, useState } from "react";
 import type { ScannerStatus } from "@/lib/cameraScanner";
 import {
   createScanDedupeGate,
   isCurrentScanGeneration,
+  readPersistedScanSession,
   type ValidatedScanWindow,
   validateScanWindow,
+  writePersistedScanSession,
 } from "@/lib/dressScanSession";
+import {
+  canOpenDelivery,
+  canOpenJewellerySelection,
+  canOpenReturn,
+  scanRecordReasonLabel,
+} from "@/lib/scanRecordActions";
 
 type ApiRecord = {
   bookingId: number;
@@ -134,6 +143,7 @@ function BookingRecords({ records }: { records: ApiRecord[] }) {
       {records.map((record) => (
         <div
           key={`${record.bookingId}-${record.reason}`}
+          data-testid="scan-booking-record"
           style={{
             border: "1px solid var(--border)",
             borderRadius: 8,
@@ -142,15 +152,72 @@ function BookingRecords({ records }: { records: ApiRecord[] }) {
             lineHeight: 1.5,
           }}
         >
-          <strong>{record.bookingNumber || `Booking ${record.bookingId}`}</strong>
-          {" · "}
-          Serial {record.monthlySerial}
-          <br />
-          {record.customerName} · {record.contact}
-          <br />
-          Delivery: {record.deliveryDateTime} · Return: {record.returnDateTime}
-          <br />
-          Booking: {record.bookingStatus} · Item: {record.itemStatus}
+          <div>
+            <strong>{record.bookingNumber || `Booking ${record.bookingId}`}</strong>
+            {" · "}
+            Monthly serial {record.monthlySerial}
+          </div>
+          <div>
+            {record.customerName}
+            {record.contact ? ` · ${record.contact}` : ""}
+          </div>
+          <div>
+            Delivery: {record.deliveryDateTime}
+            {" · "}
+            Return: {record.returnDateTime}
+          </div>
+          <div>
+            Booking status: {record.bookingStatus}
+            {" · "}
+            Item status: {record.itemStatus}
+          </div>
+          <div style={{ color: "var(--text-muted)", marginTop: 4 }}>
+            {scanRecordReasonLabel(record.reason)}
+          </div>
+          <div
+            style={{
+              display: "flex",
+              gap: 8,
+              flexWrap: "wrap",
+              marginTop: 10,
+            }}
+          >
+            <Link
+              href={`/booking/${record.bookingId}`}
+              prefetch={false}
+              className="btn btn-outline btn-sm"
+              data-testid="open-booking-record"
+            >
+              Open Booking Record
+            </Link>
+            {canOpenDelivery(record) ? (
+              <Link
+                href={`/booking-delivery/${record.bookingId}`}
+                prefetch={false}
+                className="btn btn-outline btn-sm"
+              >
+                Open Delivery
+              </Link>
+            ) : null}
+            {canOpenReturn(record) ? (
+              <Link
+                href={`/return/${record.bookingId}`}
+                prefetch={false}
+                className="btn btn-outline btn-sm"
+              >
+                Open Return
+              </Link>
+            ) : null}
+            {canOpenJewellerySelection(record) ? (
+              <Link
+                href={`/jewellery-selection/${record.bookingId}`}
+                prefetch={false}
+                className="btn btn-outline btn-sm"
+              >
+                Open Jewellery Selection
+              </Link>
+            ) : null}
+          </div>
         </div>
       ))}
     </div>
@@ -158,6 +225,7 @@ function BookingRecords({ records }: { records: ApiRecord[] }) {
 }
 
 export default function DressAvailabilityScanner() {
+  const restoredRef = useRef(false);
   const [deliveryDate, setDeliveryDate] = useState("");
   const [deliveryTime, setDeliveryTime] = useState("12:00");
   const [returnDate, setReturnDate] = useState("");
@@ -205,6 +273,52 @@ export default function DressAvailabilityScanner() {
       if (row.result.dress) dressResultRef.current.set(row.result.dress.id, row.id);
     }
   }, []);
+
+  useEffect(() => {
+    if (restoredRef.current) return;
+    restoredRef.current = true;
+    const saved = readPersistedScanSession();
+    if (!saved) return;
+    setDeliveryDate(saved.deliveryDate);
+    setDeliveryTime(saved.deliveryTime);
+    setReturnDate(saved.returnDate);
+    setReturnTime(saved.returnTime);
+    setPhase(saved.phase);
+    if (saved.phase === "scanning") {
+      try {
+        const window = validateScanWindow({
+          deliveryDate: saved.deliveryDate,
+          deliveryTime: saved.deliveryTime,
+          returnDate: saved.returnDate,
+          returnTime: saved.returnTime,
+        });
+        setActiveWindow(window);
+      } catch {
+        setPhase("dates");
+        setActiveWindow(null);
+        return;
+      }
+    }
+    const savedRows = saved.rows as ScanRow[];
+    if (savedRows.length) {
+      setRows(savedRows);
+      rebuildIndexes(savedRows);
+      for (const row of savedRows) {
+        dedupeRef.current.claim(row.scannedCode, Date.now(), true);
+      }
+    }
+  }, [rebuildIndexes]);
+
+  useEffect(() => {
+    writePersistedScanSession({
+      deliveryDate,
+      deliveryTime,
+      returnDate,
+      returnTime,
+      phase,
+      rows,
+    });
+  }, [deliveryDate, deliveryTime, returnDate, returnTime, phase, rows]);
 
   const drainQueue = useCallback(async function drainQueueInner() {
     if (requestActiveRef.current || !activeWindow) return;

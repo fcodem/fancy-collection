@@ -86,6 +86,16 @@ describe("continuous scan duplicate suppression", () => {
   });
 });
 
+describe("scan session persistence", () => {
+  it("exports session storage helpers for back navigation", async () => {
+    const mod = await import("./dressScanSession");
+    assert.equal(typeof mod.readPersistedScanSession, "function");
+    assert.equal(typeof mod.writePersistedScanSession, "function");
+    assert.equal(typeof mod.clearPersistedScanSession, "function");
+    assert.equal(mod.DRESS_SCAN_SESSION_STORAGE_KEY, "dress-scan-availability-session");
+  });
+});
+
 describe("Scan Dress Availability UI contracts", () => {
   const component = read("src/components/DressAvailabilityScanner.tsx");
   const scanPage = read("src/app/inventory/search/scan/page.tsx");
@@ -178,5 +188,13 @@ describe("Scan Dress Availability UI contracts", () => {
     assert.doesNotMatch(component, /\/api\/booking\/qr\/resolve/);
     assert.match(bookingQr, /\/api\/booking\/qr\/resolve/);
     assert.doesNotMatch(bookingQr, /\/api\/dress-checker\/scan-availability/);
+  });
+
+  it("shows booking record actions without prefetching booking routes", () => {
+    assert.match(component, /Open Booking Record/);
+    assert.match(component, /prefetch=\{false\}/);
+    assert.match(component, /scanRecordReasonLabel/);
+    assert.match(component, /readPersistedScanSession/);
+    assert.match(component, /writePersistedScanSession/);
   });
 });

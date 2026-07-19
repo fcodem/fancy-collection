@@ -30,6 +30,7 @@ const NAV_MAIN = [
   { href: "/booking-list", label: "Booked Items", icon: "fa-list-check" },
   { href: "/returning-today", label: "Returning Today (Alternate)", icon: "fa-arrows-rotate" },
   { href: "/inventory/search", label: "Dress Search", icon: "fa-shirt" },
+  { href: "/inventory/search/scan", label: "Dress Availability Scanner", icon: "fa-qrcode" },
   { href: "/inventory", label: "Manage Inventory", icon: "fa-layer-group" },
   { href: "/search-qr", label: "Search QR Code", icon: "fa-qrcode" },
   { href: "/late-return", label: "Late Returns", icon: "fa-hourglass-end" },
