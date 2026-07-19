@@ -1,7 +1,7 @@
 import Link from "next/link";
 import prisma from "@/lib/prisma";
 import ProspectLeadActions from "@/components/ProspectLeadActions";
-import ShopEnquiryDeleteButton from "@/components/ShopEnquiryDeleteButton";
+import ShopEnquiryActions from "@/components/ShopEnquiryActions";
 import { dressDisplayName } from "@/lib/dress";
 import { formatDate } from "@/lib/constants";
 import { formatInr } from "@/lib/format";
@@ -134,6 +134,7 @@ export default async function ProspectLeadsPage() {
                     <th>Customer</th>
                     <th>Contact</th>
                     <th>Visit Date</th>
+                    <th>Dress Needed</th>
                     <th>Notes</th>
                     <th>Staff</th>
                     <th>Actions</th>
@@ -157,10 +158,13 @@ export default async function ProspectLeadsPage() {
                         )}
                       </td>
                       <td>{formatDate(e.visitDate, "display")}</td>
+                      <td>
+                        {e.dressNeededDate ? formatDate(e.dressNeededDate, "display") : "—"}
+                      </td>
                       <td style={{ maxWidth: 220, wordBreak: "break-word", fontSize: 12 }}>{e.enquiryNotes || "—"}</td>
                       <td style={{ fontSize: 12 }}>{e.staffNames || "—"}</td>
                       <td>
-                        <ShopEnquiryDeleteButton enquiryId={e.id} />
+                        <ShopEnquiryActions enquiryId={e.id} />
                       </td>
                     </tr>
                   ))}

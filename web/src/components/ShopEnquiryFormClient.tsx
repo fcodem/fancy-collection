@@ -8,24 +8,45 @@ import { useToast } from "@/components/ui/Toast";
 import { SaveConfirmedBanner } from "@/components/SaveConfirmedBanner";
 import { buildSaveRedirectUrl } from "@/components/SaveConfirmedBanner";
 
+export type ShopEnquiryFormValues = {
+  customerName: string;
+  customerAddress: string;
+  contact1: string;
+  whatsapp: string;
+  enquiryNotes: string;
+  visitDate: string;
+  dressNeededDate: string;
+  staffNames: string[];
+};
+
 type Props = {
   staffList: string[];
   today?: string;
   saveConfirmed?: { title: string; detail?: string };
+  enquiryId?: number;
+  initial?: ShopEnquiryFormValues;
 };
 
-export default function ShopEnquiryFormClient({ staffList, today, saveConfirmed }: Props) {
+export default function ShopEnquiryFormClient({
+  staffList,
+  today,
+  saveConfirmed,
+  enquiryId,
+  initial,
+}: Props) {
   const router = useRouter();
   const toast = useToast();
   const visitDefault = today || todayIso();
+  const editing = enquiryId != null;
 
-  const [customerName, setCustomerName] = useState("");
-  const [customerAddress, setCustomerAddress] = useState("");
-  const [contact1, setContact1] = useState("");
-  const [whatsapp, setWhatsapp] = useState("");
-  const [enquiryNotes, setEnquiryNotes] = useState("");
-  const [visitDate, setVisitDate] = useState(visitDefault);
-  const [staffNames, setStaffNames] = useState<string[]>([]);
+  const [customerName, setCustomerName] = useState(initial?.customerName ?? "");
+  const [customerAddress, setCustomerAddress] = useState(initial?.customerAddress ?? "");
+  const [contact1, setContact1] = useState(initial?.contact1 ?? "");
+  const [whatsapp, setWhatsapp] = useState(initial?.whatsapp ?? "");
+  const [enquiryNotes, setEnquiryNotes] = useState(initial?.enquiryNotes ?? "");
+  const [visitDate, setVisitDate] = useState(initial?.visitDate ?? visitDefault);
+  const [dressNeededDate, setDressNeededDate] = useState(initial?.dressNeededDate ?? "");
+  const [staffNames, setStaffNames] = useState<string[]>(initial?.staffNames ?? []);
   const [saving, setSaving] = useState(false);
   const [error, setError] = useState("");
 
@@ -34,13 +55,25 @@ export default function ShopEnquiryFormClient({ staffList, today, saveConfirmed 
   }
 
   function resetForm() {
-    setCustomerName("");
-    setCustomerAddress("");
-    setContact1("");
-    setWhatsapp("");
-    setEnquiryNotes("");
-    setVisitDate(visitDefault);
-    setStaffNames([]);
+    if (editing && initial) {
+      setCustomerName(initial.customerName);
+      setCustomerAddress(initial.customerAddress);
+      setContact1(initial.contact1);
+      setWhatsapp(initial.whatsapp);
+      setEnquiryNotes(initial.enquiryNotes);
+      setVisitDate(initial.visitDate);
+      setDressNeededDate(initial.dressNeededDate);
+      setStaffNames(initial.staffNames);
+    } else {
+      setCustomerName("");
+      setCustomerAddress("");
+      setContact1("");
+      setWhatsapp("");
+      setEnquiryNotes("");
+      setVisitDate(visitDefault);
+      setDressNeededDate("");
+      setStaffNames([]);
+    }
     setError("");
   }
 
@@ -53,27 +86,37 @@ export default function ShopEnquiryFormClient({ staffList, today, saveConfirmed 
     }
     setSaving(true);
     try {
-      const res = await fetch("/api/shop-enquiries", {
-        method: "POST",
-        headers: { "Content-Type": "application/json" },
-        credentials: "same-origin",
-        body: JSON.stringify({
-          customer_name: customerName,
-          customer_address: customerAddress,
-          contact_1: contact1,
-          whatsapp_no: whatsapp,
-          enquiry_notes: enquiryNotes,
-          staff_names: staffNames,
-          visit_date: visitDate,
-        }),
-      });
+      const payload = {
+        customer_name: customerName,
+        customer_address: customerAddress,
+        contact_1: contact1,
+        whatsapp_no: whatsapp,
+        enquiry_notes: enquiryNotes,
+        staff_names: staffNames,
+        visit_date: visitDate,
+        dress_needed_date: dressNeededDate || null,
+      };
+      const res = await fetch(
+        editing ? `/api/shop-enquiries/${enquiryId}` : "/api/shop-enquiries",
+        {
+          method: editing ? "PATCH" : "POST",
+          headers: { "Content-Type": "application/json" },
+          credentials: "same-origin",
+          body: JSON.stringify(payload),
+        },
+      );
       const data = await res.json();
       if (!res.ok) {
         setError(data.error || "Save failed");
         return;
       }
       const savedName = customerName.trim();
-      toast("Shop enquiry saved", "success");
+      toast(editing ? "Shop enquiry updated" : "Shop enquiry saved", "success");
+      if (editing) {
+        router.push("/prospect-leads");
+        router.refresh();
+        return;
+      }
       resetForm();
       router.replace(
         buildSaveRedirectUrl("/shop-enquiries/new", {
@@ -94,7 +137,7 @@ export default function ShopEnquiryFormClient({ staffList, today, saveConfirmed 
         <Link href="/prospect-leads" style={{ color: "var(--primary)", textDecoration: "none" }}>
           Prospect & Enquiries
         </Link>
-        {" › Add Enquiry"}
+        {editing ? " › Edit Enquiry" : " › Add Enquiry"}
       </div>
 
       {saveConfirmed && (
@@ -112,7 +155,7 @@ export default function ShopEnquiryFormClient({ staffList, today, saveConfirmed 
           <div className="card-header">
             <h3 className="card-title">
               <i className="fa-solid fa-circle-question" style={{ marginRight: 8 }} />
-              Shop Enquiry
+              {editing ? "Edit Shop Enquiry" : "Shop Enquiry"}
             </h3>
           </div>
           <div className="card-body form-grid">
@@ -135,6 +178,15 @@ export default function ShopEnquiryFormClient({ staffList, today, saveConfirmed 
             <div className="form-group">
               <label className="form-label">Visit Date</label>
               <input type="date" className="form-control" value={visitDate} onChange={(e) => setVisitDate(e.target.value)} />
+            </div>
+            <div className="form-group">
+              <label className="form-label">Date Dress Is Needed</label>
+              <input
+                type="date"
+                className="form-control"
+                value={dressNeededDate}
+                onChange={(e) => setDressNeededDate(e.target.value)}
+              />
             </div>
             <div className="form-group full-width">
               <label className="form-label">Enquiry Notes</label>
@@ -165,7 +217,7 @@ export default function ShopEnquiryFormClient({ staffList, today, saveConfirmed 
         <div className="card">
           <div className="card-body" style={{ display: "flex", gap: 12, flexWrap: "wrap" }}>
             <button type="submit" className="btn btn-primary btn-lg" disabled={saving}>
-              {saving ? "Saving…" : "Save Enquiry"}
+              {saving ? "Saving…" : editing ? "Update Enquiry" : "Save Enquiry"}
             </button>
             <Link href="/prospect-leads" className="btn btn-outline btn-lg">
               Cancel

@@ -179,6 +179,7 @@ async function fetchShopEnquiries() {
     rows.map((e) => ({
       ...e,
       visitDate: dateStr(e.visitDate),
+      dressNeededDate: dateStr(e.dressNeededDate),
       createdAt: dateStr(e.createdAt),
     })),
   );

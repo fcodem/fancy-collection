@@ -1,8 +1,9 @@
 import { NextRequest } from "next/server";
 import prisma from "@/lib/prisma";
 import { jsonError, jsonOk, requireUser, requireUserReadOnly, isResponse, requireJsonContentType } from "@/lib/api";
-import { parseDate, formatDate } from "@/lib/constants";
+import { formatDate } from "@/lib/constants";
 import { logActivity } from "@/lib/activityLog";
+import { serializeShopEnquiry, shopEnquiryWriteData } from "@/lib/shopEnquiry";
 
 export async function GET() {
   const user = await requireUserReadOnly();
@@ -12,19 +13,7 @@ export async function GET() {
     orderBy: { createdAt: "desc" },
   });
 
-  return jsonOk(
-    enquiries.map((e) => ({
-      id: e.id,
-      customer_name: e.customerName,
-      customer_address: e.customerAddress,
-      contact_1: e.contact1,
-      whatsapp_no: e.whatsappNo,
-      enquiry_notes: e.enquiryNotes,
-      staff_names: e.staffNames ? e.staffNames.split(", ") : [],
-      visit_date: formatDate(e.visitDate, "iso"),
-      created_at: e.createdAt.toISOString(),
-    })),
-  );
+  return jsonOk(enquiries.map(serializeShopEnquiry));
 }
 
 export async function POST(req: NextRequest) {
@@ -39,17 +28,7 @@ export async function POST(req: NextRequest) {
     if (!body.customer_name?.trim()) return jsonError("Customer name is required");
 
     const enquiry = await prisma.shopEnquiry.create({
-      data: {
-        customerName: body.customer_name.trim(),
-        customerAddress: body.customer_address?.trim() || null,
-        contact1: body.contact_1?.trim() || null,
-        whatsappNo: body.whatsapp_no?.trim() || null,
-        enquiryNotes: body.enquiry_notes?.trim() || null,
-        staffNames: Array.isArray(body.staff_names) && body.staff_names.length
-          ? body.staff_names.join(", ")
-          : null,
-        visitDate: body.visit_date ? new Date(body.visit_date + "T00:00:00.000Z") : new Date(),
-      },
+      data: shopEnquiryWriteData(body),
     });
 
     logActivity({
@@ -60,7 +39,10 @@ export async function POST(req: NextRequest) {
       label: `Shop enquiry — ${enquiry.customerName}`,
       after: {
         customerName: enquiry.customerName,
-        visitDate: body.visit_date || formatDate(new Date(), "iso"),
+        visitDate: formatDate(enquiry.visitDate, "iso"),
+        dressNeededDate: enquiry.dressNeededDate
+          ? formatDate(enquiry.dressNeededDate, "iso")
+          : null,
       },
     });
 

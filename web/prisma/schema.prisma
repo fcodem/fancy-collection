@@ -590,15 +590,16 @@ model ProspectLeadItem {
 }
 
 model ShopEnquiry {
-  id              Int      @id @default(autoincrement())
-  customerName    String   @map("customer_name")
-  customerAddress String?  @map("customer_address")
-  contact1        String?  @map("contact_1")
-  whatsappNo      String?  @map("whatsapp_no")
-  enquiryNotes    String?  @map("enquiry_notes")
-  staffNames      String?  @map("staff_names")
-  visitDate       DateTime @map("visit_date")
-  createdAt       DateTime @default(now()) @map("created_at")
+  id              Int       @id @default(autoincrement())
+  customerName    String    @map("customer_name")
+  customerAddress String?   @map("customer_address")
+  contact1        String?   @map("contact_1")
+  whatsappNo      String?   @map("whatsapp_no")
+  enquiryNotes    String?   @map("enquiry_notes")
+  staffNames      String?   @map("staff_names")
+  visitDate       DateTime  @map("visit_date")
+  dressNeededDate DateTime? @map("dress_needed_date")
+  createdAt       DateTime  @default(now()) @map("created_at")
 
   @@map("shop_enquiries")
 }
