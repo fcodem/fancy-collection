@@ -11,6 +11,10 @@ import {
 import { buildWhatsAppIdempotencyKey } from "../src/lib/mutationIdempotency";
 import { createHash } from "crypto";
 import { searchAvailableItems } from "../src/lib/services/availabilitySearch";
+import {
+  clearAvailableItemsSearchCache,
+  getAvailableItemsSearch,
+} from "../src/lib/services/availabilitySearchApi";
 import { getPackingListPage } from "../src/lib/services/packingList";
 import { createScannedDressAvailabilityService } from "../src/lib/services/scannedDressAvailability";
 import {
@@ -198,6 +202,8 @@ async function main() {
       limit: 2,
     });
     assert(availability.free_items.length <= 2, "availability limit must be enforced");
+    assert(typeof availability.audit.queryMs === "number", "availability audit queryMs required");
+    assert(typeof availability.audit.serializeMs === "number", "availability audit serializeMs required");
     if (availability.hasMore) {
       assert(Boolean(availability.nextCursor), "availability next cursor required");
       const secondPage = await searchAvailableItems({
@@ -212,6 +218,44 @@ async function main() {
         "availability cursor pages must not overlap",
       );
     }
+
+    const menAvailability = await searchAvailableItems({
+      deliveryDate: "2035-01-10",
+      returnDate: "2035-01-12",
+      group: "men",
+      limit: 5,
+    });
+    assert(
+      menAvailability.audit.jewelleryChecks === false,
+      "men group must skip jewellery occupancy checks",
+    );
+
+    const jewelleryAvailability = await searchAvailableItems({
+      deliveryDate: "2035-04-15",
+      returnDate: "2035-04-18",
+      group: "jewellery",
+      limit: 5,
+    });
+    assert(
+      jewelleryAvailability.audit.jewelleryChecks === true,
+      "jewellery group must run part occupancy checks",
+    );
+
+    clearAvailableItemsSearchCache();
+    const coalesceOpts = {
+      deliveryDate: "2035-03-01",
+      returnDate: "2035-03-05",
+      group: "men",
+      limit: 5,
+    };
+    const coalesceResults = await Promise.all(
+      Array.from({ length: 5 }, () => getAvailableItemsSearch(coalesceOpts)),
+    );
+    const misses = coalesceResults.filter((result) => result.cacheStatus === "miss").length;
+    const coalesced = coalesceResults.filter((result) => result.cacheStatus === "coalesced").length;
+    assert.equal(misses, 1, "exactly one concurrent availability search should miss");
+    assert.equal(coalesced, 4, "four concurrent availability searches should coalesce");
+    clearAvailableItemsSearchCache();
 
     // Scanned dress availability: physical-code resolution, one bounded
     // booking query, cancellation/return handling, maintenance, cache
