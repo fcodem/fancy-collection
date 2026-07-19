@@ -39,6 +39,7 @@ import {
   CUSTOM_ORDERS_CATEGORY,
 } from "../financeBookingAmounts";
 import { getInactiveBookingStats } from "../financeInactiveBookings";
+import { financeParallelLimit } from "../finance/financeApiRoute";
 import { cachedQuery } from "../perfCache";
 import { catalogPhotoRef } from "../catalogPhotoRef";
 
@@ -69,6 +70,11 @@ const financeBookingInclude = {
     },
   },
   orders: financeOrderSelect,
+} as const;
+
+/** Same booking rows without custom-order joins — used for delivery/return balance reads. */
+const financeBookingIncludeLite = {
+  bookingItems: financeBookingInclude.bookingItems,
 } as const;
 
 const financeBookingIncludeWithItem = {
@@ -188,38 +194,50 @@ export async function getDailySale(targetDateStr: string) {
   const dayStartQ = startOfDayQ(target);
   const dayEndQ = endOfDayQ(target);
 
-  const [bookingsToday, deliveredToday, returnedToday, refundsToday, inactive, order_balance_collected, order_refund] = await Promise.all([
-    prisma.booking.findMany({
-      where: {
-        ...activeBookingWhere(),
-        createdAt: { gte: dayStartQ, lt: dayEndQ },
-      },
-      include: financeBookingInclude,
-    }),
-    prisma.booking.findMany({
-      where: {
-        status: { in: ["delivered", "returned"] },
-        OR: [
-          { deliveredAt: { gte: dayStartQ, lt: dayEndQ } },
-          { deliveredAt: null, deliveryDate: { gte: dayStartQ, lt: dayEndQ } },
-        ],
-      },
-      include: financeBookingInclude,
-    }),
-    prisma.booking.findMany({
-      where: {
-        status: "returned",
-        returnedAt: { gte: dayStartQ, lt: dayEndQ },
-      },
-      include: financeBookingInclude,
-    }),
-    getRefundsBetween(dayStartQ, dayEndQ),
-    getInactiveBookingStats(dayStartQ, dayEndQ),
-    getOrderBalanceCollectedBetween(dayStartQ, dayEndQ),
-    getOrderRefundsBetween(dayStartQ, dayEndQ),
+  const [
+    bookingsToday,
+    deliveredToday,
+    returnedToday,
+    refundsToday,
+    inactive,
+    order_balance_collected,
+    order_refund,
+    orderCollectionSplit,
+  ] = await financeParallelLimit([
+    () =>
+      prisma.booking.findMany({
+        where: {
+          ...activeBookingWhere(),
+          createdAt: { gte: dayStartQ, lt: dayEndQ },
+        },
+        include: financeBookingInclude,
+      }),
+    () =>
+      prisma.booking.findMany({
+        where: {
+          status: { in: ["delivered", "returned"] },
+          OR: [
+            { deliveredAt: { gte: dayStartQ, lt: dayEndQ } },
+            { deliveredAt: null, deliveryDate: { gte: dayStartQ, lt: dayEndQ } },
+          ],
+        },
+        include: financeBookingIncludeLite,
+      }),
+    () =>
+      prisma.booking.findMany({
+        where: {
+          status: "returned",
+          returnedAt: { gte: dayStartQ, lt: dayEndQ },
+        },
+        include: financeBookingIncludeLite,
+      }),
+    () => getRefundsBetween(dayStartQ, dayEndQ),
+    () => getInactiveBookingStats(dayStartQ, dayEndQ),
+    () => getOrderBalanceCollectedBetween(dayStartQ, dayEndQ),
+    () => getOrderRefundsBetween(dayStartQ, dayEndQ),
+    () => getOrderCollectionSplitBetween(dayStartQ, dayEndQ),
   ]);
 
-  const orderCollectionSplit = await getOrderCollectionSplitBetween(dayStartQ, dayEndQ);
   const orderAdvanceSplit = orderAdvanceSplitByMode(bookingsToday);
 
   const advance_by_category: Record<string, number> = {};
@@ -362,21 +380,23 @@ export async function getDailyBooking(targetDateStr: string) {
   const dayStartQ = startOfDayQ(target);
   const dayEndQ = endOfDayQ(target);
 
-  const [bookings, deliveredToday] = await Promise.all([
-    prisma.booking.findMany({
-      where: { ...activeBookingWhere(), createdAt: { gte: dayStartQ, lt: dayEndQ } },
-      include: financeBookingInclude,
-    }),
-    prisma.booking.findMany({
-      where: {
-        status: { in: ["delivered", "returned"] },
-        OR: [
-          { deliveredAt: { gte: dayStartQ, lt: dayEndQ } },
-          { deliveredAt: null, deliveryDate: { gte: dayStartQ, lt: dayEndQ } },
-        ],
-      },
-      include: financeBookingInclude,
-    }),
+  const [bookings, deliveredToday] = await financeParallelLimit([
+    () =>
+      prisma.booking.findMany({
+        where: { ...activeBookingWhere(), createdAt: { gte: dayStartQ, lt: dayEndQ } },
+        include: financeBookingInclude,
+      }),
+    () =>
+      prisma.booking.findMany({
+        where: {
+          status: { in: ["delivered", "returned"] },
+          OR: [
+            { deliveredAt: { gte: dayStartQ, lt: dayEndQ } },
+            { deliveredAt: null, deliveryDate: { gte: dayStartQ, lt: dayEndQ } },
+          ],
+        },
+        include: financeBookingIncludeLite,
+      }),
   ]);
 
   const total_by_category: Record<string, number> = {};
@@ -451,52 +471,65 @@ export async function getMonthlySale(monthStr: string) {
   const monthStart = dateQ(new Date(Date.UTC(year, month - 1, 1)));
   const monthEnd = dateQ(new Date(Date.UTC(year, month, 1)));
 
-  const bookings = await prisma.booking.findMany({
-    where: {
-      ...activeBookingWhere(),
-      createdAt: { gte: monthStart, lt: monthEnd },
-    },
-    include: financeBookingInclude,
-  });
-
-  const deliveredInMonth = await prisma.booking.findMany({
-    where: {
-      status: { in: ["delivered", "returned"] },
-      OR: [
-        { deliveredAt: { gte: monthStart, lt: monthEnd } },
-        { deliveredAt: null, deliveryDate: { gte: monthStart, lt: monthEnd } },
-      ],
-    },
-    include: financeBookingInclude,
-  });
-
-  const returnedInMonth = await prisma.booking.findMany({
-    where: {
-      status: "returned",
-      returnedAt: { gte: monthStart, lt: monthEnd },
-    },
-    include: financeBookingInclude,
-  });
+  const [
+    bookings,
+    deliveredInMonth,
+    returnedInMonth,
+    refundsMonth,
+    postponed_advance,
+    order_balance_collected,
+    order_refund,
+    orderCounts,
+    orderCollectionSplit,
+  ] = await financeParallelLimit([
+    () =>
+      prisma.booking.findMany({
+        where: {
+          ...activeBookingWhere(),
+          createdAt: { gte: monthStart, lt: monthEnd },
+        },
+        include: financeBookingInclude,
+      }),
+    () =>
+      prisma.booking.findMany({
+        where: {
+          status: { in: ["delivered", "returned"] },
+          OR: [
+            { deliveredAt: { gte: monthStart, lt: monthEnd } },
+            { deliveredAt: null, deliveryDate: { gte: monthStart, lt: monthEnd } },
+          ],
+        },
+        include: financeBookingIncludeLite,
+      }),
+    () =>
+      prisma.booking.findMany({
+        where: {
+          status: "returned",
+          returnedAt: { gte: monthStart, lt: monthEnd },
+        },
+        include: financeBookingIncludeLite,
+      }),
+    () => getRefundsBetween(monthStart, monthEnd),
+    () => getPostponedAdvanceBetween(monthStart, monthEnd),
+    () => getOrderBalanceCollectedBetween(monthStart, monthEnd),
+    () => getOrderRefundsBetween(monthStart, monthEnd),
+    () => getOrderLifecycleCounts(monthStart, monthEnd),
+    () => getOrderCollectionSplitBetween(monthStart, monthEnd),
+  ]);
 
   const advanceSplit = sumAdvanceByMode(bookings);
   const deliverySplit = sumRemainingByMode(deliveredInMonth);
   const returnSplit = sumReturnBalanceByMode(returnedInMonth);
   const orderAdvanceSplit = orderAdvanceSplitByMode(bookings);
-  const orderCollectionSplit = await getOrderCollectionSplitBetween(monthStart, monthEnd);
 
   const gross_advance = bookings.reduce((s, b) => s + bookingAdvanceAmount(b), 0);
-  const refundsMonth = await getRefundsBetween(monthStart, monthEnd);
   const advance_refunded = totalRefundAmount(refundsMonth);
-  const postponed_advance = await getPostponedAdvanceBetween(monthStart, monthEnd);
   const order_advance = totalOrderAdvance(bookings);
   const order_cost = totalOrderCost(bookings);
   const orders_booked = bookings.reduce(
     (s, b) => s + (b.orders || []).filter((o) => o.status === "active").length,
     0,
   );
-  const order_balance_collected = await getOrderBalanceCollectedBetween(monthStart, monthEnd);
-  const order_refund = await getOrderRefundsBetween(monthStart, monthEnd);
-  const orderCounts = await getOrderLifecycleCounts(monthStart, monthEnd);
   const balance_delivery_count = countBalanceItems(deliveredInMonth, "delivery");
   const balance_return_count = countBalanceItems(returnedInMonth, "return");
   const total_advance = gross_advance - advance_refunded - postponed_advance + order_advance;
@@ -620,53 +653,66 @@ export async function getYearlySale(fromStr?: string, toStr?: string) {
   const rangeStart = dateQ(fromDate);
   const rangeEnd = endOfDayQ(toDate);
 
-  const bookings = await prisma.booking.findMany({
-    where: {
-      ...activeBookingWhere(),
-      createdAt: { gte: rangeStart, lte: rangeEnd },
-    },
-    include: financeBookingInclude,
-  });
-
-  const deliveredInPeriod = await prisma.booking.findMany({
-    where: {
-      status: { in: ["delivered", "returned"] },
-      OR: [
-        { deliveredAt: { gte: rangeStart, lte: rangeEnd } },
-        { deliveredAt: null, deliveryDate: { gte: rangeStart, lte: rangeEnd } },
-      ],
-    },
-    include: financeBookingInclude,
-  });
-
-  const returnedInPeriod = await prisma.booking.findMany({
-    where: {
-      status: "returned",
-      returnedAt: { gte: rangeStart, lte: rangeEnd },
-    },
-    include: financeBookingInclude,
-  });
+  const [
+    bookings,
+    deliveredInPeriod,
+    returnedInPeriod,
+    refundsRange,
+    postponed_advance,
+    order_balance_collected,
+    order_refund,
+    orderCounts,
+    orderCollectionSplit,
+  ] = await financeParallelLimit([
+    () =>
+      prisma.booking.findMany({
+        where: {
+          ...activeBookingWhere(),
+          createdAt: { gte: rangeStart, lte: rangeEnd },
+        },
+        include: financeBookingInclude,
+      }),
+    () =>
+      prisma.booking.findMany({
+        where: {
+          status: { in: ["delivered", "returned"] },
+          OR: [
+            { deliveredAt: { gte: rangeStart, lte: rangeEnd } },
+            { deliveredAt: null, deliveryDate: { gte: rangeStart, lte: rangeEnd } },
+          ],
+        },
+        include: financeBookingIncludeLite,
+      }),
+    () =>
+      prisma.booking.findMany({
+        where: {
+          status: "returned",
+          returnedAt: { gte: rangeStart, lte: rangeEnd },
+        },
+        include: financeBookingIncludeLite,
+      }),
+    () => getRefundsBetween(rangeStart, rangeEnd),
+    () => getPostponedAdvanceBetween(rangeStart, rangeEnd),
+    () => getOrderBalanceCollectedBetween(rangeStart, rangeEnd),
+    () => getOrderRefundsBetween(rangeStart, rangeEnd),
+    () => getOrderLifecycleCounts(rangeStart, rangeEnd),
+    () => getOrderCollectionSplitBetween(rangeStart, rangeEnd),
+  ]);
 
   const gross_advance = bookings.reduce((s, b) => s + bookingAdvanceAmount(b), 0);
-  const refundsRange = await getRefundsBetween(rangeStart, rangeEnd);
   const advance_refunded = totalRefundAmount(refundsRange);
-  const postponed_advance = await getPostponedAdvanceBetween(rangeStart, rangeEnd);
   const order_advance = totalOrderAdvance(bookings);
   const order_cost = totalOrderCost(bookings);
   const orders_booked = bookings.reduce(
     (s, b) => s + (b.orders || []).filter((o) => o.status === "active").length,
     0,
   );
-  const order_balance_collected = await getOrderBalanceCollectedBetween(rangeStart, rangeEnd);
-  const order_refund = await getOrderRefundsBetween(rangeStart, rangeEnd);
-  const orderCounts = await getOrderLifecycleCounts(rangeStart, rangeEnd);
   const balance_delivery_count = countBalanceItems(deliveredInPeriod, "delivery");
   const balance_return_count = countBalanceItems(returnedInPeriod, "return");
   const advanceSplit = sumAdvanceByMode(bookings);
   const deliverySplit = sumRemainingByMode(deliveredInPeriod);
   const returnSplit = sumReturnBalanceByMode(returnedInPeriod);
   const orderAdvanceSplit = orderAdvanceSplitByMode(bookings);
-  const orderCollectionSplit = await getOrderCollectionSplitBetween(rangeStart, rangeEnd);
   const total_advance = gross_advance - advance_refunded - postponed_advance + order_advance;
   const total_balance_at_delivery = totalBalanceReceivedFromDeliveries(deliveredInPeriod);
   const total_balance_at_return = totalBalanceReceivedAtReturn(returnedInPeriod);
@@ -992,7 +1038,7 @@ export async function getCategoryAnalysis(fromStr: string, toStr: string) {
         { deliveredAt: null, deliveryDate: { gte: fromDateQ, lte: endOfDayQ(toDate) } },
       ],
     },
-    include: financeBookingInclude,
+    include: financeBookingIncludeLite,
   });
 
   const returned = await prisma.booking.findMany({
@@ -1000,7 +1046,7 @@ export async function getCategoryAnalysis(fromStr: string, toStr: string) {
       status: "returned",
       returnedAt: { gte: fromDateQ, lte: endOfDayQ(toDate) },
     },
-    include: financeBookingInclude,
+    include: financeBookingIncludeLite,
   });
 
   const delivery_by_cat = allocateBalanceByCategory(delivered, "delivery", "Uncategorized");
@@ -1238,20 +1284,20 @@ export function getInventoryProfitabilityCached(fromStr?: string, toStr?: string
 }
 
 export function getDailySaleCached(targetDateStr: string) {
-  return cachedQuery(["finance-daily-sale", "v2", targetDateStr], () => getDailySale(targetDateStr), 60);
+  return cachedQuery(["finance-daily-sale", "v4", targetDateStr], () => getDailySale(targetDateStr), 300);
 }
 
 export function getDailyBookingCached(targetDateStr: string) {
-  return cachedQuery(["finance-daily-booking", targetDateStr], () => getDailyBooking(targetDateStr), 60);
+  return cachedQuery(["finance-daily-booking", "v3", targetDateStr], () => getDailyBooking(targetDateStr), 300);
 }
 
 export function getMonthlySaleCached(monthStr: string) {
-  return cachedQuery(["finance-monthly-sale", "v2", monthStr], () => getMonthlySale(monthStr), 60);
+  return cachedQuery(["finance-monthly-sale", "v4", monthStr], () => getMonthlySale(monthStr), 300);
 }
 
 export function getYearlySaleCached(fromStr?: string, toStr?: string) {
-  const key = `v3:${fromStr || ""}:${toStr || ""}`;
-  return cachedQuery(["finance-yearly-sale", key], () => getYearlySale(fromStr, toStr), 120);
+  const key = `v4:${fromStr || ""}:${toStr || ""}`;
+  return cachedQuery(["finance-yearly-sale", key], () => getYearlySale(fromStr, toStr), 240);
 }
 
 export function getTopPerformersCached(
@@ -1261,17 +1307,17 @@ export function getTopPerformersCached(
   dressSearch = "",
 ) {
   return cachedQuery(
-    ["finance-top-performer", fromStr, toStr, categoryFilter, dressSearch],
+    ["finance-top-performer", "v2", fromStr, toStr, categoryFilter, dressSearch],
     () => getTopPerformers(fromStr, toStr, categoryFilter, dressSearch),
-    60,
+    180,
   );
 }
 
 export function getCategoryAnalysisCached(fromStr: string, toStr: string) {
   return cachedQuery(
-    ["finance-category-analysis", fromStr, toStr],
+    ["finance-category-analysis", "v3", fromStr, toStr],
     () => getCategoryAnalysis(fromStr, toStr),
-    60,
+    300,
   );
 }
 

@@ -15,8 +15,19 @@ export async function GET(
   const conversation = await prisma.whatsAppConversation.findUnique({
     where: { id: convId },
     include: {
-      messages: { orderBy: { createdAt: "asc" } },
-      booking: true,
+      messages: { orderBy: { createdAt: "asc" }, take: 150 },
+      booking: {
+        select: {
+          id: true,
+          publicBookingId: true,
+          customerName: true,
+          deliveryDate: true,
+          returnDate: true,
+          status: true,
+          whatsappNo: true,
+          contact1: true,
+        },
+      },
     },
   });
 

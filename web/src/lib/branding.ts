@@ -3,6 +3,8 @@
 export const BRAND_NAME = "FANCY COLLECTION";
 export const BRAND_OWNER = "RENU AGARWAL";
 export const BRAND_FULL_NAME = "Fancy Collection by Renu Agarwal";
+/** Printed dress QR/barcode sticker branding line. */
+export const BRAND_PRINT_LABEL = BRAND_FULL_NAME;
 export const BRAND_DISPLAY_LINE = "Fancy Collection — Renu Agarwal";
 export const BRAND_SINCE = "SINCE 1995";
 export const BRAND_HOUSE_TAGLINE = "THE HOUSE OF WEDDING RENTALS";

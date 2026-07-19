@@ -11,6 +11,8 @@ import {
   measureSlipTempUsage,
   TMP_USAGE_WARN_BYTES,
   isEnospcError,
+  isSpawnBusyError,
+  isRetryableSlipRenderError,
   errorCodeFromUnknown,
 } from "@/lib/slipTempCleanup";
 import { SlipRenderPoolError } from "./slipRenderErrors";
@@ -27,7 +29,33 @@ const CHROME_ARGS = [
   "--font-render-hinting=none",
 ];
 
-const MAX_RENDER_ATTEMPTS = 2;
+const MAX_RENDER_ATTEMPTS = 3;
+
+function sleep(ms: number): Promise<void> {
+  return new Promise((resolve) => setTimeout(resolve, ms));
+}
+
+/** Ensure premium slip markers survive Chromium print-to-PDF (not clipped out). */
+async function preparePremiumSlipMarkersForPdf(page: Page): Promise<void> {
+  await page.evaluate(() => {
+    document.querySelectorAll("[data-premium-slip]").forEach((node) => {
+      if (!(node instanceof HTMLElement)) return;
+      node.style.position = "absolute";
+      node.style.left = "0";
+      node.style.bottom = "0";
+      node.style.width = "auto";
+      node.style.height = "auto";
+      node.style.overflow = "visible";
+      node.style.clip = "auto";
+      node.style.clipPath = "none";
+      node.style.whiteSpace = "nowrap";
+      node.style.fontSize = "1px";
+      node.style.lineHeight = "1px";
+      node.style.color = "rgba(0,0,0,0.01)";
+      node.style.opacity = "0.01";
+    });
+  });
+}
 
 let renderQueue: Promise<unknown> = Promise.resolve();
 let chromiumExecutablePromise: Promise<string> | null = null;
@@ -271,6 +299,8 @@ export async function renderHtmlUrlToPdf(opts: HtmlToPdfOptions): Promise<Buffer
           );
         });
 
+        await preparePremiumSlipMarkersForPdf(page);
+
         const pdf = await page.pdf({
           format: "A4",
           printBackground: true,
@@ -281,13 +311,17 @@ export async function renderHtmlUrlToPdf(opts: HtmlToPdfOptions): Promise<Buffer
         return Buffer.from(pdf);
       } catch (err) {
         lastError = err;
-        const enospc = isEnospcError(err);
-        if (enospc && attempt < MAX_RENDER_ATTEMPTS) {
+        const retryable = isRetryableSlipRenderError(err);
+        if (retryable && attempt < MAX_RENDER_ATTEMPTS) {
+          if (isSpawnBusyError(err)) {
+            chromiumExecutablePromise = null;
+          }
           await cleanSlipTempDirs();
+          await sleep(400 * attempt);
           continue;
         }
         if (attempt >= MAX_RENDER_ATTEMPTS) break;
-        if (enospc) break;
+        if (retryable) break;
       } finally {
         if (page) await page.close().catch(() => {});
         await disposeRenderBrowser(browser, profileDir);
@@ -297,6 +331,12 @@ export async function renderHtmlUrlToPdf(opts: HtmlToPdfOptions): Promise<Buffer
     const code = errorCodeFromUnknown(lastError);
     if (isEnospcError(lastError)) {
       throw new SlipRenderPoolError("Slip PDF render failed: /tmp full (ENOSPC)", "ENOSPC");
+    }
+    if (isSpawnBusyError(lastError)) {
+      throw new SlipRenderPoolError(
+        "Slip PDF render failed: Chromium busy (ETXTBSY) — retry slip send",
+        "ETXTBSY",
+      );
     }
     if (lastError instanceof SlipRenderPoolError) throw lastError;
     const msg = lastError instanceof Error ? lastError.message : "PDF generation failed";

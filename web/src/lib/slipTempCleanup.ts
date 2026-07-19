@@ -152,6 +152,19 @@ export function isEnospcError(err: unknown): boolean {
   return /ENOSPC|no space left on device/i.test(msg);
 }
 
+/** Chromium binary still being written/extracted — retry after cleanup. */
+export function isSpawnBusyError(err: unknown): boolean {
+  if (!err) return false;
+  const code = (err as NodeJS.ErrnoException)?.code;
+  if (code === "ETXTBSY" || code === "EBUSY") return true;
+  const msg = err instanceof Error ? err.message : String(err);
+  return /ETXTBSY|EBUSY|spawn/i.test(msg);
+}
+
+export function isRetryableSlipRenderError(err: unknown): boolean {
+  return isEnospcError(err) || isSpawnBusyError(err);
+}
+
 export function errorCodeFromUnknown(err: unknown): string | undefined {
   if (!err) return undefined;
   if (isEnospcError(err)) return "ENOSPC";

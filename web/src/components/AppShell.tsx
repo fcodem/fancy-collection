@@ -234,17 +234,14 @@ export default function AppShell({
 
   useEffect(() => {
     if (!isOwner) return;
+    if (pathname.startsWith("/whatsapp")) return;
     let cancelled = false;
     function loadWhatsappUnread() {
-      fetch("/api/whatsapp/conversations")
-        .then((r) => parseResponseJson<{ conversations?: Array<{ unreadCount: number }> }>(r))
-        .then((d: { conversations?: Array<{ unreadCount: number }> }) => {
+      fetch("/api/whatsapp/unread-count")
+        .then((r) => parseResponseJson<{ total?: number }>(r))
+        .then((d: { total?: number }) => {
           if (!cancelled) {
-            const total = (d.conversations || []).reduce(
-              (sum: number, c: { unreadCount: number }) => sum + (c.unreadCount || 0),
-              0,
-            );
-            setWhatsappUnread(total);
+            setWhatsappUnread(Math.max(0, d.total ?? 0));
           }
         })
         .catch(() => {});
@@ -254,12 +251,12 @@ export default function AppShell({
       loadWhatsappUnread();
     }
     loadWhatsappUnreadIfVisible();
-    const interval = setInterval(loadWhatsappUnreadIfVisible, 120_000);
+    const interval = setInterval(loadWhatsappUnreadIfVisible, 180_000);
     return () => {
       cancelled = true;
       clearInterval(interval);
     };
-  }, [isOwner]);
+  }, [isOwner, pathname]);
 
   useEffect(() => {
     if (!isOwner) return;

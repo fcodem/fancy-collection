@@ -36,7 +36,7 @@ export async function withFinanceTimeout<T>(
 export async function financeParallelLimit<T>(
   tasks: Array<() => Promise<T>>,
 ): Promise<T[]> {
-  return allLimit(tasks, 2);
+  return allLimit(tasks, 3);
 }
 
 export function normalizeFinancePayload(data: unknown): unknown {

@@ -119,7 +119,11 @@ export async function POST(req: NextRequest) {
       errorCode,
     });
 
-    const retryable = isPremiumSlipRenderError(e) || errorCode === "ENOSPC";
+    const retryable =
+      isPremiumSlipRenderError(e) ||
+      errorCode === "ENOSPC" ||
+      errorCode === "ETXTBSY" ||
+      errorCode === "EBUSY";
     const status = retryable ? 503 : 500;
     const message = e instanceof Error ? e.message : "Slip render failed";
     return NextResponse.json(

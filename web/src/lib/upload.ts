@@ -29,9 +29,11 @@ export {
   APPROVED_PRIVATE_MEDIA_FOLDERS,
 } from "./storage/privateBookingMedia";
 
-const MAX_IMAGE_EDGE = 1280;
-const JPEG_QUALITY = 72;
-const ORIGINAL_JPEG_QUALITY = 78;
+const MAX_IMAGE_EDGE = 720;
+const JPEG_QUALITY = 55;
+const ORIGINAL_JPEG_QUALITY = 58;
+const THUMBNAIL_EDGE = 180;
+const THUMBNAIL_WEBP_QUALITY = 55;
 
 function extFromName(name: string) {
   const parts = name.split(".");
@@ -114,8 +116,8 @@ export async function saveInventoryThumbnailFromBuffer(raw: Buffer): Promise<str
   try {
     const bytes = await sharp(raw, { failOn: "none", limitInputPixels: 40_000_000 })
       .rotate()
-      .resize(320, 320, { fit: "inside", withoutEnlargement: true })
-      .webp({ quality: 72 })
+      .resize(THUMBNAIL_EDGE, THUMBNAIL_EDGE, { fit: "inside", withoutEnlargement: true })
+      .webp({ quality: THUMBNAIL_WEBP_QUALITY })
       .toBuffer();
     const filename = `${randomUUID().replace(/-/g, "")}.webp`;
     return await savePermanentInventoryImage(bytes, "thumbnails", filename);

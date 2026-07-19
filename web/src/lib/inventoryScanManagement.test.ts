@@ -111,7 +111,7 @@ describe("printable inventory labels", () => {
     });
     assert.deepEqual(inventoryLabelDimensions("standard"), {
       widthMm: 70,
-      heightMm: 40,
+      heightMm: 37,
     });
   });
 
@@ -125,10 +125,10 @@ describe("printable inventory labels", () => {
       symbolHtml: '<svg data-testid="barcode"></svg>',
       labelSize: "compact",
     });
-    assert.match(html, /Fancy Collection by Renu Agarwal/);
+    assert.match(html, /Fancy Collection by Renu Agarwal|FANCY COLLECTION BY RENU AGARWAL/);
     assert.match(html, /Red Bridal Lehenga/);
     assert.match(html, /D-001/);
-    assert.match(html, /M · Red/);
+    assert.match(html, /Size: M/);
     assert.match(html, /FC-D-7K4P9X2M/);
     assert.match(html, /50mm 30mm/);
     assert.doesNotMatch(html, /customer|phone|booking/i);

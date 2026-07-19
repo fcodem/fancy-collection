@@ -22,19 +22,29 @@ export type ScannerStatus = {
   engine: ScanEngine;
 };
 
-const SCAN_FPS = 15;
+const SCAN_FPS = 20;
 const SCAN_INTERVAL_MS = 1000 / SCAN_FPS;
 
-const HTML5_SCANNER_CONFIG = {
-  fps: SCAN_FPS,
-  aspectRatio: 1.333333,
-  disableFlip: false,
-  qrbox: (viewfinderWidth: number, viewfinderHeight: number) => {
-    const edge = Math.min(viewfinderWidth, viewfinderHeight);
-    const size = Math.max(160, Math.floor(edge * 0.82));
-    return { width: size, height: size };
-  },
-};
+function buildHtml5ScannerConfig(qrOnly: boolean, qrFormat?: number) {
+  return {
+    fps: SCAN_FPS,
+    disableFlip: false,
+    qrbox: (viewfinderWidth: number, viewfinderHeight: number) => {
+      const edge = Math.min(viewfinderWidth, viewfinderHeight);
+      const size = Math.max(200, Math.floor(edge * 0.92));
+      return { width: size, height: size };
+    },
+    ...(qrOnly && qrFormat != null
+      ? {
+          formatsToSupport: [qrFormat],
+        }
+      : qrOnly
+        ? {}
+        : {
+            aspectRatio: 1.333333,
+          }),
+  };
+}
 
 const SCANNER_NOT_STARTED = 0;
 
@@ -315,20 +325,34 @@ export function normalizeDetectedBarcodeFormat(raw?: string | null): DetectedBar
   return "UNKNOWN";
 }
 
-async function createBarcodeDetector(): Promise<BarcodeDetectorLike | null> {
+function acceptQrOnlyDecode(format: DetectedBarcodeFormat): boolean {
+  // Some native BarcodeDetector builds omit format even for QR-only detectors.
+  return format === "QR_CODE" || format === "UNKNOWN";
+}
+
+async function createBarcodeDetector(formats = NATIVE_BARCODE_FORMATS): Promise<BarcodeDetectorLike | null> {
   if (typeof window === "undefined") return null;
   const BD = (window as Window & { BarcodeDetector?: new (opts: { formats: string[] }) => BarcodeDetectorLike })
     .BarcodeDetector;
   if (!BD) return null;
   try {
-    const detector = new BD({ formats: NATIVE_BARCODE_FORMATS });
-    log("BarcodeDetector native engine ready");
+    const detector = new BD({ formats });
+    log("BarcodeDetector native engine ready", { formats });
     return detector;
   } catch (e) {
     log("BarcodeDetector init failed", e);
     return null;
   }
 }
+
+async function createQrOnlyBarcodeDetector(): Promise<BarcodeDetectorLike | null> {
+  return createBarcodeDetector(["qr_code"]);
+}
+
+export type QrCameraSessionOptions = {
+  /** Prefer html5-qrcode and QR-only native decode (dress inventory stickers). */
+  qrOnly?: boolean;
+};
 
 function html5CameraArgs(attempt: StartAttempt): Array<string | MediaTrackConstraints> {
   if (attempt.kind === "device") return [attempt.id];
@@ -345,6 +369,7 @@ type ScannerHandle = Html5Qrcode & { getState?: () => number };
 export class QrCameraSession {
   private readonly elementId: string;
   private readonly preferBack: boolean;
+  private readonly qrOnly: boolean;
   private scanner: ScannerHandle | null = null;
   private devices: CameraDevice[] = [];
   private deviceIndex = 0;
@@ -360,9 +385,10 @@ export class QrCameraSession {
   private rafId = 0;
   private lastScanAt = 0;
 
-  constructor(elementId: string) {
+  constructor(elementId: string, opts?: QrCameraSessionOptions) {
     this.elementId = elementId;
     this.preferBack = isMobileOrTablet();
+    this.qrOnly = opts?.qrOnly ?? false;
     this.facing = defaultCameraFacing();
   }
 
@@ -540,9 +566,10 @@ export class QrCameraSession {
           const codes = await this.detector.detect(this.videoEl);
           const detected = codes[0];
           const value = detected?.rawValue;
-          if (value) {
+          const format = normalizeDetectedBarcodeFormat(detected?.format);
+          if (value && (!this.qrOnly || acceptQrOnlyDecode(format))) {
             log("native decode", value.slice(0, 40));
-            onDecode(value, normalizeDetectedBarcodeFormat(detected.format));
+            onDecode(value, format);
             return;
           }
         } catch {
@@ -629,7 +656,8 @@ export class QrCameraSession {
   private async tryOpenHtml5(
     html5: ScannerHandle,
     attempt: StartAttempt,
-    onDecode: (text: string, format?: DetectedBarcodeFormat) => void
+    onDecode: (text: string, format?: DetectedBarcodeFormat) => void,
+    qrFormat?: number,
   ): Promise<void> {
     const cameraArgs = html5CameraArgs(attempt);
     let lastError: unknown;
@@ -638,7 +666,7 @@ export class QrCameraSession {
       try {
         await html5.start(
           cameraArg,
-          HTML5_SCANNER_CONFIG,
+          buildHtml5ScannerConfig(this.qrOnly, qrFormat),
           (text, result) =>
             onDecode(
               text,
@@ -679,18 +707,83 @@ export class QrCameraSession {
     return this.facing;
   }
 
+  private async tryHtml5Engine(
+    attempts: StartAttempt[],
+    onDecode: (text: string, format?: DetectedBarcodeFormat) => void,
+  ): Promise<boolean> {
+    log(this.qrOnly ? "QR-only mode: html5-qrcode" : "falling back to html5-qrcode");
+    const html5Module = await import("html5-qrcode");
+    const { Html5Qrcode } = html5Module;
+    const qrFormat =
+      this.qrOnly && "Html5QrcodeSupportedFormats" in html5Module
+        ? (html5Module as { Html5QrcodeSupportedFormats: { QR_CODE: number } })
+            .Html5QrcodeSupportedFormats.QR_CODE
+        : undefined;
+    const html5 = new Html5Qrcode(this.elementId, { verbose: false }) as ScannerHandle;
+    this.scanner = html5;
+
+    for (const attempt of attempts) {
+      try {
+        await this.tryOpenHtml5(html5, attempt, onDecode, qrFormat);
+        return true;
+      } catch (e) {
+        log("html5 attempt failed", { attempt, error: e });
+        if (isAbortError(e) || isNotAllowedError(e)) {
+          await this.disposeAll();
+          throw e;
+        }
+        try {
+          const state = html5.getState?.() ?? SCANNER_NOT_STARTED;
+          if (state !== SCANNER_NOT_STARTED) await html5.stop();
+        } catch {
+          /* ignore */
+        }
+      }
+    }
+
+    await this.disposeHtml5();
+    return false;
+  }
+
   private async openCamera(
     onDecode: (text: string, format?: DetectedBarcodeFormat) => void,
     facingOverride?: CameraFacing,
   ): Promise<void> {
     await this.disposeAll({ settle: true });
 
+    const attempts = buildAttempts(this.devices, this.deviceIndex, this.preferBack, facingOverride);
+    let lastError: unknown;
+
+    if (this.qrOnly) {
+      this.detector = await createQrOnlyBarcodeDetector();
+      for (const attempt of attempts) {
+        if (!this.detector) break;
+        try {
+          const ok = await this.tryOpenNative(attempt, onDecode);
+          if (ok) return;
+          await this.disposeNative();
+        } catch (e) {
+          lastError = e;
+          await this.disposeNative();
+          if (isAbortError(e) || isNotAllowedError(e)) throw e;
+        }
+      }
+
+      try {
+        const ok = await this.tryHtml5Engine(attempts, onDecode);
+        if (ok) return;
+      } catch (e) {
+        if (isAbortError(e) || isNotAllowedError(e)) throw e;
+        lastError = e;
+      }
+
+      await this.disposeAll();
+      throw lastError ?? new Error("No camera found");
+    }
+
     if (!this.detector) {
       this.detector = await createBarcodeDetector();
     }
-
-    const attempts = buildAttempts(this.devices, this.deviceIndex, this.preferBack, facingOverride);
-    let lastError: unknown;
 
     for (const attempt of attempts) {
       if (this.detector) {
@@ -706,29 +799,12 @@ export class QrCameraSession {
       }
     }
 
-    log("falling back to html5-qrcode");
-    const { Html5Qrcode } = await import("html5-qrcode");
-    const html5 = new Html5Qrcode(this.elementId, { verbose: false }) as ScannerHandle;
-    this.scanner = html5;
-
-    for (const attempt of attempts) {
-      try {
-        await this.tryOpenHtml5(html5, attempt, onDecode);
-        return;
-      } catch (e) {
-        lastError = e;
-        log("html5 attempt failed", { attempt, error: e });
-        if (isAbortError(e) || isNotAllowedError(e)) {
-          await this.disposeAll();
-          throw e;
-        }
-        try {
-          const state = html5.getState?.() ?? SCANNER_NOT_STARTED;
-          if (state !== SCANNER_NOT_STARTED) await html5.stop();
-        } catch {
-          /* ignore */
-        }
-      }
+    try {
+      const ok = await this.tryHtml5Engine(attempts, onDecode);
+      if (ok) return;
+    } catch (e) {
+      if (isAbortError(e) || isNotAllowedError(e)) throw e;
+      lastError = e;
     }
 
     await this.disposeAll();

@@ -14,8 +14,8 @@ self.onmessage = async (event) => {
       return canvas.convertToBlob({ type, quality });
     };
     const [original, thumbnail] = await Promise.all([
-      render(1280, "image/jpeg", 0.76),
-      render(320, "image/webp", 0.72),
+      render(720, "image/jpeg", 0.55),
+      render(180, "image/webp", 0.55),
     ]);
     bitmap.close();
     const hashBuffer = await crypto.subtle.digest("SHA-256", await original.arrayBuffer());

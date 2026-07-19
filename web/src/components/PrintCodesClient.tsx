@@ -3,6 +3,7 @@
 import { useCallback, useEffect, useRef, useState } from "react";
 import QRCode from "qrcode";
 import JsBarcode from "jsbarcode";
+import { BRAND_PRINT_LABEL } from "@/lib/branding";
 
 type ScanCode = { id: number; code: string; format: string; isPrimary: boolean };
 type InventoryItem = {
@@ -134,48 +135,66 @@ export default function PrintCodesClient() {
             height: 37mm;
             overflow: hidden;
             display: flex;
-            flex-direction: column;
-            align-items: center;
-            justify-content: center;
+            flex-direction: row;
+            align-items: stretch;
+            justify-content: space-between;
             padding: 1.5mm;
             box-sizing: border-box;
+            gap: 1mm;
+          }
+          .label-left {
+            flex: 1 1 50%;
+            min-width: 0;
+            display: flex;
+            flex-direction: column;
+            justify-content: center;
+            align-items: flex-start;
+            text-align: left;
+          }
+          .label-right {
+            flex: 0 0 32mm;
+            display: flex;
+            align-items: center;
+            justify-content: center;
           }
           .label-cell canvas {
-            width: 22mm !important;
-            height: 22mm !important;
+            width: 30mm !important;
+            height: 30mm !important;
           }
           .label-cell svg.barcode-svg {
             width: 62mm !important;
             height: 10mm !important;
           }
           .label-text {
-            font-size: 8pt;
-            line-height: 1.2;
+            font-size: 7pt;
+            line-height: 1.15;
             font-family: Arial, sans-serif;
             text-align: left;
             overflow: hidden;
-            max-width: 36mm;
-            padding-left: 2mm;
+            width: 100%;
           }
           .label-name {
             font-weight: bold;
-            font-size: 7.5pt;
+            font-size: 7pt;
             overflow: hidden;
-            text-overflow: ellipsis;
-            white-space: nowrap;
-            max-width: 36mm;
+            display: -webkit-box;
+            -webkit-line-clamp: 2;
+            -webkit-box-orient: vertical;
+            line-height: 1.1;
+            max-width: 100%;
           }
           .label-brand {
-            font-size: 6pt;
+            font-size: 5.5pt;
             font-weight: bold;
             color: #7B1F45;
-            text-transform: uppercase;
-            letter-spacing: 0.5pt;
-            margin-bottom: 1mm;
+            letter-spacing: 0.2pt;
+            margin-bottom: 0.8mm;
+            line-height: 1.1;
           }
           .label-size {
-            font-size: 7pt;
+            font-size: 6.5pt;
             color: #333;
+            margin-top: 0.6mm;
           }
         }
       `}</style>
@@ -388,18 +407,22 @@ function StickerLabel({ item, format }: { item: InventoryItem; format: PrintForm
   }, [barcodeValue, format]);
 
   return (
-    <>
-      <div className="label-text" style={{ textAlign: "center", maxWidth: "66mm", paddingLeft: 0 }}>
-        <div className="label-brand">Fancy Collection</div>
-        <div className="label-name">{item.name}</div>
-        {item.size && <div className="label-size">Size: {item.size}</div>}
+    <div className="label-row" style={{ display: "flex", width: "100%", height: "100%", alignItems: "stretch" }}>
+      <div className="label-left">
+        <div className="label-text">
+          <div className="label-brand">{BRAND_PRINT_LABEL}</div>
+          <div className="label-name">{item.name}</div>
+          {item.size ? <div className="label-size">Size: {item.size}</div> : null}
+        </div>
       </div>
-      {(format === "QR_CODE" || format === "BOTH") && (
-        <canvas ref={qrRef} style={{ width: "22mm", height: "22mm" }} />
-      )}
-      {(format === "CODE_128" || format === "BOTH") && (
-        <svg ref={barcodeRef} className="barcode-svg" />
-      )}
-    </>
+      <div className="label-right">
+        {(format === "QR_CODE" || format === "BOTH") && (
+          <canvas ref={qrRef} style={{ width: "30mm", height: "30mm" }} />
+        )}
+        {(format === "CODE_128" || format === "BOTH") && (
+          <svg ref={barcodeRef} className="barcode-svg" />
+        )}
+      </div>
+    </div>
   );
 }

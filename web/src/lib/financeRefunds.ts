@@ -19,7 +19,16 @@ export async function getRefundsBetween(from: Date, to: Date) {
         { bookingItems: { some: { isCancelled: true, cancelRefundAmount: { gt: 0 } } } },
       ],
     },
-    include: { bookingItems: true },
+    include: {
+      bookingItems: {
+        select: {
+          category: true,
+          price: true,
+          isCancelled: true,
+          cancelRefundAmount: true,
+        },
+      },
+    },
   });
 }
 

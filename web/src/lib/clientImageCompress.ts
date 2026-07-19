@@ -18,7 +18,7 @@ export async function compressImageFile(
   const mimeType = opts.mimeType ?? "image/jpeg";
 
   if (!file.type.startsWith("image/")) return file;
-  if (file.size < 180_000) return file; // already small
+  if (file.size < 120_000) return file; // already small
 
   const bitmap = await createImageBitmap(file);
   try {
@@ -44,7 +44,7 @@ export async function compressImageFile(
 
 /** Alias for inventory / catalog uploads (same pipeline as compressImageFile). */
 export async function compressImageForUpload(file: File): Promise<File> {
-  return compressImageFile(file, { maxEdge: 1280, quality: 0.72 });
+  return compressImageFile(file, { maxEdge: 720, quality: 0.55 });
 }
 
 /** Upload with concurrency limit (default 2). */

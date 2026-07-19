@@ -17,7 +17,7 @@ async function hashFile(file: File) {
 async function makeThumbnail(file: File): Promise<File> {
   const bitmap = await createImageBitmap(file);
   try {
-    const scale = Math.min(1, 320 / Math.max(bitmap.width, bitmap.height));
+    const scale = Math.min(1, 180 / Math.max(bitmap.width, bitmap.height));
     const canvas = document.createElement("canvas");
     canvas.width = Math.max(1, Math.round(bitmap.width * scale));
     canvas.height = Math.max(1, Math.round(bitmap.height * scale));
@@ -28,7 +28,7 @@ async function makeThumbnail(file: File): Promise<File> {
       canvas.toBlob(
         (value) => value ? resolve(value) : reject(new Error("Thumbnail failed")),
         "image/webp",
-        0.72,
+        0.55,
       ),
     );
     return new File([blob], `${file.name.replace(/\.\w+$/, "")}-thumb.webp`, {
