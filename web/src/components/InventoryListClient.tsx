@@ -532,8 +532,14 @@ export default function InventoryListClient({
                 href={`/inventory/${drawer.primaryId}`}
                 className="btn btn-primary"
               >
-                Open full page
+                {drawer.totalQuantity === 1 ? "Open details & QR / Barcode" : "Open primary unit"}
               </PrefetchOnIntentLink>
+              {drawer.totalQuantity > 1 ? (
+                <p className="inv-drawer-hint">
+                  QR/barcodes are managed per physical unit. Use “Show units” and open the
+                  required unit.
+                </p>
+              ) : null}
             </div>
           </aside>
         </div>

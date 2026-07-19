@@ -19,6 +19,7 @@ import {
 import { formatJewelleryPartsLabel, partsPresentOnItem } from "@/lib/jewelleryParts";
 import { useToast } from "@/components/ui/Toast";
 import { SaveConfirmedBanner } from "@/components/SaveConfirmedBanner";
+import InventoryScanCodeManager from "@/components/InventoryScanCodeManager";
 import {
   fetchWithOperationInProgressRetry,
   useMutationOperationId,
@@ -27,6 +28,7 @@ import {
 
 type InventoryFormItem = CatalogPhotoItem & {
   id?: number;
+  sku?: string;
   name?: string;
   category?: string;
   size?: string | null;
@@ -725,6 +727,14 @@ export default function InventoryFormClient({
             </button>
           )}
         </div>
+        <InventoryScanCodeManager
+          inventoryId={item?.id}
+          name={name}
+          sku={item?.sku}
+          size={item?.size}
+          color={item?.color}
+          compact
+        />
         {statusMessage ? (
           <p style={{ fontSize: 13, color: "var(--text-muted)", margin: 0 }}>{statusMessage}</p>
         ) : null}

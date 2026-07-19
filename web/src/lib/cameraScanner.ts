@@ -280,8 +280,40 @@ async function applyAdvancedTrackSettings(track: MediaStreamTrack): Promise<void
 }
 
 type BarcodeDetectorLike = {
-  detect: (source: ImageBitmapSource) => Promise<Array<{ rawValue: string }>>;
+  detect: (source: ImageBitmapSource) => Promise<Array<{ rawValue: string; format?: string }>>;
 };
+
+export type DetectedBarcodeFormat =
+  | "QR_CODE"
+  | "CODE_128"
+  | "CODE_39"
+  | "EAN_13"
+  | "EAN_8"
+  | "UPC_A"
+  | "UPC_E"
+  | "UNKNOWN";
+
+const NATIVE_BARCODE_FORMATS = [
+  "qr_code",
+  "code_128",
+  "code_39",
+  "ean_13",
+  "ean_8",
+  "upc_a",
+  "upc_e",
+];
+
+export function normalizeDetectedBarcodeFormat(raw?: string | null): DetectedBarcodeFormat {
+  const value = (raw || "").trim().toUpperCase().replace(/[\s-]+/g, "_");
+  if (value === "QR_CODE" || value === "QR") return "QR_CODE";
+  if (value === "CODE_128" || value === "CODE128") return "CODE_128";
+  if (value === "CODE_39" || value === "CODE39") return "CODE_39";
+  if (value === "EAN_13" || value === "EAN13") return "EAN_13";
+  if (value === "EAN_8" || value === "EAN8") return "EAN_8";
+  if (value === "UPC_A" || value === "UPCA") return "UPC_A";
+  if (value === "UPC_E" || value === "UPCE") return "UPC_E";
+  return "UNKNOWN";
+}
 
 async function createBarcodeDetector(): Promise<BarcodeDetectorLike | null> {
   if (typeof window === "undefined") return null;
@@ -289,7 +321,7 @@ async function createBarcodeDetector(): Promise<BarcodeDetectorLike | null> {
     .BarcodeDetector;
   if (!BD) return null;
   try {
-    const detector = new BD({ formats: ["qr_code"] });
+    const detector = new BD({ formats: NATIVE_BARCODE_FORMATS });
     log("BarcodeDetector native engine ready");
     return detector;
   } catch (e) {
@@ -490,7 +522,9 @@ export class QrCameraSession {
     return this.disposeInBackground();
   }
 
-  private startNativeLoop(onDecode: (text: string) => void): void {
+  private startNativeLoop(
+    onDecode: (text: string, format?: DetectedBarcodeFormat) => void,
+  ): void {
     if (!this.detector || !this.videoEl) return;
     this.scanActive = true;
     this.lastScanAt = 0;
@@ -502,10 +536,11 @@ export class QrCameraSession {
         this.lastScanAt = now;
         try {
           const codes = await this.detector.detect(this.videoEl);
-          const value = codes[0]?.rawValue;
+          const detected = codes[0];
+          const value = detected?.rawValue;
           if (value) {
             log("native decode", value.slice(0, 40));
-            onDecode(value);
+            onDecode(value, normalizeDetectedBarcodeFormat(detected.format));
             return;
           }
         } catch {
@@ -521,7 +556,7 @@ export class QrCameraSession {
 
   private async tryOpenNative(
     attempt: StartAttempt,
-    onDecode: (text: string) => void
+    onDecode: (text: string, format?: DetectedBarcodeFormat) => void
   ): Promise<boolean> {
     if (!this.detector) return false;
 
@@ -592,14 +627,23 @@ export class QrCameraSession {
   private async tryOpenHtml5(
     html5: ScannerHandle,
     attempt: StartAttempt,
-    onDecode: (text: string) => void
+    onDecode: (text: string, format?: DetectedBarcodeFormat) => void
   ): Promise<void> {
     const cameraArgs = html5CameraArgs(attempt);
     let lastError: unknown;
 
     for (const cameraArg of cameraArgs) {
       try {
-        await html5.start(cameraArg, HTML5_SCANNER_CONFIG, onDecode, () => undefined);
+        await html5.start(
+          cameraArg,
+          HTML5_SCANNER_CONFIG,
+          (text, result) =>
+            onDecode(
+              text,
+              normalizeDetectedBarcodeFormat(result?.result?.format?.formatName),
+            ),
+          () => undefined,
+        );
         this.engine = "html5";
         if (attempt.kind === "device") {
           this.activeLabel = attempt.label;
@@ -633,7 +677,10 @@ export class QrCameraSession {
     return this.facing;
   }
 
-  private async openCamera(onDecode: (text: string) => void, facingOverride?: CameraFacing): Promise<void> {
+  private async openCamera(
+    onDecode: (text: string, format?: DetectedBarcodeFormat) => void,
+    facingOverride?: CameraFacing,
+  ): Promise<void> {
     await this.disposeAll({ settle: true });
 
     if (!this.detector) {
@@ -686,7 +733,9 @@ export class QrCameraSession {
     throw lastError ?? new Error("No camera found");
   }
 
-  async start(onDecode: (text: string) => void): Promise<ScannerStatus> {
+  async start(
+    onDecode: (text: string, format?: DetectedBarcodeFormat) => void,
+  ): Promise<ScannerStatus> {
     if (!navigator.mediaDevices?.getUserMedia) {
       throw new Error("Camera not supported in this browser.");
     }
@@ -698,7 +747,9 @@ export class QrCameraSession {
     return this.getStatus();
   }
 
-  async switchCamera(onDecode: (text: string) => void): Promise<ScannerStatus> {
+  async switchCamera(
+    onDecode: (text: string, format?: DetectedBarcodeFormat) => void,
+  ): Promise<ScannerStatus> {
     log("switchCamera", { before: this.getStatus() });
 
     if (this.devices.length > 1) {

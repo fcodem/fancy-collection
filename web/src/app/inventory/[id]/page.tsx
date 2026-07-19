@@ -4,6 +4,7 @@ import prisma from "@/lib/prisma";
 import { getCurrentUserReadOnly, isOwner } from "@/lib/auth";
 import InventoryDeleteButton from "@/components/InventoryDeleteButton";
 import InventoryDetailPhoto from "@/components/InventoryDetailPhoto";
+import InventoryScanCodeManager from "@/components/InventoryScanCodeManager";
 import { dressDisplayName } from "@/lib/dress";
 import { catalogPhotoUrl } from "@/lib/catalogPhotoUrl";
 import { formatDate } from "@/lib/constants";
@@ -162,6 +163,13 @@ export default async function InventoryDetailPage({ params }: { params: Promise<
           </div>
         </div>
       </div>
+      <InventoryScanCodeManager
+        inventoryId={item.id}
+        name={displayName}
+        sku={item.sku}
+        size={item.size}
+        color={item.color}
+      />
     </div>
   );
 }

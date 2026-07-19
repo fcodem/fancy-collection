@@ -146,6 +146,15 @@ describe("inventory scan code normalization and generation", () => {
     assert.equal(normalizeScanCode("  001234567890\r\n"), "001234567890");
   });
 
+  it("rejects an empty or scanner-only invalid code", () => {
+    assert.throws(
+      () => normalizeScanCode("\r\n  "),
+      (error) =>
+        error instanceof InventoryScanCodeError &&
+        error.code === "INVALID_SCAN_CODE",
+    );
+  });
+
   it("generates opaque, non-sequential internal dress codes", () => {
     const codes = new Set(Array.from({ length: 100 }, generateInternalDressCode));
     assert.equal(codes.size, 100);

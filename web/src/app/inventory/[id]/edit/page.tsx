@@ -21,6 +21,7 @@ export default async function InventoryEditPage({ params }: { params: Promise<{ 
       <InventoryFormClient
         item={{
           id: row.id,
+          sku: row.sku,
           name: row.name,
           category: row.category,
           size: row.size,
