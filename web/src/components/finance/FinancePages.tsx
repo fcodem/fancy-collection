@@ -2,11 +2,20 @@
 
 import { useEffect, useState } from "react";
 import { FinanceChart, FinanceCompareChart } from "@/components/finance/FinanceChart";
+import { FinanceChartSection } from "@/components/finance/FinanceChartSection";
 import { fetchFinanceJson } from "@/components/finance/financeFetch";
 import { FinanceCategorySaleTable } from "@/components/finance/FinanceCategorySaleTable";
 import { FinanceInactiveStats } from "@/components/finance/FinanceInactiveStats";
 import { FinanceOrdersSummary } from "@/components/finance/FinanceOrdersSummary";
 import { CUSTOM_ORDERS_CATEGORY } from "@/lib/financeBookingAmounts";
+import {
+  categoryLabelKeys,
+  mergeNumberMaps,
+  numberMap,
+  numberMapKeys,
+  numberMapValues,
+  numberValue,
+} from "@/lib/finance/safeNumbers";
 import { formatInr } from "@/lib/format";
 
 function FinanceStatus({ loading, error }: { loading: boolean; error: string }) {
@@ -19,8 +28,8 @@ function FinanceStatus({ loading, error }: { loading: boolean; error: string }) 
 }
 
 function financeSaleSubtitle(data: Record<string, unknown>): string | null {
-  const advanceRefunded = Number(data.advance_refunded ?? data.refund_total ?? 0);
-  const postponedAdvance = Number(data.postponed_advance ?? 0);
+  const advanceRefunded = numberValue(data.advance_refunded ?? data.refund_total);
+  const postponedAdvance = numberValue(data.postponed_advance);
   if (advanceRefunded <= 0 && postponedAdvance <= 0) return null;
   return [
     advanceRefunded > 0 ? `−₹${formatInr(advanceRefunded)} refunded` : null,
@@ -38,7 +47,7 @@ function FinanceSaleStatsSection({ data }: { data: Record<string, unknown> }) {
     <>
       <div className="stats-grid">
         <div className="stat-card gold">
-          <div className="stat-value">₹{formatInr(Number(data.total_sale))}</div>
+          <div className="stat-value">₹{formatInr(numberValue(data.total_sale))}</div>
           <div className="stat-label">Total Sale</div>
           {saleSubtitle && (
             <div style={{ fontSize: 12, color: "var(--text-muted)", marginTop: 6 }}>{saleSubtitle}</div>
@@ -135,15 +144,16 @@ function FinanceSaleStatsSection({ data }: { data: Record<string, unknown> }) {
 
 /** Shared category chart + category sale table — identical on Monthly & Yearly Sale. */
 function FinanceSaleCategorySection({ data }: { data: Record<string, unknown> }) {
-  const advanceByCategory = (data.advance_by_category as Record<string, number>) || {};
-  const balanceByCategory = (data.balance_by_category as Record<string, number>) || {};
+  const advanceByCategory = numberMap(data.advance_by_category);
+  const balanceByCategory = numberMap(data.balance_by_category);
   const saleByCategory =
-    (data.sale_by_category as Record<string, number>) ||
-    mergeCategoryRecordMaps(advanceByCategory, balanceByCategory);
-  const catBookingCounts = (data.category_booking_counts as Record<string, number>) || {};
-  const deliveredByCategory = (data.category_delivered_counts as Record<string, number>) || {};
-  const catLabels = Object.keys(saleByCategory);
-  const catValues = Object.values(saleByCategory);
+    numberMapKeys(data.sale_by_category).length > 0
+      ? numberMap(data.sale_by_category)
+      : mergeNumberMaps(advanceByCategory, balanceByCategory);
+  const catBookingCounts = numberMap(data.category_booking_counts);
+  const deliveredByCategory = numberMap(data.category_delivered_counts);
+  const catLabels = numberMapKeys(saleByCategory);
+  const catValues = numberMapValues(saleByCategory);
 
   if (catLabels.length === 0) {
     return <p style={{ color: "var(--text-muted)", marginTop: 24 }}>No category revenue in this period.</p>;
@@ -152,7 +162,9 @@ function FinanceSaleCategorySection({ data }: { data: Record<string, unknown> })
   return (
     <>
       <div style={{ marginTop: 24 }}>
-        <FinanceChart type="bar" labels={catLabels} values={catValues} title="Sale by Category" height={300} />
+        <FinanceChartSection title="Sale by Category">
+          <FinanceChart type="bar" labels={catLabels} values={catValues} title="Sale by Category" height={300} />
+        </FinanceChartSection>
       </div>
       <FinanceCategorySaleTable
         advanceByCategory={advanceByCategory}
@@ -165,20 +177,10 @@ function FinanceSaleCategorySection({ data }: { data: Record<string, unknown> })
   );
 }
 
-function mergeCategoryRecordMaps(...maps: Record<string, number>[]) {
-  const merged: Record<string, number> = {};
-  for (const map of maps) {
-    for (const [cat, amt] of Object.entries(map)) {
-      merged[cat] = (merged[cat] || 0) + amt;
-    }
-  }
-  return merged;
-}
-
 /** Dress counts per category, including custom orders in the Custom Orders row. */
 function buildDressCountsByCategory(data: Record<string, unknown>): Record<string, number> {
-  const counts = { ...((data.dresses_by_category as Record<string, number>) || {}) };
-  const orders = Number(data.orders_booked || 0);
+  const counts = numberMap(data.dresses_by_category);
+  const orders = numberValue(data.orders_booked);
   if (orders > 0) {
     counts[CUSTOM_ORDERS_CATEGORY] = orders;
   }
@@ -219,9 +221,10 @@ export function FinanceDailyBooking({ todayIso }: { todayIso: string }) {
       .finally(() => setLoading(false));
   }, [date]);
 
-  const labels = data?.total_by_category ? Object.keys(data.total_by_category) : [];
-  const values = data?.total_by_category ? Object.values(data.total_by_category) : [];
-  const dressCounts = data?.dresses_by_category || {};
+  const categoryTotals = numberMap(data?.total_by_category);
+  const labels = numberMapKeys(categoryTotals);
+  const values = numberMapValues(categoryTotals);
+  const dressCounts = numberMap(data?.dresses_by_category);
 
   return (
     <div className="card">
@@ -265,7 +268,9 @@ export function FinanceDailyBooking({ todayIso }: { todayIso: string }) {
             <FinanceInactiveStats data={data} />
             {labels.length > 0 ? (
               <div className="two-col">
-                <FinanceChart type="pie" labels={labels} values={values} title="Category Breakdown" />
+                <FinanceChartSection title="Category Breakdown">
+                  <FinanceChart type="pie" labels={labels} values={values} title="Category Breakdown" />
+                </FinanceChartSection>
                 <table className="data-table">
                   <thead><tr><th>Category</th><th>Dresses Booked</th><th>Amount</th></tr></thead>
                   <tbody>
@@ -358,8 +363,8 @@ export function FinanceYearlySale() {
       .finally(() => setLoading(false));
   }, []);
 
-  const monthly = (data?.monthly_breakdown as Record<string, number>) || {};
-  const monthLabels = Object.keys(monthly);
+  const monthly = numberMap(data?.monthly_breakdown);
+  const monthLabels = numberMapKeys(monthly);
 
   return (
     <div className="card">
@@ -381,7 +386,9 @@ export function FinanceYearlySale() {
             {monthLabels.length > 0 && (
               <div style={{ marginTop: 32, paddingTop: 24, borderTop: "1px solid var(--border)" }}>
                 <h4 style={{ margin: "0 0 16px", fontSize: 15, color: "var(--text-muted)" }}>Month-wise Revenue</h4>
-                <FinanceChart type="bar" labels={monthLabels} values={Object.values(monthly)} title="Monthly Revenue" height={300} />
+                <FinanceChartSection title="Monthly Revenue">
+                  <FinanceChart type="bar" labels={monthLabels} values={numberMapValues(monthly)} title="Monthly Revenue" height={300} />
+                </FinanceChartSection>
                 <table className="data-table" style={{ marginTop: 24 }}>
                   <thead><tr><th>Month</th><th>Revenue</th></tr></thead>
                   <tbody>
@@ -470,14 +477,16 @@ export function FinanceTopPerformer({
         <FinanceStatus loading={loading} error={error} />
         {!loading && !error && top10.length > 0 && (
           <div style={{ marginBottom: 24 }}>
-            <FinanceChart
-              type="bar"
-              labels={top10.map((r) => r.name)}
-              values={top10.map((r) => r.total_earned)}
-              title="Top 10 by Revenue"
-              height={300}
-              horizontal
-            />
+            <FinanceChartSection title="Top 10 by Revenue">
+              <FinanceChart
+                type="bar"
+                labels={top10.map((r) => r.name)}
+                values={top10.map((r) => numberValue(r.total_earned))}
+                title="Top 10 by Revenue"
+                height={300}
+                horizontal
+              />
+            </FinanceChartSection>
           </div>
         )}
         {!loading && !error && rows.length === 0 && (
@@ -611,7 +620,9 @@ export function FinanceSecurityDeposit({
             </div>
             {Object.keys(statusCounts).length > 0 && (
               <div style={{ marginBottom: 24, maxWidth: 360 }}>
-                <FinanceChart type="doughnut" labels={Object.keys(statusCounts)} values={Object.values(statusCounts)} title="By Status" height={240} />
+                <FinanceChartSection title="By Status">
+                  <FinanceChart type="doughnut" labels={Object.keys(statusCounts)} values={Object.values(statusCounts)} title="By Status" height={240} />
+                </FinanceChartSection>
               </div>
             )}
             <table className="data-table">
@@ -684,11 +695,11 @@ export function FinanceCategoryAnalysis({ monthStartIso, todayIso }: { monthStar
 
   const cats = data?.categories || [];
   const labels = cats.map((c) => String(c.category));
-  const revenue = cats.map((c) => Number(c.total_sale));
-  const purchases = cats.map((c) => Number(c.net_purchase));
-  const pieCats = cats.filter((c) => Number(c.total_sale) > 0);
+  const revenue = cats.map((c) => numberValue(c.total_sale));
+  const purchases = cats.map((c) => numberValue(c.net_purchase));
+  const pieCats = cats.filter((c) => numberValue(c.total_sale) > 0);
   const pieLabels = pieCats.map((c) => String(c.category));
-  const pieRevenue = pieCats.map((c) => Number(c.total_sale));
+  const pieRevenue = pieCats.map((c) => numberValue(c.total_sale));
 
   return (
     <div className="card">
@@ -708,14 +719,18 @@ export function FinanceCategoryAnalysis({ monthStartIso, todayIso }: { monthStar
         {!loading && !error && cats.length > 0 && (
           <div style={{ marginBottom: 28 }}>
             <div className="two-col">
-              <FinanceChart
-                type="pie"
-                labels={pieLabels}
-                values={pieRevenue}
-                title="Revenue by Category"
-                height={300}
-              />
-              <FinanceCompareChart labels={labels} revenue={revenue} purchases={purchases} />
+              <FinanceChartSection title="Revenue by Category">
+                <FinanceChart
+                  type="pie"
+                  labels={pieLabels}
+                  values={pieRevenue}
+                  title="Revenue by Category"
+                  height={300}
+                />
+              </FinanceChartSection>
+              <FinanceChartSection title="Revenue vs Stock">
+                <FinanceCompareChart labels={labels} revenue={revenue} purchases={purchases} />
+              </FinanceChartSection>
             </div>
           </div>
         )}
@@ -883,19 +898,23 @@ export function FinanceInventoryProfitability({
         {!loading && !error && categoryRows.length > 0 && (
           <>
             <div className="two-col" style={{ marginBottom: 24 }}>
-              <FinanceChart
-                type="pie"
-                labels={catLabels}
-                values={catSales}
-                title="Sale by Category"
-                height={300}
-              />
-              <FinanceCompareChart
-                labels={catLabels}
-                revenue={catSales}
-                purchases={catPurchases}
-                title="Category Sale vs Purchase"
-              />
+              <FinanceChartSection title="Sale by Category">
+                <FinanceChart
+                  type="pie"
+                  labels={catLabels}
+                  values={catSales}
+                  title="Sale by Category"
+                  height={300}
+                />
+              </FinanceChartSection>
+              <FinanceChartSection title="Category Sale vs Purchase">
+                <FinanceCompareChart
+                  labels={catLabels}
+                  revenue={catSales}
+                  purchases={catPurchases}
+                  title="Category Sale vs Purchase"
+                />
+              </FinanceChartSection>
             </div>
             <table className="data-table">
               <thead>

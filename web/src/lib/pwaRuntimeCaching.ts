@@ -9,9 +9,19 @@ const THREE_DAYS = 3 * 24 * 60 * 60;
  * inventory thumbnails may cache with bounded expiration.
  */
 export const pwaRuntimeCaching: RuntimeCaching[] = [
+  /* ── Finance APIs — never cache (reports must be live) ── */
+  {
+    urlPattern: /^\/api\/finance(?:\/|$)/i,
+    handler: "NetworkOnly",
+  },
   /* ── Never cache authenticated / mutation APIs ── */
   {
     urlPattern: /^\/api\//i,
+    handler: "NetworkOnly",
+  },
+  /* ── Finance app routes — never cache HTML/RSC ── */
+  {
+    urlPattern: /^\/finance(?:\/|$)/i,
     handler: "NetworkOnly",
   },
   /* ── App HTML navigations (business data) — network only ── */

@@ -3,7 +3,9 @@
 import { useCallback, useEffect, useState } from "react";
 import { fetchFinanceJson } from "@/components/finance/financeFetch";
 import { FinanceCompareChart } from "@/components/finance/FinanceChart";
+import { FinanceChartSection } from "@/components/finance/FinanceChartSection";
 import { formatInr } from "@/lib/format";
+import { numberMap, numberMapKeys } from "@/lib/finance/safeNumbers";
 import { fetchJson } from "@/lib/fetchJson";
 import { useToast } from "@/components/ui/Toast";
 
@@ -449,12 +451,14 @@ export default function FinanceLedger({ todayIso, monthIso }: { todayIso: string
                 <h3 className="card-title"><i className="fa-solid fa-chart-line" style={{ marginRight: 8 }} />Monthly Trend (Sale vs Expense)</h3>
               </div>
               <div className="card-body">
-                <FinanceCompareChart
-                  labels={data.trend.map((t) => t.label)}
-                  revenue={data.trend.map((t) => t.sale)}
-                  purchases={data.trend.map((t) => t.expense)}
-                  title="Monthly Sale vs Expense"
-                />
+                <FinanceChartSection title="Monthly Sale vs Expense">
+                  <FinanceCompareChart
+                    labels={data.trend.map((t) => t.label)}
+                    revenue={data.trend.map((t) => t.sale)}
+                    purchases={data.trend.map((t) => t.expense)}
+                    title="Monthly Sale vs Expense"
+                  />
+                </FinanceChartSection>
                 <table className="table" style={{ width: "100%", marginTop: 16 }}>
                   <thead>
                     <tr>
@@ -482,7 +486,7 @@ export default function FinanceLedger({ todayIso, monthIso }: { todayIso: string
           )}
 
           {/* Expense category split */}
-          {expenses && Object.keys(expenses.by_category).length > 0 && (
+          {expenses && numberMapKeys(expenses.by_category).length > 0 && (
             <div className="card">
               <div className="card-header">
                 <h3 className="card-title"><i className="fa-solid fa-tags" style={{ marginRight: 8 }} />Expense by Category</h3>
@@ -493,7 +497,7 @@ export default function FinanceLedger({ todayIso, monthIso }: { todayIso: string
                     <tr><th>Category</th><th style={{ textAlign: "right" }}>Amount</th></tr>
                   </thead>
                   <tbody>
-                    {Object.entries(expenses.by_category)
+                    {Object.entries(numberMap(expenses.by_category))
                       .sort((a, b) => b[1] - a[1])
                       .map(([cat, amt]) => (
                         <tr key={cat}>

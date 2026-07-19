@@ -1,11 +1,9 @@
 import { NextRequest } from "next/server";
 import { addExpense, getLedgerSummary, getLedgerTrend } from "@/lib/services/ledgerOps";
+import { financeParallelLimit, handleFinanceGet } from "@/lib/finance/financeApiRoute";
 import { jsonError, jsonOk, requireOwner, isResponse, requireJsonContentType } from "@/lib/api";
 
 export async function GET(req: NextRequest) {
-  const user = await requireOwner();
-  if (isResponse(user)) return user;
-
   const today = new Date().toISOString().slice(0, 10);
   const from = req.nextUrl.searchParams.get("from") || today;
   const to = req.nextUrl.searchParams.get("to") || from;
@@ -15,10 +13,13 @@ export async function GET(req: NextRequest) {
     24,
   );
 
-  const summary = await getLedgerSummary(from, to);
-  const trend = trendMonth ? await getLedgerTrend(trendMonth, trendMonths) : null;
-
-  return jsonOk({ ...summary, trend });
+  return handleFinanceGet(async () => {
+    const [summary, trend] = await financeParallelLimit<unknown>([
+      () => getLedgerSummary(from, to),
+      () => (trendMonth ? getLedgerTrend(trendMonth, trendMonths) : Promise.resolve(null)),
+    ]);
+    return { ...(summary as Record<string, unknown>), trend };
+  }, "Ledger");
 }
 
 export async function POST(req: NextRequest) {

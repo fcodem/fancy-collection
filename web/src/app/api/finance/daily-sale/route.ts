@@ -1,10 +1,8 @@
 import { NextRequest } from "next/server";
 import { getDailySaleCached } from "@/lib/services/finance";
-import { jsonOk, requireOwner, isResponse } from "@/lib/api";
+import { handleFinanceGet } from "@/lib/finance/financeApiRoute";
 
 export async function GET(req: NextRequest) {
-  const user = await requireOwner();
-  if (isResponse(user)) return user;
   const date = req.nextUrl.searchParams.get("date") || new Date().toISOString().slice(0, 10);
-  return jsonOk(await getDailySaleCached(date));
+  return handleFinanceGet(() => getDailySaleCached(date), "Daily sale");
 }

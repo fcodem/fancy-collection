@@ -1,12 +1,13 @@
-import { NextRequest } from "next/server";
 import { listSuppliers, addSupplier } from "@/lib/services/adminOps";
+import { handleFinanceGet } from "@/lib/finance/financeApiRoute";
 import { jsonError, jsonOk, requireOwner, isResponse, requireJsonContentType } from "@/lib/api";
+import { NextRequest } from "next/server";
 
 export async function GET() {
-  const user = await requireOwner();
-  if (isResponse(user)) return user;
-  const suppliers = await listSuppliers();
-  return jsonOk(suppliers);
+  return handleFinanceGet(async () => {
+    const suppliers = await listSuppliers();
+    return Array.isArray(suppliers) ? suppliers : [];
+  }, "Suppliers");
 }
 
 export async function POST(req: NextRequest) {
