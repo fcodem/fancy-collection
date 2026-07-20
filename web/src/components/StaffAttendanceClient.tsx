@@ -10,7 +10,7 @@ import { useToast } from "@/components/ui/Toast";
 import { SaveConfirmedBanner } from "@/components/SaveConfirmedBanner";
 import { cachedFetchJson, invalidateClientCache } from "@/lib/clientRequestCache";
 
-type Staff = { id: number; name: string; phone?: string | null };
+type Staff = { id: number; name: string; phone?: string | null; monthlySalary?: number | null; salaryDate?: number | null };
 type StaffUser = { id: number; username: string; role: string; staffId: number | null };
 type AttSummary = { id: number; name: string; present: number; absent: number; half_day: number };
 type SalEntry = { id: number; date: string; amount: number; note: string };
@@ -61,6 +61,8 @@ export default function StaffAttendanceClient({
 
   const [addName, setAddName] = useState("");
   const [addPhone, setAddPhone] = useState("");
+  const [addMonthlySalary, setAddMonthlySalary] = useState("");
+  const [addSalaryDate, setAddSalaryDate] = useState("");
   const [addUsername, setAddUsername] = useState("");
   const [addPassword, setAddPassword] = useState("");
   const [addRole, setAddRole] = useState("staff");
@@ -302,6 +304,8 @@ export default function StaffAttendanceClient({
         body: JSON.stringify({
           name: addName,
           phone: addPhone,
+          monthlySalary: addMonthlySalary ? Number(addMonthlySalary) : undefined,
+          salaryDate: addSalaryDate ? Number(addSalaryDate) : undefined,
           username: addUsername,
           password: addPassword,
           role: addRole,
@@ -310,6 +314,8 @@ export default function StaffAttendanceClient({
       toast("Staff added", "success");
       setAddName("");
       setAddPhone("");
+      setAddMonthlySalary("");
+      setAddSalaryDate("");
       setAddUsername("");
       setAddPassword("");
       setAddRole("staff");
@@ -456,7 +462,22 @@ export default function StaffAttendanceClient({
                 </div>
                 <div className="form-group">
                   <label className="form-label">Phone</label>
-                  <input className="form-control" value={addPhone} onChange={(e) => setAddPhone(e.target.value)} />
+                  <input className="form-control" inputMode="tel" value={addPhone} onChange={(e) => setAddPhone(e.target.value)} />
+                </div>
+                <div style={{ display: "grid", gridTemplateColumns: "1fr 1fr", gap: 10 }}>
+                  <div className="form-group">
+                    <label className="form-label">Monthly Salary (₹)</label>
+                    <input type="number" inputMode="numeric" className="form-control" placeholder="e.g. 10000" value={addMonthlySalary} onChange={(e) => setAddMonthlySalary(e.target.value)} />
+                  </div>
+                  <div className="form-group">
+                    <label className="form-label">Salary Date</label>
+                    <select className="form-control" value={addSalaryDate} onChange={(e) => setAddSalaryDate(e.target.value)}>
+                      <option value="">—</option>
+                      {Array.from({ length: 31 }, (_, i) => i + 1).map((d) => (
+                        <option key={d} value={d}>{d}</option>
+                      ))}
+                    </select>
+                  </div>
                 </div>
                 <hr style={{ borderColor: "var(--border)", margin: "12px 0" }} />
                 <div style={{ fontSize: 11, color: "var(--gold-dark)", fontWeight: 700, textTransform: "uppercase", letterSpacing: 1, marginBottom: 10 }}>
@@ -905,6 +926,8 @@ export default function StaffAttendanceClient({
                     <tr>
                       <th>Name</th>
                       <th>Phone</th>
+                      <th>Monthly Salary</th>
+                      <th>Salary Date</th>
                       {isOwner && <th className="no-print">Action</th>}
                     </tr>
                   </thead>
@@ -936,6 +959,60 @@ export default function StaffAttendanceClient({
                             )}
                           </td>
                           <td>{s.phone || "—"}</td>
+                          <td>
+                            {isOwner ? (
+                              <input
+                                type="number"
+                                inputMode="numeric"
+                                className="form-control"
+                                style={{ width: 100, padding: "4px 6px", fontSize: 12 }}
+                                defaultValue={s.monthlySalary ?? ""}
+                                placeholder="—"
+                                onBlur={(e) => {
+                                  const val = e.target.value ? Number(e.target.value) : null;
+                                  if (val !== (s.monthlySalary ?? null)) {
+                                    fetchJson(`/api/staff/${s.id}`, {
+                                      method: "PUT",
+                                      headers: { "Content-Type": "application/json" },
+                                      body: JSON.stringify({ monthly_salary: val, salary_date: s.salaryDate }),
+                                    }).then(() => {
+                                      s.monthlySalary = val;
+                                      toast("Salary updated", "success");
+                                    }).catch(() => toast("Failed to update", "error"));
+                                  }
+                                }}
+                              />
+                            ) : (
+                              s.monthlySalary ? `₹${formatInr(s.monthlySalary)}` : "—"
+                            )}
+                          </td>
+                          <td>
+                            {isOwner ? (
+                              <select
+                                className="form-control"
+                                style={{ width: 70, padding: "4px 6px", fontSize: 12 }}
+                                defaultValue={s.salaryDate ?? ""}
+                                onChange={(e) => {
+                                  const val = e.target.value ? Number(e.target.value) : null;
+                                  fetchJson(`/api/staff/${s.id}`, {
+                                    method: "PUT",
+                                    headers: { "Content-Type": "application/json" },
+                                    body: JSON.stringify({ monthly_salary: s.monthlySalary, salary_date: val }),
+                                  }).then(() => {
+                                    s.salaryDate = val;
+                                    toast("Salary date updated", "success");
+                                  }).catch(() => toast("Failed to update", "error"));
+                                }}
+                              >
+                                <option value="">—</option>
+                                {Array.from({ length: 31 }, (_, i) => i + 1).map((d) => (
+                                  <option key={d} value={d}>{d}</option>
+                                ))}
+                              </select>
+                            ) : (
+                              s.salaryDate ? `${s.salaryDate}` : "—"
+                            )}
+                          </td>
                           {isOwner && (
                             <td className="no-print">
                               <button

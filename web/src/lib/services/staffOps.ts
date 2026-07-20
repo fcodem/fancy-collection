@@ -80,6 +80,8 @@ export async function getAttendanceCalendar(staffId: number, monthStr: string) {
 export async function addStaff(data: {
   name: string;
   phone?: string;
+  monthlySalary?: number;
+  salaryDate?: number;
   username?: string;
   password?: string;
   role?: string;
@@ -91,7 +93,12 @@ export async function addStaff(data: {
 
   return prisma.$transaction(async (tx) => {
     const s = await tx.staff.create({
-      data: { name: data.name.trim(), phone: data.phone?.trim() || null },
+      data: {
+        name: data.name.trim(),
+        phone: data.phone?.trim() || null,
+        monthlySalary: data.monthlySalary ?? null,
+        salaryDate: data.salaryDate ?? null,
+      },
     });
     if (data.username && data.password) {
       await tx.user.create({
@@ -105,6 +112,28 @@ export async function addStaff(data: {
     }
     return s;
   });
+}
+
+export async function updateStaffSalaryInfo(
+  staffId: number,
+  data: { monthlySalary?: number | null; salaryDate?: number | null },
+  by?: string,
+) {
+  const staff = await prisma.staff.update({
+    where: { id: staffId },
+    data: {
+      monthlySalary: data.monthlySalary ?? null,
+      salaryDate: data.salaryDate ?? null,
+    },
+  });
+  logActivity({
+    username: by || "system",
+    action: "updated",
+    entity: "staff",
+    label: `Updated salary info for ${staff.name}`,
+    after: { monthlySalary: staff.monthlySalary, salaryDate: staff.salaryDate },
+  });
+  return staff;
 }
 
 export async function removeStaff(staffId: number) {
@@ -274,7 +303,7 @@ export async function getStaffAttendanceToday(dateStr: string) {
     prisma.staff.findMany({
       where: { active: true },
       orderBy: { name: "asc" },
-      select: { id: true, name: true, phone: true },
+      select: { id: true, name: true, phone: true, monthlySalary: true, salaryDate: true },
     }),
     prisma.staffAttendance.findMany({
       where: { date },

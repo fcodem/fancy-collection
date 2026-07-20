@@ -533,29 +533,41 @@ export async function monthBasedSearchBookings(
 
   const monthWhere = await monthDeliveryWhereFromRefDate(refDate);
 
-  let { where, mode } = buildActiveQueryWhere(q, category);
-  where = { ...where, ...monthWhere };
-  let pageResult = await fetchBookingsPage(where, orderBy, page, pageSize);
+  const { where: queryWhere, mode: queryMode } = buildActiveQueryWhere(q, category);
+  let mode = queryMode;
 
-  if (!pageResult.total && mode === "customer") {
-    ({ where, mode } = {
-      where: { ...activeStatusBookingWhere(category), ...dressNameWhere(q), ...monthWhere },
-      mode: "dress",
-    });
-    pageResult = await fetchBookingsPage(where, orderBy, page, pageSize);
+  // Run customer-name + dress-name searches in parallel within current month
+  const [customerResult, dressResult] = await Promise.all([
+    fetchBookingsPage({ ...queryWhere, ...monthWhere }, orderBy, page, pageSize),
+    mode === "customer"
+      ? fetchBookingsPage(
+          { ...activeStatusBookingWhere(category), ...dressNameWhere(q), ...monthWhere },
+          orderBy, page, pageSize,
+        )
+      : Promise.resolve(null),
+  ]);
+
+  let pageResult = customerResult;
+  if (!pageResult.total && dressResult?.total) {
+    pageResult = dressResult;
+    mode = "dress";
   }
 
+  // If nothing in current month, try near months (customer + dress in parallel)
   if (!pageResult.total) {
     const nearMonth = await nearMonthDeliveryWhere(refDate);
-    ({ where, mode } = buildActiveQueryWhere(q, category));
-    pageResult = await fetchBookingsPage({ ...where, ...nearMonth }, orderBy, page, pageSize);
-    if (!pageResult.total && mode === "customer") {
-      pageResult = await fetchBookingsPage(
-        { ...activeStatusBookingWhere(category), ...dressNameWhere(q), ...nearMonth },
-        orderBy,
-        page,
-        pageSize,
-      );
+    const [nearCustomer, nearDress] = await Promise.all([
+      fetchBookingsPage({ ...queryWhere, ...nearMonth }, orderBy, page, pageSize),
+      mode === "customer" || mode === "dress"
+        ? fetchBookingsPage(
+            { ...activeStatusBookingWhere(category), ...dressNameWhere(q), ...nearMonth },
+            orderBy, page, pageSize,
+          )
+        : Promise.resolve(null),
+    ]);
+    pageResult = nearCustomer;
+    if (!pageResult.total && nearDress?.total) {
+      pageResult = nearDress;
       mode = "dress";
     }
   }

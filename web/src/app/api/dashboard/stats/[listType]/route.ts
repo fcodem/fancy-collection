@@ -1,6 +1,8 @@
 import { NextRequest } from "next/server";
 import { isResponse, jsonError, jsonOk, requireUserReadOnly } from "@/lib/api";
 import { createPerfTimer, withServerTiming } from "@/lib/perfTiming";
+import { memoryCachedQuery } from "@/lib/perfCache";
+import { getFreshShopRevision } from "@/lib/realtime/revision";
 import {
   getDashboardStatListPage,
   parseDashboardStatListType,
@@ -25,12 +27,19 @@ export async function GET(
   if (!listType) return jsonError("Unknown dashboard stat list", 404);
 
   const sp = req.nextUrl.searchParams;
+  const pageParam = sp.get("page") || "";
+  const pageSizeParam = sp.get("pageSize") || sp.get("limit") || "";
   try {
     perf.mark("query");
-    const page = await getDashboardStatListPage(listType, {
-      page: sp.get("page") || undefined,
-      pageSize: sp.get("pageSize") || sp.get("limit") || undefined,
-    });
+    const revision = await getFreshShopRevision();
+    const page = await memoryCachedQuery(
+      ["dashboard-stat", revision, listType, pageParam, pageSizeParam],
+      () => getDashboardStatListPage(listType, {
+        page: pageParam || undefined,
+        pageSize: pageSizeParam || undefined,
+      }),
+      10,
+    );
     perf.endStage("queryMs", "query");
     const timings = perf.finish({ kind: "read" });
     return withServerTiming(jsonOk(page), timings);

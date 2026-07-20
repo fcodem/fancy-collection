@@ -1274,6 +1274,7 @@ export default function ReturnDetailClient({
                       <label className="form-label">Amount to collect (₹)</label>
                       <input
                         type="number"
+                        inputMode="numeric"
                         className="form-control"
                         min={0}
                         max={outstanding}
@@ -1535,6 +1536,7 @@ export default function ReturnDetailClient({
                           <label className="form-label">Security to hold for this dress (₹)</label>
                           <input
                             type="number"
+                            inputMode="numeric"
                             className="form-control"
                             value={form?.securityHeld ?? ""}
                             onChange={(e) => updateIncompleteForm(row.id, { securityHeld: e.target.value })}

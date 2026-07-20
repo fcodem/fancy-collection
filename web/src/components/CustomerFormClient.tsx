@@ -76,7 +76,7 @@ export default function CustomerFormClient({
       <div className="card-header"><h3 className="card-title">{isEdit ? "Edit Customer" : "Add Customer"}</h3></div>
       <div className="card-body" style={{ display: "grid", gap: 16 }}>
         <div><label className="form-label">Name *</label><input name="name" className="form-control" required defaultValue={customer?.name as string} /></div>
-        <div><label className="form-label">Phone *</label><input name="phone" className="form-control" required defaultValue={customer?.phone as string} /></div>
+        <div><label className="form-label">Phone *</label><input name="phone" className="form-control" inputMode="tel" required defaultValue={customer?.phone as string} /></div>
         <div><label className="form-label">Email</label><input name="email" type="email" className="form-control" defaultValue={customer?.email as string} /></div>
         <div><label className="form-label">Address</label><textarea name="address" className="form-control" defaultValue={customer?.address as string} /></div>
         <div><label className="form-label">ID Proof</label><input name="id_proof" className="form-control" defaultValue={customer?.idProof as string} /></div>

@@ -333,6 +333,7 @@ export default function AppShell({
         overdueDelivery={overdueDelivery}
         whatsappUnread={whatsappUnread}
         aiHealthBanner={aiHealthBanner}
+        onDismissAiBanner={() => setAiHealthBanner(null)}
         onToggleCollapsed={toggleCollapsed}
         onToggleMobile={toggleMobileMenu}
         onCloseMobile={() => setMobileOpen(false)}
@@ -383,6 +384,7 @@ function AppLayoutInner({
   overdueDelivery,
   whatsappUnread,
   aiHealthBanner,
+  onDismissAiBanner,
   onToggleCollapsed,
   onToggleMobile,
   onCloseMobile,
@@ -401,6 +403,7 @@ function AppLayoutInner({
   overdueDelivery: number;
   whatsappUnread: number;
   aiHealthBanner: string | null;
+  onDismissAiBanner: () => void;
   onToggleCollapsed: () => void;
   onToggleMobile: () => void;
   onCloseMobile: () => void;
@@ -629,9 +632,20 @@ function AppLayoutInner({
             }}
           >
             <span>⚠ {aiHealthBanner}</span>
-            <Link href="/ai-features" style={{ color: "#7B1F45", fontWeight: 700, whiteSpace: "nowrap" }}>
-              Open AI Features →
-            </Link>
+            <span style={{ display: "flex", gap: 8, alignItems: "center" }}>
+              <Link href="/ai-features" style={{ color: "#7B1F45", fontWeight: 700, whiteSpace: "nowrap" }}>
+                Open AI Features →
+              </Link>
+              <button
+                type="button"
+                onClick={onDismissAiBanner}
+                style={{ background: "none", border: "none", cursor: "pointer", color: "#92400e", fontSize: 16, padding: "0 4px", lineHeight: 1 }}
+                title="Dismiss"
+                aria-label="Dismiss"
+              >
+                <i className="fa-solid fa-xmark" />
+              </button>
+            </span>
           </div>
         )}
         <div className="page-content page-body">{children}</div>

@@ -485,11 +485,13 @@ model CustomSubCategory {
 }
 
 model Staff {
-  id        Int      @id @default(autoincrement())
-  name      String
-  phone     String?
-  active    Boolean  @default(true)
-  createdAt DateTime @default(now()) @map("created_at")
+  id            Int      @id @default(autoincrement())
+  name          String
+  phone         String?
+  active        Boolean  @default(true)
+  monthlySalary Float?   @map("monthly_salary")
+  salaryDate    Int?     @map("salary_date")
+  createdAt     DateTime @default(now()) @map("created_at")
 
   users         User[]
   attendances   StaffAttendance[]

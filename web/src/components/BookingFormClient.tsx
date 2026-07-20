@@ -1298,7 +1298,7 @@ export default function BookingFormClient(props: Props) {
 
               <label className="form-label">Contact *</label>
 
-              <input className="form-control" value={contact1} onChange={(e) => setContact1(e.target.value)} required />
+              <input className="form-control" inputMode="tel" value={contact1} onChange={(e) => setContact1(e.target.value)} required />
 
             </div>
 
@@ -1903,6 +1903,7 @@ export default function BookingFormClient(props: Props) {
               <label className="form-label">Security Deposit (₹)</label>
               <input
                 type="number"
+                inputMode="numeric"
                 className="form-control"
                 value={securityDeposit}
                 onChange={(e) => setSecurityDeposit(Number(e.target.value))}

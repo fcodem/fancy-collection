@@ -1043,6 +1043,7 @@ export default function DeliveryDetailClient({
                   <label className="form-label">Remaining Collected (₹)</label>
                   <input
                     type="number"
+                    inputMode="numeric"
                     className="form-control"
                     value={itemForms[it.id]?.remaining ?? ""}
                     onChange={(e) => updateItem(it.id, "remaining", e.target.value)}
@@ -1053,6 +1054,7 @@ export default function DeliveryDetailClient({
                   <label className="form-label">Security Collected (₹)</label>
                   <input
                     type="number"
+                    inputMode="numeric"
                     className="form-control"
                     value={itemForms[it.id]?.security ?? ""}
                     onChange={(e) => updateItem(it.id, "security", e.target.value)}
@@ -1307,6 +1309,7 @@ export default function DeliveryDetailClient({
                             <label className="form-label">Balance to Collect (₹)</label>
                             <input
                               type="number"
+                              inputMode="numeric"
                               className="form-control"
                               value={orderForms[o.id] ?? ""}
                               onChange={(e) => setOrderForms((prev) => ({ ...prev, [o.id]: e.target.value }))}

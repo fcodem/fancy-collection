@@ -112,6 +112,7 @@ export async function runQueueWatchdog(opts: { drainLimit?: number } = {}): Prom
   workerRestarted: boolean;
   stuckRecovered: number;
   drained: number;
+  failedRequeued: number;
   warning?: string;
 }> {
   const drainLimit = opts.drainLimit ?? 2;
@@ -141,6 +142,32 @@ export async function runQueueWatchdog(opts: { drainLimit?: number } = {}): Prom
     }
   }
 
+  // Auto-requeue FAILED/STALE profiles so the degraded banner clears automatically
+  let failedRequeued = 0;
+  try {
+    const failedProfiles = await prisma.inventoryAiProfile.findMany({
+      where: { status: { in: ["FAILED", "STALE"] } },
+      select: { itemId: true },
+      take: 20,
+    });
+    if (failedProfiles.length > 0) {
+      const ids = failedProfiles.map((p) => p.itemId);
+      await prisma.inventoryAiProfile.updateMany({
+        where: { itemId: { in: ids } },
+        data: { status: "PENDING" },
+      });
+      // Reset existing failed jobs or create new pending ones
+      await prisma.inventoryAiJob.updateMany({
+        where: { itemId: { in: ids }, status: { in: ["FAILED", "DEAD_LETTER", "STALE"] } },
+        data: { status: "PENDING", priority: 5, retryCount: 0, lastError: null, errorMessage: null },
+      });
+      failedRequeued = ids.length;
+      console.log(`[watchdog] requeued ${failedRequeued} failed/stale AI profiles`);
+    }
+  } catch (e) {
+    console.warn("[watchdog] failed profile requeue skipped:", e);
+  }
+
   let drained = 0;
   if (drainLimit > 0) {
     try {
@@ -157,6 +184,7 @@ export async function runQueueWatchdog(opts: { drainLimit?: number } = {}): Prom
     workerRestarted,
     stuckRecovered,
     drained,
+    failedRequeued,
     warning,
   };
 }

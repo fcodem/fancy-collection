@@ -27,6 +27,7 @@ export type AuditEntity =
   | "ledger_expense"
   | "booking_jewellery"
   | "customer"
+  | "staff"
   | "ai_briefing";
 
 interface LogOpts {
