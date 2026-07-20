@@ -1,4 +1,5 @@
 import Link from "next/link";
+import RealtimePageRefresher from "@/components/RealtimePageRefresher";
 import prisma from "@/lib/prisma";
 import {
   whereRemainingToDeliver,
@@ -33,6 +34,8 @@ export default async function RemainingToDeliverPage() {
   const { rows: pdfRows, warningsBelow } = flattenBookingPdfRows(pdfResults);
 
   return (
+    <>
+    <RealtimePageRefresher />
     <div className="card">
         <div className="card-header">
           <h3 className="card-title">Remaining to Deliver ({bookings.length})</h3>
@@ -86,5 +89,6 @@ export default async function RemainingToDeliverPage() {
           )}
         </div>
       </div>
+    </>
   );
 }

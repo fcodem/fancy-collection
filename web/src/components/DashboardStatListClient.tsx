@@ -2,7 +2,7 @@
 
 import Link from "next/link";
 import PrefetchOnIntentLink from "@/components/PrefetchOnIntentLink";
-import { useEffect, useMemo, useState } from "react";
+import { useCallback, useEffect, useMemo, useState } from "react";
 import BookingSearchSuggestInput from "@/components/BookingSearchSuggestInput";
 import {
   StandardBookingTableCells,
@@ -21,6 +21,8 @@ import {
   standardBookingPdfRow,
 } from "@/lib/standardBookingPdfRows";
 import { fetchJson } from "@/lib/fetchJson";
+import { useRealtimeRefresh } from "@/hooks/useRealtimeRefresh";
+import { BOOKING_EVENTS } from "@/lib/realtime/types";
 
 type Props = {
   listType: DashboardStatListType;
@@ -61,6 +63,24 @@ export default function DashboardStatListClient({
   const [category, setCategory] = useState("");
   const [appliedQuery, setAppliedQuery] = useState("");
   const [appliedCategory, setAppliedCategory] = useState("");
+
+  const reloadAll = useCallback(async () => {
+    try {
+      const data = await fetchJson<{
+        bookings: DashboardStatBookingRow[];
+        total: number;
+        page: number;
+        pageSize: number;
+        hasMore: boolean;
+      }>(`/api/dashboard/stats/${listType}?page=1&pageSize=${pageSize}`, { dedupeMs: 0 });
+      setBookings(data.bookings);
+      setTotal(data.total);
+      setPage(1);
+      setHasMore(data.hasMore);
+    } catch { /* ignore — user will see stale data until next poll */ }
+  }, [listType, pageSize]);
+
+  useRealtimeRefresh(BOOKING_EVENTS, reloadAll);
 
   const filtered = useMemo(
     () => filterStatListBookings(bookings, appliedQuery, appliedCategory),

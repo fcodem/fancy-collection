@@ -1,12 +1,14 @@
 "use client";
 
-import { useCallback, useState } from "react";
+import { useCallback, useRef, useState } from "react";
 import PrefetchOnIntentLink from "@/components/PrefetchOnIntentLink";
 import DownloadPdfButton from "@/components/DownloadPdfButton";
 import { StandardBookingTableCells, StandardBookingTableHead } from "@/components/BookingDetailsColumns";
 import type { StandardBookingDetails } from "@/lib/bookingDetails";
 import type { PdfWarningPanel } from "@/lib/pdfWarningDraw";
 import { recordBookingPdfHeaders, recordBookingPdfRow, flattenBookingPdfRows } from "@/lib/standardBookingPdfRows";
+import { useRealtimeRefresh } from "@/hooks/useRealtimeRefresh";
+import { BOOKING_EVENTS } from "@/lib/realtime/types";
 
 type LateReturnRow = {
   id: number;
@@ -32,8 +34,10 @@ export default function LateReturnClient({ initial }: { initial: PageData }) {
     warningsBelow: (PdfWarningPanel[] | undefined)[];
   } | null>(null);
   const [pdfLoading, setPdfLoading] = useState(false);
+  const pageRef = useRef(initial.page);
 
   const loadPage = useCallback(async (page: number) => {
+    pageRef.current = page;
     setLoading(true);
     try {
       const res = await fetch(`/api/late-return?page=${page}`, { credentials: "same-origin" });
@@ -43,6 +47,8 @@ export default function LateReturnClient({ initial }: { initial: PageData }) {
       setLoading(false);
     }
   }, []);
+
+  useRealtimeRefresh(BOOKING_EVENTS, () => loadPage(pageRef.current));
 
   async function loadPdf() {
     setPdfLoading(true);

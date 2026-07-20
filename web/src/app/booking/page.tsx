@@ -1,5 +1,6 @@
 import Link from "next/link";
 import type { ReactNode } from "react";
+import RealtimePageRefresher from "@/components/RealtimePageRefresher";
 import BookingPanelFilters from "@/components/BookingPanelFilters";
 import { bookingPanelDateRange, parseBookingPanelFilters } from "@/lib/bookingPanelFilter";
 import {
@@ -72,6 +73,7 @@ export default async function BookingPanelPage({
 
   return (
     <>
+      <RealtimePageRefresher />
       <div style={{ display: "flex", justifyContent: "flex-end", gap: 8, marginBottom: 16 }}>
         <BookingPanelPdfButton year={year} month={month} />
         <Link href="/booking/new" className="btn btn-primary" prefetch>

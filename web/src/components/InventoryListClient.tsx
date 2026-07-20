@@ -11,6 +11,8 @@ import {
   type FormEvent,
 } from "react";
 import { usePathname } from "next/navigation";
+import { useRealtimeRefresh } from "@/hooks/useRealtimeRefresh";
+import { BOOKING_EVENTS, INVENTORY_EVENTS } from "@/lib/realtime/types";
 import PrefetchOnIntentLink from "@/components/PrefetchOnIntentLink";
 import DressNameSuggestInput from "@/components/DressNameSuggestInput";
 import CategorySelect from "@/components/CategorySelect";
@@ -186,6 +188,11 @@ export default function InventoryListClient({
     },
     [buildKey, cache, pageSize, search],
   );
+
+  useRealtimeRefresh([...BOOKING_EVENTS, ...INVENTORY_EVENTS], () => {
+    cache.clear();
+    fetchPage(deferredQuery, statusVal, categoryVal, null, { append: false, debounce: false });
+  });
 
   // Debounced client filter — skip first mount (SSR already hydrated results)
   useEffect(() => {

@@ -2,7 +2,9 @@
 
 import Link from "next/link";
 import PrefetchOnIntentLink from "@/components/PrefetchOnIntentLink";
-import { useEffect, useState } from "react";
+import { useCallback, useEffect, useState } from "react";
+import { useRealtimeRefresh } from "@/hooks/useRealtimeRefresh";
+import { BOOKING_EVENTS } from "@/lib/realtime/types";
 
 type CustomerRow = {
   id: number;
@@ -17,7 +19,7 @@ export default function CustomersClient() {
   const [q, setQ] = useState("");
   const [rows, setRows] = useState<CustomerRow[]>([]);
 
-  async function load() {
+  const load = useCallback(async () => {
     try {
       const res = await fetch(`/api/customers?q=${encodeURIComponent(q)}`);
       if (!res.ok) return;
@@ -25,9 +27,11 @@ export default function CustomersClient() {
     } catch {
       /* ignore transient network errors */
     }
-  }
+  }, [q]);
 
   useEffect(() => { load(); }, []);
+
+  useRealtimeRefresh(BOOKING_EVENTS, load);
 
   return (
     <div>

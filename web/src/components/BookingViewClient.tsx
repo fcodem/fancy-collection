@@ -1,8 +1,11 @@
 "use client";
 
 import { useState, type ReactNode } from "react";
+import { useRouter } from "next/navigation";
 import dynamic from "next/dynamic";
 import PrefetchOnIntentLink from "@/components/PrefetchOnIntentLink";
+import { useRealtimeRefresh } from "@/hooks/useRealtimeRefresh";
+import { BOOKING_EVENTS } from "@/lib/realtime/types";
 import { BookingRecordDetails } from "@/components/BookingRecordDetails";
 import type { SlipOrderDisplay } from "@/components/BookingSlip";
 import { BookingItemWarningsSection } from "@/components/BookingItemWarningsSection";
@@ -50,6 +53,8 @@ export default function BookingViewClient({
   orders?: SlipOrderDisplay[];
 }) {
   const [showCancel, setShowCancel] = useState(false);
+  const router = useRouter();
+  useRealtimeRefresh(BOOKING_EVENTS, () => router.refresh());
 
   const status = resolveBookingStatus(booking);
   const isDelivered = status === "delivered";

@@ -1,4 +1,5 @@
 import prisma from "@/lib/prisma";
+import RealtimePageRefresher from "@/components/RealtimePageRefresher";
 import ResolveButton from "@/components/ResolveButton";
 import { StandardBookingTableCells, StandardBookingTableHead } from "@/components/BookingDetailsColumns";
 import { serializeStandardBookingDetails, incompleteReturnSecuritySummary } from "@/lib/bookingDetails";
@@ -102,6 +103,8 @@ export default async function IncompleteReturnPage() {
   const { rows: pdfRows, warningsBelow } = flattenBookingPdfRows(pdfResults);
 
   return (
+    <>
+    <RealtimePageRefresher />
     <div className="card">
         <div className="card-header">
           <h3 className="card-title">
@@ -213,5 +216,6 @@ export default async function IncompleteReturnPage() {
           )}
         </div>
       </div>
+    </>
   );
 }

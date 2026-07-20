@@ -34,7 +34,7 @@ export function useRealtimeRefresh(types: ShopEventType[], refresh: () => void) 
       const event = (e as CustomEvent<ShopEvent>).detail;
       if (!event) return;
       if (event.type === "shop.changed" || typesRef.current.includes(event.type)) {
-        const jitter = Math.floor(Math.random() * 800);
+        const jitter = Math.floor(Math.random() * 200);
         setTimeout(() => safeRefresh(() => refreshRef.current()), jitter);
       }
     };
