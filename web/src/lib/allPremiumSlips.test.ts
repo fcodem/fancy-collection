@@ -47,22 +47,20 @@ function sliceFn(source: string, start: string, end: string): string {
   return source.slice(a, b);
 }
 
-describe("all premium slips — no customer jsPDF fallback", () => {
+describe("all premium slips — jsPDF fallback after Chromium failure", () => {
   const automated = read("src/lib/services/whatsapp/automatedMessages.ts");
 
-  it("does not import jsPDF fallback generators", () => {
-    assert.doesNotMatch(automated, /generateBookingBillPdfFallback/);
-    assert.doesNotMatch(automated, /generateOperationSlipPdfFallback/);
+  it("imports jsPDF fallback generators", () => {
+    assert.match(automated, /generateBookingBillPdfFallback/);
+    assert.match(automated, /generateOperationSlipPdfFallback/);
+    assert.match(automated, /renderSlipWithFallback/);
   });
 
   for (const sender of SLIP_SENDERS) {
-    it(`${sender.name} fails retryable without jsPDF fallback`, () => {
+    it(`${sender.name} uses premium then jsPDF fallback`, () => {
       const fn = sliceFn(automated, sender.start, sender.end);
-      assert.doesNotMatch(fn, /jsPDF fallback/i);
-      assert.doesNotMatch(fn, /generateOperationSlipPdfFallback/);
-      assert.doesNotMatch(fn, /generateBookingBillPdfFallback/);
-      assert.match(fn, /generateValidatedPremiumSlipPdf/);
-      assert.match(fn, /failPremiumSlipRender/);
+      assert.match(fn, /renderSlipWithFallback/);
+      assert.doesNotMatch(fn, /failPremiumSlipRender/);
     });
   }
 });

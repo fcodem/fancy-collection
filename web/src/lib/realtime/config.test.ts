@@ -4,8 +4,8 @@ import { POLL_INTERVAL_MS } from "./config";
 import type { ShopEventType } from "./types";
 
 describe("realtime config (perf regression)", () => {
-  it("default poll interval is 60 seconds when env unset", () => {
-    assert.equal(POLL_INTERVAL_MS, 60_000);
+  it("default poll interval is 10 seconds when env unset", () => {
+    assert.equal(POLL_INTERVAL_MS, 10_000);
   });
 
   it("keeps nav.refresh and shop.changed as distinct event types", () => {

@@ -7,33 +7,26 @@ const root = process.cwd();
 const read = (rel: string) => fs.readFileSync(path.join(root, rel), "utf8");
 
 describe("premium delivery slip reliability", () => {
-  it("does not jsPDF-fallback delivery slips on render failure", () => {
-    const source = read("src/lib/services/whatsapp/automatedMessages.ts");
-    const fn = source.slice(
-      source.indexOf("export async function sendDeliverySlipWhatsApp"),
-      source.indexOf("export async function sendPartialReturnSlipWhatsApp"),
+  it("uses jsPDF fallback after premium render failure for delivery slips", () => {
+    const automated = read("src/lib/services/whatsapp/automatedMessages.ts");
+    const fn = automated.slice(
+      automated.indexOf("export async function sendDeliverySlipWhatsApp"),
+      automated.indexOf("export async function sendPartialReturnSlipWhatsApp"),
     );
-    assert.doesNotMatch(fn, /generateOperationSlipPdfFallback\(\s*["']delivery["']/);
-    assert.match(fn, /failPremiumSlipRender/);
-    assert.match(source, /retryable:\s*true/);
+    assert.match(fn, /generateOperationSlipPdfFallback\(\s*["']delivery["']/);
+    assert.match(fn, /renderSlipWithFallback/);
   });
 
-  it("retries ETXTBSY/EBUSY in the browser pool with cleanup", () => {
+  it("retries only transient render failures in the browser pool", () => {
     const pool = read("src/lib/services/whatsapp/pdfBrowserPool.ts");
     assert.match(pool, /MAX_RENDER_ATTEMPTS = 3/);
-    assert.match(pool, /MAX_LAUNCH_ATTEMPTS = 3/);
-    assert.match(pool, /LAUNCH_RETRY_DELAYS_MS = \[500, 1000\]/);
+    assert.match(pool, /MAX_LAUNCH_ATTEMPTS = 1/);
+    assert.match(pool, /isNonRetryablePremiumRenderError/);
     assert.match(pool, /validatePremiumSlipDom/);
-    assert.match(pool, /data-slip-section/);
-    assert.match(pool, /isEnospcError/);
-    assert.match(pool, /SLIP_PROFILE_PREFIX/);
-    assert.match(pool, /SLIP_RENDER_PREFIX/);
-    assert.match(pool, /CHROMIUM_EXTRACT_DIR_NAME/);
+    assert.match(pool, /purgeIncompleteLegacyChromiumCache/);
+    assert.match(pool, /chromium\.executablePath/);
     assert.match(pool, /enqueueSlipRender/);
-    assert.match(pool, /chromiumExecutablePromise/);
-    assert.match(pool, /resolveChromiumExecutable/);
     assert.match(pool, /ensureTmpFreeSpace/);
-    assert.match(pool, /TMP_FREE_MIN_EXTRACTION_BYTES/);
     assert.match(pool, /finally/);
     assert.match(pool, /disposeRenderSession/);
   });

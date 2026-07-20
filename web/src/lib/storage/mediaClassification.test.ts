@@ -119,7 +119,10 @@ describe("storage classification contracts (static)", () => {
   });
 
   it("booking UI uses privateMediaUrl proxy — not raw private blob URLs", () => {
-    assert.match(returnPage, /privateMediaUrl\(booking\.idPhoto1\)/);
+    const idPhotos = read("src/components/shared/CustomerIdPhotosDisplay.tsx");
+    assert.match(returnPage, /CustomerIdPhotosDisplay/);
+    assert.match(idPhotos, /privateMediaUrl\(idPhoto1\)/);
+    assert.match(idPhotos, /privateMediaUrl\(idPhoto2\)/);
     assert.match(returnPage, /privateMediaUrl\(booking\.incompletePhoto\)/);
     assert.match(delivery, /privateMediaUrl\(/);
     assert.doesNotMatch(returnPage, /\.private\.blob\.vercel-storage\.com/);

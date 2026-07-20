@@ -18,6 +18,13 @@ const root = process.cwd();
 const read = (rel: string) => fs.readFileSync(path.join(root, rel), "utf8");
 
 describe("whatsappProviderOutcome", () => {
+  it("classifies libnss3 browser launch as non-retryable render reason", () => {
+    const msg =
+      "PREMIUM_SLIP_RENDER_FAILED: Failed to launch browser process libnss3.so";
+    assert.equal(isPremiumSlipRenderFailureMessage(msg), true);
+    assert.equal(isWhatsAppRenderFailureReason(msg), false);
+  });
+
   it("detects premium slip render failures", () => {
     assert.equal(isPremiumSlipRenderFailureMessage("PREMIUM_SLIP_RENDER_FAILED: HTML failed"), true);
     assert.equal(isPremiumSlipRenderFailureMessage("PREMIUM_SLIP_HTML_VALIDATION_FAILED: missing marker"), true);

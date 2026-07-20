@@ -74,8 +74,10 @@ describe("ID proof upload contracts (static)", () => {
   });
 
   it("return page uses privateMediaUrl helper for ID photos", () => {
-    assert.match(returnPage, /privateMediaUrl\(booking\.idPhoto1\)/);
-    assert.match(returnPage, /privateMediaUrl\(booking\.idPhoto2\)/);
+    const idPhotos = read("src/components/shared/CustomerIdPhotosDisplay.tsx");
+    assert.match(returnPage, /CustomerIdPhotosDisplay/);
+    assert.match(idPhotos, /privateMediaUrl\(idPhoto1\)/);
+    assert.match(idPhotos, /privateMediaUrl\(idPhoto2\)/);
   });
 
   it("delivery UI compresses before upload and shows status messages", () => {

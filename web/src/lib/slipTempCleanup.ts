@@ -277,6 +277,74 @@ export async function verifyChromiumExecutable(executablePath: string): Promise<
   }
 }
 
+/** Legacy fc-chromium cache is valid only when shared libs (al2023) are present. */
+export function isCompleteChromiumExtract(extractDir: string): boolean {
+  const binary = path.join(extractDir, "chromium");
+  if (!fs.existsSync(binary)) return false;
+  const al2023 = path.join(extractDir, "al2023");
+  if (fs.existsSync(al2023)) {
+    try {
+      return fs.readdirSync(al2023).some((name) => name.endsWith(".so") || name.includes("libnss"));
+    } catch {
+      return false;
+    }
+  }
+  // Sparticuz-managed extract: libs may live beside the binary
+  try {
+    const dir = path.dirname(binary);
+    return fs.readdirSync(dir).some((name) => name.endsWith(".so") || name === "al2023");
+  } catch {
+    return false;
+  }
+}
+
+/** Remove broken legacy fc-chromium-v* dirs that contain only the binary (no shared libs). */
+export function purgeIncompleteLegacyChromiumCache(tmpDir = slipTmpDir()): number {
+  let removed = 0;
+  let entries: fs.Dirent[];
+  try {
+    entries = fs.readdirSync(tmpDir, { withFileTypes: true });
+  } catch {
+    return 0;
+  }
+  for (const entry of entries) {
+    if (!entry.name.startsWith("fc-chromium-v")) continue;
+    const fullPath = path.join(tmpDir, entry.name);
+    if (!isWithinTmpDir(tmpDir, fullPath)) continue;
+    if (isCompleteChromiumExtract(fullPath)) continue;
+    try {
+      fs.rmSync(fullPath, { recursive: true, force: true });
+      removed += 1;
+    } catch {
+      /* best effort */
+    }
+  }
+  return removed;
+}
+
+export function isChromiumSharedLibraryError(err: unknown): boolean {
+  if (!err) return false;
+  const msg = err instanceof Error ? err.message : String(err);
+  return /libnss3\.so|shared libraries|cannot open shared object file|error while loading shared libraries/i.test(
+    msg,
+  );
+}
+
+export function isBrowserLaunchFailure(err: unknown): boolean {
+  if (!err) return false;
+  if (isChromiumSharedLibraryError(err)) return true;
+  const code = (err as NodeJS.ErrnoException)?.code;
+  if (code === "CHROME_NOT_FOUND") return true;
+  const msg = err instanceof Error ? err.message : String(err);
+  return /Failed to launch browser process|Failed to launch browser|Browser was not found|CHROME_NOT_FOUND|spawn .* ENOENT/i.test(
+    msg,
+  );
+}
+
+export function isNonRetryablePremiumRenderError(err: unknown): boolean {
+  return isBrowserLaunchFailure(err) || isChromiumSharedLibraryError(err);
+}
+
 export function isEnospcError(err: unknown): boolean {
   if (!err) return false;
   const code = (err as NodeJS.ErrnoException)?.code;
@@ -308,19 +376,23 @@ export function isExecutableLaunchError(err: unknown): boolean {
 }
 
 export function isRetryableSlipRenderError(err: unknown): boolean {
+  if (isNonRetryablePremiumRenderError(err)) return false;
   if (isEnospcError(err) || isSpawnBusyError(err) || isExecutableMissingError(err)) return true;
   if (!err) return false;
   const msg = err instanceof Error ? err.message : String(err);
-  // Page load failures, timeouts, navigation errors, DOM validation — all transient
+  // Page load failures, timeouts, navigation errors, DOM validation — transient
   if (/timeout|timed?\s*out|navigation|net::|ERR_CONNECTION|ERR_NAME|ECONNREFUSED/i.test(msg)) return true;
   if (/PDF page failed to load|Slip page was blocked|did not render/i.test(msg)) return true;
   if (/Protocol error|Target closed|Session closed|Browser.*closed/i.test(msg)) return true;
-  if (/PREMIUM_SLIP_RENDER_FAILED|CHROME_NOT_FOUND/i.test(msg)) return true;
   return false;
 }
 
 export function shouldResetChromiumExecutableCache(err: unknown): boolean {
-  return isSpawnBusyError(err) || isExecutableMissingError(err);
+  return (
+    isSpawnBusyError(err) ||
+    isExecutableMissingError(err) ||
+    isNonRetryablePremiumRenderError(err)
+  );
 }
 
 export function errorCodeFromUnknown(err: unknown): string | undefined {

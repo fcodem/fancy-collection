@@ -20,6 +20,7 @@ import {
 import {
   errorCodeFromUnknown,
   PREMIUM_SLIP_RENDER_FAILED,
+  isPremiumRenderFailureRetryable,
 } from "@/lib/services/whatsapp/slipRenderErrors";
 import { logSlipRenderDiagnostic } from "@/lib/services/whatsapp/slipRenderDiagnostics";
 import {
@@ -135,16 +136,16 @@ export async function POST(req: NextRequest) {
       errorCode,
     });
 
-    // All render errors are retryable (503) — the job queue decides when to stop.
-    // Only auth (401) and bad-request (400) above are terminal.
+    // Transient render errors are retryable (503); browser/library launch failures are not.
+    const retryable = isPremiumRenderFailureRetryable(e);
     return NextResponse.json(
       {
         error: message,
         code: PREMIUM_SLIP_RENDER_FAILED,
-        retryable: true,
+        retryable,
         errorCode,
       },
-      { status: 503 },
+      { status: retryable ? 503 : 500 },
     );
   }
 }

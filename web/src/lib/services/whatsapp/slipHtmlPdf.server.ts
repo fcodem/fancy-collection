@@ -126,15 +126,18 @@ async function renderSlipViaEndpoint(
     const detail = await res.text().catch(() => "");
     let message = `Slip renderer failed (HTTP ${res.status})`;
     let errorCode: string | undefined;
+    let retryable = res.status === 503;
     if (detail) {
       try {
         const parsed = JSON.parse(detail) as {
           error?: string;
           code?: string;
           errorCode?: string;
+          retryable?: boolean;
         };
         if (parsed.error) message = parsed.error;
         errorCode = parsed.errorCode || parsed.code || undefined;
+        if (parsed.retryable === false) retryable = false;
         if (errorCode) {
           message = `${errorCode}: ${message}`;
         }
@@ -143,7 +146,7 @@ async function renderSlipViaEndpoint(
       }
     }
     console.error("[slipHtmlPdf] Render endpoint returned error:", { status: res.status, message, errorCode, kind, bookingId });
-    throw new PremiumSlipRenderError(message, errorCode);
+    throw new PremiumSlipRenderError(message, errorCode, retryable);
   }
 
   assertPremiumSlipRenderHeaders(res.headers, kind);

@@ -156,7 +156,7 @@ describe("branded jsPDF fallback", () => {
     assert.match(fallback, /addImage/);
   });
 
-  it("does not use jsPDF fallback for delivery WhatsApp sends", () => {
+  it("uses jsPDF fallback for delivery WhatsApp sends after premium failure", () => {
     const delivery = read("src/lib/services/whatsapp/automatedMessages.ts").slice(
       read("src/lib/services/whatsapp/automatedMessages.ts").indexOf(
         "export async function sendDeliverySlipWhatsApp",
@@ -165,6 +165,6 @@ describe("branded jsPDF fallback", () => {
         "export async function sendPartialReturnSlipWhatsApp",
       ),
     );
-    assert.doesNotMatch(delivery, /generateOperationSlipPdfFallback\(\s*["']delivery["']/);
+    assert.match(delivery, /generateOperationSlipPdfFallback\(\s*["']delivery["']/);
   });
 });

@@ -21,6 +21,7 @@ import {
   isWhatsAppRenderFailureReason,
   sendStageForFailure,
 } from "./whatsappProviderOutcome";
+import { isPremiumRenderFailureRetryable } from "./slipRenderErrors";
 import {
   listClassifiedWhatsAppRenderFailures,
   type SafeRenderRetrySummary,
@@ -45,11 +46,32 @@ export type WhatsAppJobType =
 type JobPayload = Record<string, unknown>;
 
 function outcomeFromSend(
-  result: { ok: boolean; skipped?: boolean; error?: string; phone?: string; messageId?: string },
+  result: {
+    ok: boolean;
+    skipped?: boolean;
+    error?: string;
+    phone?: string;
+    messageId?: string;
+    renderer?: string;
+    premiumFailureCategory?: string;
+    premiumRenderError?: string;
+  },
   fallbackError: string,
-): { phone?: string; messageId?: string } {
+): {
+  phone?: string;
+  messageId?: string;
+  renderer?: string;
+  premiumFailureCategory?: string;
+  premiumRenderError?: string;
+} {
   if (result.ok) {
-    return { phone: result.phone, messageId: result.messageId };
+    return {
+      phone: result.phone,
+      messageId: result.messageId,
+      renderer: result.renderer,
+      premiumFailureCategory: result.premiumFailureCategory,
+      premiumRenderError: result.premiumRenderError,
+    };
   }
   if (result.skipped) {
     return { phone: result.phone };
@@ -620,7 +642,13 @@ async function executeJob(
     idempotencyKey: string | null;
   },
   sendContext: WhatsAppJobSendContext,
-): Promise<{ phone?: string; messageId?: string }> {
+): Promise<{
+  phone?: string;
+  messageId?: string;
+  renderer?: string;
+  premiumFailureCategory?: string;
+  premiumRenderError?: string;
+}> {
   if (!job.bookingId) throw new Error("Job missing bookingId");
 
   const payload = (job.payload ?? {}) as JobPayload;
@@ -801,6 +829,9 @@ export async function processWhatsAppJobQueue(
             phone: sendMeta.phone,
             messageId: sendMeta.messageId,
             sendStage: "PROVIDER_CONFIRMED",
+            renderer: sendMeta.renderer,
+            premiumFailureCategory: sendMeta.premiumFailureCategory,
+            premiumRenderError: sendMeta.premiumRenderError,
           }) as Prisma.InputJsonValue,
         },
       });
@@ -843,16 +874,16 @@ export async function processWhatsAppJobQueue(
 
       const providerOutcome = providerOutcomeForFailure(error, ledger);
       const renderFailure = isPremiumSlipRenderFailureMessage(error);
+      const renderRetryable = renderFailure && isPremiumRenderFailureRetryable(error);
       const providerUnknown = providerOutcome === "UNKNOWN";
       const attempts = job.attempts;
-      // Render failures get extra retries (up to 5) since they're transient infra errors
-      const effectiveMax = renderFailure ? Math.max(job.maxAttempts, 5) : job.maxAttempts;
+      const effectiveMax = renderRetryable ? Math.max(job.maxAttempts, 5) : job.maxAttempts;
       const terminal = providerUnknown || attempts >= effectiveMax;
 
-      // Delay render-failure retries so transient issues resolve (30s × attempt number)
-      const retryDelay = renderFailure && !terminal
-        ? new Date(Date.now() + 30_000 * attempts)
-        : undefined;
+      const retryDelay =
+        renderRetryable && !terminal
+          ? new Date(Date.now() + 30_000 * attempts)
+          : undefined;
 
       await prisma.whatsAppJob.update({
         where: { id: job.id },

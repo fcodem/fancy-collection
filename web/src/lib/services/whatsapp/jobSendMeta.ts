@@ -177,6 +177,9 @@ export function mergeSendMetaIntoPayload(
     idempotencyKey?: string;
     lastRetriedBy?: number;
     lastRetriedAt?: string;
+    renderer?: string;
+    premiumFailureCategory?: string;
+    premiumRenderError?: string;
   },
 ): JobPayload {
   const base = (existing ?? {}) as JobPayload;
@@ -197,5 +200,8 @@ export function mergeSendMetaIntoPayload(
     ...(meta.idempotencyKey ? { idempotencyKey: meta.idempotencyKey } : {}),
     ...(meta.lastRetriedBy != null ? { lastRetriedBy: meta.lastRetriedBy } : {}),
     ...(meta.lastRetriedAt ? { lastRetriedAt: meta.lastRetriedAt } : {}),
+    ...(meta.renderer ? { renderer: meta.renderer } : {}),
+    ...(meta.premiumFailureCategory ? { premiumFailureCategory: meta.premiumFailureCategory } : {}),
+    ...(meta.premiumRenderError ? { premiumRenderError: meta.premiumRenderError } : {}),
   };
 }

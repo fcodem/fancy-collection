@@ -6,20 +6,18 @@ import { randomUUID } from "crypto";
 import type { Browser, Page } from "puppeteer-core";
 import {
   beginSlipRender,
-  CHROMIUM_EXTRACT_DIR_NAME,
-  chromiumExtractDir,
-  chromiumExecutablePath,
   cleanSlipTempDirs,
   clearActiveChromiumExtract,
   endSlipRender,
   ensureTmpFreeSpace,
   errorCodeFromUnknown,
+  isBrowserLaunchFailure,
   isEnospcError,
-  isExecutableLaunchError,
+  isNonRetryablePremiumRenderError,
   isRetryableSlipRenderError,
   isSpawnBusyError,
   measureTmpFreeBytes,
-  registerActiveChromiumExtract,
+  purgeIncompleteLegacyChromiumCache,
   shouldResetChromiumExecutableCache,
   SLIP_PROFILE_PREFIX,
   SLIP_RENDER_PREFIX,
@@ -50,46 +48,20 @@ const CHROME_ARGS = [
 ];
 
 const MAX_RENDER_ATTEMPTS = 3;
-const MAX_LAUNCH_ATTEMPTS = 3;
+/** Do not relaunch Chromium repeatedly on the same broken binary (e.g. missing libnss3). */
+const MAX_LAUNCH_ATTEMPTS = 1;
 const LAUNCH_RETRY_DELAYS_MS = [500, 1000] as const;
 
 function sleep(ms: number): Promise<void> {
   return new Promise((resolve) => setTimeout(resolve, ms));
 }
 
-async function copyFileSafe(src: string, dest: string): Promise<void> {
-  await fs.promises.mkdir(path.dirname(dest), { recursive: true });
-  await fs.promises.copyFile(src, dest);
-  await fs.promises.chmod(dest, 0o755).catch(() => {});
-}
-
-async function copyTreeSafe(src: string, dest: string): Promise<void> {
-  await fs.promises.mkdir(dest, { recursive: true });
-  const entries = await fs.promises.readdir(src, { withFileTypes: true });
-  for (const entry of entries) {
-    const from = path.join(src, entry.name);
-    const to = path.join(dest, entry.name);
-    if (entry.isDirectory()) {
-      await copyTreeSafe(from, to);
-    } else if (entry.isFile()) {
-      await copyFileSafe(from, to);
-    }
-  }
-}
-
-async function moveOrCopyPath(src: string, dest: string): Promise<void> {
-  await fs.promises.mkdir(path.dirname(dest), { recursive: true });
-  try {
-    await fs.promises.rename(src, dest);
-    return;
-  } catch {
-    const stat = await fs.promises.stat(src);
-    if (stat.isDirectory()) {
-      await copyTreeSafe(src, dest);
-    } else {
-      await copyFileSafe(src, dest);
-    }
-  }
+function setupChromiumLibraryPath(libraryDir: string): void {
+  if (!libraryDir || !fs.existsSync(libraryDir)) return;
+  const existingLd = process.env.LD_LIBRARY_PATH?.trim();
+  process.env.LD_LIBRARY_PATH = existingLd
+    ? `${libraryDir}${path.delimiter}${existingLd}`
+    : libraryDir;
 }
 
 /** Ensure premium slip markers survive Chromium print-to-PDF (not clipped out). */
@@ -236,57 +208,30 @@ function resolveLocalChromiumBin(): string | undefined {
   return undefined;
 }
 
-function setupChromiumLibraryPath(libraryDir: string): void {
-  if (!libraryDir || !fs.existsSync(libraryDir)) return;
-  const existingLd = process.env.LD_LIBRARY_PATH?.trim();
-  process.env.LD_LIBRARY_PATH = existingLd
-    ? `${libraryDir}${path.delimiter}${existingLd}`
-    : libraryDir;
+function configureSparticuzLambdaEnv(
+  chromiumMod: { setupLambdaEnvironment?: (dir: string) => void },
+  executablePath: string,
+): void {
+  const libCandidates = [
+    path.join(path.dirname(executablePath), "al2023"),
+    path.dirname(executablePath),
+    path.join(slipTmpDir(), "al2023"),
+  ];
+  const libDir = libCandidates.find((dir) => fs.existsSync(dir)) ?? path.dirname(executablePath);
+  if (typeof chromiumMod.setupLambdaEnvironment === "function") {
+    chromiumMod.setupLambdaEnvironment(libDir);
+  } else {
+    setupChromiumLibraryPath(libDir);
+  }
 }
 
-async function adoptSparticuzExtract(sparticuzBinary: string, extractDir: string): Promise<string> {
-  const destBinary = path.join(extractDir, "chromium");
-  await fs.promises.mkdir(extractDir, { recursive: true });
-
-  if (path.resolve(sparticuzBinary) !== path.resolve(destBinary)) {
-    await moveOrCopyPath(sparticuzBinary, destBinary);
-  }
-
-  const tmpDir = slipTmpDir();
-  const al2023Src = path.join(tmpDir, "al2023");
-  const al2023Dest = path.join(extractDir, "al2023");
-  if (fs.existsSync(al2023Src) && !fs.existsSync(al2023Dest)) {
-    await moveOrCopyPath(al2023Src, al2023Dest);
-  }
-
-  const chromiumPackSrc = path.join(tmpDir, "chromium-pack");
-  if (fs.existsSync(chromiumPackSrc)) {
-    await fs.promises.rm(chromiumPackSrc, { recursive: true, force: true }).catch(() => {});
-  }
-
-  await verifyChromiumExecutable(destBinary);
-  return destBinary;
-}
-
-async function extractChromiumExecutable(): Promise<{ executablePath: string; reused: boolean; extractionMs: number }> {
+/**
+ * Resolve @sparticuz/chromium executable for Vercel/serverless.
+ * Uses the path returned by chromium.executablePath() directly — no fc-chromium copy.
+ */
+async function extractChromiumExecutable(): Promise<ChromiumExecutableResolution> {
   const started = Date.now();
-  const extractDir = chromiumExtractDir();
-  const cachedBinary = chromiumExecutablePath();
-
-  try {
-    await verifyChromiumExecutable(cachedBinary);
-    const libsDir = path.join(extractDir, "al2023");
-    setupChromiumLibraryPath(fs.existsSync(libsDir) ? libsDir : extractDir);
-    registerActiveChromiumExtract(extractDir, cachedBinary);
-    return {
-      executablePath: cachedBinary,
-      reused: true,
-      extractionMs: Date.now() - started,
-    };
-  } catch {
-    /* extract below */
-  }
-
+  purgeIncompleteLegacyChromiumCache();
   await cleanSlipTempDirs();
   await ensureTmpFreeSpace(TMP_FREE_MIN_EXTRACTION_BYTES);
 
@@ -305,25 +250,22 @@ async function extractChromiumExecutable(): Promise<{ executablePath: string; re
   }
 
   const localBin = resolveLocalChromiumBin();
-  let sparticuzBinary: string;
-  if (localBin) {
-    sparticuzBinary = await chromium.executablePath(localBin);
-  } else {
-    console.warn(
-      "[pdfBrowserPool] @sparticuz/chromium/bin missing from bundle — downloading remote pack",
-    );
-    sparticuzBinary = await chromium.executablePath(CHROMIUM_REMOTE_PACK);
-  }
+  const executablePath = localBin
+    ? await chromium.executablePath(localBin)
+    : await chromium.executablePath(CHROMIUM_REMOTE_PACK);
 
-  const executablePath = await adoptSparticuzExtract(sparticuzBinary, extractDir);
-  const libsDir = path.join(extractDir, "al2023");
-  if (typeof chromiumMod.setupLambdaEnvironment === "function") {
-    chromiumMod.setupLambdaEnvironment(fs.existsSync(libsDir) ? libsDir : extractDir);
-  } else {
-    setupChromiumLibraryPath(fs.existsSync(libsDir) ? libsDir : extractDir);
-  }
+  await verifyChromiumExecutable(executablePath);
+  configureSparticuzLambdaEnv(chromiumMod, executablePath);
 
-  registerActiveChromiumExtract(extractDir, executablePath);
+  console.info(
+    "[pdfBrowserPool]",
+    JSON.stringify({
+      event: "chromium_executable_resolved",
+      executablePath,
+      reused: Boolean(chromiumExecutablePromise),
+    }),
+  );
+
   return {
     executablePath,
     reused: false,
@@ -331,7 +273,7 @@ async function extractChromiumExecutable(): Promise<{ executablePath: string; re
   };
 }
 
-/** One cached Chromium executable path per warm instance — guarded by a promise lock. */
+/** One cached Sparticuz executable path per warm instance — guarded by a promise lock. */
 async function resolveChromiumExecutable(): Promise<ChromiumExecutableResolution> {
   if (!chromiumExecutablePromise) {
     chromiumExecutablePromise = extractChromiumExecutable().catch((err) => {
@@ -368,13 +310,9 @@ async function launchRenderBrowserOnce(
     const chromium = chromiumMod.default;
     const puppeteer = await import("puppeteer-core");
     return puppeteer.default.launch({
-      args: [
-        ...chromium.args,
-        "--hide-scrollbars",
-        "--disable-web-security",
-        `--user-data-dir=${profileDir}`,
-      ],
-      defaultViewport: { width: 794, height: 1123 },
+      args: [...chromium.args, `--user-data-dir=${profileDir}`],
+      // @sparticuz/chromium v149 exposes args only; A4 viewport for slip PDF.
+      defaultViewport: { width: 794, height: 1123, deviceScaleFactor: 1 },
       executablePath,
       headless: true,
       userDataDir: profileDir,
@@ -395,6 +333,7 @@ async function launchRenderBrowserOnce(
   throw new SlipRenderPoolError(
     "Chrome/Chromium not found for PDF generation. Install Google Chrome/Edge or set CHROME_PATH.",
     "CHROME_NOT_FOUND",
+    false,
   );
 }
 
@@ -446,8 +385,9 @@ async function launchRenderBrowserWithRetry(isServerless: boolean): Promise<{
         };
       } catch (err) {
         lastLaunchError = err;
-        if (!isExecutableLaunchError(err) || launchAttempt >= MAX_LAUNCH_ATTEMPTS) {
-          throw err;
+        if (isBrowserLaunchFailure(err) || launchAttempt >= MAX_LAUNCH_ATTEMPTS) {
+          const msg = err instanceof Error ? err.message : "Browser launch failed";
+          throw new SlipRenderPoolError(msg, "BROWSER_LAUNCH_FAILED", false);
         }
         if (shouldResetChromiumExecutableCache(err)) {
           resetChromiumExecutableCache();
@@ -457,8 +397,6 @@ async function launchRenderBrowserWithRetry(isServerless: boolean): Promise<{
             executableReused = resolved.reused;
             extractionMs = resolved.extractionMs;
           }
-        } else if (isServerless) {
-          await resolveChromiumExecutable();
         }
         const delay = LAUNCH_RETRY_DELAYS_MS[launchAttempt - 1] ?? 1000;
         await sleep(delay);
@@ -688,7 +626,8 @@ export async function renderHtmlUrlToPdf(
       }
       if (lastError instanceof SlipRenderPoolError) throw lastError;
       const msg = lastError instanceof Error ? lastError.message : "PDF generation failed";
-      throw new SlipRenderPoolError(msg, code);
+      const nonRetryable = isNonRetryablePremiumRenderError(lastError);
+      throw new SlipRenderPoolError(msg, code, !nonRetryable);
     } finally {
       endSlipRender();
     }

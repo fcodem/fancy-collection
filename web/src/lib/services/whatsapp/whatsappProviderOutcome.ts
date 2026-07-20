@@ -1,5 +1,7 @@
 export type ProviderOutcome = "NOT_ATTEMPTED" | "ACCEPTED" | "UNKNOWN";
 
+import { isPremiumRenderFailureRetryable } from "./slipRenderErrors";
+
 /** Explicit send pipeline stage stored on job payload. */
 export type WhatsAppSendStage =
   | "NOT_ATTEMPTED"
@@ -24,7 +26,9 @@ export function isPremiumSlipRenderFailureMessage(error: string): boolean {
 /** Render or Chromium temp failures safe to retry when Meta never confirmed. */
 export function isWhatsAppRenderFailureReason(reason: string | null | undefined): boolean {
   if (!reason) return false;
-  if (isPremiumSlipRenderFailureMessage(reason)) return true;
+  if (isPremiumSlipRenderFailureMessage(reason)) {
+    return isPremiumRenderFailureRetryable(reason);
+  }
   return /\bETXTBSY\b|\bEBUSY\b|\bENOSPC\b/i.test(reason);
 }
 

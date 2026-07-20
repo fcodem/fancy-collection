@@ -10,14 +10,17 @@ export async function GET() {
   try {
     const freeTmpBytes = await measureTmpFreeBytes();
     const slipTempUsage = measureSlipTempUsage();
-    const chromiumDir = `${os.tmpdir()}/fc-chromium-v149`;
-    const chromiumReady = fs.existsSync(`${chromiumDir}/chromium`);
+    const tmpDir = os.tmpdir();
+    const sparticuzMarkers = ["chromium", "al2023"].filter((name) =>
+      fs.existsSync(`${tmpDir}/${name}`),
+    );
 
     return NextResponse.json({
       freeTmpBytes: freeTmpBytes ?? 0,
       freeTmpMB: freeTmpBytes != null ? Math.round(freeTmpBytes / (1024 * 1024)) : null,
       slipTempUsageBytes: slipTempUsage,
-      chromiumReady,
+      sparticuzExtractPresent: sparticuzMarkers.length > 0,
+      sparticuzMarkers,
       activeRenders: 0,
     });
   } catch (e) {

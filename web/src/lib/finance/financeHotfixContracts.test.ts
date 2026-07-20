@@ -28,11 +28,11 @@ describe("finance index redirect", () => {
 });
 
 describe("finance nav prefetch isolation", () => {
-  it("disables prefetch on all NAV_FINANCE links", () => {
+  it("disables prefetch on all finance nav links", () => {
     const appShell = source("src/components/AppShell.tsx");
     const financeBlock = appShell.slice(
-      appShell.indexOf("NAV_FINANCE.map"),
-      appShell.indexOf("NAV_OWNER.map"),
+      appShell.indexOf("filteredNavFinance.map"),
+      appShell.indexOf("filteredNavOwner.map"),
     );
     assert.match(financeBlock, /prefetch=\{false\}/);
     assert.doesNotMatch(financeBlock, /prefetch=\{true\}/);
@@ -40,7 +40,7 @@ describe("finance nav prefetch isolation", () => {
 
   it("renders finance nav once in desktop sidebar only", () => {
     const appShell = source("src/components/AppShell.tsx");
-    assert.equal((appShell.match(/NAV_FINANCE\.map/g) || []).length, 1);
+    assert.equal((appShell.match(/filteredNavFinance\.map/g) || []).length, 1);
   });
 });
 
