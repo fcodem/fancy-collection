@@ -57,9 +57,48 @@ export function parseDashboardStatListType(raw: string): DashboardStatListType |
 }
 
 const bookingInclude = {
-  bookingItems: { include: { item: true } },
-  legacyItem: true,
-} as const;
+  bookingItems: {
+    where: { isCancelled: false },
+    select: {
+      id: true,
+      itemId: true,
+      dressName: true,
+      category: true,
+      size: true,
+      notes: true,
+      price: true,
+      advance: true,
+      remaining: true,
+      isCancelled: true,
+      isDelivered: true,
+      isReturned: true,
+      isIncompleteReturn: true,
+      item: {
+        select: {
+          id: true,
+          name: true,
+          category: true,
+          subCategory: true,
+          color: true,
+          size: true,
+          status: true,
+          sku: true,
+        },
+      },
+    },
+  },
+  legacyItem: {
+    select: {
+      id: true,
+      name: true,
+      category: true,
+      color: true,
+      size: true,
+      status: true,
+      sku: true,
+    },
+  },
+};
 
 export type DashboardStatBookingRow = StatListBooking &
   ReturnType<typeof serializeStandardBookingDetails> & {

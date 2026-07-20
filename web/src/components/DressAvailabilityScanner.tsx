@@ -168,9 +168,9 @@ function BookingRecords({ records }: { records: ApiRecord[] }) {
             {record.contact ? ` · ${record.contact}` : ""}
           </div>
           <div>
-            Delivery: {record.deliveryDateTime}
+            Delivery: {formatDateDmy(record.deliveryDateTime.split(" ")[0])} {record.deliveryDateTime.split(" ")[1] || ""}
             {" · "}
-            Return: {record.returnDateTime}
+            Return: {formatDateDmy(record.returnDateTime.split(" ")[0])} {record.returnDateTime.split(" ")[1] || ""}
           </div>
           <div>
             Booking status: {record.bookingStatus}
@@ -230,15 +230,31 @@ function BookingRecords({ records }: { records: ApiRecord[] }) {
   );
 }
 
+function todayIst(): string {
+  return new Intl.DateTimeFormat("en-CA", { timeZone: "Asia/Kolkata" }).format(new Date());
+}
+
+function nextDayIst(dateStr: string): string {
+  const d = new Date(dateStr + "T00:00:00+05:30");
+  d.setDate(d.getDate() + 1);
+  return d.toISOString().slice(0, 10);
+}
+
+function formatDateDmy(dateStr: string): string {
+  if (!dateStr) return "";
+  const [y, m, d] = dateStr.split("-");
+  return `${d}/${m}/${y}`;
+}
+
 export default function DressAvailabilityScanner({
   canManageScanCodes = false,
 }: {
   canManageScanCodes?: boolean;
 }) {
   const restoredRef = useRef(false);
-  const [deliveryDate, setDeliveryDate] = useState("");
+  const [deliveryDate, setDeliveryDate] = useState(() => todayIst());
   const [deliveryTime, setDeliveryTime] = useState("12:00");
-  const [returnDate, setReturnDate] = useState("");
+  const [returnDate, setReturnDate] = useState(() => nextDayIst(todayIst()));
   const [returnTime, setReturnTime] = useState("12:00");
   const [activeWindow, setActiveWindow] = useState<ValidatedScanWindow | null>(
     null,
@@ -478,7 +494,7 @@ export default function DressAvailabilityScanner({
       try {
         const { QrCameraSession } = await import("@/lib/cameraScanner");
         if (cancelled) return;
-        const session = new QrCameraSession("dress-availability-camera");
+        const session = new QrCameraSession("dress-availability-camera", { qrOnly: true });
         sessionRef.current = session;
         scanLockedRef.current = false;
         const status = await session.start(decode);
@@ -486,7 +502,7 @@ export default function DressAvailabilityScanner({
           setCameraStatus(status);
           setCameraActive(true);
           setCameraError("");
-          setFeedback("Camera ready. Scan a dress QR code or Code 128 barcode.");
+          setFeedback("Camera ready. Scan a dress QR code.");
         }
       } catch (error) {
         if (cancelled) return;
@@ -643,8 +659,13 @@ export default function DressAvailabilityScanner({
                   className="form-control"
                   type="date"
                   value={deliveryDate}
-                  onChange={(event) => setDeliveryDate(event.target.value)}
+                  onChange={(event) => {
+                    const newDelivery = event.target.value;
+                    setDeliveryDate(newDelivery);
+                    if (newDelivery) setReturnDate(nextDayIst(newDelivery));
+                  }}
                 />
+                {deliveryDate && <span style={{ fontSize: 11, color: "var(--text-muted)" }}>{formatDateDmy(deliveryDate)}</span>}
               </label>
               <label className="form-group">
                 <span className="form-label">Delivery Time</span>
@@ -665,6 +686,7 @@ export default function DressAvailabilityScanner({
                   value={returnDate}
                   onChange={(event) => setReturnDate(event.target.value)}
                 />
+                {returnDate && <span style={{ fontSize: 11, color: "var(--text-muted)" }}>{formatDateDmy(returnDate)}</span>}
               </label>
               <label className="form-group">
                 <span className="form-label">Return Time</span>
@@ -710,8 +732,8 @@ export default function DressAvailabilityScanner({
         <div className="card-header">
           <h2 className="card-title">2. Scan dress</h2>
           <span style={{ fontSize: 12, color: "var(--text-muted)" }}>
-            {activeWindow?.deliveryDate} {activeWindow?.deliveryTime} →{" "}
-            {activeWindow?.returnDate} {activeWindow?.returnTime} IST
+            {formatDateDmy(activeWindow?.deliveryDate ?? "")} {activeWindow?.deliveryTime} →{" "}
+            {formatDateDmy(activeWindow?.returnDate ?? "")} {activeWindow?.returnTime} IST
           </span>
         </div>
         <div className="card-body">
@@ -789,7 +811,7 @@ export default function DressAvailabilityScanner({
                   void (async () => {
                     try {
                       const { QrCameraSession } = await import("@/lib/cameraScanner");
-                      const session = new QrCameraSession("dress-availability-camera");
+                      const session = new QrCameraSession("dress-availability-camera", { qrOnly: true });
                       sessionRef.current = session;
                       const status = await session.start(decode);
                       setCameraStatus(status);

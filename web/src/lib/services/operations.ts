@@ -201,7 +201,7 @@ function packingWarningFromBooking(b: BookingForPackingRecord) {
   return bookingWarningRecordFrom(b);
 }
 
-export async function getDashboardFreeItems(deliveryDateStr: string, returnDateStr: string, categoryFilter = "") {
+export async function getDashboardFreeItems(deliveryDateStr: string, returnDateStr: string, categoryFilter = "", subCategoryFilter = "") {
   if (!deliveryDateStr || !returnDateStr) {
     return { free_items: [], returning_on_delivery: [], warnings: {} };
   }
@@ -214,8 +214,9 @@ export async function getDashboardFreeItems(deliveryDateStr: string, returnDateS
       where: {
         status: { not: "maintenance" },
         ...(categoryFilter ? { category: categoryFilter } : {}),
+        ...(subCategoryFilter ? { subCategory: subCategoryFilter } : {}),
       },
-      select: { id: true, name: true, category: true, color: true, size: true },
+      select: { id: true, name: true, category: true, subCategory: true, color: true, size: true },
     }),
     whereBookingOverlapsPeriod(deliveryDateStr, returnDateStr),
   ]);
@@ -335,6 +336,7 @@ export async function getDashboardFreeItems(deliveryDateStr: string, returnDateS
         name: i.name,
         display_name: dressDisplayName(i.name, i.category, i.size),
         category: i.category,
+        sub_category: i.subCategory || "",
         color: i.color || "",
         size: i.size || "",
       });
@@ -390,10 +392,11 @@ export function getDashboardFreeItemsCached(
   deliveryDateStr: string,
   returnDateStr: string,
   categoryFilter = "",
+  subCategoryFilter = "",
 ) {
   return cachedQuery(
-    ["dashboard-free-items", deliveryDateStr, returnDateStr, categoryFilter],
-    () => getDashboardFreeItems(deliveryDateStr, returnDateStr, categoryFilter),
+    ["dashboard-free-items", deliveryDateStr, returnDateStr, categoryFilter, subCategoryFilter],
+    () => getDashboardFreeItems(deliveryDateStr, returnDateStr, categoryFilter, subCategoryFilter),
     30,
   );
 }

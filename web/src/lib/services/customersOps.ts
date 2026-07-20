@@ -326,16 +326,52 @@ export async function getCustomer(id: number) {
 }
 
 export async function findExistingCustomerByPhone(phone: string): Promise<number | null> {
-  const rows = await listCustomers();
   const key = phoneMatchKey(phone);
   if (key.length < 10) return null;
-  const rowKeys = phoneKeysFromParts(phone);
-  for (const row of rows) {
-    const mergedKeys = phoneKeysFromParts(row.phone, row.whatsapp);
-    if (rowKeys.some((k) => mergedKeys.includes(k)) || mergedKeys.includes(key)) {
-      return row.id > 0 ? row.id : null;
+
+  const newKeys = phoneKeysFromParts(phone);
+  const searchTails = [...new Set(newKeys.filter((k) => k.length >= 10).map((k) => k.slice(-10)))];
+  if (!searchTails.length) return null;
+
+  const [bookings, customers] = await Promise.all([
+    prisma.booking.findMany({
+      where: {
+        OR: searchTails.flatMap((t) => [
+          { contact1: { endsWith: t } },
+          { contact2: { endsWith: t } },
+          { whatsappNo: { endsWith: t } },
+        ]),
+      },
+      select: { id: true, contact1: true, contact2: true, whatsappNo: true },
+      take: 40,
+    }),
+    prisma.customer.findMany({
+      where: { OR: searchTails.map((t) => ({ phone: { endsWith: t } })) },
+      select: { id: true, phone: true },
+      take: 40,
+    }),
+  ]);
+
+  for (const c of customers) {
+    const ck = phoneMatchKey(c.phone);
+    if (ck.length < 10) continue;
+    if (newKeys.includes(ck) || searchTails.some((t) => ck.endsWith(t))) {
+      return c.id;
     }
   }
+
+  if (bookings.length > 0) {
+    const uf = new PhoneUnionFind();
+    for (const b of bookings) uf.unionAll(bookingPhoneKeys(b as unknown as BookingRow));
+    uf.unionAll(newKeys);
+    for (const c of customers) {
+      const ck = phoneMatchKey(c.phone);
+      if (ck.length >= 10 && newKeys.some((nk) => uf.find(nk) === uf.find(ck))) {
+        return c.id;
+      }
+    }
+  }
+
   return null;
 }
 
@@ -374,14 +410,21 @@ export async function updateCustomer(
     notes?: string;
   }
 ) {
-  const rows = await listCustomers();
   const key = phoneMatchKey(data.phone);
   const newKeys = phoneKeysFromParts(data.phone);
-  for (const row of rows) {
-    if (row.id === id) continue;
-    const rowKeys = phoneKeysFromParts(row.phone, row.whatsapp);
-    if (newKeys.some((k) => rowKeys.includes(k)) || (key.length >= 10 && rowKeys.includes(key))) {
-      throw new Error("Another customer already uses this contact or linked WhatsApp number.");
+  const searchTails = [...new Set(newKeys.filter((k) => k.length >= 10).map((k) => k.slice(-10)))];
+  if (searchTails.length) {
+    const rows = await prisma.customer.findMany({
+      where: { OR: searchTails.map((t) => ({ phone: { endsWith: t } })) },
+      select: { id: true, phone: true },
+      take: 40,
+    });
+    for (const row of rows) {
+      if (row.id === id) continue;
+      const rowKeys = phoneKeysFromParts(row.phone);
+      if (newKeys.some((k) => rowKeys.includes(k)) || (key.length >= 10 && rowKeys.includes(key))) {
+        throw new Error("Another customer already uses this contact or linked WhatsApp number.");
+      }
     }
   }
   return prisma.customer.update({

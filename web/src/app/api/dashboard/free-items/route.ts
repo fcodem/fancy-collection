@@ -8,6 +8,7 @@ export async function GET(req: NextRequest) {
   const deliveryDate = req.nextUrl.searchParams.get("delivery_date") || "";
   const returnDate = req.nextUrl.searchParams.get("return_date") || "";
   const category = req.nextUrl.searchParams.get("category") || "";
-  const data = await getDashboardFreeItemsCached(deliveryDate, returnDate, category);
+  const subCategory = req.nextUrl.searchParams.get("sub_category") || "";
+  const data = await getDashboardFreeItemsCached(deliveryDate, returnDate, category, subCategory);
   return jsonOk(data);
 }

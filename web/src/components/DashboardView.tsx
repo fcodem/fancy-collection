@@ -134,6 +134,8 @@ export default function DashboardView({
   const [fiDelivery, setFiDelivery] = useState(data.today_iso);
   const [fiReturn, setFiReturn] = useState(data.today_iso);
   const [fiCategory, setFiCategory] = useState("");
+  const [fiSubCategory, setFiSubCategory] = useState("");
+  const [fiSubCategories, setFiSubCategories] = useState<string[]>([]);
   const [fiData, setFiData] = useState<{
     free_items: Array<Record<string, unknown>>;
     returning_on_delivery: Array<Record<string, unknown>>;
@@ -142,6 +144,19 @@ export default function DashboardView({
   const [freeItemCount, setFreeItemCount] = useState("Search");
 
   const allCats = [...data.categories.mens, ...data.categories.womens, ...data.categories.jewellery, ...data.categories.accessory];
+
+  useEffect(() => {
+    if (!fiCategory) { setFiSubCategories([]); setFiSubCategory(""); return; }
+    let cancelled = false;
+    void fetch(`/api/items/sub-categories?category=${encodeURIComponent(fiCategory)}`, { credentials: "same-origin" })
+      .then((res) => res.ok ? res.json() : { subCategories: [] })
+      .then((json: { subCategories?: string[] }) => {
+        if (!cancelled) setFiSubCategories(json.subCategories ?? []);
+      })
+      .catch(() => { if (!cancelled) setFiSubCategories([]); });
+    setFiSubCategory("");
+    return () => { cancelled = true; };
+  }, [fiCategory]);
 
   async function approveStaff(id: number) {
     try {
@@ -177,7 +192,7 @@ export default function DashboardView({
   const searchFreeItems = useCallback(async () => {
     try {
       const res = await fetch(
-        `/api/dashboard/free-items?delivery_date=${fiDelivery}&return_date=${fiReturn}&category=${encodeURIComponent(fiCategory)}`,
+        `/api/dashboard/free-items?delivery_date=${fiDelivery}&return_date=${fiReturn}&category=${encodeURIComponent(fiCategory)}&sub_category=${encodeURIComponent(fiSubCategory)}`,
         { credentials: "same-origin" },
       );
       if (!res.ok) return;
@@ -601,6 +616,14 @@ export default function DashboardView({
                   {allCats.map((c) => <option key={c} value={c}>{c}</option>)}
                 </select>
               </div>
+              {fiSubCategories.length > 0 && (
+                <div><label className="form-label">Sub Category</label>
+                  <select className="form-control" value={fiSubCategory} onChange={(e) => setFiSubCategory(e.target.value)}>
+                    <option value="">All</option>
+                    {fiSubCategories.map((sc) => <option key={sc} value={sc}>{sc}</option>)}
+                  </select>
+                </div>
+              )}
               <div style={{ display: "flex", alignItems: "flex-end" }}><button type="button" className="btn btn-primary" onClick={searchFreeItems}>Search</button></div>
             </div>
             {fiData && (
@@ -608,13 +631,14 @@ export default function DashboardView({
                 {fiData.free_items.length > 0 ? (
                   <div className="table-wrapper">
                     <table className="data-table">
-                      <thead><tr><th>#</th><th>Dress</th><th>Category</th><th>Color</th><th>Size</th><th>Status</th></tr></thead>
+                      <thead><tr><th>#</th><th>Dress</th><th>Category</th><th>Sub Category</th><th>Color</th><th>Size</th><th>Status</th></tr></thead>
                       <tbody>
                         {fiData.free_items.map((item, i) => (
                           <tr key={String(item.id)} style={fiData.warnings?.[String(item.id)] ? { background: "#FFF8E1" } : undefined}>
                             <td>{i + 1}</td>
                             <td><strong>{String(item.display_name || item.name)}</strong></td>
                             <td>{String(item.category)}</td>
+                            <td>{String(item.sub_category || "—")}</td>
                             <td>{String(item.color || "—")}</td>
                             <td>{String(item.size || "—")}</td>
                             <td>{fiData.warnings?.[String(item.id)] ? <span className="badge badge-warning">Warning</span> : <span className="badge badge-available">Free</span>}</td>
