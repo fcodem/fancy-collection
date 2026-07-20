@@ -8,7 +8,9 @@ export async function GET(req: NextRequest) {
   const q = req.nextUrl.searchParams.get("q") || "";
   const category = req.nextUrl.searchParams.get("category") || "";
   const customers = await listCustomers(q, category);
-  return jsonOk(customers);
+  const res = jsonOk(customers);
+  res.headers.set("Cache-Control", "private, max-age=15, stale-while-revalidate=30");
+  return res;
 }
 
 export async function POST(req: NextRequest) {

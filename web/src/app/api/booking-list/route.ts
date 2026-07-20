@@ -25,7 +25,9 @@ export async function GET(req: NextRequest) {
       page: Number.isFinite(page) ? page : 1,
     });
     perf.finish({ kind: "read" });
-    return jsonOk(data);
+    const res = jsonOk(data);
+    res.headers.set("Cache-Control", "private, max-age=10, stale-while-revalidate=20");
+    return res;
   } catch (e) {
     return jsonError(e instanceof Error ? e.message : "Invalid request");
   }

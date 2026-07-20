@@ -11,5 +11,7 @@ export async function GET(req: NextRequest) {
   const page = parseInt(req.nextUrl.searchParams.get("page") || "1", 10);
   const data = await loadLateReturnPageCached({ page: Number.isFinite(page) ? page : 1 });
   perf.finish({ kind: "read" });
-  return jsonOk(data);
+  const res = jsonOk(data);
+  res.headers.set("Cache-Control", "private, max-age=15, stale-while-revalidate=30");
+  return res;
 }

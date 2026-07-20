@@ -5,5 +5,7 @@ export async function GET() {
   const user = await requireUserReadOnly();
   if (isResponse(user)) return user;
   const categories = await getAllCategories();
-  return jsonOk(categories);
+  const res = jsonOk(categories);
+  res.headers.set("Cache-Control", "private, max-age=120, stale-while-revalidate=300");
+  return res;
 }

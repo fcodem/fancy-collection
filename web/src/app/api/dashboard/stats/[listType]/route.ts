@@ -42,7 +42,9 @@ export async function GET(
     );
     perf.endStage("queryMs", "query");
     const timings = perf.finish({ kind: "read" });
-    return withServerTiming(jsonOk(page), timings);
+    const res = jsonOk(page);
+    res.headers.set("Cache-Control", "private, max-age=10, stale-while-revalidate=20");
+    return withServerTiming(res, timings);
   } catch (e) {
     console.error(`[dashboard/stats/${listType}]`, e);
     return jsonError("Failed to load dashboard list", 500);

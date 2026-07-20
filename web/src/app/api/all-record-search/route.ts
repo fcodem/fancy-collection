@@ -22,5 +22,7 @@ export async function GET(req: NextRequest) {
         20,
       );
 
-  return jsonOk(result);
+  const res = jsonOk(result);
+  res.headers.set("Cache-Control", "private, max-age=10, stale-while-revalidate=20");
+  return res;
 }

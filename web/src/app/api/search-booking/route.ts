@@ -34,5 +34,6 @@ export async function GET(req: NextRequest) {
   perf.addQueries(1);
 
   const res = jsonOk(result);
+  res.headers.set("Cache-Control", "private, max-age=10, stale-while-revalidate=20");
   return withServerTiming(res, perf.finish({ kind: "read" }));
 }

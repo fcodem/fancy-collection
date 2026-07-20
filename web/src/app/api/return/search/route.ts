@@ -36,5 +36,7 @@ export async function GET(req: NextRequest) {
   perf.setRowCount(data.results.length);
 
   const timings = perf.finish({ kind: "read" });
-  return withServerTiming(jsonOk(data), timings);
+  const res = jsonOk(data);
+  res.headers.set("Cache-Control", "private, max-age=10, stale-while-revalidate=20");
+  return withServerTiming(res, timings);
 }

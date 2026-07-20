@@ -8,5 +8,7 @@ export async function GET(req: NextRequest) {
   if (isResponse(user)) return user;
   const date = req.nextUrl.searchParams.get("date") || todayIso();
   const data = await getReturningTodayCached(date);
-  return jsonOk(data);
+  const res = jsonOk(data);
+  res.headers.set("Cache-Control", "private, max-age=15, stale-while-revalidate=30");
+  return res;
 }
