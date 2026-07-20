@@ -15,6 +15,7 @@ import {
   cleanSlipTempDirs,
   ensureSlipTempHeadroom,
   measureSlipTempUsage,
+  measureTmpFreeBytes,
 } from "@/lib/slipTempCleanup";
 import {
   errorCodeFromUnknown,
@@ -88,15 +89,19 @@ export async function POST(req: NextRequest) {
 
   const started = Date.now();
   const tmpBytesBefore = measureSlipTempUsage();
+  const freeTmpBefore = await measureTmpFreeBytes();
   await ensureSlipTempHeadroom();
 
   try {
     const rendered = await renderSlipPdfDirect(kind, bookingId, origin, opts);
     const tmpBytesAfter = measureSlipTempUsage();
+    const freeTmpAfter = await measureTmpFreeBytes();
     logSlipRenderDiagnostic({
       kind,
       bookingId,
       attempt: 1,
+      freeTmpBefore,
+      freeTmpAfter,
       tmpBytesBefore,
       tmpBytesAfter,
       durationMs: Date.now() - started,
@@ -117,11 +122,14 @@ export async function POST(req: NextRequest) {
   } catch (e) {
     await cleanSlipTempDirs();
     const tmpBytesAfter = measureSlipTempUsage();
+    const freeTmpAfter = await measureTmpFreeBytes();
     const errorCode = errorCodeFromUnknown(e) ?? PREMIUM_SLIP_RENDER_FAILED;
     logSlipRenderDiagnostic({
       kind,
       bookingId,
       attempt: 1,
+      freeTmpBefore,
+      freeTmpAfter,
       tmpBytesBefore,
       tmpBytesAfter,
       durationMs: Date.now() - started,

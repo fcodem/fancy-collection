@@ -5,15 +5,28 @@ import path from "path";
 import { randomUUID } from "crypto";
 import type { Browser, Page } from "puppeteer-core";
 import {
+  beginSlipRender,
+  CHROMIUM_EXTRACT_DIR_NAME,
+  chromiumExtractDir,
+  chromiumExecutablePath,
   cleanSlipTempDirs,
-  ensureSlipTempHeadroom,
-  getTmpDir,
-  measureSlipTempUsage,
-  TMP_USAGE_WARN_BYTES,
-  isEnospcError,
-  isSpawnBusyError,
-  isRetryableSlipRenderError,
+  clearActiveChromiumExtract,
+  endSlipRender,
+  ensureTmpFreeSpace,
   errorCodeFromUnknown,
+  isEnospcError,
+  isExecutableLaunchError,
+  isRetryableSlipRenderError,
+  isSpawnBusyError,
+  measureTmpFreeBytes,
+  registerActiveChromiumExtract,
+  shouldResetChromiumExecutableCache,
+  SLIP_PROFILE_PREFIX,
+  SLIP_RENDER_PREFIX,
+  slipTmpDir,
+  TMP_FREE_MIN_EXTRACTION_BYTES,
+  TMP_FREE_MIN_RENDER_BYTES,
+  verifyChromiumExecutable,
 } from "@/lib/slipTempCleanup";
 import { SlipRenderPoolError } from "./slipRenderErrors";
 import type { PremiumSlipKind } from "@/lib/premiumSlip";
@@ -21,6 +34,8 @@ import {
   PREMIUM_SLIP_ROOT_ID,
   PremiumSlipHtmlValidationError,
 } from "@/lib/premiumSlipHtmlValidation";
+import { logSlipRenderDiagnostic } from "./slipRenderDiagnostics";
+import { enqueueSlipRender } from "./slipRenderQueue";
 
 const CHROME_ARGS = [
   "--no-sandbox",
@@ -35,9 +50,46 @@ const CHROME_ARGS = [
 ];
 
 const MAX_RENDER_ATTEMPTS = 3;
+const MAX_LAUNCH_ATTEMPTS = 3;
+const LAUNCH_RETRY_DELAYS_MS = [500, 1000] as const;
 
 function sleep(ms: number): Promise<void> {
   return new Promise((resolve) => setTimeout(resolve, ms));
+}
+
+async function copyFileSafe(src: string, dest: string): Promise<void> {
+  await fs.promises.mkdir(path.dirname(dest), { recursive: true });
+  await fs.promises.copyFile(src, dest);
+  await fs.promises.chmod(dest, 0o755).catch(() => {});
+}
+
+async function copyTreeSafe(src: string, dest: string): Promise<void> {
+  await fs.promises.mkdir(dest, { recursive: true });
+  const entries = await fs.promises.readdir(src, { withFileTypes: true });
+  for (const entry of entries) {
+    const from = path.join(src, entry.name);
+    const to = path.join(dest, entry.name);
+    if (entry.isDirectory()) {
+      await copyTreeSafe(from, to);
+    } else if (entry.isFile()) {
+      await copyFileSafe(from, to);
+    }
+  }
+}
+
+async function moveOrCopyPath(src: string, dest: string): Promise<void> {
+  await fs.promises.mkdir(path.dirname(dest), { recursive: true });
+  try {
+    await fs.promises.rename(src, dest);
+    return;
+  } catch {
+    const stat = await fs.promises.stat(src);
+    if (stat.isDirectory()) {
+      await copyTreeSafe(src, dest);
+    } else {
+      await copyFileSafe(src, dest);
+    }
+  }
 }
 
 /** Ensure premium slip markers survive Chromium print-to-PDF (not clipped out). */
@@ -65,7 +117,6 @@ async function validatePremiumSlipDom(page: Page, kind: PremiumSlipKind): Promis
 
   try {
     await page.evaluate((slipKind) => {
-      // Bundled validation runs in the browser context.
       const root = document.getElementById(
         slipKind === "booking"
           ? "booking-slip-root"
@@ -122,8 +173,13 @@ async function validatePremiumSlipDom(page: Page, kind: PremiumSlipKind): Promis
   }
 }
 
-let renderQueue: Promise<unknown> = Promise.resolve();
-let chromiumExecutablePromise: Promise<string> | null = null;
+type ChromiumExecutableResolution = {
+  executablePath: string;
+  reused: boolean;
+  extractionMs: number;
+};
+
+let chromiumExecutablePromise: Promise<ChromiumExecutableResolution> | null = null;
 
 function resolveChromeExecutable(): string | undefined {
   const candidates: string[] = [
@@ -180,16 +236,59 @@ function resolveLocalChromiumBin(): string | undefined {
   return undefined;
 }
 
-async function extractChromiumExecutable(): Promise<string> {
-  await cleanSlipTempDirs();
-  await ensureSlipTempHeadroom();
-  const usage = measureSlipTempUsage();
-  if (usage >= TMP_USAGE_WARN_BYTES) {
-    throw new SlipRenderPoolError(
-      "Insufficient /tmp headroom before Chromium extraction",
-      "ENOSPC",
-    );
+function setupChromiumLibraryPath(libraryDir: string): void {
+  if (!libraryDir || !fs.existsSync(libraryDir)) return;
+  const existingLd = process.env.LD_LIBRARY_PATH?.trim();
+  process.env.LD_LIBRARY_PATH = existingLd
+    ? `${libraryDir}${path.delimiter}${existingLd}`
+    : libraryDir;
+}
+
+async function adoptSparticuzExtract(sparticuzBinary: string, extractDir: string): Promise<string> {
+  const destBinary = path.join(extractDir, "chromium");
+  await fs.promises.mkdir(extractDir, { recursive: true });
+
+  if (path.resolve(sparticuzBinary) !== path.resolve(destBinary)) {
+    await moveOrCopyPath(sparticuzBinary, destBinary);
   }
+
+  const tmpDir = slipTmpDir();
+  const al2023Src = path.join(tmpDir, "al2023");
+  const al2023Dest = path.join(extractDir, "al2023");
+  if (fs.existsSync(al2023Src) && !fs.existsSync(al2023Dest)) {
+    await moveOrCopyPath(al2023Src, al2023Dest);
+  }
+
+  const chromiumPackSrc = path.join(tmpDir, "chromium-pack");
+  if (fs.existsSync(chromiumPackSrc)) {
+    await fs.promises.rm(chromiumPackSrc, { recursive: true, force: true }).catch(() => {});
+  }
+
+  await verifyChromiumExecutable(destBinary);
+  return destBinary;
+}
+
+async function extractChromiumExecutable(): Promise<{ executablePath: string; reused: boolean; extractionMs: number }> {
+  const started = Date.now();
+  const extractDir = chromiumExtractDir();
+  const cachedBinary = chromiumExecutablePath();
+
+  try {
+    await verifyChromiumExecutable(cachedBinary);
+    const libsDir = path.join(extractDir, "al2023");
+    setupChromiumLibraryPath(fs.existsSync(libsDir) ? libsDir : extractDir);
+    registerActiveChromiumExtract(extractDir, cachedBinary);
+    return {
+      executablePath: cachedBinary,
+      reused: true,
+      extractionMs: Date.now() - started,
+    };
+  } catch {
+    /* extract below */
+  }
+
+  await cleanSlipTempDirs();
+  await ensureTmpFreeSpace(TMP_FREE_MIN_EXTRACTION_BYTES);
 
   if (!process.env.AWS_LAMBDA_JS_RUNTIME) {
     const major = Number(process.versions.node.split(".")[0]) || 22;
@@ -206,105 +305,187 @@ async function extractChromiumExecutable(): Promise<string> {
   }
 
   const localBin = resolveLocalChromiumBin();
-  let executablePath: string;
+  let sparticuzBinary: string;
   if (localBin) {
-    executablePath = await chromium.executablePath(localBin);
+    sparticuzBinary = await chromium.executablePath(localBin);
   } else {
     console.warn(
       "[pdfBrowserPool] @sparticuz/chromium/bin missing from bundle — downloading remote pack",
     );
-    executablePath = await chromium.executablePath(CHROMIUM_REMOTE_PACK);
+    sparticuzBinary = await chromium.executablePath(CHROMIUM_REMOTE_PACK);
   }
 
-  const execDir = path.dirname(executablePath);
+  const executablePath = await adoptSparticuzExtract(sparticuzBinary, extractDir);
+  const libsDir = path.join(extractDir, "al2023");
   if (typeof chromiumMod.setupLambdaEnvironment === "function") {
-    chromiumMod.setupLambdaEnvironment(execDir);
+    chromiumMod.setupLambdaEnvironment(fs.existsSync(libsDir) ? libsDir : extractDir);
   } else {
-    const existingLd = process.env.LD_LIBRARY_PATH?.trim();
-    process.env.LD_LIBRARY_PATH = existingLd
-      ? `${execDir}${path.delimiter}${existingLd}`
-      : execDir;
+    setupChromiumLibraryPath(fs.existsSync(libsDir) ? libsDir : extractDir);
   }
 
-  return executablePath;
+  registerActiveChromiumExtract(extractDir, executablePath);
+  return {
+    executablePath,
+    reused: false,
+    extractionMs: Date.now() - started,
+  };
 }
 
 /** One cached Chromium executable path per warm instance — guarded by a promise lock. */
-async function resolveChromiumExecutable(): Promise<string> {
+async function resolveChromiumExecutable(): Promise<ChromiumExecutableResolution> {
   if (!chromiumExecutablePromise) {
     chromiumExecutablePromise = extractChromiumExecutable().catch((err) => {
-      chromiumExecutablePromise = null;
+      if (shouldResetChromiumExecutableCache(err)) {
+        chromiumExecutablePromise = null;
+        clearActiveChromiumExtract();
+      }
       throw err;
     });
   }
   return chromiumExecutablePromise;
 }
 
-function createProfileDir(): string {
-  return path.join(getTmpDir(), `puppeteer_dev_chrome_profile-${randomUUID()}`);
+function resetChromiumExecutableCache(): void {
+  chromiumExecutablePromise = null;
+  clearActiveChromiumExtract();
 }
 
-async function launchRenderBrowser(): Promise<{ browser: Browser; profileDir: string }> {
+function createProfileDir(): string {
+  return path.join(slipTmpDir(), `${SLIP_PROFILE_PREFIX}${randomUUID()}`);
+}
+
+function createRenderWorkDir(): string {
+  return path.join(slipTmpDir(), `${SLIP_RENDER_PREFIX}${randomUUID()}`);
+}
+
+async function launchRenderBrowserOnce(
+  executablePath: string,
+  profileDir: string,
+  isServerless: boolean,
+): Promise<Browser> {
+  if (isServerless) {
+    const chromiumMod = await import("@sparticuz/chromium");
+    const chromium = chromiumMod.default;
+    const puppeteer = await import("puppeteer-core");
+    return puppeteer.default.launch({
+      args: [
+        ...chromium.args,
+        "--hide-scrollbars",
+        "--disable-web-security",
+        `--user-data-dir=${profileDir}`,
+      ],
+      defaultViewport: { width: 794, height: 1123 },
+      executablePath,
+      headless: true,
+      userDataDir: profileDir,
+    });
+  }
+
+  const systemChrome = resolveChromeExecutable();
+  if (systemChrome) {
+    const puppeteerCore = await import("puppeteer-core");
+    return puppeteerCore.default.launch({
+      executablePath: systemChrome,
+      headless: true,
+      args: [...CHROME_ARGS, `--user-data-dir=${profileDir}`],
+      userDataDir: profileDir,
+    });
+  }
+
+  throw new SlipRenderPoolError(
+    "Chrome/Chromium not found for PDF generation. Install Google Chrome/Edge or set CHROME_PATH.",
+    "CHROME_NOT_FOUND",
+  );
+}
+
+async function launchRenderBrowserWithRetry(isServerless: boolean): Promise<{
+  browser: Browser;
+  profileDir: string;
+  renderWorkDir: string;
+  browserLaunchMs: number;
+  executableReused: boolean;
+  extractionMs: number;
+}> {
   const profileDir = createProfileDir();
-  const isServerless = Boolean(process.env.VERCEL || process.env.AWS_LAMBDA_FUNCTION_VERSION);
+  const renderWorkDir = createRenderWorkDir();
+  await fs.promises.mkdir(profileDir, { recursive: true });
+  await fs.promises.mkdir(renderWorkDir, { recursive: true });
+
+  const launchStarted = Date.now();
+  let executableReused = false;
+  let extractionMs = 0;
+  let executablePath = "";
 
   try {
     if (isServerless) {
-      const executablePath = await resolveChromiumExecutable();
-      const chromiumMod = await import("@sparticuz/chromium");
-      const chromium = chromiumMod.default;
-      const puppeteer = await import("puppeteer-core");
-      const browser = await puppeteer.default.launch({
-        args: [
-          ...chromium.args,
-          "--hide-scrollbars",
-          "--disable-web-security",
-          `--user-data-dir=${profileDir}`,
-        ],
-        defaultViewport: { width: 794, height: 1123 },
-        executablePath,
-        headless: true,
-        userDataDir: profileDir,
-      });
-      return { browser, profileDir };
+      await ensureTmpFreeSpace(TMP_FREE_MIN_RENDER_BYTES);
+      const resolved = await resolveChromiumExecutable();
+      executablePath = resolved.executablePath;
+      executableReused = resolved.reused;
+      extractionMs = resolved.extractionMs;
     }
 
-    const systemChrome = resolveChromeExecutable();
-    if (systemChrome) {
-      const puppeteerCore = await import("puppeteer-core");
-      const browser = await puppeteerCore.default.launch({
-        executablePath: systemChrome,
-        headless: true,
-        args: [...CHROME_ARGS, `--user-data-dir=${profileDir}`],
-        userDataDir: profileDir,
-      });
-      return { browser, profileDir };
+    let lastLaunchError: unknown;
+    for (let launchAttempt = 1; launchAttempt <= MAX_LAUNCH_ATTEMPTS; launchAttempt++) {
+      try {
+        if (isServerless) {
+          await verifyChromiumExecutable(executablePath);
+        }
+        const browser = await launchRenderBrowserOnce(
+          executablePath,
+          profileDir,
+          isServerless,
+        );
+        return {
+          browser,
+          profileDir,
+          renderWorkDir,
+          browserLaunchMs: Date.now() - launchStarted,
+          executableReused,
+          extractionMs,
+        };
+      } catch (err) {
+        lastLaunchError = err;
+        if (!isExecutableLaunchError(err) || launchAttempt >= MAX_LAUNCH_ATTEMPTS) {
+          throw err;
+        }
+        if (shouldResetChromiumExecutableCache(err)) {
+          resetChromiumExecutableCache();
+          if (isServerless) {
+            const resolved = await resolveChromiumExecutable();
+            executablePath = resolved.executablePath;
+            executableReused = resolved.reused;
+            extractionMs = resolved.extractionMs;
+          }
+        } else if (isServerless) {
+          await resolveChromiumExecutable();
+        }
+        const delay = LAUNCH_RETRY_DELAYS_MS[launchAttempt - 1] ?? 1000;
+        await sleep(delay);
+      }
     }
-
-    throw new SlipRenderPoolError(
-      "Chrome/Chromium not found for PDF generation. Install Google Chrome/Edge or set CHROME_PATH.",
-      "CHROME_NOT_FOUND",
-    );
+    throw lastLaunchError;
   } catch (err) {
     await fs.promises.rm(profileDir, { recursive: true, force: true }).catch(() => {});
+    await fs.promises.rm(renderWorkDir, { recursive: true, force: true }).catch(() => {});
     throw err;
   }
 }
 
-async function disposeRenderBrowser(browser: Browser | null, profileDir: string): Promise<void> {
-  if (browser?.connected) {
-    await browser.close().catch(() => {});
+async function disposeRenderSession(input: {
+  browser: Browser | null;
+  page: Page | null;
+  profileDir: string;
+  renderWorkDir: string;
+}): Promise<void> {
+  if (input.page) {
+    await input.page.close().catch(() => {});
   }
-  await fs.promises.rm(profileDir, { recursive: true, force: true }).catch(() => {});
-}
-
-function enqueueRender<T>(fn: () => Promise<T>): Promise<T> {
-  const run = renderQueue.then(fn, fn);
-  renderQueue = run.then(
-    () => undefined,
-    () => undefined,
-  );
-  return run;
+  if (input.browser?.connected) {
+    await input.browser.close().catch(() => {});
+  }
+  await fs.promises.rm(input.profileDir, { recursive: true, force: true }).catch(() => {});
+  await fs.promises.rm(input.renderWorkDir, { recursive: true, force: true }).catch(() => {});
 }
 
 export type HtmlToPdfOptions = {
@@ -313,6 +494,7 @@ export type HtmlToPdfOptions = {
   validateHtml?: (html: string) => void;
   viewport?: { width: number; height: number };
   slipKind?: PremiumSlipKind;
+  bookingId?: number;
 };
 
 export type PremiumSlipPdfRenderResult = {
@@ -329,114 +511,184 @@ export async function renderHtmlUrlToPdf(opts: HtmlToPdfOptions): Promise<Buffer
 export async function renderHtmlUrlToPdf(
   opts: HtmlToPdfOptions,
 ): Promise<Buffer | PremiumSlipPdfRenderResult> {
-  return enqueueRender(async () => {
+  return enqueueSlipRender(async () => {
+    beginSlipRender();
     let lastError: unknown;
+    const renderStarted = Date.now();
+    let freeTmpBefore: number | null = null;
 
-    for (let attempt = 1; attempt <= MAX_RENDER_ATTEMPTS; attempt++) {
-      let browser: Browser | null = null;
-      let page: Page | null = null;
-      let profileDir = "";
+    try {
+      freeTmpBefore = await measureTmpFreeBytes();
 
-      try {
-        if (attempt > 1 || measureSlipTempUsage() >= TMP_USAGE_WARN_BYTES) {
-          await cleanSlipTempDirs();
-        }
+      for (let attempt = 1; attempt <= MAX_RENDER_ATTEMPTS; attempt++) {
+        let browser: Browser | null = null;
+        let page: Page | null = null;
+        let profileDir = "";
+        let renderWorkDir = "";
+        let executableReused = false;
+        let extractionMs = 0;
+        let browserLaunchMs = 0;
+        let pageLoadMs = 0;
+        let pdfMs = 0;
 
-        ({ browser, profileDir } = await launchRenderBrowser());
-        page = await browser.newPage();
-        page.setDefaultNavigationTimeout(90_000);
-        page.setDefaultTimeout(60_000);
-
-        const viewport = opts.viewport ?? { width: 794, height: 1123 };
-        await page.setViewport({ ...viewport, deviceScaleFactor: 1 });
-
-        const response = await page.goto(opts.url, {
-          waitUntil: "networkidle0",
-          timeout: 90_000,
-        });
-        if (!response || !response.ok()) {
-          const status = response?.status() ?? "unknown";
-          throw new Error(`PDF page failed to load (HTTP ${status})`);
-        }
-
-        await page.waitForSelector(opts.rootSelector, { timeout: 30_000 });
-        const html = await page.content();
-        opts.validateHtml?.(html);
-
-        await page.emulateMediaType("print");
-        await page.evaluate(async () => {
-          const images = Array.from(document.images);
-          await Promise.all(
-            images.map((img) =>
-              img.complete
-                ? Promise.resolve()
-                : new Promise<void>((resolve) => {
-                    img.onload = () => resolve();
-                    img.onerror = () => resolve();
-                  }),
-            ),
-          );
-        });
-
-        if (opts.slipKind) {
-          await validatePremiumSlipDom(page, opts.slipKind);
-        }
-
-        await preparePremiumSlipMarkersForPdf(page);
-
-        const pdf = await page.pdf({
-          format: "A4",
-          printBackground: true,
-          margin: { top: 0, right: 0, bottom: 0, left: 0 },
-          timeout: 60_000,
-        });
-
-        const buffer = Buffer.from(pdf);
-        if (opts.slipKind) {
-          return {
-            pdf: buffer,
-            slipKind: opts.slipKind,
-            templateVersion: "premium-slip-v1",
-            htmlValidated: true as const,
-          };
-        }
-        return buffer;
-      } catch (err) {
-        lastError = err;
-        const retryable = isRetryableSlipRenderError(err);
-        if (retryable && attempt < MAX_RENDER_ATTEMPTS) {
-          if (isSpawnBusyError(err)) {
-            chromiumExecutablePromise = null;
+        try {
+          if (attempt > 1) {
+            await cleanSlipTempDirs();
+            await ensureTmpFreeSpace(TMP_FREE_MIN_RENDER_BYTES);
           }
-          await cleanSlipTempDirs();
-          await sleep(400 * attempt);
-          continue;
-        }
-        if (attempt >= MAX_RENDER_ATTEMPTS) break;
-        if (retryable) break;
-      } finally {
-        if (page) await page.close().catch(() => {});
-        await disposeRenderBrowser(browser, profileDir);
-      }
-    }
 
-    const code = errorCodeFromUnknown(lastError);
-    if (isEnospcError(lastError)) {
-      throw new SlipRenderPoolError("Slip PDF render failed: /tmp full (ENOSPC)", "ENOSPC");
+          const isServerless = Boolean(process.env.VERCEL || process.env.AWS_LAMBDA_FUNCTION_VERSION);
+          ({
+            browser,
+            profileDir,
+            renderWorkDir,
+            browserLaunchMs,
+            executableReused,
+            extractionMs,
+          } = await launchRenderBrowserWithRetry(isServerless));
+
+          page = await browser.newPage();
+          page.setDefaultNavigationTimeout(90_000);
+          page.setDefaultTimeout(60_000);
+
+          const viewport = opts.viewport ?? { width: 794, height: 1123 };
+          await page.setViewport({ ...viewport, deviceScaleFactor: 1 });
+
+          const pageLoadStarted = Date.now();
+          const response = await page.goto(opts.url, {
+            waitUntil: "networkidle0",
+            timeout: 90_000,
+          });
+          pageLoadMs = Date.now() - pageLoadStarted;
+
+          if (!response || !response.ok()) {
+            const status = response?.status() ?? "unknown";
+            throw new Error(`PDF page failed to load (HTTP ${status})`);
+          }
+
+          await page.waitForSelector(opts.rootSelector, { timeout: 30_000 });
+          const html = await page.content();
+          opts.validateHtml?.(html);
+
+          await page.emulateMediaType("print");
+          await page.evaluate(async () => {
+            const images = Array.from(document.images);
+            await Promise.all(
+              images.map((img) =>
+                img.complete
+                  ? Promise.resolve()
+                  : new Promise<void>((resolve) => {
+                      img.onload = () => resolve();
+                      img.onerror = () => resolve();
+                    }),
+              ),
+            );
+          });
+
+          if (opts.slipKind) {
+            await validatePremiumSlipDom(page, opts.slipKind);
+          }
+
+          await preparePremiumSlipMarkersForPdf(page);
+
+          const pdfStarted = Date.now();
+          const pdf = await page.pdf({
+            format: "A4",
+            printBackground: true,
+            margin: { top: 0, right: 0, bottom: 0, left: 0 },
+            timeout: 60_000,
+          });
+          pdfMs = Date.now() - pdfStarted;
+
+          const buffer = Buffer.from(pdf);
+          const freeTmpAfter = await measureTmpFreeBytes();
+
+          if (opts.slipKind && opts.bookingId != null) {
+            logSlipRenderDiagnostic({
+              kind: opts.slipKind,
+              bookingId: opts.bookingId,
+              attempt,
+              freeTmpBefore,
+              freeTmpAfter,
+              durationMs: Date.now() - renderStarted,
+              ok: true,
+              executableReused,
+              extractionMs,
+              browserLaunchMs,
+              pageLoadMs,
+              pdfMs,
+            });
+          }
+
+          if (opts.slipKind) {
+            return {
+              pdf: buffer,
+              slipKind: opts.slipKind,
+              templateVersion: "premium-slip-v1",
+              htmlValidated: true as const,
+            };
+          }
+          return buffer;
+        } catch (err) {
+          lastError = err;
+          const errorCode = errorCodeFromUnknown(err);
+          const freeTmpAfter = await measureTmpFreeBytes();
+
+          if (opts.slipKind && opts.bookingId != null) {
+            logSlipRenderDiagnostic({
+              kind: opts.slipKind,
+              bookingId: opts.bookingId,
+              attempt,
+              freeTmpBefore,
+              freeTmpAfter,
+              durationMs: Date.now() - renderStarted,
+              ok: false,
+              errorCode,
+              executableReused,
+              extractionMs,
+              browserLaunchMs,
+              pageLoadMs,
+              pdfMs,
+            });
+          }
+
+          const retryable = isRetryableSlipRenderError(err);
+          if (retryable && attempt < MAX_RENDER_ATTEMPTS) {
+            if (shouldResetChromiumExecutableCache(err)) {
+              resetChromiumExecutableCache();
+            }
+            await cleanSlipTempDirs();
+            await sleep(LAUNCH_RETRY_DELAYS_MS[attempt - 1] ?? 1000);
+            continue;
+          }
+          if (attempt >= MAX_RENDER_ATTEMPTS) break;
+          if (!retryable) break;
+        } finally {
+          await disposeRenderSession({ browser, page, profileDir, renderWorkDir });
+        }
+      }
+
+      const code = errorCodeFromUnknown(lastError);
+      if (isEnospcError(lastError)) {
+        throw new SlipRenderPoolError("Slip PDF render failed: /tmp full (ENOSPC)", "ENOSPC");
+      }
+      if (isSpawnBusyError(lastError)) {
+        throw new SlipRenderPoolError(
+          "Slip PDF render failed: Chromium busy (ETXTBSY) — retry slip send",
+          "ETXTBSY",
+        );
+      }
+      if (lastError instanceof SlipRenderPoolError) throw lastError;
+      const msg = lastError instanceof Error ? lastError.message : "PDF generation failed";
+      throw new SlipRenderPoolError(msg, code);
+    } finally {
+      endSlipRender();
     }
-    if (isSpawnBusyError(lastError)) {
-      throw new SlipRenderPoolError(
-        "Slip PDF render failed: Chromium busy (ETXTBSY) — retry slip send",
-        "ETXTBSY",
-      );
-    }
-    if (lastError instanceof SlipRenderPoolError) throw lastError;
-    const msg = lastError instanceof Error ? lastError.message : "PDF generation failed";
-    throw new SlipRenderPoolError(msg, code);
   });
 }
 
 /** Test hook — reset cached Chromium extraction between tests. */
 export function __resetChromiumExecutableCacheForTests(): void {
   chromiumExecutablePromise = null;
+  clearActiveChromiumExtract();
 }

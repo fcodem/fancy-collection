@@ -53,5 +53,6 @@ export async function renderSlipPdfDirect(
     rootSelector,
     validateHtml: assertSlipHtml,
     slipKind: kind,
+    bookingId,
   });
 }

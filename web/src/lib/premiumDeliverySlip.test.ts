@@ -18,23 +18,24 @@ describe("premium delivery slip reliability", () => {
     assert.match(source, /retryable:\s*true/);
   });
 
-  it("retries ENOSPC in the browser pool with cleanup", () => {
+  it("retries ETXTBSY/EBUSY in the browser pool with cleanup", () => {
     const pool = read("src/lib/services/whatsapp/pdfBrowserPool.ts");
     assert.match(pool, /MAX_RENDER_ATTEMPTS = 3/);
+    assert.match(pool, /MAX_LAUNCH_ATTEMPTS = 3/);
+    assert.match(pool, /LAUNCH_RETRY_DELAYS_MS = \[500, 1000\]/);
     assert.match(pool, /validatePremiumSlipDom/);
     assert.match(pool, /data-slip-section/);
     assert.match(pool, /isEnospcError/);
-    assert.match(pool, /cleanSlipTempDirs/);
-    assert.match(pool, /finally/);
-    assert.match(pool, /disposeRenderBrowser/);
-    assert.match(pool, /puppeteer_dev_chrome_profile-/);
-  });
-
-  it("caches Chromium extraction behind a promise lock", () => {
-    const pool = read("src/lib/services/whatsapp/pdfBrowserPool.ts");
+    assert.match(pool, /SLIP_PROFILE_PREFIX/);
+    assert.match(pool, /SLIP_RENDER_PREFIX/);
+    assert.match(pool, /CHROMIUM_EXTRACT_DIR_NAME/);
+    assert.match(pool, /enqueueSlipRender/);
     assert.match(pool, /chromiumExecutablePromise/);
     assert.match(pool, /resolveChromiumExecutable/);
-    assert.match(pool, /ensureSlipTempHeadroom/);
+    assert.match(pool, /ensureTmpFreeSpace/);
+    assert.match(pool, /TMP_FREE_MIN_EXTRACTION_BYTES/);
+    assert.match(pool, /finally/);
+    assert.match(pool, /disposeRenderSession/);
   });
 
   it("logs safe diagnostics from the render route", () => {
