@@ -16,6 +16,11 @@ import {
   errorCodeFromUnknown,
 } from "@/lib/slipTempCleanup";
 import { SlipRenderPoolError } from "./slipRenderErrors";
+import type { PremiumSlipKind } from "@/lib/premiumSlip";
+import {
+  PREMIUM_SLIP_ROOT_ID,
+  PremiumSlipHtmlValidationError,
+} from "@/lib/premiumSlipHtmlValidation";
 
 const CHROME_ARGS = [
   "--no-sandbox",
@@ -43,18 +48,78 @@ async function preparePremiumSlipMarkersForPdf(page: Page): Promise<void> {
       node.style.position = "absolute";
       node.style.left = "0";
       node.style.bottom = "0";
-      node.style.width = "auto";
-      node.style.height = "auto";
-      node.style.overflow = "visible";
-      node.style.clip = "auto";
-      node.style.clipPath = "none";
-      node.style.whiteSpace = "nowrap";
       node.style.fontSize = "1px";
       node.style.lineHeight = "1px";
       node.style.color = "rgba(0,0,0,0.01)";
       node.style.opacity = "0.01";
+      node.style.whiteSpace = "nowrap";
+      node.style.pointerEvents = "none";
     });
   });
+}
+
+async function validatePremiumSlipDom(page: Page, kind: PremiumSlipKind): Promise<void> {
+  const rootId = PREMIUM_SLIP_ROOT_ID[kind];
+  await page.waitForSelector(`#${rootId}`, { timeout: 30_000 });
+  await page.waitForSelector("[data-premium-slip]", { timeout: 30_000 });
+
+  try {
+    await page.evaluate((slipKind) => {
+      // Bundled validation runs in the browser context.
+      const root = document.getElementById(
+        slipKind === "booking"
+          ? "booking-slip-root"
+          : slipKind === "delivery"
+            ? "delivery-slip-root"
+            : slipKind === "return"
+              ? "return-slip-root"
+              : "incomplete-slip-root",
+      );
+      if (!root) throw new Error(`Missing slip root for ${slipKind}`);
+      const markerEl = document.querySelector("[data-premium-slip]");
+      if (!markerEl) throw new Error("Missing [data-premium-slip] marker element");
+      const premiumSlip = markerEl.getAttribute("data-premium-slip");
+      const slipKindAttr = markerEl.getAttribute("data-slip-kind");
+      const templateVersion = markerEl.getAttribute("data-template-version");
+      const expectedMarker = `PREMIUM_SLIP:premium-slip-v1:${slipKind}`;
+      if (premiumSlip !== expectedMarker) {
+        throw new Error(`Invalid data-premium-slip (expected ${expectedMarker}, got ${premiumSlip ?? "null"})`);
+      }
+      if (slipKindAttr !== slipKind) {
+        throw new Error(`Invalid data-slip-kind (expected ${slipKind}, got ${slipKindAttr ?? "null"})`);
+      }
+      if (templateVersion !== "premium-slip-v1") {
+        throw new Error(
+          `Invalid data-template-version (expected premium-slip-v1, got ${templateVersion ?? "null"})`,
+        );
+      }
+      const requiredByKind: Record<string, string[]> = {
+        booking: [
+          "customer-details",
+          "delivery-date",
+          "return-date",
+          "items",
+          "payment-summary",
+          "qr",
+          "terms",
+        ],
+        delivery: ["delivery-date", "return-date", "items", "payment-summary"],
+        return: ["items", "terms"],
+        incomplete: ["items", "payment-summary"],
+      };
+      const sections = [...document.querySelectorAll("[data-slip-section]")]
+        .map((el) => el.getAttribute("data-slip-section"))
+        .filter((value): value is string => Boolean(value));
+      for (const section of requiredByKind[slipKind] ?? []) {
+        if (!sections.includes(section)) {
+          throw new Error(`Missing required section [data-slip-section="${section}"]`);
+        }
+      }
+    }, kind);
+  } catch (err) {
+    const detail = err instanceof Error ? err.message : String(err);
+    throw new PremiumSlipHtmlValidationError(kind, detail);
+  }
 }
 
 let renderQueue: Promise<unknown> = Promise.resolve();
@@ -247,9 +312,23 @@ export type HtmlToPdfOptions = {
   rootSelector: string;
   validateHtml?: (html: string) => void;
   viewport?: { width: number; height: number };
+  slipKind?: PremiumSlipKind;
 };
 
-export async function renderHtmlUrlToPdf(opts: HtmlToPdfOptions): Promise<Buffer> {
+export type PremiumSlipPdfRenderResult = {
+  pdf: Buffer;
+  slipKind: PremiumSlipKind;
+  templateVersion: string;
+  htmlValidated: true;
+};
+
+export async function renderHtmlUrlToPdf(
+  opts: HtmlToPdfOptions & { slipKind: PremiumSlipKind },
+): Promise<PremiumSlipPdfRenderResult>;
+export async function renderHtmlUrlToPdf(opts: HtmlToPdfOptions): Promise<Buffer>;
+export async function renderHtmlUrlToPdf(
+  opts: HtmlToPdfOptions,
+): Promise<Buffer | PremiumSlipPdfRenderResult> {
   return enqueueRender(async () => {
     let lastError: unknown;
 
@@ -299,6 +378,10 @@ export async function renderHtmlUrlToPdf(opts: HtmlToPdfOptions): Promise<Buffer
           );
         });
 
+        if (opts.slipKind) {
+          await validatePremiumSlipDom(page, opts.slipKind);
+        }
+
         await preparePremiumSlipMarkersForPdf(page);
 
         const pdf = await page.pdf({
@@ -308,7 +391,16 @@ export async function renderHtmlUrlToPdf(opts: HtmlToPdfOptions): Promise<Buffer
           timeout: 60_000,
         });
 
-        return Buffer.from(pdf);
+        const buffer = Buffer.from(pdf);
+        if (opts.slipKind) {
+          return {
+            pdf: buffer,
+            slipKind: opts.slipKind,
+            templateVersion: "premium-slip-v1",
+            htmlValidated: true as const,
+          };
+        }
+        return buffer;
       } catch (err) {
         lastError = err;
         const retryable = isRetryableSlipRenderError(err);

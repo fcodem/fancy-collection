@@ -265,7 +265,7 @@ export default function BookingSlip(props: BookingSlipProps) {
         ══════════════════════════════════════════ */}
         <div className="no-break" style={{ display: "grid", gridTemplateColumns: "1fr 1fr", gap: 12, padding: "14px 16px" }}>
           {/* Left: Customer Details */}
-          <div style={{
+          <div data-slip-section="customer-details" style={{
             background: LIGHT_GREEN,
             borderRadius: 10,
             borderLeft: `4px solid ${G}`,
@@ -313,7 +313,7 @@ export default function BookingSlip(props: BookingSlipProps) {
             </div>
 
             {/* Pickup */}
-            <div style={{
+            <div data-slip-section="delivery-date" style={{
               background: G,
               borderRadius: 10,
               padding: "12px 16px",
@@ -328,7 +328,7 @@ export default function BookingSlip(props: BookingSlipProps) {
             </div>
 
             {/* Return */}
-            <div style={{
+            <div data-slip-section="return-date" style={{
               background: GOLD,
               borderRadius: 10,
               padding: "12px 16px",
@@ -347,8 +347,7 @@ export default function BookingSlip(props: BookingSlipProps) {
         {/* ══════════════════════════════════════════
             SECTION 3: ITEMS TABLE
         ══════════════════════════════════════════ */}
-        <div className="no-break" style={{ padding: "0 16px 14px" }}>
-          {/* Section title */}
+        <div className="no-break" data-slip-section="items" style={{ padding: "0 16px 14px" }}>
           <div style={{ display: "flex", alignItems: "center", gap: 8, marginBottom: 8 }}>
             <div style={{ width: 4, height: 18, background: G, borderRadius: 2 }} />
             <span style={{ fontSize: 11, fontWeight: 700, color: G, textTransform: "uppercase", letterSpacing: "0.08em" }}>Booked Items</span>
@@ -447,21 +446,7 @@ export default function BookingSlip(props: BookingSlipProps) {
         <div className="no-break" style={{ display: "flex", gap: 16, padding: "0 16px 14px", alignItems: "flex-start" }}>
 
           {/* QR Code — left side (larger for easy scanning) */}
-          <div style={{ display: "flex", flexDirection: "column", alignItems: "center", gap: 6, minWidth: 190, flexShrink: 0 }}>
-            <div style={{
-              background: "#fff",
-              border: `2px solid ${G}`,
-              borderRadius: 10,
-              padding: 10,
-              boxShadow: "0 2px 8px rgba(0,0,0,0.08)",
-              display: "flex",
-              flexDirection: "column",
-              alignItems: "center",
-              gap: 6,
-            }}>
-              <div style={{ display: "flex", alignItems: "center", gap: 4, fontSize: 10, color: G, fontWeight: 600 }}>
-                <Emoji char="🔒" /> Secure Booking
-              </div>
+          <div data-slip-section="qr" style={{ display: "flex", flexDirection: "column", alignItems: "center", gap: 6, minWidth: 190, flexShrink: 0 }}>
               {qrDataUrl ? (
                 /* eslint-disable-next-line @next/next/no-img-element */
                 <img src={qrDataUrl} alt="Booking QR" width={175} height={175} style={{ display: "block" }} />
@@ -477,11 +462,10 @@ export default function BookingSlip(props: BookingSlipProps) {
                 CONFIRMED <Emoji char="✅" />
               </div>
               <div style={{ fontSize: 9, color: "#999", fontFamily: "monospace" }}>{b.publicBookingId}</div>
-            </div>
           </div>
 
           {/* Payment Summary — right side */}
-          <div style={{ flex: 1, border: `2px solid ${GOLD}`, borderRadius: 12, overflow: "hidden", boxShadow: "0 3px 12px rgba(201,168,76,0.2)" }}>
+          <div data-slip-section="payment-summary" style={{ flex: 1, border: `2px solid ${GOLD}`, borderRadius: 12, overflow: "hidden", boxShadow: "0 3px 12px rgba(201,168,76,0.2)" }}>
             {/* Header */}
             <div style={{ background: G, padding: "8px 16px", textAlign: "center" }}>
               <span style={{ color: "#fff", fontWeight: 700, fontSize: 12, textTransform: "uppercase", letterSpacing: "0.08em" }}>Payment Summary</span>
@@ -562,7 +546,7 @@ export default function BookingSlip(props: BookingSlipProps) {
         {/* ══════════════════════════════════════════
             SECTION 7: NO CANCELLATION + TERMS
         ══════════════════════════════════════════ */}
-        <div className="no-break" style={{ padding: "0 16px 8px" }}>
+        <div className="no-break" data-slip-section="terms" style={{ padding: "0 16px 8px" }}>
           {/* NO CANCELLATION banner */}
           <div style={{
             marginBottom: 8,

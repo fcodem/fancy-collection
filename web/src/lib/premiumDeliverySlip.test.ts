@@ -18,9 +18,11 @@ describe("premium delivery slip reliability", () => {
     assert.match(source, /retryable:\s*true/);
   });
 
-  it("retries ENOSPC once in the browser pool with cleanup", () => {
+  it("retries ENOSPC in the browser pool with cleanup", () => {
     const pool = read("src/lib/services/whatsapp/pdfBrowserPool.ts");
-    assert.match(pool, /MAX_RENDER_ATTEMPTS = 2/);
+    assert.match(pool, /MAX_RENDER_ATTEMPTS = 3/);
+    assert.match(pool, /validatePremiumSlipDom/);
+    assert.match(pool, /data-slip-section/);
     assert.match(pool, /isEnospcError/);
     assert.match(pool, /cleanSlipTempDirs/);
     assert.match(pool, /finally/);
@@ -41,7 +43,14 @@ describe("premium delivery slip reliability", () => {
     assert.match(route, /measureSlipTempUsage/);
     assert.match(route, /cleanSlipTempDirs/);
     assert.match(route, /PREMIUM_SLIP_RENDER_FAILED/);
+    assert.match(route, /PREMIUM_SLIP_HEADER_VALIDATED/);
     assert.doesNotMatch(route, /customerName/);
+  });
+
+  it("verifies renderer validation headers before accepting PDF bytes", () => {
+    const htmlPdf = read("src/lib/services/whatsapp/slipHtmlPdf.server.ts");
+    assert.match(htmlPdf, /assertPremiumSlipRenderHeaders/);
+    assert.match(htmlPdf, /assertPremiumSlipPdf/);
   });
 });
 

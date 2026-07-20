@@ -163,12 +163,14 @@ export async function enrichWhatsAppJobs(
 
 export function mergeSendMetaIntoPayload(
   existing: unknown,
-  meta: { phone?: string; messageId?: string },
+  meta: { phone?: string; messageId?: string; providerOutcome?: string; errorCode?: string },
 ): JobPayload {
   const base = (existing ?? {}) as JobPayload;
   return {
     ...base,
     ...(meta.phone ? { sentPhone: meta.phone } : {}),
     ...(meta.messageId ? { metaMessageId: meta.messageId } : {}),
+    ...(meta.providerOutcome ? { providerOutcome: meta.providerOutcome } : {}),
+    ...(meta.errorCode ? { errorCode: meta.errorCode } : {}),
   };
 }

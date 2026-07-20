@@ -24,6 +24,13 @@ import {
   isPremiumSlipRenderError,
 } from "@/lib/services/whatsapp/slipRenderErrors";
 import { logSlipRenderDiagnostic } from "@/lib/services/whatsapp/slipRenderDiagnostics";
+import {
+  PREMIUM_SLIP_HEADER_KIND,
+  PREMIUM_SLIP_HEADER_VALIDATED,
+  PREMIUM_SLIP_HEADER_VERSION,
+  PREMIUM_SLIP_TEMPLATE_VERSION,
+} from "@/lib/premiumSlip";
+import { PremiumSlipHtmlValidationError } from "@/lib/premiumSlipHtmlValidation";
 
 /**
  * The single Chromium-enabled slip renderer.
@@ -84,7 +91,7 @@ export async function POST(req: NextRequest) {
   await ensureSlipTempHeadroom();
 
   try {
-    const pdf = await renderSlipPdfDirect(kind, bookingId, origin, opts);
+    const rendered = await renderSlipPdfDirect(kind, bookingId, origin, opts);
     const tmpBytesAfter = measureSlipTempUsage();
     logSlipRenderDiagnostic({
       kind,
@@ -95,13 +102,16 @@ export async function POST(req: NextRequest) {
       durationMs: Date.now() - started,
       ok: true,
     });
-    const bytes = new Uint8Array(pdf);
+    const bytes = new Uint8Array(rendered.pdf);
     return new NextResponse(bytes, {
       status: 200,
       headers: {
         "content-type": "application/pdf",
         "content-length": String(bytes.byteLength),
         "cache-control": "no-store",
+        [PREMIUM_SLIP_HEADER_VALIDATED]: "1",
+        [PREMIUM_SLIP_HEADER_KIND]: rendered.slipKind,
+        [PREMIUM_SLIP_HEADER_VERSION]: PREMIUM_SLIP_TEMPLATE_VERSION,
       },
     });
   } catch (e) {
@@ -121,6 +131,7 @@ export async function POST(req: NextRequest) {
 
     const retryable =
       isPremiumSlipRenderError(e) ||
+      e instanceof PremiumSlipHtmlValidationError ||
       errorCode === "ENOSPC" ||
       errorCode === "ETXTBSY" ||
       errorCode === "EBUSY";

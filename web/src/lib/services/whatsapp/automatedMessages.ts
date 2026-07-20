@@ -66,6 +66,8 @@ import {
   type PremiumSlipKind,
 } from "@/lib/premiumSlip";
 import { PREMIUM_SLIP_RENDER_FAILED } from "@/lib/premiumSlip";
+import { markWhatsAppProviderSendStarted } from "./whatsappSendLedger";
+import type { WhatsAppJobSendContext } from "./whatsappJobSendContext";
 
 export type WhatsAppSendOutcome = {
   ok: boolean;
@@ -75,6 +77,15 @@ export type WhatsAppSendOutcome = {
   phone?: string;
   messageId?: string;
 };
+
+async function beginWhatsAppProviderSend(sendContext?: WhatsAppJobSendContext): Promise<void> {
+  if (!sendContext?.idempotencyKey || sendContext.jobId == null) return;
+  await markWhatsAppProviderSendStarted({
+    idempotencyKey: sendContext.idempotencyKey,
+    jobId: sendContext.jobId,
+    bookingId: sendContext.bookingId ?? null,
+  });
+}
 
 export function buildPostponementHeldMessage(opts: {
   customerName: string;
@@ -217,6 +228,7 @@ export async function sendLateReturnReminderWhatsApp(
 export async function sendBookingBillWhatsApp(
   bookingId: number,
   requestOrigin?: string,
+  sendContext?: WhatsAppJobSendContext,
 ): Promise<WhatsAppSendOutcome> {
   const booking = await prisma.booking.findUnique({
     where: { id: bookingId },
@@ -311,6 +323,7 @@ export async function sendBookingBillWhatsApp(
   let docResult;
 
   if (sessionOpen) {
+    await beginWhatsAppProviderSend(sendContext);
     docResult = await sendWhatsAppDocumentByMediaId(
       phoneRaw,
       uploaded.mediaId,
@@ -319,6 +332,7 @@ export async function sendBookingBillWhatsApp(
     );
     if (!docResult.ok && templateReady) {
       usedTemplate = true;
+      await beginWhatsAppProviderSend(sendContext);
       docResult = await sendBookingBillViaTemplate({
         phone: phoneRaw,
         mediaId: uploaded.mediaId,
@@ -332,6 +346,7 @@ export async function sendBookingBillWhatsApp(
     }
   } else if (templateReady) {
     usedTemplate = true;
+    await beginWhatsAppProviderSend(sendContext);
     docResult = await sendBookingBillViaTemplate({
       phone: phoneRaw,
       mediaId: uploaded.mediaId,
@@ -360,6 +375,7 @@ export async function sendBookingBillWhatsApp(
     templateReady
   ) {
     usedTemplate = true;
+    await beginWhatsAppProviderSend(sendContext);
     docResult = await sendBookingBillViaTemplate({
       phone: phoneRaw,
       mediaId: uploaded.mediaId,
@@ -413,6 +429,7 @@ export async function sendPostponementNoticeWhatsApp(
     newReturnDate: string;
     reason?: string;
   },
+  sendContext?: WhatsAppJobSendContext,
 ): Promise<WhatsAppSendOutcome> {
   if (!isWhatsAppConfigured()) {
     return { ok: false, error: "WhatsApp Meta API is not configured.", skipped: true };
@@ -432,6 +449,7 @@ export async function sendPostponementNoticeWhatsApp(
   });
 
   const useTemplate = await isSlipTemplateApproved("booking_postponed");
+  await beginWhatsAppProviderSend(sendContext);
   const result = useTemplate
     ? await sendTextSlipTemplate({
         key: "booking_postponed",
@@ -462,6 +480,7 @@ export async function sendPostponementNoticeWhatsApp(
 
 export async function sendPostponementHeldWhatsApp(
   bookingId: number,
+  sendContext?: WhatsAppJobSendContext,
 ): Promise<WhatsAppSendOutcome> {
   if (!isWhatsAppConfigured()) {
     return { ok: false, error: "WhatsApp Meta API is not configured.", skipped: true };
@@ -482,6 +501,7 @@ export async function sendPostponementHeldWhatsApp(
   });
 
   const useTemplate = await isSlipTemplateApproved("postponement_held");
+  await beginWhatsAppProviderSend(sendContext);
   const result = useTemplate
     ? await sendTextSlipTemplate({
         key: "postponement_held",
@@ -563,6 +583,7 @@ export async function sendBookingReminderWhatsApp(
 export async function sendReturnReceiptWhatsApp(
   bookingId: number,
   requestOrigin?: string,
+  sendContext?: WhatsAppJobSendContext,
 ): Promise<WhatsAppSendOutcome> {
   const booking = await fetchBookingForSlip(bookingId);
   if (!booking) return { ok: false, error: "Booking not found" };
@@ -629,6 +650,7 @@ export async function sendReturnReceiptWhatsApp(
     templateKey: "return_slip",
     customerName: booking.customerName,
     publicBookingId,
+    sendContext,
     bodyParamsForTemplate: (templateName) =>
       returnSlipBodyParamsForTemplate(templateName, {
         ...details,
@@ -806,6 +828,7 @@ async function sendSlipDocument(opts: {
   publicBookingId: string;
   /** Build Meta body params for the resolved APPROVED template name. */
   bodyParamsForTemplate: (templateName: string) => string[];
+  sendContext?: WhatsAppJobSendContext;
 }): Promise<WhatsAppSendOutcome> {
   const approved = await resolveApprovedSlipDocumentTemplate(opts.templateKey);
   const templateReady = Boolean(approved);
@@ -839,6 +862,7 @@ async function sendSlipDocument(opts: {
   // Ensure random slip access token exists for any URL-button templates.
   await ensurePublicSlipAccess(opts.bookingId).catch(() => null);
   if (sessionOpen) {
+    await beginWhatsAppProviderSend(opts.sendContext);
     docResult = await sendWhatsAppDocumentByMediaId(
       opts.phoneRaw,
       uploaded.mediaId,
@@ -847,6 +871,7 @@ async function sendSlipDocument(opts: {
     );
     if (!docResult.ok && templateReady && approved) {
       usedTemplate = true;
+      await beginWhatsAppProviderSend(opts.sendContext);
       docResult = await sendDocumentSlipTemplate({
         key: opts.templateKey,
         phone: opts.phoneRaw,
@@ -858,6 +883,7 @@ async function sendSlipDocument(opts: {
     }
   } else if (templateReady && approved) {
     usedTemplate = true;
+    await beginWhatsAppProviderSend(opts.sendContext);
     docResult = await sendDocumentSlipTemplate({
       key: opts.templateKey,
       phone: opts.phoneRaw,
@@ -883,6 +909,7 @@ async function sendSlipDocument(opts: {
     approved
   ) {
     usedTemplate = true;
+    await beginWhatsAppProviderSend(opts.sendContext);
     docResult = await sendDocumentSlipTemplate({
       key: opts.templateKey,
       phone: opts.phoneRaw,
@@ -916,6 +943,7 @@ export async function sendDeliverySlipWhatsApp(
   bookingId: number,
   payload: SlipSendPayload,
   requestOrigin?: string,
+  sendContext?: WhatsAppJobSendContext,
 ): Promise<WhatsAppSendOutcome> {
   const booking = await fetchBookingForSlip(bookingId);
   if (!booking) return { ok: false, error: "Booking not found" };
@@ -990,6 +1018,7 @@ export async function sendDeliverySlipWhatsApp(
     templateKey: "delivery_slip",
     customerName: booking.customerName,
     publicBookingId,
+    sendContext,
     bodyParamsForTemplate: (templateName) =>
       deliverySlipBodyParamsForTemplate(templateName, {
         ...details,
@@ -1016,6 +1045,7 @@ export async function sendPartialReturnSlipWhatsApp(
   bookingId: number,
   payload: SlipSendPayload,
   requestOrigin?: string,
+  sendContext?: WhatsAppJobSendContext,
 ): Promise<WhatsAppSendOutcome> {
   const booking = await fetchBookingForSlip(bookingId);
   if (!booking) return { ok: false, error: "Booking not found" };
@@ -1090,6 +1120,7 @@ export async function sendPartialReturnSlipWhatsApp(
     templateKey: "return_slip",
     customerName: booking.customerName,
     publicBookingId,
+    sendContext,
     bodyParamsForTemplate: (templateName) =>
       returnSlipBodyParamsForTemplate(templateName, {
         ...details,
@@ -1123,6 +1154,7 @@ export async function sendIncompleteSlipWhatsApp(
   bookingId: number,
   payload: SlipSendPayload,
   requestOrigin?: string,
+  sendContext?: WhatsAppJobSendContext,
 ): Promise<WhatsAppSendOutcome> {
   const booking = await fetchBookingForSlip(bookingId);
   if (!booking) return { ok: false, error: "Booking not found" };
@@ -1203,6 +1235,7 @@ export async function sendIncompleteSlipWhatsApp(
     templateKey: "incomplete_return_slip",
     customerName: booking.customerName,
     publicBookingId,
+    sendContext,
     bodyParamsForTemplate: (templateName) =>
       incompleteSlipBodyParamsForTemplate(templateName, details),
   });

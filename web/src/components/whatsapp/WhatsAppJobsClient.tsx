@@ -65,9 +65,21 @@ function formatPhone(phone: string | null): string {
   return phone;
 }
 
-function jobStatusLabel(status: string): string {
-  if (status === "done") return "Sent to Meta";
+function jobStatusLabel(status: string, metaMessageId: string | null): string {
+  if (status === "done") {
+    return metaMessageId ? "Sent to Meta" : "Completed";
+  }
   return status;
+}
+
+function isProviderOutcomeUnknown(reason: string | null): boolean {
+  return Boolean(reason?.startsWith("PROVIDER_OUTCOME_UNKNOWN:"));
+}
+
+function canRetryJob(job: Job): boolean {
+  if (job.meta_message_id?.trim()) return false;
+  if (isProviderOutcomeUnknown(job.failed_reason)) return false;
+  return job.status === "failed" || job.status === "processing";
 }
 
 function deliveryStatusLabel(status: string | null, jobDone: boolean): string {
@@ -106,6 +118,7 @@ export default function WhatsAppJobsClient() {
   };
 
   const retryJob = async (jobId: number) => {
+    if (retrying != null) return;
     setRetrying(jobId);
     try {
       const res = await fetch(`/api/whatsapp/jobs/${jobId}/retry`, { method: "POST" });
@@ -316,9 +329,9 @@ export default function WhatsAppJobsClient() {
                         {JOB_TYPE_LABELS[job.job_type] || job.job_type}
                       </span>
                       <span style={{ fontSize: 11, fontWeight: 500, padding: "2px 8px", borderRadius: 20, background: sc.bg, color: sc.color }}>
-                        {jobStatusLabel(job.status)}
+                        {jobStatusLabel(job.status, job.meta_message_id)}
                       </span>
-                      {job.status === "done" && (
+                      {job.status === "done" && job.meta_message_id && (
                         <span
                           style={{
                             fontSize: 11,
@@ -329,7 +342,7 @@ export default function WhatsAppJobsClient() {
                             color: dc?.color ?? "#d97706",
                           }}
                         >
-                          {deliveryStatusLabel(job.delivery_status, true)}
+                          {deliveryStatusLabel(job.delivery_status, Boolean(job.meta_message_id))}
                         </span>
                       )}
                       <span style={{ fontSize: 11, color: "#9ca3af" }}>#{job.id}</span>
@@ -364,8 +377,8 @@ export default function WhatsAppJobsClient() {
                     <div style={{ fontSize: 11, color: "#9ca3af", marginTop: 4, display: "flex", gap: 12, flexWrap: "wrap" }}>
                       <span>Scheduled: {new Date(job.scheduled_at).toLocaleString("en-IN")}</span>
                       <span>Attempts: {job.attempts}/{job.max_attempts}</span>
-                      {job.completed_at && (
-                        <span>Meta accepted: {new Date(job.completed_at).toLocaleString("en-IN")}</span>
+                      {job.meta_message_id && (
+                        <span>Meta accepted: {new Date(job.completed_at ?? job.created_at).toLocaleString("en-IN")}</span>
                       )}
                       {job.delivered_at && (
                         <span style={{ color: "#16a34a" }}>Delivered: {new Date(job.delivered_at).toLocaleString("en-IN")}</span>
@@ -409,10 +422,10 @@ export default function WhatsAppJobsClient() {
                       <i className="fa-solid fa-trash" style={{ fontSize: 11 }} />
                       {deleting === job.id ? "..." : "Delete"}
                     </button>
-                    {(job.status === "failed" || job.status === "cancelled" || job.status === "processing") && (
+                    {canRetryJob(job) && (
                       <button
                         onClick={() => retryJob(job.id)}
-                        disabled={retrying === job.id}
+                        disabled={retrying === job.id || retrying != null}
                         style={{
                           fontSize: 12,
                           background: job.status === "processing" ? "#eff6ff" : "#fffbeb",
