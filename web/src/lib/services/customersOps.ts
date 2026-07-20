@@ -669,9 +669,8 @@ export async function exportCustomersWhatsapp(category = "") {
 
 type ImportedRow = { name: string; phone: string };
 
-function parseExcelBuffer(buffer: Buffer): ImportedRow[] {
-  // eslint-disable-next-line @typescript-eslint/no-require-imports
-  const XLSX = require("xlsx");
+async function parseExcelBuffer(buffer: Buffer): Promise<ImportedRow[]> {
+  const XLSX = await import("xlsx");
   const workbook = XLSX.read(buffer, { type: "buffer" });
   const sheet = workbook.Sheets[workbook.SheetNames[0]];
   const json: Record<string, unknown>[] = XLSX.utils.sheet_to_json(sheet, { defval: "" });
@@ -705,10 +704,15 @@ function parseExcelBuffer(buffer: Buffer): ImportedRow[] {
 }
 
 async function parsePdfBuffer(buffer: Buffer): Promise<ImportedRow[]> {
-  // eslint-disable-next-line @typescript-eslint/no-require-imports
-  const pdfParse = require("pdf-parse");
-  const data = await pdfParse(buffer);
-  const text: string = data.text || "";
+  const { PDFParse } = await import("pdf-parse");
+  const parser = new PDFParse({ data: buffer });
+  let text = "";
+  try {
+    const result = await parser.getText();
+    text = result.text || "";
+  } finally {
+    await parser.destroy();
+  }
 
   const rows: ImportedRow[] = [];
   const lines = text.split(/\n/).map((l: string) => l.trim()).filter(Boolean);
@@ -736,7 +740,7 @@ export async function bulkImportCustomers(
   if (ext === "pdf") {
     parsed = await parsePdfBuffer(buffer);
   } else {
-    parsed = parseExcelBuffer(buffer);
+    parsed = await parseExcelBuffer(buffer);
   }
 
   let created = 0;
