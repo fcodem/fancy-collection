@@ -10,6 +10,8 @@ import {
   isWhatsAppRenderFailureReason,
   providerOutcomeForFailure,
   shouldTreatAsProviderOutcomeUnknown,
+  sendStageForFailure,
+  sendStageLabel,
 } from "./whatsappProviderOutcome";
 
 const root = process.cwd();
@@ -94,5 +96,18 @@ describe("whatsappProviderOutcome", () => {
     const source = read("src/lib/services/whatsapp/automatedMessages.ts");
     assert.match(source, /beginWhatsAppProviderSend/);
     assert.match(source, /markWhatsAppProviderSendStarted/);
+  });
+
+  it("sendStageForFailure classifies render vs provider unknown", () => {
+    const ledger = { sendStartedAt: new Date(), sendConfirmedAt: null, providerMessageId: null };
+    assert.equal(
+      sendStageForFailure("PREMIUM_SLIP_RENDER_FAILED: x", ledger),
+      "FAILED_BEFORE_PROVIDER",
+    );
+    assert.equal(sendStageForFailure("Meta timeout", ledger), "PROVIDER_OUTCOME_UNKNOWN");
+    assert.equal(
+      sendStageLabel("FAILED_BEFORE_PROVIDER"),
+      "Render failed — Meta was not contacted",
+    );
   });
 });

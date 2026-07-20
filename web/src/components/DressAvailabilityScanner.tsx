@@ -445,12 +445,6 @@ export default function DressAvailabilityScanner({
         }
         return;
       }
-      // Pause camera after successful scan so user can review result
-      const session = sessionRef.current;
-      if (session && !force) {
-        session.pause();
-        setCameraPaused(true);
-      }
       setFeedback("Code scanned — checking availability…");
       if (
         !queueRef.current.some((queued) => queued.code === claim.code)

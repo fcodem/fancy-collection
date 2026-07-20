@@ -15,9 +15,11 @@ import { mergeSendMetaIntoPayload } from "./jobSendMeta";
 import {
   formatJobFailedReason,
   isPremiumSlipRenderFailureMessage,
+  isProviderOutcomeUnknownReason,
   providerOutcomeForFailure,
   canSafelyRetryWhatsAppJob,
   isWhatsAppRenderFailureReason,
+  sendStageForFailure,
 } from "./whatsappProviderOutcome";
 import {
   listClassifiedWhatsAppRenderFailures,
@@ -798,6 +800,7 @@ export async function processWhatsAppJobQueue(
           payload: mergeSendMetaIntoPayload(job.payload, {
             phone: sendMeta.phone,
             messageId: sendMeta.messageId,
+            sendStage: "PROVIDER_CONFIRMED",
           }) as Prisma.InputJsonValue,
         },
       });
@@ -855,6 +858,7 @@ export async function processWhatsAppJobQueue(
           claimedBy: null,
           payload: mergeSendMetaIntoPayload(job.payload, {
             providerOutcome,
+            sendStage: sendStageForFailure(error, ledger),
             ...(renderFailure ? { errorCode: PREMIUM_SLIP_RENDER_FAILED } : {}),
           }) as Prisma.InputJsonValue,
         },
@@ -877,6 +881,57 @@ export type RetryWhatsAppJobOptions = {
   /** Count one owner-initiated safe render retry (max 1). */
   incrementSafeRenderRetry?: boolean;
 };
+
+/** Owner-guarded retry that inspects send stage and ledger before requeueing. */
+export async function retryWhatsAppJobSafely(
+  jobId: number,
+  ownerId: number,
+  options?: RetryWhatsAppJobOptions,
+) {
+  const job = await prisma.whatsAppJob.findUnique({ where: { id: jobId } });
+  if (!job) throw new Error("Job not found");
+
+  const payload = (job.payload ?? {}) as Record<string, unknown>;
+  const sendStage = typeof payload.sendStage === "string" ? payload.sendStage : null;
+  if (sendStage === "PROVIDER_OUTCOME_UNKNOWN" || isProviderOutcomeUnknownReason(job.failedReason)) {
+    throw new Error(
+      "Provider outcome unknown — reconcile using Mark as delivered / Mark as not delivered before resending.",
+    );
+  }
+
+  let ledger: { sendConfirmedAt?: Date | null; providerMessageId?: string | null } | null = null;
+  const idempotencyKey = typeof payload.idempotencyKey === "string" ? payload.idempotencyKey : null;
+  if (idempotencyKey) {
+    try {
+      ledger = await prisma.whatsAppSendLedger.findUnique({ where: { idempotencyKey } });
+    } catch {
+      /* ledger optional */
+    }
+  }
+  if (ledger?.sendConfirmedAt || ledger?.providerMessageId) {
+    throw new Error("Provider send was confirmed — will not resend.");
+  }
+
+  const safety = canSafelyRetryWhatsAppJob({
+    status: job.status,
+    failedReason: job.failedReason,
+    payload: job.payload,
+    allowSafeRenderRetry: options?.incrementSafeRenderRetry,
+  });
+  if (!safety.ok) throw new Error(safety.reason);
+
+  const retried = await retryWhatsAppJob(jobId, options);
+  await prisma.whatsAppJob.update({
+    where: { id: jobId },
+    data: {
+      payload: mergeSendMetaIntoPayload(retried.payload, {
+        lastRetriedBy: ownerId,
+        lastRetriedAt: new Date().toISOString(),
+      }) as Prisma.InputJsonValue,
+    },
+  });
+  return prisma.whatsAppJob.findUniqueOrThrow({ where: { id: jobId } });
+}
 
 export async function retryWhatsAppJob(jobId: number, options?: RetryWhatsAppJobOptions) {
   const job = await prisma.whatsAppJob.findUnique({ where: { id: jobId } });

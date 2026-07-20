@@ -50,7 +50,7 @@ function inMemoryDb(items: Item[]) {
         id?: { not: number };
       };
       include?: { inventory: boolean };
-      select?: { id: boolean };
+      select?: { id?: boolean; inventory?: { select?: Record<string, boolean> } };
     }) {
       const row =
         mappings.find(
@@ -63,6 +63,17 @@ function inMemoryDb(items: Item[]) {
             (args.where.id?.not == null || candidate.id !== args.where.id.not),
         ) ?? null;
       if (!row) return null;
+      if (args.select?.inventory) {
+        const item = inventory.get(row.inventoryId) ?? null;
+        if (!item) return { inventory: null };
+        const selected: Record<string, unknown> = {};
+        for (const key of Object.keys(args.select.inventory.select ?? {})) {
+          if (args.select.inventory.select?.[key]) {
+            selected[key] = item[key as keyof Item];
+          }
+        }
+        return { inventory: selected };
+      }
       if (args.include?.inventory) {
         return { ...row, inventory: inventory.get(row.inventoryId) ?? null };
       }

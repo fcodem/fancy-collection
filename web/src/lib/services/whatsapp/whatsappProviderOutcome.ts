@@ -1,5 +1,17 @@
 export type ProviderOutcome = "NOT_ATTEMPTED" | "ACCEPTED" | "UNKNOWN";
 
+/** Explicit send pipeline stage stored on job payload. */
+export type WhatsAppSendStage =
+  | "NOT_ATTEMPTED"
+  | "PDF_RENDERING"
+  | "PDF_READY"
+  | "MEDIA_UPLOAD_STARTED"
+  | "MEDIA_UPLOAD_CONFIRMED"
+  | "PROVIDER_REQUEST_STARTED"
+  | "PROVIDER_CONFIRMED"
+  | "PROVIDER_OUTCOME_UNKNOWN"
+  | "FAILED_BEFORE_PROVIDER";
+
 export const PROVIDER_OUTCOME_UNKNOWN_PREFIX = "PROVIDER_OUTCOME_UNKNOWN:";
 
 /** True when premium slip rendering/validation failed before any Meta API call. */
@@ -42,6 +54,23 @@ export function providerOutcomeForFailure(
   if (isPremiumSlipRenderFailureMessage(error)) return "NOT_ATTEMPTED";
   if (shouldTreatAsProviderOutcomeUnknown(error, ledger)) return "UNKNOWN";
   return "NOT_ATTEMPTED";
+}
+
+export function sendStageForFailure(
+  error: string,
+  ledger: SendLedgerFence | null | undefined,
+): WhatsAppSendStage {
+  if (isWhatsAppRenderFailureReason(error)) return "FAILED_BEFORE_PROVIDER";
+  if (shouldTreatAsProviderOutcomeUnknown(error, ledger)) return "PROVIDER_OUTCOME_UNKNOWN";
+  return "FAILED_BEFORE_PROVIDER";
+}
+
+export function sendStageLabel(stage: WhatsAppSendStage | string | null | undefined): string | null {
+  if (!stage) return null;
+  if (stage === "FAILED_BEFORE_PROVIDER") return "Render failed — Meta was not contacted";
+  if (stage === "PROVIDER_OUTCOME_UNKNOWN") return "Provider outcome unknown — reconcile before resending";
+  if (stage === "PROVIDER_CONFIRMED") return "Sent to Meta";
+  return null;
 }
 
 export function formatJobFailedReason(

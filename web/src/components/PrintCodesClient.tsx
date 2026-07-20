@@ -184,15 +184,23 @@ export default function PrintCodesClient() {
             height: 37mm;
             overflow: hidden;
             display: flex;
+            flex-direction: column;
+            padding: 1.5mm;
+            box-sizing: border-box;
+            gap: 0.5mm;
+          }
+          .label-cell.label-qr-only {
             flex-direction: row;
             align-items: stretch;
             justify-content: space-between;
-            padding: 1.5mm;
-            box-sizing: border-box;
             gap: 1mm;
           }
+          .label-cell.label-barcode-only,
+          .label-cell.label-both {
+            flex-direction: column;
+          }
           .label-left {
-            flex: 1 1 50%;
+            flex: 1 1 auto;
             min-width: 0;
             display: flex;
             flex-direction: column;
@@ -200,19 +208,48 @@ export default function PrintCodesClient() {
             align-items: flex-start;
             text-align: left;
           }
-          .label-right {
-            flex: 0 0 32mm;
+          .label-qr-only .label-left {
+            flex: 1 1 50%;
+          }
+          .label-code-block {
+            flex: 0 0 auto;
             display: flex;
+            flex-direction: column;
             align-items: center;
             justify-content: center;
+            min-width: 0;
+            max-width: 100%;
           }
-          .label-cell canvas {
-            width: 30mm !important;
-            height: 30mm !important;
+          .label-qr-only .label-code-block {
+            flex: 0 0 32mm;
+          }
+          .label-human-code {
+            font-size: 5.5pt;
+            font-family: "Courier New", monospace;
+            letter-spacing: 0.2pt;
+            margin-top: 0.4mm;
+            max-width: 100%;
+            overflow: hidden;
+            text-overflow: ellipsis;
+            white-space: nowrap;
+            text-align: center;
+          }
+          .label-cell canvas.label-qr {
+            width: 22mm !important;
+            height: 22mm !important;
+          }
+          .label-both .label-cell canvas.label-qr {
+            width: 16mm !important;
+            height: 16mm !important;
           }
           .label-cell svg.barcode-svg {
-            width: 62mm !important;
-            height: 10mm !important;
+            width: 100% !important;
+            max-width: 66mm !important;
+            height: auto !important;
+            max-height: 10mm !important;
+          }
+          .label-both svg.barcode-svg {
+            max-height: 7mm !important;
           }
           .label-text {
             font-size: 7pt;
@@ -452,11 +489,17 @@ function StickerLabel({ item, format }: { item: InventoryItem; format: PrintForm
   const barcode = activeScanCode(item, "CODE_128");
   const qrValue = qrCode?.code;
   const barcodeValue = barcode?.code;
+  const layoutClass =
+    format === "QR_CODE"
+      ? "label-qr-only"
+      : format === "CODE_128"
+        ? "label-barcode-only"
+        : "label-both";
 
   useEffect(() => {
     if ((format === "QR_CODE" || format === "BOTH") && qrRef.current && qrValue) {
       void QRCode.toCanvas(qrRef.current, qrValue, {
-        width: 200,
+        width: format === "BOTH" ? 120 : 160,
         margin: 1,
         errorCorrectionLevel: "H",
       });
@@ -468,10 +511,10 @@ function StickerLabel({ item, format }: { item: InventoryItem; format: PrintForm
       try {
         JsBarcode(barcodeRef.current, barcodeValue, {
           format: "CODE128",
-          width: 1.2,
-          height: 32,
+          width: format === "BOTH" ? 1 : 1.4,
+          height: format === "BOTH" ? 24 : 32,
           displayValue: false,
-          margin: 0,
+          margin: 4,
         });
       } catch {
         /* invalid barcode value */
@@ -481,27 +524,45 @@ function StickerLabel({ item, format }: { item: InventoryItem; format: PrintForm
 
   if (!isItemPrintReady(item, format)) {
     return (
-      <div className="label-row" style={{ display: "flex", width: "100%", height: "100%", alignItems: "center", justifyContent: "center", fontSize: 10, color: "#b54708" }}>
+      <div
+        className="label-row"
+        style={{
+          display: "flex",
+          width: "100%",
+          height: "100%",
+          alignItems: "center",
+          justifyContent: "center",
+          fontSize: 10,
+          color: "#b54708",
+        }}
+      >
         Missing registered code
       </div>
     );
   }
 
   return (
-    <div className="label-row" style={{ display: "flex", width: "100%", height: "100%", alignItems: "stretch" }}>
+    <div className={`label-row ${layoutClass}`} style={{ display: "flex", width: "100%", height: "100%" }}>
       <div className="label-left">
         <div className="label-text">
           <div className="label-brand">{BRAND_PRINT_LABEL}</div>
           <div className="label-name">{item.name}</div>
           {item.size ? <div className="label-size">Size: {item.size}</div> : null}
+          {item.sku ? <div className="label-size">SKU: {item.sku}</div> : null}
         </div>
       </div>
-      <div className="label-right">
+      <div className="label-code-block">
         {(format === "QR_CODE" || format === "BOTH") && qrValue ? (
-          <canvas ref={qrRef} style={{ width: "30mm", height: "30mm" }} />
+          <>
+            <canvas ref={qrRef} className="label-qr" />
+            <div className="label-human-code">{qrValue}</div>
+          </>
         ) : null}
         {(format === "CODE_128" || format === "BOTH") && barcodeValue ? (
-          <svg ref={barcodeRef} className="barcode-svg" />
+          <>
+            <svg ref={barcodeRef} className="barcode-svg" />
+            <div className="label-human-code">{barcodeValue}</div>
+          </>
         ) : null}
       </div>
     </div>
