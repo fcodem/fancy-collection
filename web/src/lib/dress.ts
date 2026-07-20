@@ -39,9 +39,8 @@ export function formatUnitName(baseName: string, unitIndex: number): string {
 
 export function dressDisplayName(name?: string | null, category?: string | null, size?: string | null): string {
   const n = (name || "").trim();
-  const cat = (category || "").trim();
   const sz = (size || "").trim();
-  if (isSherwaniCategory(cat) && sz) {
+  if (sz) {
     const low = n.toLowerCase();
     if (!low.includes(`size ${sz.toLowerCase()}`) && !n.includes(`(${sz})`) && !low.includes("· size")) {
       return `${n} · Size ${sz}`;
