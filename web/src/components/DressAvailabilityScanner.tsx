@@ -42,7 +42,8 @@ type ApiResult = {
     | "WARNING_BOTH_BOUNDARIES"
     | "MAINTENANCE"
     | "INACTIVE"
-    | "CODE_NOT_FOUND";
+    | "CODE_NOT_FOUND"
+    | "AMBIGUOUS_LEGACY_CODE";
   dress: {
     id: number;
     name: string;
@@ -121,9 +122,14 @@ const statusCopy: Record<
     tone: "#667085",
   },
   CODE_NOT_FOUND: {
-    label: "NOT FOUND",
-    detail: "No inventory dress is linked to this QR/barcode.",
+    label: "NOT LINKED",
+    detail: "QR/barcode is not linked to inventory.",
     tone: "#667085",
+  },
+  AMBIGUOUS_LEGACY_CODE: {
+    label: "AMBIGUOUS",
+    detail: "This legacy code matches more than one inventory SKU.",
+    tone: "#b54708",
   },
 };
 
@@ -224,7 +230,11 @@ function BookingRecords({ records }: { records: ApiRecord[] }) {
   );
 }
 
-export default function DressAvailabilityScanner() {
+export default function DressAvailabilityScanner({
+  canManageScanCodes = false,
+}: {
+  canManageScanCodes?: boolean;
+}) {
   const restoredRef = useRef(false);
   const [deliveryDate, setDeliveryDate] = useState("");
   const [deliveryTime, setDeliveryTime] = useState("12:00");
@@ -358,7 +368,14 @@ export default function DressAvailabilityScanner() {
       }
       if (!("status" in payload)) {
         dedupeRef.current.forget(next.code);
-        setFeedback(payload.error || "Could not check this code. Scan again.");
+        if (response.status === 401) {
+          setFeedback("Session expired. Sign in again to continue scanning.");
+        } else {
+          setFeedback(
+            ("error" in payload && payload.error) ||
+              "Could not check this code. Scan again.",
+          );
+        }
         return;
       }
 
@@ -456,13 +473,13 @@ export default function DressAvailabilityScanner() {
       try {
         const { QrCameraSession } = await import("@/lib/cameraScanner");
         if (cancelled) return;
-        const session = new QrCameraSession("dress-availability-camera", { qrOnly: true });
+        const session = new QrCameraSession("dress-availability-camera");
         sessionRef.current = session;
         const status = await session.start(decode);
         if (!cancelled) {
           setCameraStatus(status);
           setCameraError("");
-          setFeedback("Camera ready. Point it at a dress QR code.");
+          setFeedback("Camera ready. Scan a dress QR code or Code 128 barcode.");
         }
       } catch (error) {
         if (cancelled) return;
@@ -884,6 +901,20 @@ export default function DressAvailabilityScanner() {
                           : ""}
                       </div>
                       <BookingRecords records={records} />
+                      {canManageScanCodes &&
+                      (row.result.status === "CODE_NOT_FOUND" ||
+                        row.result.status === "AMBIGUOUS_LEGACY_CODE") ? (
+                        <div style={{ marginTop: 10 }}>
+                          <Link
+                            href="/inventory"
+                            prefetch={false}
+                            className="btn btn-outline btn-sm"
+                            data-testid="open-inventory-code-management"
+                          >
+                            Open inventory code management
+                          </Link>
+                        </div>
+                      ) : null}
                       <div style={{ display: "flex", gap: 8, marginTop: 10 }}>
                         <button
                           type="button"

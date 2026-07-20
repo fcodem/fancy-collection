@@ -35,6 +35,60 @@ type ScanCodeDb = Pick<
   "clothingItem" | "inventoryScanCode" | "$transaction"
 >;
 
+export type InventoryScanResolveStatus =
+  | "FOUND"
+  | "CODE_NOT_FOUND"
+  | "AMBIGUOUS_LEGACY_CODE";
+
+export type InventoryScanResolveResult<TInventory = { id: number }> = {
+  status: InventoryScanResolveStatus;
+  inventory: TInventory | null;
+  matchedVia?: "scan_code" | "sku";
+};
+
+export async function resolveInventoryFromScannedCodeInDb<
+  TInventory extends { id: number },
+>(
+  db: Pick<PrismaClient, "inventoryScanCode" | "clothingItem">,
+  rawCode: string,
+  inventorySelect: Prisma.ClothingItemSelect,
+): Promise<InventoryScanResolveResult<TInventory>> {
+  const normalizedCode = normalizeScanCode(rawCode);
+
+  const mapping = await db.inventoryScanCode.findFirst({
+    where: { normalizedCode, active: true },
+    select: {
+      inventory: { select: inventorySelect },
+    },
+  });
+  if (mapping?.inventory) {
+    return {
+      status: "FOUND",
+      inventory: mapping.inventory as unknown as TInventory,
+      matchedVia: "scan_code",
+    };
+  }
+
+  const skuMatches = await db.clothingItem.findMany({
+    where: { sku: { equals: normalizedCode, mode: "insensitive" } },
+    select: inventorySelect,
+    take: 2,
+  });
+
+  if (skuMatches.length > 1) {
+    return { status: "AMBIGUOUS_LEGACY_CODE", inventory: null };
+  }
+  if (skuMatches.length === 1) {
+    return {
+      status: "FOUND",
+      inventory: skuMatches[0] as unknown as TInventory,
+      matchedVia: "sku",
+    };
+  }
+
+  return { status: "CODE_NOT_FOUND", inventory: null };
+}
+
 export class InventoryScanCodeError extends Error {
   constructor(
     message: string,
@@ -219,12 +273,18 @@ export async function generateDefaultScanCodesInTx(tx: ScanCodeTx, inventoryId: 
 
 export function createInventoryScanCodeService(db: ScanCodeDb) {
   async function findInventoryByScanCode(rawCode: string) {
-    const normalizedCode = normalizeScanCode(rawCode);
-    const mapping = await db.inventoryScanCode.findFirst({
-      where: { normalizedCode, active: true },
-      include: { inventory: true },
+    const resolved = await resolveInventoryFromScannedCodeInDb(db, rawCode, {
+      id: true,
+      name: true,
+      sku: true,
+      category: true,
+      size: true,
+      color: true,
+      status: true,
+      thumbnailPhoto: true,
+      photo: true,
     });
-    return mapping?.inventory ?? null;
+    return resolved.status === "FOUND" ? resolved.inventory : null;
   }
 
   async function assignScanCodeToInventory(
@@ -364,6 +424,10 @@ export function createInventoryScanCodeService(db: ScanCodeDb) {
 
   return {
     findInventoryByScanCode,
+    resolveInventoryFromScannedCode: (
+      rawCode: string,
+      inventorySelect: Prisma.ClothingItemSelect,
+    ) => resolveInventoryFromScannedCodeInDb(db, rawCode, inventorySelect),
     assignScanCodeToInventory,
     deactivateScanCode,
     setPrimaryScanCode,
@@ -373,6 +437,23 @@ export function createInventoryScanCodeService(db: ScanCodeDb) {
 const service = createInventoryScanCodeService(prisma);
 
 export const findInventoryByScanCode = service.findInventoryByScanCode;
+
+const DEFAULT_INVENTORY_RESOLVE_SELECT = {
+  id: true,
+  name: true,
+  sku: true,
+  category: true,
+  size: true,
+  color: true,
+  status: true,
+  thumbnailPhoto: true,
+  photo: true,
+} satisfies Prisma.ClothingItemSelect;
+
+/** Shared inventory resolver for scan availability, print lookup, and management UIs. */
+export async function resolveInventoryFromScannedCode(rawCode: string) {
+  return resolveInventoryFromScannedCodeInDb(prisma, rawCode, DEFAULT_INVENTORY_RESOLVE_SELECT);
+}
 export const assignScanCodeToInventory = service.assignScanCodeToInventory;
 export const deactivateScanCode = service.deactivateScanCode;
 export const setPrimaryScanCode = service.setPrimaryScanCode;

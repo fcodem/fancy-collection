@@ -39,5 +39,20 @@ export async function GET(req: NextRequest) {
     orderBy: [{ category: "asc" }, { name: "asc" }],
   });
 
-  return jsonOk({ items });
+  return jsonOk({
+    items: items.map((item) => {
+      const qr = item.scanCodes.some((code) => code.format === "QR_CODE");
+      const barcode = item.scanCodes.some((code) => code.format === "CODE_128");
+      return {
+        ...item,
+        printable: {
+          qr,
+          barcode,
+          qrCode: qr,
+          code128: barcode,
+          both: qr && barcode,
+        },
+      };
+    }),
+  });
 }

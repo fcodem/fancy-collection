@@ -8,6 +8,7 @@ import {
   generateInternalDressCode,
   InventoryScanCodeError,
   normalizeScanCode,
+  resolveInventoryFromScannedCodeInDb,
 } from "./inventoryScanCode";
 
 type Item = { id: number; sku: string; name: string };
@@ -113,6 +114,25 @@ function inMemoryDb(items: Item[]) {
     clothingItem: {
       async findUnique(args: { where: { id: number } }) {
         return inventory.get(args.where.id) ?? null;
+      },
+      async findMany(args: {
+        where: { sku: { equals: string; mode: string } };
+        select?: Record<string, boolean>;
+        take?: number;
+      }) {
+        const normalized = args.where.sku.equals.toUpperCase();
+        const matches = [...inventory.values()].filter(
+          (item) => item.sku.toUpperCase() === normalized,
+        );
+        const limited = matches.slice(0, args.take ?? matches.length);
+        if (!args.select) return limited;
+        return limited.map((item) => {
+          const row: Record<string, unknown> = {};
+          for (const key of Object.keys(args.select!)) {
+            if (args.select![key]) row[key] = item[key as keyof Item];
+          }
+          return row;
+        });
       },
     },
     inventoryScanCode: scanCodeDelegate,
@@ -257,5 +277,53 @@ describe("inventory scan code service", () => {
       "utf8",
     );
     assert.match(migration, /REFERENCES "clothing_items"\("id"\)[\s\S]*ON DELETE CASCADE/);
+  });
+});
+
+describe("resolveInventoryFromScannedCodeInDb", () => {
+  const select = { id: true, sku: true, name: true };
+
+  it("falls back to an exact normalized SKU when no active scan mapping exists", async () => {
+    const memory = serviceFor([
+      { id: 501, sku: "LRG-001", name: "Red Bridal Lehenga" },
+    ]);
+    const resolved = await resolveInventoryFromScannedCodeInDb(
+      memory.db as never,
+      "lrg-001",
+      select,
+    );
+    assert.equal(resolved.status, "FOUND");
+    assert.equal(resolved.inventory?.id, 501);
+    assert.equal(resolved.matchedVia, "sku");
+  });
+
+  it("returns AMBIGUOUS_LEGACY_CODE for duplicate SKUs instead of guessing", async () => {
+    const memory = serviceFor([
+      { id: 1, sku: "LRG-001", name: "Dress A" },
+      { id: 2, sku: "lrg-001", name: "Dress B" },
+    ]);
+    const resolved = await resolveInventoryFromScannedCodeInDb(
+      memory.db as never,
+      "LRG-001",
+      select,
+    );
+    assert.equal(resolved.status, "AMBIGUOUS_LEGACY_CODE");
+    assert.equal(resolved.inventory, null);
+  });
+
+  it("prefers an active scan mapping over SKU fallback", async () => {
+    const memory = serviceFor([
+      { id: 1, sku: "LRG-001", name: "Mapped dress" },
+      { id: 2, sku: "OTHER", name: "Other dress" },
+    ]);
+    await memory.service.assignScanCodeToInventory(2, "LRG-001", "QR_CODE", "EXISTING_PRINTED");
+    const resolved = await resolveInventoryFromScannedCodeInDb(
+      memory.db as never,
+      "LRG-001",
+      select,
+    );
+    assert.equal(resolved.status, "FOUND");
+    assert.equal(resolved.inventory?.id, 2);
+    assert.equal(resolved.matchedVia, "scan_code");
   });
 });

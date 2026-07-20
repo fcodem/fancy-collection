@@ -173,4 +173,70 @@ test.describe("continuous Scan Dress Availability", () => {
     await manual.press("Enter");
     await expect(page.getByText("Dress MANUAL-ONLY")).toBeVisible();
   });
+
+  test("returns structured not-linked cards over HTTP 200", async ({ page }) => {
+    await page.route("**/api/dress-checker/scan-availability", async (route) => {
+      const body = route.request().postDataJSON() as { code: string };
+      if (body.code === "UNKNOWN-CODE") {
+        await route.fulfill({
+          status: 200,
+          contentType: "application/json",
+          body: JSON.stringify({
+            ok: false,
+            status: "CODE_NOT_FOUND",
+            dress: null,
+            blockingRecords: [],
+            warningRecords: [],
+            error: "QR/barcode is not linked to inventory.",
+          }),
+        });
+        return;
+      }
+      await route.continue();
+    });
+
+    await page.goto("/inventory/search/scan");
+    await enterWindow(page);
+    await mockDecode(page, "UNKNOWN-CODE");
+    await expect(page.getByText(/not linked to inventory/i)).toBeVisible();
+    await expect(page.getByText("NOT LINKED")).toBeVisible();
+  });
+
+  test("resolves the LRG-001 legacy fixture without HTTP 404", async ({ page }) => {
+    await page.route("**/api/dress-checker/scan-availability", async (route) => {
+      const body = route.request().postDataJSON() as { code: string };
+      if (body.code === "LRG-001") {
+        await route.fulfill({
+          status: 200,
+          contentType: "application/json",
+          body: JSON.stringify({
+            ok: true,
+            status: "AVAILABLE",
+            dress: {
+              id: 501,
+              name: "Red Bridal Lehenga",
+              sku: "LRG-001",
+              category: "Lehenga",
+              size: "M",
+              colour: "Red",
+              status: "available",
+              thumbnailUrl: null,
+            },
+            blockingRecords: [],
+            warningRecords: [],
+            timing: { totalMs: 8, cacheStatus: "miss" },
+          }),
+        });
+        return;
+      }
+      await route.continue();
+    });
+
+    await page.goto("/inventory/search/scan");
+    await enterWindow(page);
+    await mockDecode(page, "LRG-001");
+    await expect(page.getByText("Red Bridal Lehenga")).toBeVisible();
+    await expect(page.getByText(/LRG-001 · Size M/i)).toBeVisible();
+    await expect(page.getByText("Available for selected dates")).toBeVisible();
+  });
 });

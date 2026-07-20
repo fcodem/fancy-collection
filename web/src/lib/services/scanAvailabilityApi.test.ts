@@ -144,15 +144,27 @@ describe("scan availability response contract", () => {
     }
   });
 
-  it("maps CODE_NOT_FOUND to HTTP 404 with a friendly error", () => {
+  it("maps CODE_NOT_FOUND to HTTP 200 with a structured not-linked card", () => {
     const payload = serializeScanAvailability(
       resultWith("CODE_NOT_FOUND", { dress: null }),
       { totalMs: 4 },
     );
     assert.equal(payload.ok, false);
+    assert.equal(payload.status, "CODE_NOT_FOUND");
     assert.equal(payload.dress, null);
-    assert.match(String(payload.error), /No dress is linked/);
-    assert.equal(scanAvailabilityHttpStatus("CODE_NOT_FOUND"), 404);
+    assert.match(String(payload.error), /not linked to inventory/i);
+    assert.equal(scanAvailabilityHttpStatus("CODE_NOT_FOUND"), 200);
+  });
+
+  it("maps AMBIGUOUS_LEGACY_CODE to HTTP 200 with a structured card", () => {
+    const payload = serializeScanAvailability(
+      resultWith("AMBIGUOUS_LEGACY_CODE", { dress: null }),
+      { totalMs: 4 },
+    );
+    assert.equal(payload.ok, false);
+    assert.equal(payload.status, "AMBIGUOUS_LEGACY_CODE");
+    assert.match(String(payload.error), /more than one inventory SKU/i);
+    assert.equal(scanAvailabilityHttpStatus("AMBIGUOUS_LEGACY_CODE"), 200);
   });
 
   it("never serializes documents, photos or financial fields", () => {

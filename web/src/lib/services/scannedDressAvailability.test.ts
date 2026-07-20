@@ -112,6 +112,30 @@ function fakeDb(opts: {
         return { inventory };
       },
     },
+    clothingItem: {
+      async findMany(args: {
+        where: { sku: { equals: string; mode: "insensitive" } };
+        select: Record<string, boolean>;
+        take: number;
+      }) {
+        queryLog.push("clothingItem.findMany");
+        const normalized = args.where.sku.equals.toUpperCase();
+        return opts.inventory
+          .filter((row) => row.sku.toUpperCase() === normalized)
+          .slice(0, args.take)
+          .map((row) => {
+            const selected: Partial<Inventory> = {};
+            for (const key of Object.keys(args.select)) {
+              if (args.select[key]) {
+                (selected as Record<string, unknown>)[key] = (
+                  row as Record<string, unknown>
+                )[key];
+              }
+            }
+            return selected;
+          });
+      },
+    },
     booking: {
       async findMany(args: {
         where: {
@@ -459,7 +483,7 @@ describe("checkScannedDressAvailability", () => {
     });
     assert.equal(result.status, "CODE_NOT_FOUND");
     assert.equal(result.dress, null);
-    assert.deepEqual(queryLog, ["scanCode.findFirst"]);
+    assert.deepEqual(queryLog, ["scanCode.findFirst", "clothingItem.findMany"]);
   });
 
   it("returns CODE_NOT_FOUND for a deactivated code", async () => {
@@ -570,5 +594,140 @@ describe("checkScannedDressAvailability", () => {
     );
     await expectCode({ ...REQUEST, excludeBookingId: -4 }, "INVALID_BOOKING_ID");
     await expectCode({ ...REQUEST, excludeBookingId: 1.5 }, "INVALID_BOOKING_ID");
+  });
+});
+
+const LRG_DRESS: Inventory = {
+  id: 501,
+  name: "Red Bridal Lehenga",
+  sku: "LRG-001",
+  category: "Lehenga",
+  size: "M",
+  color: "Red",
+  status: "available",
+  thumbnailPhoto: "/thumbs/lrg-001.webp",
+  photo: "/photos/lrg-001.jpg",
+};
+
+function lrgServiceWith(
+  bookings: BookingRow[],
+  overrides?: {
+    scanCodes?: ScanCodeRow[];
+    inventory?: Partial<Inventory>;
+  },
+) {
+  const inventory = { ...LRG_DRESS, ...overrides?.inventory };
+  const scanCodes = overrides?.scanCodes ?? [];
+  const { db, queryLog } = fakeDb({ inventory: [inventory], scanCodes, bookings });
+  return {
+    service: createScannedDressAvailabilityService(db as never),
+    queryLog,
+  };
+}
+
+describe("LRG-001 legacy printed SKU fixture", () => {
+  const lrgRequest = {
+    rawCode: "LRG-001",
+    deliveryDateTime: "2026-07-28T16:00:00+05:30",
+    returnDateTime: "2026-07-30T11:00:00+05:30",
+  };
+
+  it("resolves a legacy printed QR with no persisted scan mapping via exact SKU", async () => {
+    const { service, queryLog } = lrgServiceWith([]);
+    const result = await service.checkScannedDressAvailability(lrgRequest);
+    assert.equal(result.status, "AVAILABLE");
+    assert.deepEqual(result.dress, {
+      id: 501,
+      name: "Red Bridal Lehenga",
+      sku: "LRG-001",
+      category: "Lehenga",
+      size: "M",
+      color: "Red",
+      status: "available",
+      thumbnailUrl: "/thumbs/lrg-001.webp",
+    });
+    assert.deepEqual(queryLog, [
+      "scanCode.findFirst",
+      "clothingItem.findMany",
+      "booking.findMany",
+    ]);
+  });
+
+  it("resolves the same dress from an active Code 128 mapping", async () => {
+    const { service } = lrgServiceWith([], {
+      scanCodes: [
+        {
+          inventoryId: LRG_DRESS.id,
+          normalizedCode: "FC-D-C128LRG1",
+          active: true,
+        },
+      ],
+    });
+    const result = await service.checkScannedDressAvailability({
+      ...lrgRequest,
+      rawCode: "FC-D-C128LRG1",
+    });
+    assert.equal(result.status, "AVAILABLE");
+    assert.equal(result.dress?.sku, "LRG-001");
+    assert.equal(result.dress?.size, "M");
+  });
+
+  it("returns BOOKED with booking records for overlapping dates", async () => {
+    const { service } = lrgServiceWith([
+      booking({
+        deliveryDate: "2026-07-27",
+        returnDate: "2026-07-29",
+        customerName: "Priya",
+        bookingItems: [activeItem(LRG_DRESS.id, "Red Bridal Lehenga")],
+      }),
+    ]);
+    const result = await service.checkScannedDressAvailability(lrgRequest);
+    assert.equal(result.status, "BOOKED");
+    assert.equal(result.blockingRecords.length, 1);
+    assert.equal(result.blockingRecords[0].customerName, "Priya");
+    assert.equal(result.blockingRecords[0].dressName, "Red Bridal Lehenga");
+  });
+
+  it("warns when returning on the requested delivery day", async () => {
+    const { service } = lrgServiceWith([
+      booking({
+        deliveryDate: "2026-07-26",
+        returnDate: "2026-07-28",
+        returnTime: "11:00 AM",
+        bookingItems: [activeItem(LRG_DRESS.id, "Red Bridal Lehenga")],
+      }),
+    ]);
+    const result = await service.checkScannedDressAvailability(lrgRequest);
+    assert.equal(result.status, "WARNING_RETURNING_ON_DELIVERY_DAY");
+    assert.equal(result.warningRecords[0].reason, "RETURNING_ON_DELIVERY_DAY");
+    assert.equal(result.warningRecords[0].dressName, "Red Bridal Lehenga");
+  });
+
+  it("warns when booked again on the requested return day", async () => {
+    const { service } = lrgServiceWith([
+      booking({
+        deliveryDate: "2026-07-30",
+        returnDate: "2026-08-01",
+        bookingItems: [activeItem(LRG_DRESS.id, "Red Bridal Lehenga")],
+      }),
+    ]);
+    const result = await service.checkScannedDressAvailability(lrgRequest);
+    assert.equal(result.status, "WARNING_BOOKED_ON_RETURN_DAY");
+    assert.equal(result.warningRecords[0].reason, "BOOKED_ON_RETURN_DAY");
+  });
+
+  it("returns AMBIGUOUS_LEGACY_CODE when the SKU matches more than one item", async () => {
+    const duplicate = { ...LRG_DRESS, id: 502, name: "Duplicate Lehenga" };
+    const scanCodes: ScanCodeRow[] = [];
+    const { db, queryLog } = fakeDb({
+      inventory: [LRG_DRESS, duplicate],
+      scanCodes,
+      bookings: [],
+    });
+    const service = createScannedDressAvailabilityService(db as never);
+    const result = await service.checkScannedDressAvailability(lrgRequest);
+    assert.equal(result.status, "AMBIGUOUS_LEGACY_CODE");
+    assert.equal(result.dress, null);
+    assert.deepEqual(queryLog, ["scanCode.findFirst", "clothingItem.findMany"]);
   });
 });

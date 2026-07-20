@@ -38,6 +38,7 @@
     "db:studio": "prisma studio",
     "db:backup": "tsx scripts/save-backup.ts",
     "backfill:dress-scan-codes": "tsx scripts/backfill-dress-scan-codes.ts",
+    "backfill:inventory-scan-codes": "tsx scripts/backfill-inventory-scan-codes.ts",
     "backfill:booking-serial-counter": "tsx scripts/backfill-booking-serial-counter.ts",
     "backfill:booking-private-media": "tsx scripts/backfill-booking-private-media.ts",
     "db:migrate-sqlite": "python ../scripts/migrate_sqlite_to_postgres.py",

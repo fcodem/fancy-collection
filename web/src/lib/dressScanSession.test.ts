@@ -140,7 +140,7 @@ describe("Scan Dress Availability UI contracts", () => {
       "Change Dates",
       "Clear Scanned List",
       "Remove One Result",
-      "Scan Again",
+      "Scan Another Dress",
       "Manual Code Entry",
       "Recheck",
       "Switch Camera",
@@ -159,7 +159,7 @@ describe("Scan Dress Availability UI contracts", () => {
       "another booking on your return date",
       "BOTH BOUNDARY WARNINGS",
       "MAINTENANCE",
-      "NOT FOUND",
+      "NOT LINKED",
     ]) {
       assert.match(component, new RegExp(text, "i"));
     }
