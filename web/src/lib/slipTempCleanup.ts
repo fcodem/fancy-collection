@@ -308,7 +308,15 @@ export function isExecutableLaunchError(err: unknown): boolean {
 }
 
 export function isRetryableSlipRenderError(err: unknown): boolean {
-  return isEnospcError(err) || isSpawnBusyError(err) || isExecutableMissingError(err);
+  if (isEnospcError(err) || isSpawnBusyError(err) || isExecutableMissingError(err)) return true;
+  if (!err) return false;
+  const msg = err instanceof Error ? err.message : String(err);
+  // Page load failures, timeouts, navigation errors, DOM validation — all transient
+  if (/timeout|timed?\s*out|navigation|net::|ERR_CONNECTION|ERR_NAME|ECONNREFUSED/i.test(msg)) return true;
+  if (/PDF page failed to load|Slip page was blocked|did not render/i.test(msg)) return true;
+  if (/Protocol error|Target closed|Session closed|Browser.*closed/i.test(msg)) return true;
+  if (/PREMIUM_SLIP_RENDER_FAILED|CHROME_NOT_FOUND/i.test(msg)) return true;
+  return false;
 }
 
 export function shouldResetChromiumExecutableCache(err: unknown): boolean {

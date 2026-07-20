@@ -6,6 +6,7 @@ import {
   assertPremiumSlipPdf,
   assertPremiumSlipRenderHeaders,
 } from "@/lib/premiumSlip";
+import { PremiumSlipRenderError } from "./slipRenderErrors";
 
 export type SlipPdfKind = "booking" | "delivery" | "return" | "incomplete";
 
@@ -55,7 +56,10 @@ export function buildSlipPageUrl(
 ): string {
   const secret = getPdfRenderSecret();
   if (!secret) {
-    throw new Error("PDF_RENDER_SECRET or CRON_SECRET must be set for slip PDF generation.");
+    throw new PremiumSlipRenderError(
+      "PDF_RENDER_SECRET or CRON_SECRET must be set for slip PDF generation.",
+      "SECRET_MISSING",
+    );
   }
 
   const params = new URLSearchParams({ pdfSecret: secret });
@@ -86,24 +90,42 @@ async function renderSlipViaEndpoint(
 ): Promise<Buffer> {
   const secret = getPdfRenderSecret();
   if (!secret) {
-    throw new Error("PDF_RENDER_SECRET or CRON_SECRET must be set for slip PDF generation.");
+    throw new PremiumSlipRenderError(
+      "PDF_RENDER_SECRET or CRON_SECRET must be set for slip PDF generation.",
+      "SECRET_MISSING",
+    );
   }
 
   const origin = resolveAppOrigin(requestOrigin);
   const rawBody = JSON.stringify({ kind, bookingId, origin, opts: opts ?? null });
-  const res = await fetch(`${origin}/api/internal/slip/render`, {
-    method: "POST",
-    headers: {
-      "content-type": "application/json",
-      ...buildSlipRenderAuthHeaders(rawBody),
-    },
-    body: rawBody,
-    cache: "no-store",
-  });
+  const controller = new AbortController();
+  const timeout = setTimeout(() => controller.abort(), 90_000);
+  let res: Response;
+  try {
+    res = await fetch(`${origin}/api/internal/slip/render`, {
+      method: "POST",
+      headers: {
+        "content-type": "application/json",
+        ...buildSlipRenderAuthHeaders(rawBody),
+      },
+      body: rawBody,
+      cache: "no-store",
+      signal: controller.signal,
+    });
+  } catch (fetchErr) {
+    clearTimeout(timeout);
+    const msg = fetchErr instanceof Error ? fetchErr.message : "Slip render fetch failed";
+    throw new PremiumSlipRenderError(
+      `Slip render endpoint unreachable: ${msg}`,
+      fetchErr instanceof Error && fetchErr.name === "AbortError" ? "TIMEOUT" : "FETCH_FAILED",
+    );
+  }
+  clearTimeout(timeout);
 
   if (!res.ok) {
     const detail = await res.text().catch(() => "");
     let message = `Slip renderer failed (HTTP ${res.status})`;
+    let errorCode: string | undefined;
     if (detail) {
       try {
         const parsed = JSON.parse(detail) as {
@@ -112,14 +134,16 @@ async function renderSlipViaEndpoint(
           errorCode?: string;
         };
         if (parsed.error) message = parsed.error;
-        if (parsed.code || parsed.errorCode) {
-          message = `${parsed.code || parsed.errorCode}: ${message}`;
+        errorCode = parsed.errorCode || parsed.code || undefined;
+        if (errorCode) {
+          message = `${errorCode}: ${message}`;
         }
       } catch {
         message += `: ${detail.slice(0, 200)}`;
       }
     }
-    throw new Error(message);
+    console.error("[slipHtmlPdf] Render endpoint returned error:", { status: res.status, message, errorCode, kind, bookingId });
+    throw new PremiumSlipRenderError(message, errorCode);
   }
 
   assertPremiumSlipRenderHeaders(res.headers, kind);

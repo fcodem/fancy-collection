@@ -845,7 +845,14 @@ export async function processWhatsAppJobQueue(
       const renderFailure = isPremiumSlipRenderFailureMessage(error);
       const providerUnknown = providerOutcome === "UNKNOWN";
       const attempts = job.attempts;
-      const terminal = providerUnknown || attempts >= job.maxAttempts;
+      // Render failures get extra retries (up to 5) since they're transient infra errors
+      const effectiveMax = renderFailure ? Math.max(job.maxAttempts, 5) : job.maxAttempts;
+      const terminal = providerUnknown || attempts >= effectiveMax;
+
+      // Delay render-failure retries so transient issues resolve (30s × attempt number)
+      const retryDelay = renderFailure && !terminal
+        ? new Date(Date.now() + 30_000 * attempts)
+        : undefined;
 
       await prisma.whatsAppJob.update({
         where: { id: job.id },
@@ -856,6 +863,7 @@ export async function processWhatsAppJobQueue(
           claimedAt: null,
           leaseExpiresAt: null,
           claimedBy: null,
+          ...(retryDelay ? { scheduledAt: retryDelay } : {}),
           payload: mergeSendMetaIntoPayload(job.payload, {
             providerOutcome,
             sendStage: sendStageForFailure(error, ledger),

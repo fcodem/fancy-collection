@@ -563,7 +563,15 @@ export async function renderHtmlUrlToPdf(
 
           if (!response || !response.ok()) {
             const status = response?.status() ?? "unknown";
-            throw new Error(`PDF page failed to load (HTTP ${status})`);
+            const finalUrl = page.url();
+            const loginRedirected = finalUrl.includes("/login");
+            const detail = loginRedirected
+              ? " — redirected to login (check PDF_RENDER_SECRET / CRON_SECRET)"
+              : "";
+            throw new SlipRenderPoolError(
+              `PDF page failed to load (HTTP ${status})${detail}`,
+              loginRedirected ? "AUTH_REDIRECT" : `HTTP_${status}`,
+            );
           }
 
           await page.waitForSelector(opts.rootSelector, { timeout: 30_000 });

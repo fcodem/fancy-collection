@@ -19,10 +19,7 @@ import {
 } from "@/lib/slipTempCleanup";
 import {
   errorCodeFromUnknown,
-  isEnospcError,
   PREMIUM_SLIP_RENDER_FAILED,
-  PremiumSlipRenderError,
-  isPremiumSlipRenderError,
 } from "@/lib/services/whatsapp/slipRenderErrors";
 import { logSlipRenderDiagnostic } from "@/lib/services/whatsapp/slipRenderDiagnostics";
 import {
@@ -31,7 +28,6 @@ import {
   PREMIUM_SLIP_HEADER_VERSION,
   PREMIUM_SLIP_TEMPLATE_VERSION,
 } from "@/lib/premiumSlip";
-import { PremiumSlipHtmlValidationError } from "@/lib/premiumSlipHtmlValidation";
 
 /**
  * The single Chromium-enabled slip renderer.
@@ -124,6 +120,8 @@ export async function POST(req: NextRequest) {
     const tmpBytesAfter = measureSlipTempUsage();
     const freeTmpAfter = await measureTmpFreeBytes();
     const errorCode = errorCodeFromUnknown(e) ?? PREMIUM_SLIP_RENDER_FAILED;
+    const message = e instanceof Error ? e.message : "Slip render failed";
+    console.error("[slip/render] Render failed:", { kind, bookingId, errorCode, message });
     logSlipRenderDiagnostic({
       kind,
       bookingId,
@@ -137,22 +135,16 @@ export async function POST(req: NextRequest) {
       errorCode,
     });
 
-    const retryable =
-      isPremiumSlipRenderError(e) ||
-      e instanceof PremiumSlipHtmlValidationError ||
-      errorCode === "ENOSPC" ||
-      errorCode === "ETXTBSY" ||
-      errorCode === "EBUSY";
-    const status = retryable ? 503 : 500;
-    const message = e instanceof Error ? e.message : "Slip render failed";
+    // All render errors are retryable (503) — the job queue decides when to stop.
+    // Only auth (401) and bad-request (400) above are terminal.
     return NextResponse.json(
       {
         error: message,
         code: PREMIUM_SLIP_RENDER_FAILED,
-        retryable,
+        retryable: true,
         errorCode,
       },
-      { status },
+      { status: 503 },
     );
   }
 }

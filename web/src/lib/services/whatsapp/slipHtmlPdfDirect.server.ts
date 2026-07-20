@@ -7,6 +7,7 @@ import {
   type SlipPdfRenderOptions,
 } from "./slipHtmlPdf.server";
 import { PREMIUM_SLIP_ROOT_ID } from "@/lib/premiumSlipHtmlValidation";
+import { SlipRenderPoolError } from "./slipRenderErrors";
 
 /**
  * The ONLY module that imports the Puppeteer/Chromium pool. It is imported
@@ -26,11 +27,15 @@ const SLIP_HTML_MARKERS = [
 function assertSlipHtml(html: string): void {
   if (SLIP_HTML_MARKERS.some((m) => html.includes(m))) return;
   if (html.includes('href="/login"') || /sign in/i.test(html)) {
-    throw new Error(
+    throw new SlipRenderPoolError(
       "Slip page was blocked by login. Set PDF_RENDER_SECRET or CRON_SECRET in .env.local and restart the dev server.",
+      "AUTH_REDIRECT",
     );
   }
-  throw new Error("Slip page did not render — check booking id and slip eligibility");
+  throw new SlipRenderPoolError(
+    "Slip page did not render — check booking id and slip eligibility",
+    "EMPTY_SLIP_PAGE",
+  );
 }
 
 export type PremiumSlipDirectRenderResult = {
