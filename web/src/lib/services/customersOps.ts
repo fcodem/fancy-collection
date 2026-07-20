@@ -199,18 +199,46 @@ function buildMergedCustomers(
       }
     }
 
-    const whatsapp = pickWhatsAppDisplay(component, primaryKey, bookingsDesc);
-
     if (!name && !phone) continue;
+
+    const displayName = name || "Customer";
+    const displayPhone = phone || primaryKey;
 
     rows.push({
       id,
-      name: name || "Customer",
-      phone: phone || primaryKey,
-      whatsapp,
+      name: displayName,
+      phone: displayPhone,
+      whatsapp: "",
       email,
       address,
     });
+
+    const primaryPhoneKey = phoneMatchKey(displayPhone);
+    const seen = new Set<string>([primaryPhoneKey]);
+
+    for (const altKey of component) {
+      if (seen.has(altKey)) continue;
+      seen.add(altKey);
+      let altPhone = "";
+      for (const b of bookingsDesc) {
+        if (!bookingMatchesComponent(b, component)) continue;
+        if (phoneMatchKey(b.contact1) === altKey) { altPhone = b.contact1.trim(); break; }
+        const wa = (b.whatsappNo || "").trim();
+        if (wa && phoneMatchKey(wa) === altKey) { altPhone = wa; break; }
+        const c2 = (b.contact2 || "").trim();
+        if (c2 && phoneMatchKey(c2) === altKey) { altPhone = c2; break; }
+      }
+      if (altPhone) {
+        rows.push({
+          id,
+          name: displayName,
+          phone: altPhone,
+          whatsapp: "",
+          email,
+          address,
+        });
+      }
+    }
   }
 
   return rows.sort((a, b) => a.name.localeCompare(b.name));
@@ -467,4 +495,109 @@ export async function exportCustomersWhatsapp(category = "") {
   }
 
   return header + rows.join("\n");
+}
+
+type ImportedRow = { name: string; phone: string };
+
+function parseExcelBuffer(buffer: Buffer): ImportedRow[] {
+  // eslint-disable-next-line @typescript-eslint/no-require-imports
+  const XLSX = require("xlsx");
+  const workbook = XLSX.read(buffer, { type: "buffer" });
+  const sheet = workbook.Sheets[workbook.SheetNames[0]];
+  const json: Record<string, unknown>[] = XLSX.utils.sheet_to_json(sheet, { defval: "" });
+
+  const rows: ImportedRow[] = [];
+  for (const row of json) {
+    const values = Object.values(row).map((v) => String(v ?? "").trim());
+    const keys = Object.keys(row).map((k) => k.toLowerCase());
+
+    let name = "";
+    let phone = "";
+
+    const nameIdx = keys.findIndex((k) => k.includes("name") || k.includes("customer"));
+    const phoneIdx = keys.findIndex((k) =>
+      k.includes("phone") || k.includes("contact") || k.includes("mobile") || k.includes("number") || k.includes("whatsapp"),
+    );
+
+    if (nameIdx >= 0) name = values[nameIdx];
+    if (phoneIdx >= 0) phone = values[phoneIdx];
+
+    if (!name && !phone && values.length >= 2) {
+      const likelyPhone = values.find((v) => /\d{10}/.test(v.replace(/\D/g, "")));
+      const likelyName = values.find((v) => v && v !== likelyPhone && !/^\d+$/.test(v));
+      name = likelyName || "";
+      phone = likelyPhone || "";
+    }
+
+    if (name && phone) rows.push({ name, phone });
+  }
+  return rows;
+}
+
+async function parsePdfBuffer(buffer: Buffer): Promise<ImportedRow[]> {
+  // eslint-disable-next-line @typescript-eslint/no-require-imports
+  const pdfParse = require("pdf-parse");
+  const data = await pdfParse(buffer);
+  const text: string = data.text || "";
+
+  const rows: ImportedRow[] = [];
+  const lines = text.split(/\n/).map((l: string) => l.trim()).filter(Boolean);
+
+  for (const line of lines) {
+    const phoneMatch = line.match(/(\+?\d[\d\s\-]{8,}\d)/);
+    if (!phoneMatch) continue;
+    const phone = phoneMatch[1].replace(/[\s\-]/g, "");
+    const name = line.replace(phoneMatch[0], "").replace(/[,|;\t]+/g, " ").trim();
+    if (name && phone.replace(/\D/g, "").length >= 10) {
+      rows.push({ name, phone });
+    }
+  }
+  return rows;
+}
+
+export async function bulkImportCustomers(
+  buffer: Buffer,
+  fileName: string,
+  _username: string,
+): Promise<{ created: number; merged: number; skipped: number }> {
+  const ext = fileName.toLowerCase().split(".").pop() || "";
+
+  let parsed: ImportedRow[];
+  if (ext === "pdf") {
+    parsed = await parsePdfBuffer(buffer);
+  } else {
+    parsed = parseExcelBuffer(buffer);
+  }
+
+  let created = 0;
+  let merged = 0;
+  let skipped = 0;
+
+  for (const row of parsed) {
+    const key = phoneMatchKey(row.phone);
+    if (key.length < 10) {
+      skipped++;
+      continue;
+    }
+
+    const existingId = await findExistingCustomerByPhone(row.phone);
+    if (existingId) {
+      merged++;
+      continue;
+    }
+
+    try {
+      await prisma.customer.create({
+        data: {
+          name: row.name.trim(),
+          phone: row.phone.trim(),
+        },
+      });
+      created++;
+    } catch {
+      skipped++;
+    }
+  }
+
+  return { created, merged, skipped };
 }

@@ -419,6 +419,13 @@ function AppLayoutInner({
     "/packing-list",
   ]);
 
+  const [navSearch, setNavSearch] = useState("");
+  const navSearchLower = navSearch.toLowerCase();
+
+  function matchesSearch(label: string) {
+    return !navSearchLower || label.toLowerCase().includes(navSearchLower);
+  }
+
   function navClick() {
     onNavClick();
     onCloseMobile();
@@ -450,8 +457,21 @@ function AppLayoutInner({
         </div>
         <SidebarBrandMark />
         <nav className="sidebar-nav">
-          <div className="nav-section-label">Main Menu</div>
-          {NAV_MAIN.map((item) => {
+          <div style={{ padding: "4px 12px 8px" }}>
+            <div style={{ position: "relative" }}>
+              <i className="fa-solid fa-search" style={{ position: "absolute", left: 10, top: "50%", transform: "translateY(-50%)", color: "var(--text-muted)", fontSize: 12 }} />
+              <input
+                type="text"
+                placeholder="Search menu..."
+                value={navSearch}
+                onChange={(e) => setNavSearch(e.target.value)}
+                className="form-control"
+                style={{ paddingLeft: 30, fontSize: 12, height: 32, background: "rgba(255,255,255,0.08)", border: "1px solid rgba(255,255,255,0.15)", color: "inherit", borderRadius: 6 }}
+              />
+            </div>
+          </div>
+          {NAV_MAIN.some((item) => matchesSearch(item.label)) && <div className="nav-section-label">Main Menu</div>}
+          {NAV_MAIN.filter((item) => matchesSearch(item.label)).map((item) => {
             const baseHref = item.href.split("?")[0];
             const scannerNav = baseHref === "/dress-checker";
             const active = scannerNav
@@ -479,8 +499,8 @@ function AppLayoutInner({
             </Link>
             );
           })}
-          <div className="nav-section-label" style={{ marginTop: 8 }}>Other</div>
-          {NAV_COMMON.filter((item) => isOwner || item.href !== "/manage-categories").map((item) => (
+          {NAV_COMMON.some((item) => (isOwner || item.href !== "/manage-categories") && matchesSearch(item.label)) && <div className="nav-section-label" style={{ marginTop: 8 }}>Other</div>}
+          {NAV_COMMON.filter((item) => (isOwner || item.href !== "/manage-categories") && matchesSearch(item.label)).map((item) => (
             <Link
               key={item.href}
               href={item.href}
@@ -499,8 +519,8 @@ function AppLayoutInner({
           ))}
           {isOwner && (
             <>
-              <div className="nav-section-label" style={{ marginTop: 8 }}>Finance</div>
-              {NAV_FINANCE.map((item) => (
+              {NAV_FINANCE.some((item) => matchesSearch(item.label)) && <div className="nav-section-label" style={{ marginTop: 8 }}>Finance</div>}
+              {NAV_FINANCE.filter((item) => matchesSearch(item.label)).map((item) => (
                 <Link
                   key={item.href}
                   href={item.href}
@@ -511,14 +531,14 @@ function AppLayoutInner({
                   <i className={`fa-solid ${item.icon}`} /> <span className="nav-label">{item.label}</span>
                 </Link>
               ))}
-              <div className="nav-section-label" style={{ marginTop: 8 }}>Admin</div>
-              {NAV_OWNER.map((item) => (
+              {NAV_OWNER.some((item) => matchesSearch(item.label)) && <div className="nav-section-label" style={{ marginTop: 8 }}>Admin</div>}
+              {NAV_OWNER.filter((item) => matchesSearch(item.label)).map((item) => (
                 <Link key={item.href} href={item.href} className={`nav-item ${pathname === item.href ? "active" : ""}`} style={item.danger ? { color: "#fc8181" } : undefined} onClick={navClick}>
                   <i className={`fa-solid ${item.icon}`} /> <span className="nav-label">{item.label}</span>
                 </Link>
               ))}
-              <div className="nav-section-label" style={{ marginTop: 8 }}>WhatsApp</div>
-              {NAV_WHATSAPP.map((item) => (
+              {NAV_WHATSAPP.some((item) => matchesSearch(item.label)) && <div className="nav-section-label" style={{ marginTop: 8 }}>WhatsApp</div>}
+              {NAV_WHATSAPP.filter((item) => matchesSearch(item.label)).map((item) => (
                 <Link
                   key={item.href}
                   href={item.href}
@@ -534,8 +554,8 @@ function AppLayoutInner({
               ))}
             </>
           )}
-          <div className="nav-section-label" style={{ marginTop: 8 }}>Quick Actions</div>
-          {NAV_QUICK.filter((item) => item.href !== "/inventory/add" || isOwner).map((item) => (
+          {NAV_QUICK.some((item) => (item.href !== "/inventory/add" || isOwner) && matchesSearch(item.label)) && <div className="nav-section-label" style={{ marginTop: 8 }}>Quick Actions</div>}
+          {NAV_QUICK.filter((item) => (item.href !== "/inventory/add" || isOwner) && matchesSearch(item.label)).map((item) => (
             <Link
               key={item.href}
               href={item.href}
@@ -546,8 +566,8 @@ function AppLayoutInner({
               <i className={`fa-solid ${item.icon}`} /> <span className="nav-label">{item.label}</span>
             </Link>
           ))}
-          <div className="nav-section-label" style={{ marginTop: 8 }}>AI</div>
-          <Link
+          {matchesSearch(NAV_AI_FEATURES.label) && <div className="nav-section-label" style={{ marginTop: 8 }}>AI</div>}
+          {matchesSearch(NAV_AI_FEATURES.label) && <Link
             href={NAV_AI_FEATURES.href}
             className={`nav-item ${
               pathname === NAV_AI_FEATURES.href ||
@@ -565,7 +585,7 @@ function AppLayoutInner({
           >
             <i className={`fa-solid ${NAV_AI_FEATURES.icon}`} />{" "}
             <span className="nav-label">{NAV_AI_FEATURES.label}</span>
-          </Link>
+          </Link>}
         </nav>
         <div className="sidebar-footer">
           <div className="user-chip">
