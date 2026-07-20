@@ -17,7 +17,12 @@ import {
   isPremiumSlipRenderFailureMessage,
   providerOutcomeForFailure,
   canSafelyRetryWhatsAppJob,
+  isWhatsAppRenderFailureReason,
 } from "./whatsappProviderOutcome";
+import {
+  listClassifiedWhatsAppRenderFailures,
+  type SafeRenderRetrySummary,
+} from "./whatsappJobClassification";
 import { PREMIUM_SLIP_RENDER_FAILED } from "@/lib/premiumSlip";
 import {
   markWhatsAppProviderSendConfirmed,
@@ -866,7 +871,14 @@ export async function processWhatsAppJobQueue(
   };
 }
 
-export async function retryWhatsAppJob(jobId: number) {
+export type RetryWhatsAppJobOptions = {
+  /** Reset job attempts so exhausted render failures can run again. */
+  resetAttempts?: boolean;
+  /** Count one owner-initiated safe render retry (max 1). */
+  incrementSafeRenderRetry?: boolean;
+};
+
+export async function retryWhatsAppJob(jobId: number, options?: RetryWhatsAppJobOptions) {
   const job = await prisma.whatsAppJob.findUnique({ where: { id: jobId } });
   if (!job) throw new Error("Job not found");
 
@@ -874,8 +886,19 @@ export async function retryWhatsAppJob(jobId: number) {
     status: job.status,
     failedReason: job.failedReason,
     payload: job.payload,
+    allowSafeRenderRetry: options?.incrementSafeRenderRetry,
   });
   if (!safety.ok) throw new Error(safety.reason);
+
+  const payload = (job.payload ?? {}) as Record<string, unknown>;
+  const safeRenderRetryCount =
+    typeof payload.safeRenderRetryCount === "number" ? payload.safeRenderRetryCount : 0;
+  const nextPayload = {
+    ...payload,
+    ...(options?.incrementSafeRenderRetry
+      ? { safeRenderRetryCount: safeRenderRetryCount + 1 }
+      : {}),
+  };
 
   const updated = await prisma.whatsAppJob.updateMany({
     where: {
@@ -890,6 +913,8 @@ export async function retryWhatsAppJob(jobId: number) {
       claimedAt: null,
       leaseExpiresAt: null,
       claimedBy: null,
+      ...(options?.resetAttempts ? { attempts: 0 } : {}),
+      payload: nextPayload as Prisma.InputJsonValue,
     },
   });
   if (updated.count !== 1) {
@@ -898,6 +923,39 @@ export async function retryWhatsAppJob(jobId: number) {
 
   return prisma.whatsAppJob.findUniqueOrThrow({ where: { id: jobId } });
 }
+
+/** Owner bulk action: requeue render/infrastructure failures that never reached Meta. */
+export async function retrySafeRenderFailureJobs(options?: {
+  dryRun?: boolean;
+  limit?: number;
+}): Promise<SafeRenderRetrySummary> {
+  const classified = await listClassifiedWhatsAppRenderFailures(options?.limit ?? 500);
+  const requeued: SafeRenderRetrySummary["requeued"] = [];
+  const withheld: SafeRenderRetrySummary["withheld"] = [];
+
+  for (const row of classified) {
+    if (!row.safeToRequeue) {
+      withheld.push(row);
+      continue;
+    }
+    if (!options?.dryRun) {
+      await retryWhatsAppJob(row.jobId, {
+        resetAttempts: true,
+        incrementSafeRenderRetry: true,
+      });
+    }
+    requeued.push(row);
+  }
+
+  return {
+    dryRun: Boolean(options?.dryRun),
+    scanned: classified.length,
+    requeued,
+    withheld,
+  };
+}
+
+export { getWhatsAppRenderFailureReport } from "./whatsappJobClassification";
 
 export async function resetLateReminderOnDateChange(bookingId: number) {
   await cancelPendingJobs(bookingId, "booking_reminder");

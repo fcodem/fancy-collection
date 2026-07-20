@@ -7,6 +7,7 @@ import {
   canSafelyRetryWhatsAppJob,
   formatJobFailedReason,
   isPremiumSlipRenderFailureMessage,
+  isWhatsAppRenderFailureReason,
   providerOutcomeForFailure,
   shouldTreatAsProviderOutcomeUnknown,
 } from "./whatsappProviderOutcome";
@@ -54,6 +55,20 @@ describe("whatsappProviderOutcome", () => {
       payload: {},
     });
     assert.equal(ok.ok, true);
+  });
+
+  it("canSafelyRetryWhatsAppJob blocks second safe render retry", () => {
+    const blocked = canSafelyRetryWhatsAppJob({
+      status: "failed",
+      failedReason: "PREMIUM_SLIP_RENDER_FAILED: x",
+      payload: { safeRenderRetryCount: 1 },
+      allowSafeRenderRetry: true,
+    });
+    assert.equal(blocked.ok, false);
+  });
+
+  it("detects infrastructure render failure reasons", () => {
+    assert.equal(isWhatsAppRenderFailureReason("Slip PDF render failed: /tmp full (ENOSPC)"), true);
   });
 
   it("canSafelyRetryWhatsAppJob blocks provider-outcome-unknown auto resend", () => {

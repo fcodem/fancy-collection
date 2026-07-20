@@ -100,6 +100,66 @@ export default function WhatsAppJobsClient() {
   const [retrying, setRetrying] = useState<number | null>(null);
   const [deleting, setDeleting] = useState<number | null>(null);
   const [clearing, setClearing] = useState(false);
+  const [safeRetrying, setSafeRetrying] = useState(false);
+  const [failureReport, setFailureReport] = useState<{
+    total: number;
+    safeToRequeue: Array<{ jobId: number; jobType: string; failedReason: string | null }>;
+    withheld: Array<{ jobId: number; bucket: string; withholdReason: string | null }>;
+  } | null>(null);
+
+  const loadFailureReport = async () => {
+    try {
+      const res = await fetch("/api/whatsapp/jobs/failure-report");
+      const data = await res.json() as typeof failureReport & { error?: string };
+      if (res.ok) setFailureReport(data);
+    } catch {
+      /* optional panel */
+    }
+  };
+
+  const retrySafeRenderFailures = async () => {
+    const safeCount = failureReport?.safeToRequeue.length ?? 0;
+    if (
+      !confirm(
+        safeCount > 0
+          ? `Retry ${safeCount} safe render failure job(s)? Each will reset attempts and run once. Jobs with Meta IDs or unknown provider outcomes are skipped.`
+          : "Scan failed jobs for safe render retries? Only render/infrastructure failures with no Meta confirmation will be requeued.",
+      )
+    ) {
+      return;
+    }
+    setSafeRetrying(true);
+    try {
+      const res = await fetch("/api/whatsapp/jobs/retry-safe-render-failures", {
+        method: "POST",
+        headers: { "Content-Type": "application/json" },
+        body: JSON.stringify({ dryRun: false, process: true }),
+      });
+      const data = await res.json() as {
+        ok?: boolean;
+        requeued?: Array<{ jobId: number }>;
+        withheld?: Array<{ jobId: number }>;
+        error?: string;
+        queue?: { succeeded?: number; failed?: number; processed?: number };
+      };
+      if (!res.ok || !data.ok) {
+        alert(data.error || "Safe render retry failed");
+        return;
+      }
+      alert(
+        `Safe render retry: ${data.requeued?.length ?? 0} requeued, ${data.withheld?.length ?? 0} withheld.` +
+          (data.queue
+            ? ` Queue processed: ${data.queue.succeeded ?? 0} succeeded, ${data.queue.failed ?? 0} failed.`
+            : ""),
+      );
+      await load();
+      await loadFailureReport();
+    } catch {
+      alert("Safe render retry failed");
+    } finally {
+      setSafeRetrying(false);
+    }
+  };
 
   const load = async () => {
     setLoading(true);
@@ -201,6 +261,7 @@ export default function WhatsAppJobsClient() {
 
   useEffect(() => {
     load();
+    void loadFailureReport();
   }, [statusFilter]);
 
   const filterBtns: Array<{ value: string; label: string }> = [
@@ -234,6 +295,15 @@ export default function WhatsAppJobsClient() {
             {clearing ? "Clearing..." : statusFilter ? `Clear ${statusFilter}` : "Clear Queue"}
           </button>
           <button
+            onClick={() => void retrySafeRenderFailures()}
+            disabled={safeRetrying}
+            data-testid="retry-safe-render-failures"
+            style={{ display: "flex", alignItems: "center", gap: 6, background: safeRetrying ? "#86efac" : "#16a34a", color: "#fff", border: "none", borderRadius: 12, padding: "8px 16px", fontSize: 13, cursor: safeRetrying ? "wait" : "pointer", fontWeight: 500 }}
+          >
+            <i className="fa-solid fa-file-pdf" style={{ fontSize: 12 }} />
+            {safeRetrying ? "Retrying…" : "Retry Safe Render Failures"}
+          </button>
+          <button
             onClick={runQueue}
             style={{ display: "flex", alignItems: "center", gap: 6, background: "#2563eb", color: "#fff", border: "none", borderRadius: 12, padding: "8px 16px", fontSize: 13, cursor: "pointer", fontWeight: 500 }}
           >
@@ -249,6 +319,25 @@ export default function WhatsAppJobsClient() {
           </button>
         </div>
       </div>
+
+      {failureReport && failureReport.total > 0 ? (
+        <div
+          style={{
+            background: "#f0fdf4",
+            border: "1px solid #bbf7d0",
+            borderRadius: 12,
+            padding: "12px 16px",
+            marginBottom: 16,
+            fontSize: 12,
+            color: "#166534",
+            lineHeight: 1.6,
+          }}
+        >
+          <strong>Render failure classification:</strong>{" "}
+          {failureReport.safeToRequeue.length} safe to requeue ·{" "}
+          {failureReport.withheld.length} withheld (Meta confirmed, provider unknown, or already retried).
+        </div>
+      ) : null}
 
       <div
         style={{
