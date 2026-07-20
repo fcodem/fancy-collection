@@ -10,8 +10,9 @@ export async function GET() {
   if (isResponse(user)) return user;
 
   const leads = await prisma.prospectLead.findMany({
-    include: { items: { include: { item: true } } },
+    include: { items: { include: { item: { select: { id: true, name: true, size: true, sku: true, category: true, photo: true } } } } },
     orderBy: { createdAt: "desc" },
+    take: 200,
   });
 
   return jsonOk(

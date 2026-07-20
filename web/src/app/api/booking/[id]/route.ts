@@ -18,7 +18,10 @@ export async function GET(_req: NextRequest, { params }: { params: Promise<{ id:
   const { id } = await params;
   const booking = await prisma.booking.findUnique({
     where: { id: parseInt(id, 10) },
-    include: { bookingItems: { include: { item: true } }, legacyItem: true },
+    include: {
+      bookingItems: { include: { item: { select: { id: true, name: true, size: true, sku: true, category: true, photo: true, status: true } } } },
+      legacyItem: true,
+    },
   });
   if (!booking) return jsonError("Not found", 404);
   return jsonOk(serializeBookingForList(booking));

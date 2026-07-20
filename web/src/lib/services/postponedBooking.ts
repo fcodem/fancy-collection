@@ -175,7 +175,10 @@ export async function resolvePostponedBooking(bookingId: number, by?: string) {
 export async function getPostponedPrintDetail(bookingId: number) {
   const booking = await prisma.booking.findUnique({
     where: { id: bookingId },
-    include: { bookingItems: { include: { item: true } }, legacyItem: true },
+    include: {
+      bookingItems: { include: { item: { select: { id: true, name: true, size: true, sku: true } } } },
+      legacyItem: true,
+    },
   });
   if (!booking || booking.status !== "postponed") return null;
 

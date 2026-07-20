@@ -20,7 +20,7 @@ export async function POST(_req: NextRequest, ctx: { params: Promise<{ id: strin
 
   const lead = await prisma.prospectLead.findUnique({
     where: { id },
-    include: { items: { include: { item: true } } },
+    include: { items: { include: { item: { select: { id: true, name: true, size: true, sku: true, category: true, photo: true } } } } },
   });
   if (!lead) return jsonError("Not found", 404);
 

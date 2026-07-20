@@ -20,7 +20,10 @@ import { formatInr } from "@/lib/format";
 export default async function RemainingToDeliverPage() {
   const bookings = await prisma.booking.findMany({
     where: await whereRemainingToDeliver(todayIso()),
-    include: { bookingItems: { include: { item: true } }, legacyItem: true },
+    include: {
+      bookingItems: { include: { item: { select: { id: true, name: true, size: true, sku: true, category: true, photo: true, status: true } } } },
+      legacyItem: true,
+    },
     orderBy: [{ deliveryDate: "asc" }, { deliveryTime: "asc" }],
   });
 

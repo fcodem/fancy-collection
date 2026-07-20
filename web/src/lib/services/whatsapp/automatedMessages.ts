@@ -752,7 +752,7 @@ async function returnSlipAlreadySent(
 async function fetchBookingForSlip(bookingId: number) {
   return prisma.booking.findUnique({
     where: { id: bookingId },
-    include: { bookingItems: { include: { item: true } } },
+    include: { bookingItems: { include: { item: { select: { id: true, name: true, size: true, sku: true, category: true, photo: true, status: true } } } } },
   });
 }
 

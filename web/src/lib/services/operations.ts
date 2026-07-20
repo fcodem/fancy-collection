@@ -16,7 +16,7 @@ import { saveIdProofUpload, IdProofUploadError, deleteUpload } from "../upload";
 import { trackBookingPrivateMedia } from "../bookingPrivateMediaTracking";
 import { BOOKING_PRIVATE_MEDIA_TYPES } from "../bookingPrivateMediaTypes";
 import { syncBookingStatusFromItems } from "../syncBookingStatusFromItems";
-import { cachedQuery } from "../perfCache";
+import { cachedQuery, memoryCachedQuery } from "../perfCache";
 import { serializeActiveOrders } from "../slipBookingData";
 
 export { syncBookingStatusFromItems } from "../syncBookingStatusFromItems";
@@ -1992,22 +1992,22 @@ export async function getReturningToday(targetDateStr: string) {
     whereDeliveryInRange(dateStr, dateStr),
   ]);
 
-  const returning = await prisma.booking.findMany({
-    where: {
-      ...returnWhere,
-      status: { in: ["booked", "delivered"] },
-    },
-    include: { bookingItems: { include: { item: true } }, legacyItem: true },
-    orderBy: { returnTime: "asc" },
-  });
+  const returningTodayInclude = {
+    bookingItems: { include: { item: { select: { id: true, name: true, size: true, sku: true, category: true, photo: true, status: true } } } },
+    legacyItem: true,
+  } as const;
 
-  const candidates = await prisma.booking.findMany({
-    where: {
-      ...deliveryWhere,
-      status: { in: ["booked", "delivered"] },
-    },
-    include: { bookingItems: { include: { item: true } }, legacyItem: true },
-  });
+  const [returning, candidates] = await Promise.all([
+    prisma.booking.findMany({
+      where: { ...returnWhere, status: { in: ["booked", "delivered"] } },
+      include: returningTodayInclude,
+      orderBy: { returnTime: "asc" },
+    }),
+    prisma.booking.findMany({
+      where: { ...deliveryWhere, status: { in: ["booked", "delivered"] } },
+      include: returningTodayInclude,
+    }),
+  ]);
 
   const data = [];
   const deliveryByItemId = new Map<number, typeof candidates>();
@@ -2242,8 +2242,12 @@ function activeItemsRemain(
 export async function getRecycleBin() {
   return prisma.booking.findMany({
     where: { status: "cancelled" },
-    include: { bookingItems: { include: { item: true } }, legacyItem: true },
+    include: {
+      bookingItems: { include: { item: { select: { id: true, name: true, size: true, sku: true, category: true, photo: true, status: true } } } },
+      legacyItem: true,
+    },
     orderBy: { createdAt: "desc" },
+    take: 200,
   });
 }
 

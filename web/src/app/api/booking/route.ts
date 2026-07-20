@@ -106,7 +106,7 @@ export async function GET(req: NextRequest) {
   if (!id) return jsonError("Booking id required");
   const booking = await prisma.booking.findUnique({
     where: { id },
-    include: { bookingItems: { include: { item: true } } },
+    include: { bookingItems: { include: { item: { select: { id: true, name: true, size: true, sku: true, category: true, photo: true, status: true } } } } },
   });
   if (!booking) return jsonError("Not found", 404);
   return jsonOk({

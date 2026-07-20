@@ -24,7 +24,7 @@ export default async function EditBookingPage({
   const booking = await prisma.booking.findUnique({
     where: { id: parseInt(id, 10) },
     include: {
-      bookingItems: { include: { item: true } },
+      bookingItems: { include: { item: { select: { id: true, name: true, size: true, sku: true, category: true, photo: true, status: true } } } },
       orders: { where: { status: "active" }, orderBy: { id: "asc" } },
     },
   });
@@ -44,8 +44,10 @@ export default async function EditBookingPage({
   const ownerUnlocked = locked && owner && unlock === "1";
   const readOnly = locked && !ownerUnlocked;
 
-  const cats = await getAllCategories();
-  const staff = await prisma.staff.findMany({ where: { active: true }, orderBy: { name: "asc" } });
+  const [cats, staff] = await Promise.all([
+    getAllCategories(),
+    prisma.staff.findMany({ where: { active: true }, orderBy: { name: "asc" }, select: { id: true, name: true } }),
+  ]);
 
   return (
     <BookingFormClient

@@ -239,7 +239,7 @@ export async function checkItemAvailabilityForDates(
 export async function searchBookingsByText(queryText: string, extraWhere: Prisma.BookingWhereInput = {}) {
   const q = queryText.trim();
   if (!q) {
-    return prisma.booking.findMany({ where: extraWhere, include: { bookingItems: { include: { item: true } }, legacyItem: true } });
+    return prisma.booking.findMany({ where: extraWhere, include: { bookingItems: { include: { item: { select: { id: true, name: true, size: true, sku: true, category: true, photo: true, status: true } } } }, legacyItem: true }, take: 200 });
   }
 
   const words = q.split(/\s+/).filter(Boolean);
@@ -262,7 +262,8 @@ export async function searchBookingsByText(queryText: string, extraWhere: Prisma
         ...(!isNaN(Number(q)) ? [{ monthlySerial: Number(q) }] : []),
       ],
     },
-    include: { bookingItems: { include: { item: true } }, legacyItem: true },
+    include: { bookingItems: { include: { item: { select: { id: true, name: true, size: true, sku: true, category: true, photo: true, status: true } } } }, legacyItem: true },
+    take: 200,
   });
 }
 

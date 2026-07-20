@@ -1,5 +1,7 @@
 import prisma from "../prisma";
 import { phoneMatchKey, aisensyCsvPhone } from "../phone";
+import { memoryCachedQuery } from "../perfCache";
+import { getFreshShopRevision } from "../realtime/revision";
 
 export type CustomerListRow = {
   id: number;
@@ -244,22 +246,19 @@ function buildMergedCustomers(
   return rows.sort((a, b) => a.name.localeCompare(b.name));
 }
 
-export async function listCustomers(q = "", category = ""): Promise<CustomerListRow[]> {
-  const customers = await prisma.customer.findMany({ orderBy: { id: "desc" } });
-
+async function listCustomersUncached(category: string): Promise<CustomerListRow[]> {
   if (category) {
-    const bookingsWithItems = await prisma.booking.findMany({
-      orderBy: { createdAt: "desc" },
-      select: {
-        customerName: true,
-        contact1: true,
-        contact2: true,
-        whatsappNo: true,
-        customerAddress: true,
-        createdAt: true,
-        bookingItems: { select: { category: true } },
-      },
-    });
+    const [customers, bookingsWithItems] = await Promise.all([
+      prisma.customer.findMany({ orderBy: { id: "desc" } }),
+      prisma.booking.findMany({
+        orderBy: { createdAt: "desc" },
+        select: {
+          customerName: true, contact1: true, contact2: true, whatsappNo: true,
+          customerAddress: true, createdAt: true,
+          bookingItems: { select: { category: true } },
+        },
+      }),
+    ]);
     const bookings = bookingsWithItems.map(({ bookingItems: _bi, ...b }) => b);
     let rows = buildMergedCustomers(bookings, customers);
 
@@ -284,22 +283,31 @@ export async function listCustomers(q = "", category = ""): Promise<CustomerList
       );
     });
 
-    return rows.filter((r) => matchesQuery(r, q));
+    return rows;
   }
 
-  const bookings = await prisma.booking.findMany({
-    orderBy: { createdAt: "desc" },
-    select: {
-      customerName: true,
-      contact1: true,
-      contact2: true,
-      whatsappNo: true,
-      customerAddress: true,
-      createdAt: true,
-    },
-  });
+  const [customers, bookings] = await Promise.all([
+    prisma.customer.findMany({ orderBy: { id: "desc" } }),
+    prisma.booking.findMany({
+      orderBy: { createdAt: "desc" },
+      select: {
+        customerName: true, contact1: true, contact2: true, whatsappNo: true,
+        customerAddress: true, createdAt: true,
+      },
+    }),
+  ]);
 
-  return buildMergedCustomers(bookings, customers).filter((r) => matchesQuery(r, q));
+  return buildMergedCustomers(bookings, customers);
+}
+
+export async function listCustomers(q = "", category = ""): Promise<CustomerListRow[]> {
+  const revision = await getFreshShopRevision();
+  const allRows = await memoryCachedQuery(
+    ["customer-list", revision, category || "__all"],
+    () => listCustomersUncached(category),
+    30,
+  );
+  return q.trim() ? allRows.filter((r) => matchesQuery(r, q)) : allRows;
 }
 
 export async function shouldSkipCustomerCreate(contact: string, whatsapp?: string): Promise<boolean> {

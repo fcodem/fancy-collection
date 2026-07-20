@@ -17,7 +17,7 @@ export default async function NewBookingPage({
 
   const [cats, staff] = await Promise.all([
     getAllCategories(),
-    prisma.staff.findMany({ where: { active: true }, orderBy: { name: "asc" } }),
+    prisma.staff.findMany({ where: { active: true }, orderBy: { name: "asc" }, select: { id: true, name: true } }),
   ]);
 
   return (
