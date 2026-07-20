@@ -40,21 +40,27 @@ export async function getStaffAttendance(monthStr: string) {
   const monthStart = dateQ(new Date(Date.UTC(year, month - 1, 1)));
   const monthEnd = dateQ(new Date(Date.UTC(year, month, 1)));
 
-  const staffList = await prisma.staff.findMany({ where: { active: true }, orderBy: { name: "asc" } });
-  const attendances = await prisma.staffAttendance.findMany({
-    where: { date: { gte: monthStart, lt: monthEnd } },
-  });
+  const [staffList, grouped] = await Promise.all([
+    prisma.staff.findMany({ where: { active: true }, orderBy: { name: "asc" }, select: { id: true, name: true } }),
+    prisma.staffAttendance.groupBy({
+      by: ["staffId", "status"],
+      where: { date: { gte: monthStart, lt: monthEnd } },
+      _count: { _all: true },
+    }),
+  ]);
 
-  return staffList.map((s) => {
-    const records = attendances.filter((a) => a.staffId === s.id);
-    return {
-      id: s.id,
-      name: s.name,
-      present: records.filter((r) => r.status === "present").length,
-      absent: records.filter((r) => r.status === "absent").length,
-      half_day: records.filter((r) => r.status === "half_day").length,
-    };
-  });
+  const countMap = new Map<string, number>();
+  for (const g of grouped) {
+    countMap.set(`${g.staffId}:${g.status}`, g._count._all);
+  }
+
+  return staffList.map((s) => ({
+    id: s.id,
+    name: s.name,
+    present: countMap.get(`${s.id}:present`) ?? 0,
+    absent: countMap.get(`${s.id}:absent`) ?? 0,
+    half_day: countMap.get(`${s.id}:half_day`) ?? 0,
+  }));
 }
 
 export async function getAttendanceCalendar(staffId: number, monthStr: string) {
@@ -114,16 +120,25 @@ export async function saveAttendance(dateStr: string, statuses: Record<number, s
   const nameById = new Map(staffList.map((s) => [s.id, s.name]));
   const saved: Record<string, string> = {};
 
-  for (const [staffIdStr, status] of Object.entries(statuses)) {
-    const staffId = parseInt(staffIdStr, 10);
-    if (!status) continue;
-    await prisma.staffAttendance.upsert({
-      where: { staffId_date: { staffId, date } },
-      create: { staffId, date, status },
-      update: { status },
-    });
-    const staffName = nameById.get(staffId);
-    if (staffName) saved[staffName] = status;
+  const ops = Object.entries(statuses)
+    .map(([staffIdStr, status]) => {
+      const staffId = parseInt(staffIdStr, 10);
+      if (!status || !Number.isFinite(staffId)) return null;
+      return prisma.staffAttendance.upsert({
+        where: { staffId_date: { staffId, date } },
+        create: { staffId, date, status },
+        update: { status },
+      });
+    })
+    .filter((op): op is ReturnType<typeof prisma.staffAttendance.upsert> => op != null);
+
+  if (ops.length) {
+    await prisma.$transaction(ops);
+    for (const [staffIdStr, status] of Object.entries(statuses)) {
+      const staffId = parseInt(staffIdStr, 10);
+      const staffName = nameById.get(staffId);
+      if (staffName && status) saved[staffName] = status;
+    }
   }
 
   if (Object.keys(saved).length) {
@@ -164,20 +179,24 @@ export async function getSalaryLedgerSummary(monthStr: string) {
   const monthStart = dateQ(new Date(Date.UTC(year, month - 1, 1)));
   const monthEnd = dateQ(new Date(Date.UTC(year, month, 1)));
 
-  const staffList = await prisma.staff.findMany({ where: { active: true }, orderBy: { name: "asc" } });
-  const records = await prisma.salaryLedgerEntry.findMany({
-    where: { date: { gte: monthStart, lt: monthEnd } },
-  });
+  const [staffList, grouped] = await Promise.all([
+    prisma.staff.findMany({ where: { active: true }, orderBy: { name: "asc" }, select: { id: true, name: true } }),
+    prisma.salaryLedgerEntry.groupBy({
+      by: ["staffId"],
+      where: { date: { gte: monthStart, lt: monthEnd } },
+      _sum: { amount: true },
+      _count: { _all: true },
+    }),
+  ]);
 
-  return staffList.map((s) => {
-    const own = records.filter((r) => r.staffId === s.id);
-    return {
-      id: s.id,
-      name: s.name,
-      total: own.reduce((sum, r) => sum + r.amount, 0),
-      count: own.length,
-    };
-  });
+  const sumMap = new Map(grouped.map((g) => [g.staffId, { total: g._sum.amount ?? 0, count: g._count._all }]));
+
+  return staffList.map((s) => ({
+    id: s.id,
+    name: s.name,
+    total: sumMap.get(s.id)?.total ?? 0,
+    count: sumMap.get(s.id)?.count ?? 0,
+  }));
 }
 
 export async function addSalaryEntry(
@@ -227,13 +246,17 @@ export async function deleteSalaryEntry(id: number, by?: string) {
 
 export async function markShopClosed(dateStr: string, by?: string) {
   const date = parseDateQ(dateStr);
-  const staffList = await prisma.staff.findMany({ where: { active: true } });
-  for (const s of staffList) {
-    await prisma.staffAttendance.upsert({
-      where: { staffId_date: { staffId: s.id, date } },
-      create: { staffId: s.id, date, status: "shop_closed" },
-      update: { status: "shop_closed" },
-    });
+  const staffList = await prisma.staff.findMany({ where: { active: true }, select: { id: true } });
+  if (staffList.length) {
+    await prisma.$transaction(
+      staffList.map((s) =>
+        prisma.staffAttendance.upsert({
+          where: { staffId_date: { staffId: s.id, date } },
+          create: { staffId: s.id, date, status: "shop_closed" },
+          update: { status: "shop_closed" },
+        }),
+      ),
+    );
   }
   logActivity({
     username: by || "system",
@@ -242,4 +265,45 @@ export async function markShopClosed(dateStr: string, by?: string) {
     label: `Shop closed — ${dateStr.slice(0, 10)} (all staff)`,
     after: { date: dateStr.slice(0, 10), status: "shop_closed", staff_count: staffList.length },
   });
+}
+
+/** Today tab: active staff + saved statuses for one date. */
+export async function getStaffAttendanceToday(dateStr: string) {
+  const date = parseDateQ(dateStr);
+  const [staffList, records] = await Promise.all([
+    prisma.staff.findMany({
+      where: { active: true },
+      orderBy: { name: "asc" },
+      select: { id: true, name: true, phone: true },
+    }),
+    prisma.staffAttendance.findMany({
+      where: { date },
+      select: { staffId: true, status: true },
+    }),
+  ]);
+  const statusByStaff = new Map(records.map((r) => [r.staffId, r.status]));
+  return {
+    staff: staffList,
+    statuses: Object.fromEntries(
+      staffList.map((s) => [s.id, statusByStaff.get(s.id) ?? "present"]),
+    ),
+  };
+}
+
+/** Combined attendance calendar + summary for one month. */
+export async function getStaffAttendanceDashboard(staffId: number, monthStr: string) {
+  const [calendar, summary] = await Promise.all([
+    getAttendanceCalendar(staffId, monthStr),
+    getStaffAttendance(monthStr),
+  ]);
+  return { calendar, summary };
+}
+
+/** Combined salary calendar + summary for one month/staff. */
+export async function getStaffSalaryDashboard(staffId: number, monthStr: string) {
+  const [calendar, summary] = await Promise.all([
+    getSalaryLedgerCalendar(staffId, monthStr),
+    getSalaryLedgerSummary(monthStr),
+  ]);
+  return { calendar, summary };
 }

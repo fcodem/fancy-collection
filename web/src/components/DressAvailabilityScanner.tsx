@@ -248,6 +248,7 @@ export default function DressAvailabilityScanner({
   const [cameraError, setCameraError] = useState("");
   const [cameraStatus, setCameraStatus] = useState<ScannerStatus | null>(null);
   const [cameraPaused, setCameraPaused] = useState(false);
+  const [cameraActive, setCameraActive] = useState(false);
   const [feedback, setFeedback] = useState(
     "Enter a booking window to start scanning.",
   );
@@ -264,6 +265,7 @@ export default function DressAvailabilityScanner({
   const codeResultRef = useRef(new Map<string, string>());
   const dressResultRef = useRef(new Map<number, string>());
   const scanHandlerRef = useRef<(code: string) => void>(() => undefined);
+  const scanLockedRef = useRef(false);
   const highlightTimerRef = useRef<ReturnType<typeof setTimeout> | null>(null);
 
   const highlight = useCallback((id: string) => {
@@ -408,10 +410,18 @@ export default function DressAvailabilityScanner({
         return updated;
       });
       highlight(id);
+
+      const session = sessionRef.current;
+      if (session) {
+        try { void session.stop(); } catch { /* already stopped */ }
+        sessionRef.current = null;
+      }
+      setCameraActive(false);
+      scanLockedRef.current = true;
       setFeedback(
         result.status === "AVAILABLE"
-          ? "Available — ready for next scan."
-          : "Result received — ready for next scan.",
+          ? "✓ Dress scanned successfully — Camera has been turned off."
+          : "✓ Result received — Camera has been turned off.",
       );
     } catch (error) {
       if (
@@ -436,6 +446,7 @@ export default function DressAvailabilityScanner({
 
   const enqueue = useCallback(
     (rawCode: string, force = false) => {
+      if (scanLockedRef.current && !force) return;
       const claim = dedupeRef.current.claim(rawCode, Date.now(), force);
       if (!claim.accepted) {
         if (claim.reason === "already-scanned") {
@@ -469,9 +480,11 @@ export default function DressAvailabilityScanner({
         if (cancelled) return;
         const session = new QrCameraSession("dress-availability-camera");
         sessionRef.current = session;
+        scanLockedRef.current = false;
         const status = await session.start(decode);
         if (!cancelled) {
           setCameraStatus(status);
+          setCameraActive(true);
           setCameraError("");
           setFeedback("Camera ready. Scan a dress QR code or Code 128 barcode.");
         }
@@ -496,6 +509,7 @@ export default function DressAvailabilityScanner({
       window.removeEventListener("dress-scan-mock", mockDecode);
       const session = sessionRef.current;
       sessionRef.current = null;
+      setCameraActive(false);
       if (session) void session.stop();
     };
   }, [phase]);
@@ -518,9 +532,11 @@ export default function DressAvailabilityScanner({
         returnTime,
       });
       generationRef.current += 1;
+      scanLockedRef.current = false;
       setActiveWindow(window);
       setWindowError("");
       setCameraError("");
+      setCameraActive(false);
       setPhase("scanning");
     } catch (error) {
       setWindowError(
@@ -692,7 +708,7 @@ export default function DressAvailabilityScanner({
         style={{ marginBottom: 14, border: "2px solid var(--gold)" }}
       >
         <div className="card-header">
-          <h2 className="card-title">2. Continuous scanner</h2>
+          <h2 className="card-title">2. Scan dress</h2>
           <span style={{ fontSize: 12, color: "var(--text-muted)" }}>
             {activeWindow?.deliveryDate} {activeWindow?.deliveryTime} →{" "}
             {activeWindow?.returnDate} {activeWindow?.returnTime} IST
@@ -740,34 +756,57 @@ export default function DressAvailabilityScanner({
               marginTop: 12,
             }}
           >
-            <button type="button" className="btn btn-outline btn-sm" onClick={togglePause}>
-              {cameraPaused ? "Resume Camera" : "Pause Camera"}
-            </button>
-            <button
-              type="button"
-              className="btn btn-outline btn-sm"
-              onClick={() => void switchCamera()}
-              disabled={!cameraStatus?.canSwitch}
-            >
-              Switch Camera
-            </button>
+            {cameraActive && (
+              <>
+                <button type="button" className="btn btn-outline btn-sm" onClick={togglePause}>
+                  {cameraPaused ? "Resume Camera" : "Pause Camera"}
+                </button>
+                <button
+                  type="button"
+                  className="btn btn-outline btn-sm"
+                  onClick={() => void switchCamera()}
+                  disabled={!cameraStatus?.canSwitch}
+                >
+                  Switch Camera
+                </button>
+              </>
+            )}
             <button type="button" className="btn btn-outline btn-sm" onClick={changeDates}>
               Change Dates
             </button>
             <button type="button" className="btn btn-outline btn-sm" onClick={clearRows}>
               Clear Scanned List
             </button>
-            <button
-              type="button"
-              className="btn btn-primary btn-sm"
-              onClick={() => {
-                sessionRef.current?.resume();
-                setCameraPaused(false);
-                setFeedback("Ready for next scan.");
-              }}
-            >
-              Scan Another Dress
-            </button>
+            {!cameraActive && (
+              <button
+                type="button"
+                className="btn btn-primary btn-sm"
+                onClick={() => {
+                  scanLockedRef.current = false;
+                  setCameraPaused(false);
+                  setFeedback("Opening camera…");
+                  const decode = (code: string) => scanHandlerRef.current(code);
+                  void (async () => {
+                    try {
+                      const { QrCameraSession } = await import("@/lib/cameraScanner");
+                      const session = new QrCameraSession("dress-availability-camera");
+                      sessionRef.current = session;
+                      const status = await session.start(decode);
+                      setCameraStatus(status);
+                      setCameraActive(true);
+                      setCameraError("");
+                      setFeedback("Camera ready. Scan a dress QR code or Code 128 barcode.");
+                    } catch (error) {
+                      const { cameraErrorMessage } = await import("@/lib/cameraScanner");
+                      setCameraError(cameraErrorMessage(error, window.isSecureContext));
+                      setFeedback("Camera unavailable. Use manual code entry below.");
+                    }
+                  })();
+                }}
+              >
+                Scan Next Dress
+              </button>
+            )}
           </div>
           {cameraStatus ? (
             <div style={{ fontSize: 11, color: "var(--text-muted)", marginTop: 8 }}>

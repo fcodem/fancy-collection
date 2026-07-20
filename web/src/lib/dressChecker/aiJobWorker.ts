@@ -24,6 +24,18 @@ import { touchDurableWorkerHeartbeat, getDurableWorkerHealth } from "./workerHea
 /** Skip native AI work when /tmp is nearly full (prevents SIGABRT / ENOSPC). */
 const MIN_TMP_FREE_BYTES = 64 * 1024 * 1024;
 
+function aiFeatureFlag(envVar: string, defaultValue = true): boolean {
+  const raw = (process.env[envVar] || "").trim().toLowerCase();
+  if (!raw) return defaultValue;
+  return raw !== "0" && raw !== "false" && raw !== "no";
+}
+
+export const AI_FLAGS = {
+  get nativeColourEnabled() { return aiFeatureFlag("AI_LOCAL_COLOUR_ANALYSIS_ENABLED"); },
+  get nativeEmbeddingEnabled() { return aiFeatureFlag("AI_NATIVE_EMBEDDING_ENABLED"); },
+  get openaiEnrichmentEnabled() { return aiFeatureFlag("AI_OPENAI_ENRICHMENT_ENABLED"); },
+} as const;
+
 /** Local pump only — not a health signal. */
 let workerTimer: ReturnType<typeof setInterval> | null = null;
 let lastError: string | null = null;

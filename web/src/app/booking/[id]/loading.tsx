@@ -1,5 +1,5 @@
-import RecordLoadingSkeleton from "@/components/RecordLoadingSkeleton";
+import BookingRecordLoadingSkeleton from "@/components/BookingRecordLoadingSkeleton";
 
 export default function Loading() {
-  return <RecordLoadingSkeleton />;
+  return <BookingRecordLoadingSkeleton />;
 }

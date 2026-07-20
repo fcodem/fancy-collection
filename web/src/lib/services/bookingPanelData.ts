@@ -3,10 +3,20 @@ import "server-only";
 import prisma from "@/lib/prisma";
 import { activeBookingWhere } from "@/lib/bookingActiveStatus";
 import { whereDeliveryInRange } from "@/lib/bookingDateQuery";
+import { AsyncSemaphore } from "@/lib/asyncSemaphore";
+import { memoryCachedQuery } from "@/lib/perfCache";
+import { getFreshShopRevision } from "@/lib/realtime/revision";
 
 import { BOOKING_PANEL_PAGE_SIZE } from "@/lib/bookingPanelConstants";
 
 export { BOOKING_PANEL_PAGE_SIZE };
+
+/** Max simultaneous Prisma reads per serverless instance on panel paths. */
+const panelReadSem = new AsyncSemaphore(2);
+
+async function limitedRead<T>(task: () => Promise<T>): Promise<T> {
+  return panelReadSem.run(task);
+}
 
 const bookingPanelSelect = {
   id: true,
@@ -48,7 +58,24 @@ export type BookingPanelRow = Awaited<
   ReturnType<typeof loadBookingPanelPage>
 >["bookings"][number];
 
-export async function loadBookingPanelPage(opts: {
+const YEAR_BOUNDS_TTL = 300;
+
+export async function loadBookingPanelYearBounds() {
+  return memoryCachedQuery(
+    ["booking-panel-year-bounds"],
+    () =>
+      limitedRead(() =>
+        prisma.booking.aggregate({
+          where: activeBookingWhere(),
+          _min: { deliveryDate: true },
+          _max: { deliveryDate: true },
+        }),
+      ),
+    YEAR_BOUNDS_TTL,
+  );
+}
+
+async function loadBookingPanelPageUncached(opts: {
   year: number;
   month: number | null;
   panelFrom: string;
@@ -61,18 +88,20 @@ export async function loadBookingPanelPage(opts: {
   const panelDeliveryWhere = await whereDeliveryInRange(opts.panelFrom, opts.panelTo);
   const where = { ...activeBookingWhere(), ...panelDeliveryWhere };
 
-  const [yearBounds, totalCount, statusCounts, bookings] = await Promise.all([
-    prisma.booking.aggregate({
-      where: activeBookingWhere(),
-      _min: { deliveryDate: true },
-      _max: { deliveryDate: true },
-    }),
-    prisma.booking.count({ where }),
-    prisma.booking.groupBy({
-      by: ["status"],
-      where,
-      _count: { _all: true },
-    }),
+  const yearBounds = await loadBookingPanelYearBounds();
+
+  const [totalCount, statusCounts] = await Promise.all([
+    limitedRead(() => prisma.booking.count({ where })),
+    limitedRead(() =>
+      prisma.booking.groupBy({
+        by: ["status"],
+        where,
+        _count: { _all: true },
+      }),
+    ),
+  ]);
+
+  const bookings = await limitedRead(() =>
     prisma.booking.findMany({
       where,
       select: bookingPanelSelect,
@@ -80,7 +109,7 @@ export async function loadBookingPanelPage(opts: {
       skip: (page - 1) * pageSize,
       take: pageSize,
     }),
-  ]);
+  );
 
   return {
     yearBounds,
@@ -93,6 +122,32 @@ export async function loadBookingPanelPage(opts: {
   };
 }
 
+export async function loadBookingPanelPage(opts: {
+  year: number;
+  month: number | null;
+  panelFrom: string;
+  panelTo: string;
+  page: number;
+  pageSize?: number;
+}) {
+  const revision = await getFreshShopRevision();
+  const cacheKey = [
+    "booking-panel-page",
+    revision,
+    String(opts.year),
+    String(opts.month ?? "all"),
+    opts.panelFrom,
+    opts.panelTo,
+    String(opts.page),
+    String(opts.pageSize ?? BOOKING_PANEL_PAGE_SIZE),
+  ];
+  return memoryCachedQuery(
+    cacheKey,
+    () => loadBookingPanelPageUncached(opts),
+    20,
+  );
+}
+
 /** Full filtered set for PDF export only (authorized route). */
 export async function loadBookingPanelForPdf(opts: {
   panelFrom: string;
@@ -100,9 +155,16 @@ export async function loadBookingPanelForPdf(opts: {
 }) {
   const panelDeliveryWhere = await whereDeliveryInRange(opts.panelFrom, opts.panelTo);
   const where = { ...activeBookingWhere(), ...panelDeliveryWhere };
-  return prisma.booking.findMany({
-    where,
-    select: bookingPanelSelect,
-    orderBy: [{ deliveryDate: "asc" }, { monthlySerial: "asc" }],
-  });
+  return limitedRead(() =>
+    prisma.booking.findMany({
+      where,
+      select: bookingPanelSelect,
+      orderBy: [{ deliveryDate: "asc" }, { monthlySerial: "asc" }],
+    }),
+  );
+}
+
+/** Test hook — expose semaphore for concurrency assertions. */
+export function __bookingPanelReadSemForTests() {
+  return panelReadSem;
 }

@@ -42,6 +42,8 @@ export type WarningMapBooking = {
     category?: string | null;
     size?: string | null;
     notes?: string | null;
+    isCancelled?: boolean;
+    isReturned?: boolean;
     item?: { size?: string | null } | null;
   }>;
   legacyItem?: { size?: string | null; category?: string | null } | null;
@@ -49,11 +51,53 @@ export type WarningMapBooking = {
 
 function itemIds(b: Pick<WarningMapBooking, "itemId" | "bookingItems">): number[] {
   if (b.bookingItems.length) {
-    return b.bookingItems.map((bi) => bi.itemId).filter((id): id is number => id != null);
+    return b.bookingItems
+      .filter((bi) => !bi.isCancelled && !bi.isReturned)
+      .map((bi) => bi.itemId)
+      .filter((id): id is number => id != null);
   }
   if (b.itemId) return [b.itemId];
   return [];
 }
+
+/** Lean select for warning cards — no inventory photos or AI fields. */
+const warningBookingSelect = {
+  id: true,
+  monthlySerial: true,
+  customerName: true,
+  customerAddress: true,
+  contact1: true,
+  whatsappNo: true,
+  venue: true,
+  staffNames: true,
+  deliveryDate: true,
+  deliveryTime: true,
+  returnDate: true,
+  returnTime: true,
+  totalPrice: true,
+  price: true,
+  totalAdvance: true,
+  advance: true,
+  totalRemaining: true,
+  remaining: true,
+  commonNotes: true,
+  notes: true,
+  securityDeposit: true,
+  dressName: true,
+  itemId: true,
+  bookingItems: {
+    select: {
+      itemId: true,
+      dressName: true,
+      category: true,
+      size: true,
+      notes: true,
+      isCancelled: true,
+      isReturned: true,
+    },
+  },
+  legacyItem: { select: { size: true, category: true } },
+} as const;
 
 function warningFrom(b: WarningMapBooking): WarningInfo {
   const rec = bookingWarningRecordFrom({
@@ -164,7 +208,7 @@ export function pdfWarningsForBooking(
   return warningPanelsFromItems(items);
 }
 
-/** Load edge bookings for warning detection across a date span (inclusive). */
+/** Load edge bookings for warning detection across a date span (panel PDF). */
 export async function fetchWarningEdgeBookings(
   fromIso: string,
   toIso: string,
@@ -196,8 +240,52 @@ export async function fetchWarningEdgeBookings(
         ...(itemFilter ? [itemFilter] : []),
       ],
     },
-    include: { bookingItems: { include: { item: true } }, legacyItem: true },
+    select: warningBookingSelect,
     ...(opts?.take && opts.take > 0 ? { take: opts.take } : {}),
+  });
+}
+
+const WARNING_BOUNDARY_TAKE = 80;
+
+/** Boundary-only conflicts: return on delivery date + booked on return date. */
+export async function fetchWarningBoundaryBookings(
+  deliveryIso: string,
+  returnIso: string,
+  itemIds: number[],
+  excludeBookingId: number,
+  take = WARNING_BOUNDARY_TAKE,
+) {
+  if (!itemIds.length) return [];
+  const deliveryQ = parseDateQ(deliveryIso);
+  const returnQ = parseDateQ(returnIso);
+  const itemFilter = {
+    OR: [
+      { itemId: { in: itemIds } },
+      {
+        bookingItems: {
+          some: {
+            itemId: { in: itemIds },
+            isCancelled: false,
+            isReturned: false,
+          },
+        },
+      },
+    ],
+  };
+
+  return prisma.booking.findMany({
+    where: {
+      id: { not: excludeBookingId },
+      status: { in: ["booked", "delivered"] },
+      AND: [
+        {
+          OR: [{ returnDate: deliveryQ }, { deliveryDate: returnQ }],
+        },
+        itemFilter,
+      ],
+    },
+    select: warningBookingSelect,
+    take,
   });
 }
 
@@ -217,16 +305,16 @@ export function dateSpanFromBookings(bookings: Array<{ deliveryDate: Date; retur
 
 /** Load alternate-booking warnings (returning on delivery / booked on return) for one booking. */
 export async function loadWarningItemsForBooking(booking: WarningMapBooking) {
-  const span = dateSpanFromBookings([booking]);
-  if (!span.from) return [];
   const visibleItemIds = itemIds(booking);
   if (visibleItemIds.length === 0) return [];
-  // Record pages only need conflicts for their visible items. Without this filter
-  // every record open loaded all bookings across the date span and all item rows.
-  const edgeBookings = await fetchWarningEdgeBookings(span.from, span.to, {
-    itemIds: visibleItemIds,
-    take: 250,
-  });
+  const delIso = formatDate(booking.deliveryDate, "iso");
+  const retIso = formatDate(booking.returnDate, "iso");
+  const edgeBookings = await fetchWarningBoundaryBookings(
+    delIso,
+    retIso,
+    visibleItemIds,
+    booking.id,
+  );
   const { returning, booked } = buildWarningMaps(edgeBookings);
   return warningItemsForBooking(booking, returning, booked);
 }

@@ -2,13 +2,13 @@
 
 import Link from "next/link";
 import { useRouter } from "next/navigation";
-import { useCallback, useEffect, useState } from "react";
+import { useCallback, useEffect, useRef, useState } from "react";
 import { todayIso } from "@/lib/constants";
 import { fetchJson } from "@/lib/fetchJson";
 import { formatInr } from "@/lib/format";
 import { useToast } from "@/components/ui/Toast";
 import { SaveConfirmedBanner } from "@/components/SaveConfirmedBanner";
-import { buildSaveRedirectUrl } from "@/components/SaveConfirmedBanner";
+import { cachedFetchJson, invalidateClientCache } from "@/lib/clientRequestCache";
 
 type Staff = { id: number; name: string; phone?: string | null };
 type StaffUser = { id: number; username: string; role: string; staffId: number | null };
@@ -27,13 +27,13 @@ const STATUS_COLORS: Record<string, { bg: string; color: string }> = {
 
 export default function StaffAttendanceClient({
   staffList: initialStaff,
-  allUsers,
+  initialStatuses,
   isOwner,
   initialToday,
   saveConfirmed,
 }: {
   staffList: Staff[];
-  allUsers: StaffUser[];
+  initialStatuses?: Record<number, string>;
   isOwner: boolean;
   initialToday?: string;
   saveConfirmed?: { title: string; detail?: string };
@@ -45,12 +45,19 @@ export default function StaffAttendanceClient({
   const todayDefault = initialToday || todayIso();
   const [attDate, setAttDate] = useState(todayDefault);
   const [holidayDate, setHolidayDate] = useState(todayDefault);
-  const [statuses, setStatuses] = useState<Record<number, string>>({});
+  const [statuses, setStatuses] = useState<Record<number, string>>(initialStatuses || {});
   const [calStaffId, setCalStaffId] = useState(String(initialStaff[0]?.id || ""));
   const [calMonth, setCalMonth] = useState(todayDefault.slice(0, 7));
   const [calendarDays, setCalendarDays] = useState<Record<string, string>>({});
   const [summary, setSummary] = useState<AttSummary[]>([]);
   const [saving, setSaving] = useState(false);
+  const [rightTab, setRightTab] = useState<"attendance" | "salary" | "staff" | null>(null);
+  const [attendanceLoading, setAttendanceLoading] = useState(false);
+  const [salaryLoading, setSalaryLoading] = useState(false);
+  const [allUsers, setAllUsers] = useState<StaffUser[]>([]);
+  const [usersLoading, setUsersLoading] = useState(false);
+  const attendanceAbort = useRef<AbortController | null>(null);
+  const salaryAbort = useRef<AbortController | null>(null);
 
   const [addName, setAddName] = useState("");
   const [addPhone, setAddPhone] = useState("");
@@ -76,72 +83,133 @@ export default function StaffAttendanceClient({
   }, [initialStaff]);
 
   useEffect(() => {
-    const init: Record<number, string> = {};
-    staffList.forEach((s) => {
-      init[s.id] = "present";
-    });
-    setStatuses(init);
-  }, [staffList]);
+    if (attDate === todayDefault && initialStatuses) {
+      setStatuses(initialStatuses);
+      return;
+    }
+    let cancelled = false;
+    fetchJson<{ statuses: Record<number, string> }>(`/api/staff/attendance-today?date=${attDate}`)
+      .then((data) => {
+        if (!cancelled) setStatuses(data.statuses || {});
+      })
+      .catch(() => {
+        if (!cancelled) {
+          const init: Record<number, string> = {};
+          staffList.forEach((s) => {
+            init[s.id] = "present";
+          });
+          setStatuses(init);
+        }
+      });
+    return () => {
+      cancelled = true;
+    };
+  }, [attDate, todayDefault, initialStatuses, staffList]);
 
-  const loadCalendar = useCallback(async () => {
+  const loadAttendanceDashboard = useCallback(async () => {
     if (!calStaffId || !calMonth) return;
+    attendanceAbort.current?.abort();
+    const controller = new AbortController();
+    attendanceAbort.current = controller;
+    setAttendanceLoading(true);
     try {
-      const data = await fetchJson<{ days: Record<string, string> }>(
-        `/api/staff/attendance-calendar?staff_id=${calStaffId}&month=${calMonth}`,
+      const key = `att-dash:${calStaffId}:${calMonth}`;
+      const data = await cachedFetchJson<{ calendar: { days: Record<string, string> }; summary: AttSummary[] }>(
+        key,
+        async (signal) => {
+          const res = await fetch(
+            `/api/staff/attendance-dashboard?staff_id=${calStaffId}&month=${calMonth}`,
+            { credentials: "same-origin", signal },
+          );
+          if (!res.ok) throw new Error("Failed");
+          return res.json();
+        },
+        { ttlMs: 25_000, signal: controller.signal },
       );
-      setCalendarDays(data.days || {});
-    } catch {
-      setCalendarDays({});
+      if (!controller.signal.aborted) {
+        setCalendarDays(data.calendar?.days || {});
+        setSummary(data.summary || []);
+      }
+    } catch (e) {
+      if (e instanceof DOMException && e.name === "AbortError") return;
+      if (!controller.signal.aborted) {
+        setCalendarDays({});
+        setSummary([]);
+      }
+    } finally {
+      if (!controller.signal.aborted) setAttendanceLoading(false);
     }
   }, [calStaffId, calMonth]);
 
-  const loadSummary = useCallback(async () => {
-    if (!calMonth) return;
-    try {
-      const data = await fetchJson<AttSummary[]>(`/api/staff/attendance?month=${calMonth}`);
-      setSummary(data);
-    } catch {
-      setSummary([]);
-    }
-  }, [calMonth]);
-
-  useEffect(() => {
-    loadCalendar();
-    loadSummary();
-  }, [loadCalendar, loadSummary]);
-
-  const loadSalaryCalendar = useCallback(async () => {
+  const loadSalaryDashboard = useCallback(async () => {
     if (!salStaffId || !salMonth) return;
+    salaryAbort.current?.abort();
+    const controller = new AbortController();
+    salaryAbort.current = controller;
+    setSalaryLoading(true);
     try {
-      const data = await fetchJson<{ days: Record<string, number>; entries: SalEntry[]; total: number }>(
-        `/api/staff/salary-calendar?staff_id=${salStaffId}&month=${salMonth}`,
+      const key = `sal-dash:${salStaffId}:${salMonth}`;
+      const data = await cachedFetchJson<{
+        calendar: { days: Record<string, number>; entries: SalEntry[]; total: number };
+        summary: SalSummary[];
+      }>(
+        key,
+        async (signal) => {
+          const res = await fetch(
+            `/api/staff/salary-dashboard?staff_id=${salStaffId}&month=${salMonth}`,
+            { credentials: "same-origin", signal },
+          );
+          if (!res.ok) throw new Error("Failed");
+          return res.json();
+        },
+        { ttlMs: 25_000, signal: controller.signal },
       );
-      setSalDays(data.days || {});
-      setSalEntries(data.entries || []);
-      setSalTotal(data.total || 0);
-    } catch {
-      setSalDays({});
-      setSalEntries([]);
-      setSalTotal(0);
+      if (!controller.signal.aborted) {
+        setSalDays(data.calendar?.days || {});
+        setSalEntries(data.calendar?.entries || []);
+        setSalTotal(data.calendar?.total || 0);
+        setSalSummary(data.summary || []);
+      }
+    } catch (e) {
+      if (e instanceof DOMException && e.name === "AbortError") return;
+      if (!controller.signal.aborted) {
+        setSalDays({});
+        setSalEntries([]);
+        setSalTotal(0);
+        setSalSummary([]);
+      }
+    } finally {
+      if (!controller.signal.aborted) setSalaryLoading(false);
     }
   }, [salStaffId, salMonth]);
 
-  const loadSalarySummary = useCallback(async () => {
-    if (!salMonth) return;
+  const loadStaffUsers = useCallback(async () => {
+    if (allUsers.length || usersLoading) return;
+    setUsersLoading(true);
     try {
-      const data = await fetchJson<SalSummary[]>(`/api/staff/salary?month=${salMonth}`);
-      setSalSummary(data);
+      const data = await fetchJson<{ users: StaffUser[] }>("/api/staff/linked-users");
+      setAllUsers(data.users || []);
     } catch {
-      setSalSummary([]);
+      setAllUsers([]);
+    } finally {
+      setUsersLoading(false);
     }
-  }, [salMonth]);
+  }, [allUsers.length, usersLoading]);
 
   useEffect(() => {
-    loadSalaryCalendar();
-    loadSalarySummary();
-  }, [loadSalaryCalendar, loadSalarySummary]);
+    if (rightTab === "attendance") loadAttendanceDashboard();
+  }, [rightTab, loadAttendanceDashboard]);
+
+  useEffect(() => {
+    if (rightTab === "salary") loadSalaryDashboard();
+  }, [rightTab, loadSalaryDashboard]);
+
+  useEffect(() => {
+    if (rightTab === "staff" && isOwner) loadStaffUsers();
+  }, [rightTab, isOwner, loadStaffUsers]);
 
   async function saveAttendance() {
+    if (saving) return;
     setSaving(true);
     try {
       await fetchJson("/api/staff/attendance/save", {
@@ -150,15 +218,8 @@ export default function StaffAttendanceClient({
         body: JSON.stringify({ date: attDate, statuses }),
       });
       toast("Attendance saved", "success");
-      loadCalendar();
-      loadSummary();
-      router.replace(
-        buildSaveRedirectUrl("/staff-attendance", {
-          title: "Attendance saved",
-          detail: attDate,
-        }),
-      );
-      window.scrollTo(0, 0);
+      invalidateClientCache("att-dash:");
+      if (rightTab === "attendance") loadAttendanceDashboard();
     } catch (e) {
       toast(e instanceof Error ? e.message : "Failed to save", "error");
     } finally {
@@ -168,6 +229,7 @@ export default function StaffAttendanceClient({
 
   async function markShopClosed() {
     if (!confirm(`Mark shop CLOSED for ${holidayDate}? All staff will be marked shop closed.`)) return;
+    if (saving) return;
     setSaving(true);
     try {
       await fetchJson("/api/staff/attendance/save", {
@@ -176,8 +238,8 @@ export default function StaffAttendanceClient({
         body: JSON.stringify({ date: holidayDate, shop_closed: true }),
       });
       toast("Shop marked closed for all staff", "info");
-      loadCalendar();
-      loadSummary();
+      invalidateClientCache("att-dash:");
+      if (rightTab === "attendance") loadAttendanceDashboard();
     } catch (e) {
       toast(e instanceof Error ? e.message : "Failed", "error");
     } finally {
@@ -209,8 +271,8 @@ export default function StaffAttendanceClient({
       // Keep the ledger view focused on whoever we just paid
       setSalStaffId(salPayStaffId);
       setSalMonth(salDate.slice(0, 7));
-      loadSalaryCalendar();
-      loadSalarySummary();
+      invalidateClientCache("sal-dash:");
+      if (rightTab === "salary") loadSalaryDashboard();
     } catch (err) {
       toast(err instanceof Error ? err.message : "Failed to record", "error");
     } finally {
@@ -223,8 +285,8 @@ export default function StaffAttendanceClient({
     try {
       await fetchJson(`/api/staff/salary/${id}/delete`, { method: "POST" });
       toast("Entry removed", "success");
-      loadSalaryCalendar();
-      loadSalarySummary();
+      invalidateClientCache("sal-dash:");
+      if (rightTab === "salary") loadSalaryDashboard();
     } catch (err) {
       toast(err instanceof Error ? err.message : "Failed", "error");
     }
@@ -246,20 +308,13 @@ export default function StaffAttendanceClient({
         }),
       });
       toast("Staff added", "success");
-      const staffName = addName.trim();
       setAddName("");
       setAddPhone("");
       setAddUsername("");
       setAddPassword("");
       setAddRole("staff");
-      router.replace(
-        buildSaveRedirectUrl("/staff-attendance", {
-          title: "Staff saved",
-          detail: staffName,
-        }),
-      );
+      toast("Staff saved — refresh the staff list if needed", "success");
       router.refresh();
-      window.scrollTo(0, 0);
     } catch (e) {
       toast(e instanceof Error ? e.message : "Failed to add staff", "error");
     }
@@ -560,11 +615,48 @@ export default function StaffAttendanceClient({
 
       {/* Right column */}
       <div>
+        <div className="no-print" style={{ display: "flex", gap: 8, marginBottom: 12, flexWrap: "wrap" }}>
+          <button
+            type="button"
+            className={`btn btn-sm ${rightTab === "attendance" ? "btn-primary" : "btn-outline"}`}
+            onClick={() => setRightTab("attendance")}
+          >
+            Calendar &amp; Summary
+          </button>
+          {isOwner && (
+            <button
+              type="button"
+              className={`btn btn-sm ${rightTab === "salary" ? "btn-primary" : "btn-outline"}`}
+              onClick={() => setRightTab("salary")}
+            >
+              Salary Ledger
+            </button>
+          )}
+          <button
+            type="button"
+            className={`btn btn-sm ${rightTab === "staff" ? "btn-primary" : "btn-outline"}`}
+            onClick={() => setRightTab("staff")}
+          >
+            Active Staff
+          </button>
+        </div>
+
+        {rightTab === null && (
+          <div className="card">
+            <div className="card-body" style={{ color: "var(--text-muted)", fontSize: 13 }}>
+              Choose a report view above. Attendance marking on the left works without loading reports.
+            </div>
+          </div>
+        )}
+
+        {rightTab === "attendance" && (
+          <>
         <div className="card" style={{ marginBottom: 16 }}>
           <div className="card-header">
             <h3 className="card-title">
               <i className="fa-solid fa-calendar" style={{ marginRight: 8 }} />
               Attendance Calendar
+              {attendanceLoading ? " …" : ""}
             </h3>
             <div className="no-print" style={{ display: "flex", gap: 8, alignItems: "center", flexWrap: "wrap" }}>
               <select
@@ -640,12 +732,17 @@ export default function StaffAttendanceClient({
             )}
           </div>
         </div>
+          </>
+        )}
 
-        <div className="card" style={{ marginTop: 16 }}>
+        {rightTab === "salary" && isOwner && (
+          <>
+        <div className="card" style={{ marginTop: 0 }}>
           <div className="card-header">
             <h3 className="card-title">
               <i className="fa-solid fa-money-check-dollar" style={{ marginRight: 8 }} />
               Salary Ledger
+              {salaryLoading ? " …" : ""}
             </h3>
             <div className="no-print" style={{ display: "flex", gap: 8, alignItems: "center", flexWrap: "wrap" }}>
               <select
@@ -790,9 +887,11 @@ export default function StaffAttendanceClient({
             )}
           </div>
         </div>
+          </>
+        )}
 
-        {staffList.length > 0 && (
-          <div className="card" style={{ marginTop: 16 }}>
+        {rightTab === "staff" && staffList.length > 0 && (
+          <div className="card" style={{ marginTop: 0 }}>
             <div className="card-header">
               <h3 className="card-title">
                 <i className="fa-solid fa-users" style={{ marginRight: 8 }} />

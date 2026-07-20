@@ -1,4 +1,4 @@
-import { BRAND_PRINT_LABEL } from "./branding";
+import { BRAND_NAME, BRAND_OWNER } from "./branding";
 
 export type InventoryLabelSize = "compact" | "standard";
 
@@ -37,29 +37,39 @@ export function buildInventoryLabelDocument(data: InventoryLabelData): string {
       justify-content: space-between; gap: 1mm; }
     .left { flex: 1 1 50%; min-width: 0; display: flex; flex-direction: column;
       justify-content: center; align-items: flex-start; text-align: left; }
-    .right { flex: 0 0 ${compact ? "14mm" : "30mm"}; display: flex; flex-direction: column;
+    .right { flex: 0 0 ${compact ? "14mm" : "22mm"}; display: flex; flex-direction: column;
       align-items: center; justify-content: center; gap: 0.4mm; }
-    .brand { font-size: ${compact ? "5pt" : "5.5pt"}; font-weight: 800;
-      color: #7B1F45; text-transform: uppercase; letter-spacing: 0.3pt;
-      line-height: 1.1; margin-bottom: 0.6mm; }
-    .item { font-size: ${compact ? "6pt" : "7pt"}; font-weight: 700;
-      line-height: 1.1; display: -webkit-box; -webkit-line-clamp: 2;
-      -webkit-box-orient: vertical; overflow: hidden; max-width: 100%; }
-    .size { font-size: ${compact ? "5.5pt" : "6.5pt"}; margin-top: 0.6mm; }
-    .code { font-size: ${compact ? "5pt" : "5.5pt"}; margin-top: 0.6mm;
-      font-family: "Courier New", monospace; word-break: break-all; }
-    .qr { width: ${compact ? "13mm" : "28mm"};
-      height: ${compact ? "13mm" : "28mm"}; image-rendering: pixelated; }
+    .brand { color: #7B1F45; letter-spacing: 0.3pt; line-height: 1.15; margin-bottom: 0.8mm; }
+    .brand-name { font-size: ${compact ? "6pt" : "8pt"}; font-weight: 900; }
+    .brand-owner { font-size: ${compact ? "5pt" : "6pt"}; font-weight: 600; margin-top: 0.3mm; }
+    .item { font-size: ${compact ? "8pt" : "11pt"}; font-weight: 900;
+      line-height: 1.05; display: -webkit-box; -webkit-line-clamp: 2;
+      -webkit-box-orient: vertical; overflow: hidden; max-width: 100%;
+      text-transform: uppercase; word-break: break-word; }
+    .size-badge { display: inline-flex; font-size: ${compact ? "7pt" : "9pt"};
+      font-weight: 900; border: 1.5pt solid #333; border-radius: 3px;
+      padding: 0.3mm 1.5mm; margin-top: 0.8mm; line-height: 1.1; }
+    .sku { font-size: ${compact ? "5.5pt" : "7pt"}; font-weight: 700;
+      font-family: "Courier New", monospace; color: #333; margin-top: 0.6mm; }
+    .code { font-size: ${compact ? "5pt" : "5.5pt"}; margin-top: 0.5mm;
+      font-family: "Courier New", monospace; font-weight: 700;
+      word-break: break-all; max-width: 20mm; text-align: center; }
+    .qr { width: ${compact ? "13mm" : "18mm"};
+      height: ${compact ? "13mm" : "18mm"}; max-width: 18mm; max-height: 18mm;
+      image-rendering: pixelated; }
     svg { width: ${compact ? "22mm" : "28mm"};
       height: ${compact ? "8mm" : "10mm"}; }
     @media screen { body { background:#eee; padding:20px; }
       .label { background:#fff; margin:auto; box-shadow:0 2px 12px #999; } }
     </style></head><body><div class="label">
       <div class="left">
-        <div class="brand">${escapeHtml(BRAND_PRINT_LABEL)}</div>
+        <div class="brand">
+          <div class="brand-name">${escapeHtml(BRAND_NAME)}</div>
+          <div class="brand-owner">by ${escapeHtml(BRAND_OWNER)}</div>
+        </div>
         <div class="item">${labelName}</div>
-        ${skuLine ? `<div class="size">${skuLine}</div>` : ""}
-        ${sizeLine ? `<div class="size">${sizeLine}</div>` : ""}
+        <div class="size-badge">SIZE ${data.size ? escapeHtml(data.size) : "—"}</div>
+        ${skuLine ? `<div class="sku">${skuLine}</div>` : ""}
       </div>
       <div class="right">
         ${data.symbolHtml}

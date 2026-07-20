@@ -1,7 +1,7 @@
 import { redirect } from "next/navigation";
-import prisma from "@/lib/prisma";
 import { getCurrentUser, isOwner } from "@/lib/auth";
 import StaffAttendanceClient from "@/components/StaffAttendanceClient";
+import { getStaffAttendanceToday } from "@/lib/services/staffOps";
 import { todayIso } from "@/lib/constants";
 
 export const dynamic = "force-dynamic";
@@ -15,13 +15,8 @@ export default async function StaffAttendancePage({
   if (!user) redirect("/login");
   if (!isOwner(user)) redirect("/");
 
-  const [staffList, allUsers] = await Promise.all([
-    prisma.staff.findMany({ where: { active: true }, orderBy: { name: "asc" } }),
-    prisma.user.findMany({
-      orderBy: { username: "asc" },
-      select: { id: true, username: true, role: true, staffId: true },
-    }),
-  ]);
+  const today = todayIso();
+  const todayData = await getStaffAttendanceToday(today);
 
   const sp = await searchParams;
   const saveConfirmed =
@@ -34,10 +29,10 @@ export default async function StaffAttendancePage({
 
   return (
     <StaffAttendanceClient
-      staffList={staffList}
-      allUsers={allUsers}
+      staffList={todayData.staff}
+      initialStatuses={todayData.statuses}
       isOwner
-      initialToday={todayIso()}
+      initialToday={today}
       saveConfirmed={saveConfirmed}
     />
   );

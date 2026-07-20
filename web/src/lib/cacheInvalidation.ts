@@ -11,6 +11,7 @@ export const CACHE_TAGS = {
   dashboardCounts: INVENTORY_CACHE_TAGS.dashboardCounts,
   bookingList: "booking-list",
   bookingPanel: "booking-panel",
+  bookingRecord: "booking-record",
   bookingAvailability: INVENTORY_CACHE_TAGS.bookingAvailability,
   freeItems: INVENTORY_CACHE_TAGS.freeItems,
   packingList: "packing-list",
@@ -38,6 +39,7 @@ export function invalidateBookingCaches() {
   safeRevalidate([
     CACHE_TAGS.bookingList,
     CACHE_TAGS.bookingPanel,
+    CACHE_TAGS.bookingRecord,
     CACHE_TAGS.bookingAvailability,
     CACHE_TAGS.freeItems,
     CACHE_TAGS.packingList,

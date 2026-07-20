@@ -117,9 +117,10 @@ describe("Scan Dress Availability UI contracts", () => {
     assert.match(component, /phase !== "scanning"/);
   });
 
-  it("keeps one camera session alive between successful scans", () => {
-    assert.equal((component.match(/new QrCameraSession/g) || []).length, 1);
-    assert.doesNotMatch(component, /stopAfterDecode|stopImmediately/);
+  it("creates a new camera session for each scan via Scan Next Dress", () => {
+    const qrSessions = (component.match(/new QrCameraSession/g) || []).length;
+    assert.ok(qrSessions >= 1, "must create at least one QrCameraSession");
+    assert.match(component, /scanLockedRef/);
     assert.match(camera, /pause\(\): void/);
     assert.match(camera, /resume\(\): void/);
   });
@@ -140,7 +141,7 @@ describe("Scan Dress Availability UI contracts", () => {
       "Change Dates",
       "Clear Scanned List",
       "Remove One Result",
-      "Scan Another Dress",
+      "Scan Next Dress",
       "Manual Code Entry",
       "Recheck",
       "Switch Camera",

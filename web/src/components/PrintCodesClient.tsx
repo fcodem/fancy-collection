@@ -3,7 +3,7 @@
 import { useCallback, useEffect, useRef, useState } from "react";
 import QRCode from "qrcode";
 import JsBarcode from "jsbarcode";
-import { BRAND_PRINT_LABEL } from "@/lib/branding";
+import { BRAND_NAME, BRAND_OWNER } from "@/lib/branding";
 
 type ScanCode = { id: number; code: string; format: string; isPrimary: boolean };
 type InventoryItem = {
@@ -185,22 +185,21 @@ export default function PrintCodesClient() {
             overflow: hidden;
             display: flex;
             flex-direction: column;
-            padding: 1.5mm;
+            padding: 2.5mm;
             box-sizing: border-box;
             gap: 0.5mm;
           }
           .label-cell.label-qr-only {
-            flex-direction: row;
-            align-items: stretch;
-            justify-content: space-between;
-            gap: 1mm;
+            display: grid;
+            grid-template-columns: minmax(0, 1fr) 22mm;
+            column-gap: 2mm;
+            align-items: center;
           }
           .label-cell.label-barcode-only,
           .label-cell.label-both {
             flex-direction: column;
           }
           .label-left {
-            flex: 1 1 auto;
             min-width: 0;
             display: flex;
             flex-direction: column;
@@ -208,11 +207,7 @@ export default function PrintCodesClient() {
             align-items: flex-start;
             text-align: left;
           }
-          .label-qr-only .label-left {
-            flex: 1 1 50%;
-          }
           .label-code-block {
-            flex: 0 0 auto;
             display: flex;
             flex-direction: column;
             align-items: center;
@@ -221,30 +216,37 @@ export default function PrintCodesClient() {
             max-width: 100%;
           }
           .label-qr-only .label-code-block {
-            flex: 0 0 32mm;
+            width: 22mm;
+            max-width: 22mm;
           }
           .label-human-code {
             font-size: 5.5pt;
             font-family: "Courier New", monospace;
+            font-weight: 700;
             letter-spacing: 0.2pt;
-            margin-top: 0.4mm;
-            max-width: 100%;
+            margin-top: 0.5mm;
+            max-width: 20mm;
             overflow: hidden;
             text-overflow: ellipsis;
             white-space: nowrap;
             text-align: center;
           }
           .label-cell canvas.label-qr {
-            width: 22mm !important;
-            height: 22mm !important;
+            width: 18mm !important;
+            height: 18mm !important;
+            max-width: 18mm !important;
+            max-height: 18mm !important;
+            display: block;
           }
-          .label-both .label-cell canvas.label-qr {
-            width: 16mm !important;
-            height: 16mm !important;
+          .label-both canvas.label-qr {
+            width: 14mm !important;
+            height: 14mm !important;
+            max-width: 14mm !important;
+            max-height: 14mm !important;
           }
           .label-cell svg.barcode-svg {
             width: 100% !important;
-            max-width: 66mm !important;
+            max-width: 62mm !important;
             height: auto !important;
             max-height: 10mm !important;
           }
@@ -252,33 +254,43 @@ export default function PrintCodesClient() {
             max-height: 7mm !important;
           }
           .label-text {
-            font-size: 7pt;
-            line-height: 1.15;
             font-family: Arial, sans-serif;
             text-align: left;
             overflow: hidden;
             width: 100%;
           }
           .label-name {
-            font-weight: bold;
-            font-size: 7pt;
+            font-weight: 900;
+            font-size: 11pt;
             overflow: hidden;
             display: -webkit-box;
             -webkit-line-clamp: 2;
             -webkit-box-orient: vertical;
-            line-height: 1.1;
+            line-height: 1.05;
             max-width: 100%;
+            text-transform: uppercase;
+            word-break: break-word;
           }
           .label-brand {
-            font-size: 5.5pt;
-            font-weight: bold;
             color: #7B1F45;
-            letter-spacing: 0.2pt;
-            margin-bottom: 0.8mm;
+            letter-spacing: 0.3pt;
+            margin-bottom: 1mm;
+            line-height: 1.15;
+          }
+          .label-size-badge {
+            display: inline-flex;
+            font-size: 9pt;
+            font-weight: 900;
+            border: 1.5pt solid #333;
+            border-radius: 3px;
+            padding: 0.3mm 1.5mm;
+            margin-top: 0.8mm;
             line-height: 1.1;
           }
-          .label-size {
-            font-size: 6.5pt;
+          .label-sku {
+            font-size: 7pt;
+            font-weight: 700;
+            font-family: "Courier New", monospace;
             color: #333;
             margin-top: 0.6mm;
           }
@@ -371,6 +383,9 @@ export default function PrintCodesClient() {
             <p className="text-xs text-gray-400 mt-2">
               Skipping {(startRow - 1) * COLS + (startCol - 1)} sticker(s) on the first sheet.
               Total pages needed: {pages.length}
+            </p>
+            <p className="text-xs text-gray-400 mt-1">
+              Print at 100% scale (Actual Size). Disable &quot;Fit to page&quot;. Paper: A4. Margins: None or minimum.
             </p>
           </div>
 
@@ -499,7 +514,7 @@ function StickerLabel({ item, format }: { item: InventoryItem; format: PrintForm
   useEffect(() => {
     if ((format === "QR_CODE" || format === "BOTH") && qrRef.current && qrValue) {
       void QRCode.toCanvas(qrRef.current, qrValue, {
-        width: format === "BOTH" ? 120 : 160,
+        width: format === "BOTH" ? 120 : 140,
         margin: 1,
         errorCorrectionLevel: "H",
       });
@@ -545,10 +560,13 @@ function StickerLabel({ item, format }: { item: InventoryItem; format: PrintForm
     <div className={`label-row ${layoutClass}`} style={{ display: "flex", width: "100%", height: "100%" }}>
       <div className="label-left">
         <div className="label-text">
-          <div className="label-brand">{BRAND_PRINT_LABEL}</div>
+          <div className="label-brand">
+            <div style={{ fontWeight: 900, fontSize: '8pt' }}>{BRAND_NAME}</div>
+            <div style={{ fontWeight: 600, fontSize: '6pt', marginTop: '0.3mm' }}>by {BRAND_OWNER}</div>
+          </div>
           <div className="label-name">{item.name}</div>
-          {item.size ? <div className="label-size">Size: {item.size}</div> : null}
-          {item.sku ? <div className="label-size">SKU: {item.sku}</div> : null}
+          <div className="label-size-badge">SIZE {item.size || "—"}</div>
+          {item.sku ? <div className="label-sku">SKU: {item.sku}</div> : null}
         </div>
       </div>
       <div className="label-code-block">

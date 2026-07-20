@@ -1,16 +1,20 @@
 "use client";
 
-import { useState } from "react";
+import { useState, type ReactNode } from "react";
+import dynamic from "next/dynamic";
 import PrefetchOnIntentLink from "@/components/PrefetchOnIntentLink";
 import { BookingRecordDetails } from "@/components/BookingRecordDetails";
 import type { SlipOrderDisplay } from "@/components/BookingSlip";
 import { BookingItemWarningsSection } from "@/components/BookingItemWarningsSection";
-import DeliveredCancelBooking from "@/components/DeliveredCancelBooking";
 import BookingWhatsAppButton from "@/components/BookingWhatsAppButton";
 import { isBookingLocked } from "@/lib/bookingLock";
 import type { BookingForStandardDetails } from "@/lib/bookingDetails";
 import { isDeliverySlipEligible, isCommonDeliverySlipEligible, isIncompleteSlipEligible, isReturnSlipEligible, isCommonReturnSlipEligible, resolveBookingStatus, hasPartialDelivery, hasPartialReturn, deliverySlipHref, returnSlipHref } from "@/lib/bookingStatus";
 import type { ItemWarningSource } from "@/lib/bookingWarningPdf";
+
+const DeliveredCancelBooking = dynamic(() => import("@/components/DeliveredCancelBooking"), {
+  ssr: false,
+});
 
 function editHref(id: number, status: string) {
   return status === "delivered" ? `/booking-delivery/${id}` : `/booking/${id}/edit`;
@@ -21,6 +25,7 @@ export default function BookingViewClient({
   qrSlot,
   isOwner = false,
   warningItems = [],
+  warningsSlot,
   orders = [],
 }: {
   booking: BookingForStandardDetails & {
@@ -38,9 +43,10 @@ export default function BookingViewClient({
     whatsappStatus?: string | null;
     bookingItems?: Array<{ id?: number; isDelivered: boolean; isReturned?: boolean; isIncompleteReturn?: boolean }>;
   };
-  qrSlot?: React.ReactNode;
+  qrSlot?: ReactNode;
   isOwner?: boolean;
   warningItems?: ItemWarningSource[];
+  warningsSlot?: ReactNode;
   orders?: SlipOrderDisplay[];
 }) {
   const [showCancel, setShowCancel] = useState(false);
@@ -239,7 +245,7 @@ export default function BookingViewClient({
         <div className="card-body">
           <BookingRecordDetails
             booking={booking}
-            warningItems={warningItems.length > 1 ? warningItems : undefined}
+            warningItems={warningsSlot ? undefined : warningItems.length > 1 ? warningItems : undefined}
             orders={orders}
             extra={
               booking.staffNames ? (
@@ -249,7 +255,7 @@ export default function BookingViewClient({
               ) : undefined
             }
           />
-          {warningItems.length <= 1 && <BookingItemWarningsSection items={warningItems} />}
+          {warningsSlot ?? (warningItems.length <= 1 && <BookingItemWarningsSection items={warningItems} />)}
         </div>
       </div>
     </div>

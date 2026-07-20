@@ -8,7 +8,6 @@ import {
 } from "@/components/BookingDetailsColumns";
 import type { BookingWarningRecord, StandardBookingDetails } from "@/lib/bookingDetails";
 import { bookingMonthKey, formatBookingMonthLabel } from "@/lib/bookingMonth";
-import { photoUrl } from "@/lib/photoUrl";
 import { formatInr } from "@/lib/format";
 import { useRealtimeRefresh } from "@/hooks/useRealtimeRefresh";
 import { BOOKING_EVENTS } from "@/lib/realtime/types";
@@ -20,6 +19,7 @@ import {
   flattenBookingPdfRows,
   standardBookingPdfRow,
 } from "@/lib/standardBookingPdfRows";
+import { cachedFetchJson, invalidateClientCache } from "@/lib/clientRequestCache";
 
 const TIME_SLOTS = [
   "8:00 AM", "9:00 AM", "10:00 AM", "11:00 AM", "12:00 Noon", "1:00 PM", "2:00 PM",
@@ -33,7 +33,6 @@ type ItemRow = {
   category: string;
   price: number;
   notes: string;
-  photo: string;
   returning_warning: BookingWarningRecord | null;
   booked_warning: BookingWarningRecord | null;
 };
@@ -56,6 +55,12 @@ type ListData = {
   unavailable: BookingRow[];
   from_date: string;
   to_date: string;
+  page: number;
+  pageSize: number;
+  totalMain: number;
+  totalUnavailable: number;
+  totalPagesMain: number;
+  totalPagesUnavailable: number;
 };
 
 type Categories = {
@@ -159,28 +164,21 @@ function BookingCard({ booking, idx, isUnavailable }: { booking: BookingRow; idx
               alignItems: "flex-start",
             }}
           >
-            {item.photo ? (
-              <img
-                src={photoUrl(item.photo)}
-                alt=""
-                style={{ width: 48, height: 48, borderRadius: 8, objectFit: "cover" }}
-              />
-            ) : (
-              <div
-                style={{
-                  width: 48,
-                  height: 48,
-                  borderRadius: 8,
-                  background: "var(--cream-dark)",
-                  display: "flex",
-                  alignItems: "center",
-                  justifyContent: "center",
-                  fontSize: 20,
-                }}
-              >
-                👗
-              </div>
-            )}
+            <div
+              style={{
+                width: 48,
+                height: 48,
+                borderRadius: 8,
+                background: "var(--cream-dark)",
+                display: "flex",
+                alignItems: "center",
+                justifyContent: "center",
+                fontSize: 20,
+                flexShrink: 0,
+              }}
+            >
+              👗
+            </div>
             <div style={{ flex: 1, minWidth: 0 }}>
               <div style={{ fontWeight: 600, fontSize: 13, wordBreak: "break-word" }}>
                 {item.display_name || item.dress_name}{" "}
@@ -211,56 +209,150 @@ function BookingCard({ booking, idx, isUnavailable }: { booking: BookingRow; idx
   );
 }
 
+function buildListQueryKey(params: URLSearchParams) {
+  return `booking-list:${params.toString()}`;
+}
+
+function bookingPdfRow(b: BookingRow, idx: number, unavailableFlag: boolean) {
+  const itemPanels = warningPanelsFromItems(b.items || []);
+  return standardBookingPdfRow(
+    serialLabel(b.serial_no || idx + 1),
+    {
+      ...b,
+      dress_names:
+        b.dress_names || b.items?.map((i) => i.display_name || i.dress_name).join(", ") || "",
+    },
+    [unavailableFlag ? `Unavailable — ${b.reason || "—"}` : statusLabel(b.status)],
+    itemPanels.length ? itemPanels : undefined,
+  );
+}
+
 export default function BookingListClient({
   initialFrom,
   initialTo,
   initialData,
-  categories,
 }: {
   initialFrom: string;
   initialTo: string;
   initialData: ListData;
-  categories: Categories;
 }) {
   const [from, setFrom] = useState(initialFrom);
   const [to, setTo] = useState(initialTo);
   const [deliveryTime, setDeliveryTime] = useState("");
   const [returnTime, setReturnTime] = useState("");
   const [category, setCategory] = useState("");
+  const [page, setPage] = useState(initialData.page || 1);
   const [data, setData] = useState<ListData>(initialData);
   const [loading, setLoading] = useState(false);
+  const [categories, setCategories] = useState<Categories | null>(null);
   const skipFirst = useRef(true);
+  const abortRef = useRef<AbortController | null>(null);
+  const debounceRef = useRef<ReturnType<typeof setTimeout> | null>(null);
 
-  const load = useCallback(async () => {
-    if (!from) return;
-    setLoading(true);
-    try {
-      const params = new URLSearchParams({ delivery_date: from, return_date: to || from });
+  useEffect(() => {
+    cachedFetchJson(
+      "categories:all",
+      async (signal) => {
+        const res = await fetch("/api/categories", { credentials: "same-origin", signal });
+        if (!res.ok) throw new Error("Failed to load categories");
+        return res.json() as Promise<Categories>;
+      },
+      { ttlMs: 25_000 },
+    )
+      .then(setCategories)
+      .catch(() => setCategories(null));
+  }, []);
+
+  const buildParams = useCallback(
+    (pageNum: number) => {
+      const params = new URLSearchParams({
+        delivery_date: from,
+        return_date: to || from,
+        page: String(pageNum),
+      });
       if (deliveryTime) params.set("delivery_time", deliveryTime);
       if (returnTime) params.set("return_time", returnTime);
       if (category) params.set("category", category);
-      const res = await fetch(`/api/booking-list?${params}`, { credentials: "same-origin" });
-      if (!res.ok) throw new Error("Failed to load");
-      setData(await res.json());
-    } catch {
-      setData({ bookings: [], unavailable: [], from_date: from, to_date: to || from });
-    } finally {
-      setLoading(false);
-    }
-  }, [from, to, deliveryTime, returnTime, category]);
+      return params;
+    },
+    [from, to, deliveryTime, returnTime, category],
+  );
 
-  useRealtimeRefresh(BOOKING_EVENTS, load);
+  const load = useCallback(
+    async (pageNum = page) => {
+      if (!from) return;
+      abortRef.current?.abort();
+      const controller = new AbortController();
+      abortRef.current = controller;
+
+      setLoading(true);
+      try {
+        const params = buildParams(pageNum);
+        const key = buildListQueryKey(params);
+        const payload = await cachedFetchJson<ListData>(
+          key,
+          async (signal) => {
+            const res = await fetch(`/api/booking-list?${params}`, {
+              credentials: "same-origin",
+              signal,
+            });
+            if (!res.ok) throw new Error("Failed to load");
+            return res.json();
+          },
+          { ttlMs: 25_000, signal: controller.signal },
+        );
+        if (!controller.signal.aborted) {
+          setData(payload);
+          setPage(payload.page || pageNum);
+        }
+      } catch (e) {
+        if (e instanceof DOMException && e.name === "AbortError") return;
+        if (!controller.signal.aborted) {
+          setData((prev) => ({
+            ...prev,
+            bookings: [],
+            unavailable: [],
+            from_date: from,
+            to_date: to || from,
+          }));
+        }
+      } finally {
+        if (!controller.signal.aborted) setLoading(false);
+      }
+    },
+    [from, to, buildParams, page],
+  );
+
+  const scheduleLoad = useCallback(
+    (pageNum = 1) => {
+      if (debounceRef.current) clearTimeout(debounceRef.current);
+      debounceRef.current = setTimeout(() => {
+        setPage(pageNum);
+        load(pageNum);
+      }, 300);
+    },
+    [load],
+  );
+
+  useRealtimeRefresh(BOOKING_EVENTS, () => {
+    invalidateClientCache("booking-list:");
+    load(page);
+  });
 
   useEffect(() => {
     if (skipFirst.current) {
       skipFirst.current = false;
       return;
     }
-    load();
-  }, [load]);
+    scheduleLoad(1);
+    return () => {
+      if (debounceRef.current) clearTimeout(debounceRef.current);
+    };
+  }, [from, to, deliveryTime, returnTime, category, scheduleLoad]);
 
   const { bookings, unavailable } = data;
   const empty = !bookings.length && !unavailable.length;
+  const pdfHeaders = [...STANDARD_BOOKING_HEADERS, "Status"];
 
   const bookingsByMonth = useMemo(() => {
     const out: Array<
@@ -279,26 +371,24 @@ export default function BookingListClient({
     return out;
   }, [bookings]);
 
-  const pdfHeaders = [...STANDARD_BOOKING_HEADERS, "Status"];
-
-  const pdfResults = [
-    ...bookings.map((b, idx) => bookingPdfRow(b, idx, false)),
-    ...unavailable.map((b, idx) => bookingPdfRow(b, idx, true)),
-  ];
-  const { rows: pdfRows, warningsBelow } = flattenBookingPdfRows(pdfResults);
-
-  function bookingPdfRow(b: BookingRow, idx: number, unavailableFlag: boolean) {
-    const itemPanels = warningPanelsFromItems(b.items || []);
-    return standardBookingPdfRow(
-      serialLabel(b.serial_no || idx + 1),
-      {
-        ...b,
-        dress_names:
-          b.dress_names || b.items?.map((i) => i.display_name || i.dress_name).join(", ") || "",
-      },
-      [unavailableFlag ? `Unavailable — ${b.reason || "—"}` : statusLabel(b.status)],
-      itemPanels.length ? itemPanels : undefined,
-    );
+  async function exportPdfData() {
+    const params = buildParams(1);
+    params.delete("page");
+    const res = await fetch(`/api/booking-list/export?${params}`, { credentials: "same-origin" });
+    if (!res.ok) throw new Error("Export failed");
+    const exportData = (await res.json()) as {
+      bookings: BookingRow[];
+      unavailable: BookingRow[];
+      from_date: string;
+      to_date: string;
+      truncated?: boolean;
+    };
+    const pdfResults = [
+      ...exportData.bookings.map((b, idx) => bookingPdfRow(b, idx, false)),
+      ...exportData.unavailable.map((b, idx) => bookingPdfRow(b, idx, true)),
+    ];
+    const { rows: pdfRows, warningsBelow } = flattenBookingPdfRows(pdfResults);
+    return { headers: pdfHeaders, rows: pdfRows, warningsBelow };
   }
 
   return (
@@ -314,9 +404,9 @@ export default function BookingListClient({
             filename={`booked-items-${data.from_date}-to-${data.to_date}`}
             subtitle={`Period: ${data.from_date} to ${data.to_date}`}
             headers={pdfHeaders}
-            rows={pdfRows}
-            warningsBelow={warningsBelow}
-            disabled={!pdfRows.length}
+            rows={[]}
+            dataFactory={exportPdfData}
+            disabled={loading}
             size="sm"
           />
         </div>
@@ -350,35 +440,46 @@ export default function BookingListClient({
             </div>
             <div>
               <label style={labelStyle}>Category</label>
-              <select className="form-control" value={category} onChange={(e) => setCategory(e.target.value)}>
+              <select
+                className="form-control"
+                value={category}
+                onChange={(e) => setCategory(e.target.value)}
+                disabled={!categories}
+              >
                 <option value="">All Categories</option>
-                <optgroup label="Men's">
-                  {categories.mens_categories.map((c) => (
-                    <option key={c} value={c}>{c}</option>
-                  ))}
-                </optgroup>
-                <optgroup label="Women's">
-                  {categories.womens_categories.map((c) => (
-                    <option key={c} value={c}>{c}</option>
-                  ))}
-                </optgroup>
-                <optgroup label="Jewellery">
-                  {categories.jewellery_categories.map((c) => (
-                    <option key={c} value={c}>{c}</option>
-                  ))}
-                </optgroup>
-                <optgroup label="Accessories">
-                  {categories.accessory_categories.map((c) => (
-                    <option key={c} value={c}>{c}</option>
-                  ))}
-                </optgroup>
+                {categories ? (
+                  <>
+                    <optgroup label="Men's">
+                      {categories.mens_categories.map((c) => (
+                        <option key={c} value={c}>{c}</option>
+                      ))}
+                    </optgroup>
+                    <optgroup label="Women's">
+                      {categories.womens_categories.map((c) => (
+                        <option key={c} value={c}>{c}</option>
+                      ))}
+                    </optgroup>
+                    <optgroup label="Jewellery">
+                      {categories.jewellery_categories.map((c) => (
+                        <option key={c} value={c}>{c}</option>
+                      ))}
+                    </optgroup>
+                    <optgroup label="Accessories">
+                      {categories.accessory_categories.map((c) => (
+                        <option key={c} value={c}>{c}</option>
+                      ))}
+                    </optgroup>
+                  </>
+                ) : (
+                  <option value="" disabled>Loading categories…</option>
+                )}
               </select>
             </div>
           </div>
           <p style={{ fontSize: 11, color: "var(--text-muted)", margin: 0 }}>
-            <i className="fa-solid fa-info-circle" /> Shows all bookings with <strong>delivery (pickup) date</strong>{" "}
-            between <strong>From</strong> and <strong>To</strong> (both dates included). Dresses delivered before the
-            From date that are still out during the period appear under <strong>Not Available</strong>.
+            <i className="fa-solid fa-info-circle" /> Shows bookings with <strong>delivery (pickup) date</strong>{" "}
+            between <strong>From</strong> and <strong>To</strong> (max {data.pageSize || 50} per page). Dresses still
+            out from before the period appear under <strong>Not Available</strong>.
             {loading && <span style={{ marginLeft: 8 }}>Updating…</span>}
           </p>
         </div>
@@ -387,15 +488,20 @@ export default function BookingListClient({
       {!empty && (
         <div style={{ display: "flex", gap: 12, flexWrap: "wrap", marginBottom: 16 }}>
           <div style={{ background: "var(--surface)", border: "1.5px solid var(--border)", borderRadius: 10, padding: "10px 18px", fontSize: 13 }}>
-            <strong>{bookings.length}</strong> booking{bookings.length !== 1 ? "s" : ""} in period
+            <strong>{data.totalMain}</strong> booking{data.totalMain !== 1 ? "s" : ""} in period
+            {data.totalPagesMain > 1 && (
+              <span style={{ color: "var(--text-muted)", marginLeft: 6 }}>
+                (page {data.page}/{data.totalPagesMain})
+              </span>
+            )}
           </div>
-          {!!unavailable.length && (
+          {!!data.totalUnavailable && (
             <div style={{ background: "#7b2d2d33", border: "1.5px solid #e53e3e55", borderRadius: 10, padding: "10px 18px", fontSize: 13, color: "#fc8181" }}>
-              <strong>{unavailable.length}</strong> dress{unavailable.length !== 1 ? "es" : ""} not available
+              <strong>{data.totalUnavailable}</strong> not available
             </div>
           )}
           <div style={{ fontSize: 12, color: "var(--text-muted)", padding: "10px 0" }}>
-            Period: <strong>{data.from_date}</strong> to <strong>{data.to_date}</strong> (inclusive)
+            Period: <strong>{data.from_date}</strong> to <strong>{data.to_date}</strong>
           </div>
         </div>
       )}
@@ -409,7 +515,7 @@ export default function BookingListClient({
           {!!bookings.length && (
             <div style={{ marginBottom: 8, fontSize: 13, fontWeight: 700, color: "var(--primary)" }}>
               <i className="fa-solid fa-calendar-check" style={{ marginRight: 6 }} />
-              Bookings in Period ({bookings.length}) — oldest delivery date first
+              Bookings in Period ({bookings.length} shown) — oldest delivery first
             </div>
           )}
           {bookingsByMonth.map((entry) =>
@@ -432,6 +538,30 @@ export default function BookingListClient({
             ) : (
               <BookingCard key={entry.booking.id} booking={entry.booking} idx={entry.idx} />
             ),
+          )}
+
+          {data.totalPagesMain > 1 && (
+            <div style={{ display: "flex", gap: 8, alignItems: "center", marginBottom: 24 }}>
+              <button
+                type="button"
+                className="btn btn-outline btn-sm"
+                disabled={page <= 1 || loading}
+                onClick={() => load(page - 1)}
+              >
+                Previous
+              </button>
+              <span style={{ fontSize: 13 }}>
+                Page {page} / {data.totalPagesMain}
+              </span>
+              <button
+                type="button"
+                className="btn btn-outline btn-sm"
+                disabled={page >= data.totalPagesMain || loading}
+                onClick={() => load(page + 1)}
+              >
+                Next
+              </button>
+            </div>
           )}
 
           {!!unavailable.length && (
