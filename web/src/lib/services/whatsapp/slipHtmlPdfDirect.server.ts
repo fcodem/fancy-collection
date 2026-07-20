@@ -6,6 +6,7 @@ import {
   type SlipPdfKind,
   type SlipPdfRenderOptions,
 } from "./slipHtmlPdf.server";
+import { PREMIUM_SLIP_ROOT_ID } from "@/lib/premiumSlipHtmlValidation";
 
 /**
  * The ONLY module that imports the Puppeteer/Chromium pool. It is imported
@@ -22,9 +23,6 @@ const SLIP_HTML_MARKERS = [
   "incomplete-slip-root",
 ];
 
-const SLIP_ROOT_SELECTOR =
-  "#booking-slip-root, #delivery-slip-root, #return-slip-root, #incomplete-slip-root, .slip-page-wrap";
-
 function assertSlipHtml(html: string): void {
   if (SLIP_HTML_MARKERS.some((m) => html.includes(m))) return;
   if (html.includes('href="/login"') || /sign in/i.test(html)) {
@@ -35,16 +33,26 @@ function assertSlipHtml(html: string): void {
   throw new Error("Slip page did not render — check booking id and slip eligibility");
 }
 
+export type PremiumSlipDirectRenderResult = {
+  pdf: Buffer;
+  slipKind: SlipPdfKind;
+  templateVersion: string;
+  htmlValidated: true;
+};
+
 export async function renderSlipPdfDirect(
   kind: SlipPdfKind,
   bookingId: number,
   requestOrigin?: string,
   opts?: SlipPdfRenderOptions,
-): Promise<Buffer> {
+): Promise<PremiumSlipDirectRenderResult> {
   const url = buildSlipPageUrl(kind, bookingId, requestOrigin, opts);
+  const rootSelector = `#${PREMIUM_SLIP_ROOT_ID[kind]}`;
   return renderHtmlUrlToPdf({
     url,
-    rootSelector: SLIP_ROOT_SELECTOR,
+    rootSelector,
     validateHtml: assertSlipHtml,
+    slipKind: kind,
+    bookingId,
   });
 }

@@ -100,6 +100,7 @@ export async function POST(request: NextRequest) {
     perf.set("classificationMs", result.timings.classificationMs);
     const queriedConflicts = ![
       "CODE_NOT_FOUND",
+      "AMBIGUOUS_LEGACY_CODE",
       "MAINTENANCE",
       "INACTIVE",
     ].includes(result.status);

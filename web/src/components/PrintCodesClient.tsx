@@ -22,6 +22,30 @@ const COLS = 3;
 const ROWS = 8;
 const LABELS_PER_PAGE = COLS * ROWS; // 24
 
+function activeScanCode(item: InventoryItem, format: "QR_CODE" | "CODE_128") {
+  return item.scanCodes.find((code) => code.format === format);
+}
+
+function isItemPrintReady(item: InventoryItem, format: PrintFormat): boolean {
+  if (format === "QR_CODE") return Boolean(activeScanCode(item, "QR_CODE"));
+  if (format === "CODE_128") return Boolean(activeScanCode(item, "CODE_128"));
+  return Boolean(activeScanCode(item, "QR_CODE") && activeScanCode(item, "CODE_128"));
+}
+
+function missingPrintFormats(
+  item: InventoryItem,
+  format: PrintFormat,
+): Array<"QR_CODE" | "CODE_128"> {
+  const missing: Array<"QR_CODE" | "CODE_128"> = [];
+  if ((format === "QR_CODE" || format === "BOTH") && !activeScanCode(item, "QR_CODE")) {
+    missing.push("QR_CODE");
+  }
+  if ((format === "CODE_128" || format === "BOTH") && !activeScanCode(item, "CODE_128")) {
+    missing.push("CODE_128");
+  }
+  return missing;
+}
+
 export default function PrintCodesClient() {
   const [items, setItems] = useState<InventoryItem[]>([]);
   const [loading, setLoading] = useState(true);
@@ -30,6 +54,7 @@ export default function PrintCodesClient() {
   const [startCol, setStartCol] = useState(1);
   const [startRow, setStartRow] = useState(1);
   const [printFormat, setPrintFormat] = useState<PrintFormat>("QR_CODE");
+  const [repairingId, setRepairingId] = useState<number | null>(null);
 
   const fetchItems = useCallback(async () => {
     setLoading(true);
@@ -64,6 +89,30 @@ export default function PrintCodesClient() {
   };
 
   const selectedItems = items.filter((i) => selected.has(i.id));
+  const printableSelected = selectedItems.filter((item) => isItemPrintReady(item, printFormat));
+  const blockedPrintCount = selectedItems.length - printableSelected.length;
+
+  const generateMissingCodes = async (itemId: number, formats: Array<"QR_CODE" | "CODE_128">) => {
+    setRepairingId(itemId);
+    try {
+      for (const labelFormat of formats) {
+        const response = await fetch(`/api/inventory/${itemId}/scan-codes`, {
+          method: "POST",
+          headers: { "content-type": "application/json" },
+          body: JSON.stringify({ action: "generate", labelFormat }),
+        });
+        if (!response.ok) {
+          const data = (await response.json().catch(() => ({}))) as { error?: string };
+          throw new Error(data.error || "Could not generate scan code.");
+        }
+      }
+      await fetchItems();
+    } catch (error) {
+      alert(error instanceof Error ? error.message : "Could not generate scan code.");
+    } finally {
+      setRepairingId(null);
+    }
+  };
 
   // Build pages: each page has 24 label slots (3x8).
   // First page may have empty slots if starting from a specific position.
@@ -77,7 +126,7 @@ export default function PrintCodesClient() {
       currentPage.push(null);
     }
 
-    for (const item of selectedItems) {
+    for (const item of printableSelected) {
       if (currentPage.length >= LABELS_PER_PAGE) {
         pages.push(currentPage);
         currentPage = [];
@@ -135,15 +184,23 @@ export default function PrintCodesClient() {
             height: 37mm;
             overflow: hidden;
             display: flex;
+            flex-direction: column;
+            padding: 1.5mm;
+            box-sizing: border-box;
+            gap: 0.5mm;
+          }
+          .label-cell.label-qr-only {
             flex-direction: row;
             align-items: stretch;
             justify-content: space-between;
-            padding: 1.5mm;
-            box-sizing: border-box;
             gap: 1mm;
           }
+          .label-cell.label-barcode-only,
+          .label-cell.label-both {
+            flex-direction: column;
+          }
           .label-left {
-            flex: 1 1 50%;
+            flex: 1 1 auto;
             min-width: 0;
             display: flex;
             flex-direction: column;
@@ -151,19 +208,48 @@ export default function PrintCodesClient() {
             align-items: flex-start;
             text-align: left;
           }
-          .label-right {
-            flex: 0 0 32mm;
+          .label-qr-only .label-left {
+            flex: 1 1 50%;
+          }
+          .label-code-block {
+            flex: 0 0 auto;
             display: flex;
+            flex-direction: column;
             align-items: center;
             justify-content: center;
+            min-width: 0;
+            max-width: 100%;
           }
-          .label-cell canvas {
-            width: 30mm !important;
-            height: 30mm !important;
+          .label-qr-only .label-code-block {
+            flex: 0 0 32mm;
+          }
+          .label-human-code {
+            font-size: 5.5pt;
+            font-family: "Courier New", monospace;
+            letter-spacing: 0.2pt;
+            margin-top: 0.4mm;
+            max-width: 100%;
+            overflow: hidden;
+            text-overflow: ellipsis;
+            white-space: nowrap;
+            text-align: center;
+          }
+          .label-cell canvas.label-qr {
+            width: 22mm !important;
+            height: 22mm !important;
+          }
+          .label-both .label-cell canvas.label-qr {
+            width: 16mm !important;
+            height: 16mm !important;
           }
           .label-cell svg.barcode-svg {
-            width: 62mm !important;
-            height: 10mm !important;
+            width: 100% !important;
+            max-width: 66mm !important;
+            height: auto !important;
+            max-height: 10mm !important;
+          }
+          .label-both svg.barcode-svg {
+            max-height: 7mm !important;
           }
           .label-text {
             font-size: 7pt;
@@ -270,12 +356,18 @@ export default function PrintCodesClient() {
               </button>
               <button
                 onClick={handlePrint}
-                disabled={selected.size === 0}
+                disabled={printableSelected.length === 0 || blockedPrintCount > 0}
                 className="bg-green-600 text-white px-4 py-2 rounded text-sm hover:bg-green-700 disabled:opacity-50 disabled:cursor-not-allowed"
               >
-                🖨️ Print Selected ({selected.size})
+                🖨️ Print Selected ({printableSelected.length})
               </button>
             </div>
+            {blockedPrintCount > 0 ? (
+              <p className="text-xs text-amber-700 mt-2">
+                {blockedPrintCount} selected item(s) are missing registered QR/barcode mappings.
+                Generate codes before printing — unregistered SKU fallbacks are not printed.
+              </p>
+            ) : null}
             <p className="text-xs text-gray-400 mt-2">
               Skipping {(startRow - 1) * COLS + (startCol - 1)} sticker(s) on the first sheet.
               Total pages needed: {pages.length}
@@ -289,35 +381,53 @@ export default function PrintCodesClient() {
             <p className="text-gray-500">No inventory items found.</p>
           ) : (
             <div className="grid grid-cols-1 sm:grid-cols-2 md:grid-cols-3 lg:grid-cols-4 gap-3">
-              {items.map((item) => (
-                <label
-                  key={item.id}
-                  className={`flex items-center gap-3 p-3 border rounded cursor-pointer transition-colors ${
-                    selected.has(item.id)
-                      ? "bg-blue-50 border-blue-400"
-                      : "bg-white border-gray-200 hover:border-gray-300"
-                  }`}
-                >
-                  <input
-                    type="checkbox"
-                    checked={selected.has(item.id)}
-                    onChange={() => toggleSelect(item.id)}
-                    className="w-4 h-4 text-blue-600"
-                  />
-                  <div className="min-w-0 flex-1">
-                    <p className="text-sm font-medium truncate">{item.name}</p>
-                    <p className="text-xs text-gray-500">
-                      {item.sku} &middot; {item.category}
-                      {item.size && <span> &middot; {item.size}</span>}
-                      {item.scanCodes.length > 0 && (
-                        <span className="ml-1 text-green-600">
-                          ({item.scanCodes.length} code{item.scanCodes.length > 1 ? "s" : ""})
-                        </span>
+              {items.map((item) => {
+                const missing = missingPrintFormats(item, printFormat);
+                return (
+                  <div
+                    key={item.id}
+                    className={`flex items-start gap-3 p-3 border rounded transition-colors ${
+                      selected.has(item.id)
+                        ? "bg-blue-50 border-blue-400"
+                        : "bg-white border-gray-200 hover:border-gray-300"
+                    }`}
+                  >
+                    <input
+                      type="checkbox"
+                      checked={selected.has(item.id)}
+                      onChange={() => toggleSelect(item.id)}
+                      className="w-4 h-4 text-blue-600 mt-1"
+                    />
+                    <div className="min-w-0 flex-1">
+                      <p className="text-sm font-medium truncate">{item.name}</p>
+                      <p className="text-xs text-gray-500">
+                        {item.sku} &middot; {item.category}
+                        {item.size && <span> &middot; {item.size}</span>}
+                      </p>
+                      {missing.length > 0 ? (
+                        <div className="mt-2 space-y-1">
+                          <p className="text-xs text-amber-700">
+                            QR code missing
+                            {missing.includes("CODE_128") ? " / barcode missing" : ""}
+                          </p>
+                          <button
+                            type="button"
+                            className="text-xs bg-amber-100 text-amber-900 px-2 py-1 rounded hover:bg-amber-200 disabled:opacity-50"
+                            disabled={repairingId === item.id}
+                            onClick={() => void generateMissingCodes(item.id, missing)}
+                          >
+                            {repairingId === item.id ? "Generating…" : "Generate code"}
+                          </button>
+                        </div>
+                      ) : (
+                        <p className="text-xs text-green-700 mt-1">
+                          Registered for {printFormat === "BOTH" ? "QR + barcode" : printFormat}
+                        </p>
                       )}
-                    </p>
+                    </div>
                   </div>
-                </label>
-              ))}
+                );
+              })}
             </div>
           )}
 
@@ -375,15 +485,21 @@ function StickerLabel({ item, format }: { item: InventoryItem; format: PrintForm
   const qrRef = useRef<HTMLCanvasElement>(null);
   const barcodeRef = useRef<SVGSVGElement>(null);
 
-  const qrCode = item.scanCodes.find((c) => c.format === "QR_CODE");
-  const barcode = item.scanCodes.find((c) => c.format === "CODE_128");
-  const qrValue = qrCode?.code || item.sku;
-  const barcodeValue = barcode?.code || qrCode?.code || item.sku;
+  const qrCode = activeScanCode(item, "QR_CODE");
+  const barcode = activeScanCode(item, "CODE_128");
+  const qrValue = qrCode?.code;
+  const barcodeValue = barcode?.code;
+  const layoutClass =
+    format === "QR_CODE"
+      ? "label-qr-only"
+      : format === "CODE_128"
+        ? "label-barcode-only"
+        : "label-both";
 
   useEffect(() => {
-    if ((format === "QR_CODE" || format === "BOTH") && qrRef.current) {
+    if ((format === "QR_CODE" || format === "BOTH") && qrRef.current && qrValue) {
       void QRCode.toCanvas(qrRef.current, qrValue, {
-        width: 200,
+        width: format === "BOTH" ? 120 : 160,
         margin: 1,
         errorCorrectionLevel: "H",
       });
@@ -391,14 +507,14 @@ function StickerLabel({ item, format }: { item: InventoryItem; format: PrintForm
   }, [qrValue, format]);
 
   useEffect(() => {
-    if ((format === "CODE_128" || format === "BOTH") && barcodeRef.current) {
+    if ((format === "CODE_128" || format === "BOTH") && barcodeRef.current && barcodeValue) {
       try {
         JsBarcode(barcodeRef.current, barcodeValue, {
           format: "CODE128",
-          width: 1.2,
-          height: 32,
+          width: format === "BOTH" ? 1 : 1.4,
+          height: format === "BOTH" ? 24 : 32,
           displayValue: false,
-          margin: 0,
+          margin: 4,
         });
       } catch {
         /* invalid barcode value */
@@ -406,22 +522,48 @@ function StickerLabel({ item, format }: { item: InventoryItem; format: PrintForm
     }
   }, [barcodeValue, format]);
 
+  if (!isItemPrintReady(item, format)) {
+    return (
+      <div
+        className="label-row"
+        style={{
+          display: "flex",
+          width: "100%",
+          height: "100%",
+          alignItems: "center",
+          justifyContent: "center",
+          fontSize: 10,
+          color: "#b54708",
+        }}
+      >
+        Missing registered code
+      </div>
+    );
+  }
+
   return (
-    <div className="label-row" style={{ display: "flex", width: "100%", height: "100%", alignItems: "stretch" }}>
+    <div className={`label-row ${layoutClass}`} style={{ display: "flex", width: "100%", height: "100%" }}>
       <div className="label-left">
         <div className="label-text">
           <div className="label-brand">{BRAND_PRINT_LABEL}</div>
           <div className="label-name">{item.name}</div>
           {item.size ? <div className="label-size">Size: {item.size}</div> : null}
+          {item.sku ? <div className="label-size">SKU: {item.sku}</div> : null}
         </div>
       </div>
-      <div className="label-right">
-        {(format === "QR_CODE" || format === "BOTH") && (
-          <canvas ref={qrRef} style={{ width: "30mm", height: "30mm" }} />
-        )}
-        {(format === "CODE_128" || format === "BOTH") && (
-          <svg ref={barcodeRef} className="barcode-svg" />
-        )}
+      <div className="label-code-block">
+        {(format === "QR_CODE" || format === "BOTH") && qrValue ? (
+          <>
+            <canvas ref={qrRef} className="label-qr" />
+            <div className="label-human-code">{qrValue}</div>
+          </>
+        ) : null}
+        {(format === "CODE_128" || format === "BOTH") && barcodeValue ? (
+          <>
+            <svg ref={barcodeRef} className="barcode-svg" />
+            <div className="label-human-code">{barcodeValue}</div>
+          </>
+        ) : null}
       </div>
     </div>
   );

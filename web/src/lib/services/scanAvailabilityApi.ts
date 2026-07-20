@@ -172,8 +172,8 @@ export function createBoundedTtlCache<T>(opts: { ttlMs: number; maxEntries: numb
 export function scanAvailabilityHttpStatus(
   status: ScannedDressAvailabilityStatus,
 ): number {
-  // A booked dress is a successful answer, not an HTTP error.
-  return status === "CODE_NOT_FOUND" ? 404 : 200;
+  // Domain outcomes (not found / ambiguous legacy) are successful HTTP reads.
+  return 200;
 }
 
 function serializeRecord(record: ScannedDressBookingRecord) {
@@ -197,7 +197,9 @@ export function serializeScanAvailability(
   timing: Record<string, number | string | boolean | undefined>,
 ) {
   return {
-    ok: result.status !== "CODE_NOT_FOUND",
+    ok:
+      result.status !== "CODE_NOT_FOUND" &&
+      result.status !== "AMBIGUOUS_LEGACY_CODE",
     status: result.status,
     dress: result.dress
       ? {
@@ -214,7 +216,10 @@ export function serializeScanAvailability(
     blockingRecords: result.blockingRecords.map(serializeRecord),
     warningRecords: result.warningRecords.map(serializeRecord),
     ...(result.status === "CODE_NOT_FOUND"
-      ? { error: "No dress is linked to this QR/barcode." }
+      ? { error: "QR/barcode is not linked to inventory." }
+      : {}),
+    ...(result.status === "AMBIGUOUS_LEGACY_CODE"
+      ? { error: "Legacy code matches more than one inventory SKU." }
       : {}),
     timing,
   };

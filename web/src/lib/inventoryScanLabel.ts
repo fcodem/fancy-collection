@@ -23,7 +23,9 @@ export function buildInventoryLabelDocument(data: InventoryLabelData): string {
   const { widthMm, heightMm } = inventoryLabelDimensions(data.labelSize);
   const compact = data.labelSize === "compact";
   const labelName = escapeHtml(data.itemName || "Inventory item");
+  const skuLine = data.sku ? `SKU: ${escapeHtml(data.sku)}` : "";
   const sizeLine = data.size ? `Size: ${escapeHtml(data.size)}` : "";
+  const codeLine = escapeHtml(data.code);
 
   return `<!doctype html>
     <html><head><title>Dress label</title><style>
@@ -35,8 +37,8 @@ export function buildInventoryLabelDocument(data: InventoryLabelData): string {
       justify-content: space-between; gap: 1mm; }
     .left { flex: 1 1 50%; min-width: 0; display: flex; flex-direction: column;
       justify-content: center; align-items: flex-start; text-align: left; }
-    .right { flex: 0 0 ${compact ? "14mm" : "30mm"}; display: flex; align-items: center;
-      justify-content: center; }
+    .right { flex: 0 0 ${compact ? "14mm" : "30mm"}; display: flex; flex-direction: column;
+      align-items: center; justify-content: center; gap: 0.4mm; }
     .brand { font-size: ${compact ? "5pt" : "5.5pt"}; font-weight: 800;
       color: #7B1F45; text-transform: uppercase; letter-spacing: 0.3pt;
       line-height: 1.1; margin-bottom: 0.6mm; }
@@ -44,6 +46,8 @@ export function buildInventoryLabelDocument(data: InventoryLabelData): string {
       line-height: 1.1; display: -webkit-box; -webkit-line-clamp: 2;
       -webkit-box-orient: vertical; overflow: hidden; max-width: 100%; }
     .size { font-size: ${compact ? "5.5pt" : "6.5pt"}; margin-top: 0.6mm; }
+    .code { font-size: ${compact ? "5pt" : "5.5pt"}; margin-top: 0.6mm;
+      font-family: "Courier New", monospace; word-break: break-all; }
     .qr { width: ${compact ? "13mm" : "28mm"};
       height: ${compact ? "13mm" : "28mm"}; image-rendering: pixelated; }
     svg { width: ${compact ? "22mm" : "28mm"};
@@ -54,9 +58,13 @@ export function buildInventoryLabelDocument(data: InventoryLabelData): string {
       <div class="left">
         <div class="brand">${escapeHtml(BRAND_PRINT_LABEL)}</div>
         <div class="item">${labelName}</div>
+        ${skuLine ? `<div class="size">${skuLine}</div>` : ""}
         ${sizeLine ? `<div class="size">${sizeLine}</div>` : ""}
       </div>
-      <div class="right">${data.symbolHtml}</div>
+      <div class="right">
+        ${data.symbolHtml}
+        <div class="code">${codeLine}</div>
+      </div>
     </div><script>window.onload=()=>{window.focus();window.print();}</script>
     </body></html>`;
 }

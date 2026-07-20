@@ -1,4 +1,4 @@
-export const SCAN_DUPLICATE_LOCK_MS = 1_500;
+export const SCAN_DUPLICATE_LOCK_MS = 2_500;
 
 export type ScanWindowInput = {
   deliveryDate: string;

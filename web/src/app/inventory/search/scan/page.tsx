@@ -1,5 +1,6 @@
 import Link from "next/link";
 import DressAvailabilityScanner from "@/components/DressAvailabilityScanner";
+import { getCurrentUserReadOnly, isOwner } from "@/lib/auth";
 
 export default async function ScanDressAvailabilityPage({
   searchParams,
@@ -8,6 +9,7 @@ export default async function ScanDressAvailabilityPage({
 }) {
   const { mode } = await searchParams;
   const scanAvailabilityMode = mode === "scan-availability";
+  const user = await getCurrentUserReadOnly();
 
   return (
     <div
@@ -25,7 +27,7 @@ export default async function ScanDressAvailabilityPage({
           <i className="fa-solid fa-qrcode" /> Scan Dress Availability
         </span>
       </div>
-      <DressAvailabilityScanner />
+      <DressAvailabilityScanner canManageScanCodes={user ? isOwner(user) : false} />
     </div>
   );
 }

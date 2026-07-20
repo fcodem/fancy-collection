@@ -2,6 +2,10 @@ import "server-only";
 
 import { getPdfRenderSecret } from "@/lib/slipPdfAccess";
 import { buildSlipRenderAuthHeaders } from "@/lib/slipRenderAuth";
+import {
+  assertPremiumSlipPdf,
+  assertPremiumSlipRenderHeaders,
+} from "@/lib/premiumSlip";
 
 export type SlipPdfKind = "booking" | "delivery" | "return" | "incomplete";
 
@@ -118,8 +122,12 @@ async function renderSlipViaEndpoint(
     throw new Error(message);
   }
 
+  assertPremiumSlipRenderHeaders(res.headers, kind);
+
   const ab = await res.arrayBuffer();
-  return Buffer.from(ab);
+  const pdf = Buffer.from(ab);
+  assertPremiumSlipPdf(pdf, kind);
+  return pdf;
 }
 
 export async function generateBookingSlipPdf(

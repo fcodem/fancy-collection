@@ -12,6 +12,24 @@ import {
 } from "./automatedMessages";
 import { isWhatsAppReceiptJobType, isWhatsAppReceiptsDisabled } from "./metaApi";
 import { mergeSendMetaIntoPayload } from "./jobSendMeta";
+import {
+  formatJobFailedReason,
+  isPremiumSlipRenderFailureMessage,
+  isProviderOutcomeUnknownReason,
+  providerOutcomeForFailure,
+  canSafelyRetryWhatsAppJob,
+  isWhatsAppRenderFailureReason,
+  sendStageForFailure,
+} from "./whatsappProviderOutcome";
+import {
+  listClassifiedWhatsAppRenderFailures,
+  type SafeRenderRetrySummary,
+} from "./whatsappJobClassification";
+import { PREMIUM_SLIP_RENDER_FAILED } from "@/lib/premiumSlip";
+import {
+  markWhatsAppProviderSendConfirmed,
+} from "./whatsappSendLedger";
+import type { WhatsAppJobSendContext } from "./whatsappJobSendContext";
 
 export type WhatsAppJobType =
   | "postponement_notice"
@@ -591,14 +609,18 @@ export async function scheduleIncompleteSlip(
   );
 }
 
-async function executeJob(job: {
-  id: number;
-  jobType: string;
-  bookingId: number | null;
-  payload: unknown;
-  attempts: number;
-  maxAttempts: number;
-}): Promise<{ phone?: string; messageId?: string }> {
+async function executeJob(
+  job: {
+    id: number;
+    jobType: string;
+    bookingId: number | null;
+    payload: unknown;
+    attempts: number;
+    maxAttempts: number;
+    idempotencyKey: string | null;
+  },
+  sendContext: WhatsAppJobSendContext,
+): Promise<{ phone?: string; messageId?: string }> {
   if (!job.bookingId) throw new Error("Job missing bookingId");
 
   const payload = (job.payload ?? {}) as JobPayload;
@@ -613,11 +635,12 @@ async function executeJob(job: {
       const result = await sendBookingBillWhatsApp(
         job.bookingId,
         typeof payload.requestOrigin === "string" ? payload.requestOrigin : undefined,
+        sendContext,
       );
       return outcomeFromSend(result, "Booking bill send failed");
     }
     case "postponement_held": {
-      const result = await sendPostponementHeldWhatsApp(job.bookingId);
+      const result = await sendPostponementHeldWhatsApp(job.bookingId, sendContext);
       return outcomeFromSend(result, "Postponement held notice failed");
     }
     case "booking_reminder":
@@ -629,13 +652,14 @@ async function executeJob(job: {
         newDeliveryDate: String(payload.newDeliveryDate || ""),
         newReturnDate: String(payload.newReturnDate || ""),
         reason: typeof payload.reason === "string" ? payload.reason : undefined,
-      });
+      }, sendContext);
       return outcomeFromSend(result, "Postponement notice failed");
     }
     case "return_receipt": {
       const result = await sendReturnReceiptWhatsApp(
         job.bookingId,
         typeof payload.requestOrigin === "string" ? payload.requestOrigin : undefined,
+        sendContext,
       );
       return outcomeFromSend(result, "Return receipt send failed");
     }
@@ -653,6 +677,7 @@ async function executeJob(job: {
           bookingItemIds,
         },
         typeof payload.requestOrigin === "string" ? payload.requestOrigin : undefined,
+        sendContext,
       );
       return outcomeFromSend(result, "Delivery slip send failed");
     }
@@ -670,6 +695,7 @@ async function executeJob(job: {
           bookingItemIds,
         },
         typeof payload.requestOrigin === "string" ? payload.requestOrigin : undefined,
+        sendContext,
       );
       return outcomeFromSend(result, "Return slip send failed");
     }
@@ -687,6 +713,7 @@ async function executeJob(job: {
           bookingItemIds,
         },
         typeof payload.requestOrigin === "string" ? payload.requestOrigin : undefined,
+        sendContext,
       );
       return outcomeFromSend(result, "Incomplete slip send failed");
     }
@@ -711,9 +738,14 @@ export async function processWhatsAppJobQueue(
   }> = [];
 
   for (const job of jobs) {
-    try {
-      const idempotencyKey = job.idempotencyKey;
+    const idempotencyKey = job.idempotencyKey;
+    const sendContext: WhatsAppJobSendContext = {
+      jobId: job.id,
+      idempotencyKey,
+      bookingId: job.bookingId,
+    };
 
+    try {
       if (idempotencyKey) {
         try {
           const ledger = await prisma.whatsAppSendLedger.findUnique({
@@ -729,48 +761,27 @@ export async function processWhatsAppJobQueue(
                 claimedAt: null,
                 leaseExpiresAt: null,
                 claimedBy: null,
+                payload: mergeSendMetaIntoPayload(job.payload, {
+                  messageId: ledger.providerMessageId,
+                }) as Prisma.InputJsonValue,
               },
             });
             results.push({ jobId: job.id, jobType: job.jobType, ok: true });
             continue;
           }
-          await prisma.whatsAppSendLedger.upsert({
-            where: { idempotencyKey },
-            create: {
-              idempotencyKey,
-              jobId: job.id,
-              bookingId: job.bookingId,
-              sendStartedAt: new Date(),
-            },
-            update: {
-              jobId: job.id,
-              // Do not refresh sendStartedAt — preserves first-send fence for unknown outcomes.
-            },
-          });
         } catch (ledgerErr) {
           const msg = ledgerErr instanceof Error ? ledgerErr.message : "";
           if (!/does not exist|P2021|Unknown arg/i.test(msg)) throw ledgerErr;
         }
       }
 
-      const sendMeta = await withJobTimeout(executeJob(job), job.id, job.jobType);
+      const sendMeta = await withJobTimeout(executeJob(job, sendContext), job.id, job.jobType);
 
       if (idempotencyKey && sendMeta.messageId) {
         try {
-          await prisma.whatsAppSendLedger.upsert({
-            where: { idempotencyKey },
-            create: {
-              idempotencyKey,
-              jobId: job.id,
-              bookingId: job.bookingId,
-              providerMessageId: sendMeta.messageId,
-              sendStartedAt: new Date(),
-              sendConfirmedAt: new Date(),
-            },
-            update: {
-              providerMessageId: sendMeta.messageId,
-              sendConfirmedAt: new Date(),
-            },
+          await markWhatsAppProviderSendConfirmed({
+            idempotencyKey,
+            providerMessageId: sendMeta.messageId,
           });
         } catch {
           /* ledger optional until migration */
@@ -781,7 +792,7 @@ export async function processWhatsAppJobQueue(
         where: { id: job.id },
         data: {
           status: "done",
-          completedAt: new Date(),
+          ...(sendMeta.messageId ? { completedAt: new Date() } : {}),
           failedReason: null,
           claimedAt: null,
           leaseExpiresAt: null,
@@ -789,19 +800,23 @@ export async function processWhatsAppJobQueue(
           payload: mergeSendMetaIntoPayload(job.payload, {
             phone: sendMeta.phone,
             messageId: sendMeta.messageId,
+            sendStage: "PROVIDER_CONFIRMED",
           }) as Prisma.InputJsonValue,
         },
       });
       results.push({ jobId: job.id, jobType: job.jobType, ok: true });
     } catch (e) {
       const error = e instanceof Error ? e.message : "Job failed";
-      let providerUnknown = false;
+      let ledger: {
+        sendStartedAt?: Date | null;
+        sendConfirmedAt?: Date | null;
+        providerMessageId?: string | null;
+      } | null = null;
 
-      // Any failure after sendStartedAt without confirmation must not auto-resend.
-      if (job.idempotencyKey) {
+      if (idempotencyKey) {
         try {
-          const ledger = await prisma.whatsAppSendLedger.findUnique({
-            where: { idempotencyKey: job.idempotencyKey },
+          ledger = await prisma.whatsAppSendLedger.findUnique({
+            where: { idempotencyKey },
           });
           if (ledger?.sendConfirmedAt && ledger.providerMessageId) {
             await prisma.whatsAppJob.update({
@@ -813,32 +828,39 @@ export async function processWhatsAppJobQueue(
                 claimedAt: null,
                 leaseExpiresAt: null,
                 claimedBy: null,
+                payload: mergeSendMetaIntoPayload(job.payload, {
+                  messageId: ledger.providerMessageId,
+                }) as Prisma.InputJsonValue,
               },
             });
             results.push({ jobId: job.id, jobType: job.jobType, ok: true });
             continue;
-          }
-          if (ledger?.sendStartedAt && !ledger.sendConfirmedAt) {
-            providerUnknown = true;
           }
         } catch {
           /* ledger optional */
         }
       }
 
+      const providerOutcome = providerOutcomeForFailure(error, ledger);
+      const renderFailure = isPremiumSlipRenderFailureMessage(error);
+      const providerUnknown = providerOutcome === "UNKNOWN";
       const attempts = job.attempts;
-      const failed = providerUnknown || attempts >= job.maxAttempts;
+      const terminal = providerUnknown || attempts >= job.maxAttempts;
+
       await prisma.whatsAppJob.update({
         where: { id: job.id },
         data: {
-          status: failed ? "failed" : "pending",
-          failedReason: providerUnknown
-            ? `PROVIDER_OUTCOME_UNKNOWN: ${error}`.slice(0, 500)
-            : error,
+          status: terminal ? "failed" : "pending",
+          failedReason: formatJobFailedReason(error, ledger),
+          completedAt: null,
           claimedAt: null,
           leaseExpiresAt: null,
           claimedBy: null,
-          ...(failed ? { completedAt: new Date() } : {}),
+          payload: mergeSendMetaIntoPayload(job.payload, {
+            providerOutcome,
+            sendStage: sendStageForFailure(error, ledger),
+            ...(renderFailure ? { errorCode: PREMIUM_SLIP_RENDER_FAILED } : {}),
+          }) as Prisma.InputJsonValue,
         },
       });
       results.push({ jobId: job.id, jobType: job.jobType, ok: false, error });
@@ -853,22 +875,142 @@ export async function processWhatsAppJobQueue(
   };
 }
 
-export async function retryWhatsAppJob(jobId: number) {
+export type RetryWhatsAppJobOptions = {
+  /** Reset job attempts so exhausted render failures can run again. */
+  resetAttempts?: boolean;
+  /** Count one owner-initiated safe render retry (max 1). */
+  incrementSafeRenderRetry?: boolean;
+};
+
+/** Owner-guarded retry that inspects send stage and ledger before requeueing. */
+export async function retryWhatsAppJobSafely(
+  jobId: number,
+  ownerId: number,
+  options?: RetryWhatsAppJobOptions,
+) {
   const job = await prisma.whatsAppJob.findUnique({ where: { id: jobId } });
   if (!job) throw new Error("Job not found");
-  if (job.status !== "failed" && job.status !== "processing") {
-    throw new Error("Only failed or stuck jobs can be retried");
+
+  const payload = (job.payload ?? {}) as Record<string, unknown>;
+  const sendStage = typeof payload.sendStage === "string" ? payload.sendStage : null;
+  if (sendStage === "PROVIDER_OUTCOME_UNKNOWN" || isProviderOutcomeUnknownReason(job.failedReason)) {
+    throw new Error(
+      "Provider outcome unknown — reconcile using Mark as delivered / Mark as not delivered before resending.",
+    );
   }
 
-  return prisma.whatsAppJob.update({    where: { id: jobId },
+  let ledger: { sendConfirmedAt?: Date | null; providerMessageId?: string | null } | null = null;
+  const idempotencyKey = typeof payload.idempotencyKey === "string" ? payload.idempotencyKey : null;
+  if (idempotencyKey) {
+    try {
+      ledger = await prisma.whatsAppSendLedger.findUnique({ where: { idempotencyKey } });
+    } catch {
+      /* ledger optional */
+    }
+  }
+  if (ledger?.sendConfirmedAt || ledger?.providerMessageId) {
+    throw new Error("Provider send was confirmed — will not resend.");
+  }
+
+  const safety = canSafelyRetryWhatsAppJob({
+    status: job.status,
+    failedReason: job.failedReason,
+    payload: job.payload,
+    allowSafeRenderRetry: options?.incrementSafeRenderRetry,
+  });
+  if (!safety.ok) throw new Error(safety.reason);
+
+  const retried = await retryWhatsAppJob(jobId, options);
+  await prisma.whatsAppJob.update({
+    where: { id: jobId },
+    data: {
+      payload: mergeSendMetaIntoPayload(retried.payload, {
+        lastRetriedBy: ownerId,
+        lastRetriedAt: new Date().toISOString(),
+      }) as Prisma.InputJsonValue,
+    },
+  });
+  return prisma.whatsAppJob.findUniqueOrThrow({ where: { id: jobId } });
+}
+
+export async function retryWhatsAppJob(jobId: number, options?: RetryWhatsAppJobOptions) {
+  const job = await prisma.whatsAppJob.findUnique({ where: { id: jobId } });
+  if (!job) throw new Error("Job not found");
+
+  const safety = canSafelyRetryWhatsAppJob({
+    status: job.status,
+    failedReason: job.failedReason,
+    payload: job.payload,
+    allowSafeRenderRetry: options?.incrementSafeRenderRetry,
+  });
+  if (!safety.ok) throw new Error(safety.reason);
+
+  const payload = (job.payload ?? {}) as Record<string, unknown>;
+  const safeRenderRetryCount =
+    typeof payload.safeRenderRetryCount === "number" ? payload.safeRenderRetryCount : 0;
+  const nextPayload = {
+    ...payload,
+    ...(options?.incrementSafeRenderRetry
+      ? { safeRenderRetryCount: safeRenderRetryCount + 1 }
+      : {}),
+  };
+
+  const updated = await prisma.whatsAppJob.updateMany({
+    where: {
+      id: jobId,
+      status: { in: ["failed", "processing"] },
+    },
     data: {
       status: "pending",
       scheduledAt: new Date(),
       failedReason: null,
       completedAt: null,
+      claimedAt: null,
+      leaseExpiresAt: null,
+      claimedBy: null,
+      ...(options?.resetAttempts ? { attempts: 0 } : {}),
+      payload: nextPayload as Prisma.InputJsonValue,
     },
   });
+  if (updated.count !== 1) {
+    throw new Error("Job is already queued or cannot be retried");
+  }
+
+  return prisma.whatsAppJob.findUniqueOrThrow({ where: { id: jobId } });
 }
+
+/** Owner bulk action: requeue render/infrastructure failures that never reached Meta. */
+export async function retrySafeRenderFailureJobs(options?: {
+  dryRun?: boolean;
+  limit?: number;
+}): Promise<SafeRenderRetrySummary> {
+  const classified = await listClassifiedWhatsAppRenderFailures(options?.limit ?? 500);
+  const requeued: SafeRenderRetrySummary["requeued"] = [];
+  const withheld: SafeRenderRetrySummary["withheld"] = [];
+
+  for (const row of classified) {
+    if (!row.safeToRequeue) {
+      withheld.push(row);
+      continue;
+    }
+    if (!options?.dryRun) {
+      await retryWhatsAppJob(row.jobId, {
+        resetAttempts: true,
+        incrementSafeRenderRetry: true,
+      });
+    }
+    requeued.push(row);
+  }
+
+  return {
+    dryRun: Boolean(options?.dryRun),
+    scanned: classified.length,
+    requeued,
+    withheld,
+  };
+}
+
+export { getWhatsAppRenderFailureReport } from "./whatsappJobClassification";
 
 export async function resetLateReminderOnDateChange(bookingId: number) {
   await cancelPendingJobs(bookingId, "booking_reminder");

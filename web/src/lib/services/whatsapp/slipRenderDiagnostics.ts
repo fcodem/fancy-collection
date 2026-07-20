@@ -4,11 +4,20 @@ export type SlipRenderDiagnostic = {
   kind: SlipPdfKind;
   bookingId: number;
   attempt: number;
-  tmpBytesBefore: number;
-  tmpBytesAfter: number;
+  freeTmpBefore: number | null;
+  freeTmpAfter: number | null;
+  /** @deprecated use freeTmpBefore */
+  tmpBytesBefore?: number;
+  /** @deprecated use freeTmpAfter */
+  tmpBytesAfter?: number;
   durationMs: number;
   ok: boolean;
   errorCode?: string;
+  executableReused?: boolean;
+  extractionMs?: number;
+  browserLaunchMs?: number;
+  pageLoadMs?: number;
+  pdfMs?: number;
 };
 
 /** Safe diagnostics — no customer PII. */
@@ -18,10 +27,15 @@ export function logSlipRenderDiagnostic(d: SlipRenderDiagnostic): void {
     kind: d.kind,
     bookingId: d.bookingId,
     attempt: d.attempt,
-    tmpBytesBefore: d.tmpBytesBefore,
-    tmpBytesAfter: d.tmpBytesAfter,
+    freeTmpBefore: d.freeTmpBefore ?? d.tmpBytesBefore ?? null,
+    freeTmpAfter: d.freeTmpAfter ?? d.tmpBytesAfter ?? null,
     durationMs: d.durationMs,
     ok: d.ok,
+    ...(d.executableReused != null ? { executableReused: d.executableReused } : {}),
+    ...(d.extractionMs != null ? { extractionMs: d.extractionMs } : {}),
+    ...(d.browserLaunchMs != null ? { browserLaunchMs: d.browserLaunchMs } : {}),
+    ...(d.pageLoadMs != null ? { pageLoadMs: d.pageLoadMs } : {}),
+    ...(d.pdfMs != null ? { pdfMs: d.pdfMs } : {}),
     ...(d.errorCode ? { errorCode: d.errorCode } : {}),
   };
   if (d.ok) {

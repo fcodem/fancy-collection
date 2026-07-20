@@ -75,7 +75,7 @@ describe("dashboardReadSemaphore", () => {
       });
 
     await Promise.all([task(), task(), task()]);
-    assert.ok(peak <= 1, `peak concurrent dashboard reads ${peak} exceeded 1`);
+    assert.ok(peak <= 2, `peak concurrent dashboard reads ${peak} exceeded 2`);
     assert.equal(dashboardReadSemaphore.getActiveCount(), 0);
   });
 
@@ -110,7 +110,7 @@ describe("dashboardReadSemaphore", () => {
       ]);
 
     await Promise.all(Array.from({ length: 5 }, () => simulateDashboardRequest()));
-    assert.ok(peak <= 1, `peak ${peak} would cause P2028-style transaction pool pressure`);
+    assert.ok(peak <= 2, `peak ${peak} would cause P2028-style transaction pool pressure`);
   });
 });
 

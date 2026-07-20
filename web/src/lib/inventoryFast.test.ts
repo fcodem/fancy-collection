@@ -50,7 +50,7 @@ describe("one-click inventory save contracts", () => {
     assert.doesNotMatch(form, /Image is still being prepared/);
     assert.match(worker, /OffscreenCanvas/);
     assert.match(worker, /crypto\.subtle\.digest/);
-    assert.match(worker, /320/);
+    assert.match(worker, /720/);
   });
 
   it("uploads prepared files concurrently and defers AI work until after commit", () => {

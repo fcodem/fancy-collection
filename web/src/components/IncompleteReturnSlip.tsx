@@ -307,7 +307,7 @@ export default function IncompleteReturnSlip(props: IncompleteReturnSlipProps) {
           </div>
         </section>
 
-        <section style={{ padding: "0 clamp(12px, 2.5vw, 24px) 14px" }}>
+        <section data-slip-section="items" style={{ padding: "0 clamp(12px, 2.5vw, 24px) 14px" }}>
           <div style={{ color: "#c2410c", fontWeight: 800, fontSize: "clamp(12px, 2vw, 14px)", textTransform: "uppercase", marginBottom: 8 }}>
             Incomplete / Missing Items ({incompleteItems.length})
           </div>
@@ -385,7 +385,7 @@ export default function IncompleteReturnSlip(props: IncompleteReturnSlipProps) {
           </section>
         )}
 
-        <section style={{ padding: "0 clamp(12px, 2.5vw, 24px) 14px" }}>
+        <section data-slip-section="payment-summary" style={{ padding: "0 clamp(12px, 2.5vw, 24px) 14px" }}>
           <div
             style={{
               border: `2px solid ${SLIP_AMBER}`,

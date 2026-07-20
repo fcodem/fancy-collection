@@ -53,6 +53,14 @@ export async function GET(req: NextRequest) {
         job_type: j.jobType,
         booking_id: j.bookingId,
         payload: j.payload,
+        send_stage:
+          typeof (j.payload as Record<string, unknown> | null)?.sendStage === "string"
+            ? ((j.payload as Record<string, unknown>).sendStage as string)
+            : null,
+        provider_outcome:
+          typeof (j.payload as Record<string, unknown> | null)?.providerOutcome === "string"
+            ? ((j.payload as Record<string, unknown>).providerOutcome as string)
+            : null,
         scheduled_at: j.scheduledAt.toISOString(),
         status: j.status,
         attempts: j.attempts,

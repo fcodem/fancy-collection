@@ -347,7 +347,7 @@ export default function ReturnSlip(props: ReturnSlipProps) {
           </div>
         </section>
 
-        <section style={{ padding: "0 clamp(12px, 2.5vw, 24px) 14px" }}>
+        <section data-slip-section="items" style={{ padding: "0 clamp(12px, 2.5vw, 24px) 14px" }}>
           <div
             style={{
               fontSize: "clamp(12px, 2vw, 14px)",
@@ -581,6 +581,7 @@ export default function ReturnSlip(props: ReturnSlipProps) {
         </section>
 
         <section
+          data-slip-section="terms"
           style={{
             margin: "0 clamp(12px, 2.5vw, 24px) 14px",
             background: `linear-gradient(135deg, ${SLIP_GREEN} 0%, #2e8a48 100%)`,

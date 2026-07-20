@@ -5,6 +5,7 @@ import { formatDate } from "@/lib/constants";
 import {
   InventoryScanCodeError,
   normalizeScanCode,
+  resolveInventoryFromScannedCodeInDb,
 } from "@/lib/services/inventoryScanCode";
 
 /**
@@ -27,6 +28,7 @@ export const SCANNED_DRESS_AVAILABILITY_STATUSES = [
   "MAINTENANCE",
   "INACTIVE",
   "CODE_NOT_FOUND",
+  "AMBIGUOUS_LEGACY_CODE",
 ] as const;
 
 export type ScannedDressAvailabilityStatus =
@@ -238,7 +240,25 @@ type ConflictBookingRow = {
   }>;
 };
 
-type AvailabilityDb = Pick<PrismaClient, "inventoryScanCode" | "booking">;
+type AvailabilityDb = Pick<
+  PrismaClient,
+  "inventoryScanCode" | "clothingItem" | "booking"
+>;
+
+const INVENTORY_LOOKUP_SELECT = {
+  id: true,
+  name: true,
+  sku: true,
+  category: true,
+  size: true,
+  color: true,
+  status: true,
+  thumbnailPhoto: true,
+} satisfies Prisma.ClothingItemSelect;
+
+type LookupInventory = Prisma.ClothingItemGetPayload<{
+  select: typeof INVENTORY_LOOKUP_SELECT;
+}>;
 
 function recordFrom(
   booking: ConflictBookingRow,
@@ -290,9 +310,8 @@ export function createScannedDressAvailabilityService(db: AvailabilityDb) {
       );
     }
 
-    let normalizedCode: string;
     try {
-      normalizedCode = normalizeScanCode(input.rawCode);
+      normalizeScanCode(input.rawCode);
     } catch (error) {
       if (error instanceof InventoryScanCodeError) {
         throw new ScannedDressAvailabilityError(error.message, "INVALID_CODE");
@@ -316,29 +335,16 @@ export function createScannedDressAvailabilityService(db: AvailabilityDb) {
       classificationMs: 0,
     };
 
-    // 1. One unique-index lookup, lean select (no AI/embedding columns).
+    // 1. Shared resolver: active scan code, then exact normalized SKU fallback.
     const lookupStart = Date.now();
-    const mapping = await db.inventoryScanCode.findFirst({
-      where: { normalizedCode, active: true },
-      select: {
-        inventory: {
-          select: {
-            id: true,
-            name: true,
-            sku: true,
-            category: true,
-            size: true,
-            color: true,
-            status: true,
-            thumbnailPhoto: true,
-          },
-        },
-      },
-    });
+    const resolved = await resolveInventoryFromScannedCodeInDb<LookupInventory>(
+      db,
+      input.rawCode,
+      INVENTORY_LOOKUP_SELECT,
+    );
     timings.codeLookupMs = Date.now() - lookupStart;
 
-    const inventory = mapping?.inventory ?? null;
-    if (!inventory) {
+    if (resolved.status === "CODE_NOT_FOUND") {
       return {
         status: "CODE_NOT_FOUND",
         dress: null,
@@ -347,6 +353,17 @@ export function createScannedDressAvailabilityService(db: AvailabilityDb) {
         timings,
       };
     }
+    if (resolved.status === "AMBIGUOUS_LEGACY_CODE") {
+      return {
+        status: "AMBIGUOUS_LEGACY_CODE",
+        dress: null,
+        blockingRecords: [],
+        warningRecords: [],
+        timings,
+      };
+    }
+
+    const inventory = resolved.inventory!;
 
     const dress: ScannedDressSummary = {
       id: inventory.id,

@@ -15,6 +15,8 @@ type Job = {
   created_at: string;
   sent_phone: string | null;
   meta_message_id: string | null;
+  send_stage: string | null;
+  provider_outcome: string | null;
   delivery_status: string | null;
   delivery_error: string | null;
   delivered_at: string | null;
@@ -65,9 +67,51 @@ function formatPhone(phone: string | null): string {
   return phone;
 }
 
-function jobStatusLabel(status: string): string {
-  if (status === "done") return "Sent to Meta";
+function jobStatusLabel(
+  status: string,
+  metaMessageId: string | null,
+  sendStage: string | null,
+  failedReason: string | null,
+): string {
+  if (status === "failed") {
+    if (sendStage === "FAILED_BEFORE_PROVIDER" || isRenderFailureReason(failedReason)) {
+      return "Render failed — Meta was not contacted";
+    }
+    if (sendStage === "PROVIDER_OUTCOME_UNKNOWN" || isProviderOutcomeUnknown(failedReason)) {
+      return "Provider outcome unknown";
+    }
+  }
+  if (status === "done") {
+    return metaMessageId ? "Sent to Meta" : "Completed";
+  }
   return status;
+}
+
+function isRenderFailureReason(reason: string | null): boolean {
+  if (!reason) return false;
+  return /PREMIUM_SLIP_RENDER_FAILED|PREMIUM_SLIP_HTML_VALIDATION_FAILED|PREMIUM_SLIP_VALIDATION_FAILED|\bENOSPC\b|\bETXTBSY\b|\bEBUSY\b/i.test(
+    reason,
+  );
+}
+
+function isProviderOutcomeUnknown(reason: string | null): boolean {
+  return Boolean(reason?.startsWith("PROVIDER_OUTCOME_UNKNOWN:"));
+}
+
+function canRetryJob(job: Job): boolean {
+  if (job.meta_message_id?.trim()) return false;
+  if (isProviderOutcomeUnknown(job.failed_reason)) return false;
+  if (job.send_stage === "PROVIDER_OUTCOME_UNKNOWN") return false;
+  if (job.send_stage === "PROVIDER_CONFIRMED") return false;
+  return job.status === "failed" || job.status === "processing";
+}
+
+function needsReconciliation(job: Job): boolean {
+  return (
+    job.status === "failed" &&
+    (job.send_stage === "PROVIDER_OUTCOME_UNKNOWN" ||
+      isProviderOutcomeUnknown(job.failed_reason))
+  );
 }
 
 function deliveryStatusLabel(status: string | null, jobDone: boolean): string {
@@ -88,6 +132,98 @@ export default function WhatsAppJobsClient() {
   const [retrying, setRetrying] = useState<number | null>(null);
   const [deleting, setDeleting] = useState<number | null>(null);
   const [clearing, setClearing] = useState(false);
+  const [reconciling, setReconciling] = useState<number | null>(null);
+  const [safeRetrying, setSafeRetrying] = useState(false);
+  const [failureReport, setFailureReport] = useState<{
+    total: number;
+    safeToRequeue: Array<{ jobId: number; jobType: string; failedReason: string | null }>;
+    withheld: Array<{ jobId: number; bucket: string; withholdReason: string | null }>;
+  } | null>(null);
+
+  const loadFailureReport = async () => {
+    try {
+      const res = await fetch("/api/whatsapp/jobs/failure-report");
+      const data = await res.json() as typeof failureReport & { error?: string };
+      if (res.ok) setFailureReport(data);
+    } catch {
+      /* optional panel */
+    }
+  };
+
+  const reconcileJob = async (
+    jobId: number,
+    action: "mark_delivered" | "mark_not_delivered" | "cancel",
+  ) => {
+    const labels = {
+      mark_delivered: "Mark as delivered",
+      mark_not_delivered: "Mark as not delivered and force resend",
+      cancel: "Cancel job",
+    };
+    if (!confirm(`${labels[action]} for job #${jobId}?`)) return;
+    setReconciling(jobId);
+    try {
+      const res = await fetch(`/api/whatsapp/jobs/${jobId}/reconcile`, {
+        method: "POST",
+        headers: { "Content-Type": "application/json" },
+        body: JSON.stringify({ action }),
+      });
+      const data = await res.json() as { ok?: boolean; error?: string };
+      if (!res.ok || !data.ok) {
+        alert(data.error || "Reconciliation failed");
+        return;
+      }
+      await load();
+      await loadFailureReport();
+    } catch {
+      alert("Reconciliation failed");
+    } finally {
+      setReconciling(null);
+    }
+  };
+
+  const retrySafeRenderFailures = async () => {
+    const safeCount = failureReport?.safeToRequeue.length ?? 0;
+    if (
+      !confirm(
+        safeCount > 0
+          ? `Retry ${safeCount} safe render failure job(s)? Each will reset attempts and run once. Jobs with Meta IDs or unknown provider outcomes are skipped.`
+          : "Scan failed jobs for safe render retries? Only render/infrastructure failures with no Meta confirmation will be requeued.",
+      )
+    ) {
+      return;
+    }
+    setSafeRetrying(true);
+    try {
+      const res = await fetch("/api/whatsapp/jobs/retry-safe-render-failures", {
+        method: "POST",
+        headers: { "Content-Type": "application/json" },
+        body: JSON.stringify({ dryRun: false, process: true }),
+      });
+      const data = await res.json() as {
+        ok?: boolean;
+        requeued?: Array<{ jobId: number }>;
+        withheld?: Array<{ jobId: number }>;
+        error?: string;
+        queue?: { succeeded?: number; failed?: number; processed?: number };
+      };
+      if (!res.ok || !data.ok) {
+        alert(data.error || "Safe render retry failed");
+        return;
+      }
+      alert(
+        `Safe render retry: ${data.requeued?.length ?? 0} requeued, ${data.withheld?.length ?? 0} withheld.` +
+          (data.queue
+            ? ` Queue processed: ${data.queue.succeeded ?? 0} succeeded, ${data.queue.failed ?? 0} failed.`
+            : ""),
+      );
+      await load();
+      await loadFailureReport();
+    } catch {
+      alert("Safe render retry failed");
+    } finally {
+      setSafeRetrying(false);
+    }
+  };
 
   const load = async () => {
     setLoading(true);
@@ -106,6 +242,7 @@ export default function WhatsAppJobsClient() {
   };
 
   const retryJob = async (jobId: number) => {
+    if (retrying != null) return;
     setRetrying(jobId);
     try {
       const res = await fetch(`/api/whatsapp/jobs/${jobId}/retry`, { method: "POST" });
@@ -188,6 +325,7 @@ export default function WhatsAppJobsClient() {
 
   useEffect(() => {
     load();
+    void loadFailureReport();
   }, [statusFilter]);
 
   const filterBtns: Array<{ value: string; label: string }> = [
@@ -221,6 +359,15 @@ export default function WhatsAppJobsClient() {
             {clearing ? "Clearing..." : statusFilter ? `Clear ${statusFilter}` : "Clear Queue"}
           </button>
           <button
+            onClick={() => void retrySafeRenderFailures()}
+            disabled={safeRetrying}
+            data-testid="retry-safe-render-failures"
+            style={{ display: "flex", alignItems: "center", gap: 6, background: safeRetrying ? "#86efac" : "#16a34a", color: "#fff", border: "none", borderRadius: 12, padding: "8px 16px", fontSize: 13, cursor: safeRetrying ? "wait" : "pointer", fontWeight: 500 }}
+          >
+            <i className="fa-solid fa-file-pdf" style={{ fontSize: 12 }} />
+            {safeRetrying ? "Retrying…" : "Retry Safe Render Failures"}
+          </button>
+          <button
             onClick={runQueue}
             style={{ display: "flex", alignItems: "center", gap: 6, background: "#2563eb", color: "#fff", border: "none", borderRadius: 12, padding: "8px 16px", fontSize: 13, cursor: "pointer", fontWeight: 500 }}
           >
@@ -236,6 +383,25 @@ export default function WhatsAppJobsClient() {
           </button>
         </div>
       </div>
+
+      {failureReport && failureReport.total > 0 ? (
+        <div
+          style={{
+            background: "#f0fdf4",
+            border: "1px solid #bbf7d0",
+            borderRadius: 12,
+            padding: "12px 16px",
+            marginBottom: 16,
+            fontSize: 12,
+            color: "#166534",
+            lineHeight: 1.6,
+          }}
+        >
+          <strong>Render failure classification:</strong>{" "}
+          {failureReport.safeToRequeue.length} safe to requeue ·{" "}
+          {failureReport.withheld.length} withheld (Meta confirmed, provider unknown, or already retried).
+        </div>
+      ) : null}
 
       <div
         style={{
@@ -316,9 +482,9 @@ export default function WhatsAppJobsClient() {
                         {JOB_TYPE_LABELS[job.job_type] || job.job_type}
                       </span>
                       <span style={{ fontSize: 11, fontWeight: 500, padding: "2px 8px", borderRadius: 20, background: sc.bg, color: sc.color }}>
-                        {jobStatusLabel(job.status)}
+                        {jobStatusLabel(job.status, job.meta_message_id, job.send_stage, job.failed_reason)}
                       </span>
-                      {job.status === "done" && (
+                      {job.status === "done" && job.meta_message_id && (
                         <span
                           style={{
                             fontSize: 11,
@@ -329,7 +495,7 @@ export default function WhatsAppJobsClient() {
                             color: dc?.color ?? "#d97706",
                           }}
                         >
-                          {deliveryStatusLabel(job.delivery_status, true)}
+                          {deliveryStatusLabel(job.delivery_status, Boolean(job.meta_message_id))}
                         </span>
                       )}
                       <span style={{ fontSize: 11, color: "#9ca3af" }}>#{job.id}</span>
@@ -364,8 +530,8 @@ export default function WhatsAppJobsClient() {
                     <div style={{ fontSize: 11, color: "#9ca3af", marginTop: 4, display: "flex", gap: 12, flexWrap: "wrap" }}>
                       <span>Scheduled: {new Date(job.scheduled_at).toLocaleString("en-IN")}</span>
                       <span>Attempts: {job.attempts}/{job.max_attempts}</span>
-                      {job.completed_at && (
-                        <span>Meta accepted: {new Date(job.completed_at).toLocaleString("en-IN")}</span>
+                      {job.meta_message_id && job.status === "done" && (
+                        <span>Meta accepted: {new Date(job.completed_at ?? job.created_at).toLocaleString("en-IN")}</span>
                       )}
                       {job.delivered_at && (
                         <span style={{ color: "#16a34a" }}>Delivered: {new Date(job.delivered_at).toLocaleString("en-IN")}</span>
@@ -376,6 +542,38 @@ export default function WhatsAppJobsClient() {
                       <div style={{ fontSize: 11, color: "#dc2626", marginTop: 4, display: "flex", alignItems: "center", gap: 4 }}>
                         <i className="fa-solid fa-circle-exclamation" style={{ fontSize: 10 }} />
                         Delivery error: {job.delivery_error}
+                      </div>
+                    )}
+
+                    {needsReconciliation(job) && (
+                      <div style={{ display: "flex", flexWrap: "wrap", gap: 6, marginTop: 8 }}>
+                        <span style={{ fontSize: 11, color: "#92400e", width: "100%" }}>
+                          Reconcile before resending — outcome after Meta dispatch is unknown.
+                        </span>
+                        <button
+                          type="button"
+                          disabled={reconciling === job.id}
+                          onClick={() => void reconcileJob(job.id, "mark_delivered")}
+                          style={{ fontSize: 11, padding: "4px 8px", borderRadius: 6, border: "1px solid #bbf7d0", background: "#f0fdf4", cursor: "pointer" }}
+                        >
+                          Mark as delivered
+                        </button>
+                        <button
+                          type="button"
+                          disabled={reconciling === job.id}
+                          onClick={() => void reconcileJob(job.id, "mark_not_delivered")}
+                          style={{ fontSize: 11, padding: "4px 8px", borderRadius: 6, border: "1px solid #fde68a", background: "#fffbeb", cursor: "pointer" }}
+                        >
+                          Not delivered — force resend
+                        </button>
+                        <button
+                          type="button"
+                          disabled={reconciling === job.id}
+                          onClick={() => void reconcileJob(job.id, "cancel")}
+                          style={{ fontSize: 11, padding: "4px 8px", borderRadius: 6, border: "1px solid #e5e7eb", background: "#fff", cursor: "pointer" }}
+                        >
+                          Cancel
+                        </button>
                       </div>
                     )}
 
@@ -409,10 +607,10 @@ export default function WhatsAppJobsClient() {
                       <i className="fa-solid fa-trash" style={{ fontSize: 11 }} />
                       {deleting === job.id ? "..." : "Delete"}
                     </button>
-                    {(job.status === "failed" || job.status === "cancelled" || job.status === "processing") && (
+                    {canRetryJob(job) && (
                       <button
                         onClick={() => retryJob(job.id)}
-                        disabled={retrying === job.id}
+                        disabled={retrying === job.id || retrying != null}
                         style={{
                           fontSize: 12,
                           background: job.status === "processing" ? "#eff6ff" : "#fffbeb",

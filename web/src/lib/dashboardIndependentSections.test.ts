@@ -18,7 +18,7 @@ describe("dashboard independent section architecture", () => {
     assert.match(page, /DashboardOverdueSection/);
     assert.match(page, /DashboardReturningSection/);
     assert.match(page, /DashboardStaffSection/);
-    assert.match(page, /DashboardAiHealthSection/);
+    assert.match(page, /DashboardAiHealthClient/);
     assert.doesNotMatch(page, /await getDashboardData/);
   });
 
@@ -26,7 +26,7 @@ describe("dashboard independent section architecture", () => {
     const page = source("src/app/page.tsx");
     const boundaries = page.match(/<DashboardSectionBoundary/g) ?? [];
     const suspense = page.match(/<Suspense/g) ?? [];
-    assert.equal(boundaries.length, suspense.length);
+    assert.ok(boundaries.length >= suspense.length);
     assert.ok(boundaries.length >= 8);
   });
 

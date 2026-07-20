@@ -163,12 +163,39 @@ export async function enrichWhatsAppJobs(
 
 export function mergeSendMetaIntoPayload(
   existing: unknown,
-  meta: { phone?: string; messageId?: string },
+  meta: {
+    phone?: string;
+    messageId?: string;
+    providerOutcome?: string;
+    errorCode?: string;
+    sendStage?: string;
+    reconciledBy?: number;
+    reconciledAt?: string;
+    forceResendApprovedBy?: number;
+    forceResendApprovedAt?: string;
+    idempotencyVersion?: number;
+    idempotencyKey?: string;
+    lastRetriedBy?: number;
+    lastRetriedAt?: string;
+  },
 ): JobPayload {
   const base = (existing ?? {}) as JobPayload;
   return {
     ...base,
     ...(meta.phone ? { sentPhone: meta.phone } : {}),
     ...(meta.messageId ? { metaMessageId: meta.messageId } : {}),
+    ...(meta.providerOutcome ? { providerOutcome: meta.providerOutcome } : {}),
+    ...(meta.errorCode ? { errorCode: meta.errorCode } : {}),
+    ...(meta.sendStage ? { sendStage: meta.sendStage } : {}),
+    ...(meta.reconciledBy != null ? { reconciledBy: meta.reconciledBy } : {}),
+    ...(meta.reconciledAt ? { reconciledAt: meta.reconciledAt } : {}),
+    ...(meta.forceResendApprovedBy != null
+      ? { forceResendApprovedBy: meta.forceResendApprovedBy }
+      : {}),
+    ...(meta.forceResendApprovedAt ? { forceResendApprovedAt: meta.forceResendApprovedAt } : {}),
+    ...(meta.idempotencyVersion != null ? { idempotencyVersion: meta.idempotencyVersion } : {}),
+    ...(meta.idempotencyKey ? { idempotencyKey: meta.idempotencyKey } : {}),
+    ...(meta.lastRetriedBy != null ? { lastRetriedBy: meta.lastRetriedBy } : {}),
+    ...(meta.lastRetriedAt ? { lastRetriedAt: meta.lastRetriedAt } : {}),
   };
 }

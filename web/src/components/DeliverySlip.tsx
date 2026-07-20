@@ -194,7 +194,7 @@ export default function DeliverySlip(props: DeliverySlipProps) {
         </div>
 
         {/* PROMINENT RETURN DATE — carry this slip at return */}
-        <div className="no-break" style={{
+        <div className="no-break" data-slip-section="return-date" style={{
           background: `linear-gradient(135deg, ${G} 0%, #145a24 100%)`,
           borderTop: `3px solid ${GOLD}`,
           borderBottom: `3px solid ${GOLD}`,
@@ -237,7 +237,7 @@ export default function DeliverySlip(props: DeliverySlipProps) {
             </table>
           </div>
           <div style={{ display: "flex", flexDirection: "column", gap: 8 }}>
-            <div style={{ background: BLUE, borderRadius: 10, padding: "12px 16px", boxShadow: "0 3px 10px rgba(21,101,192,0.25)" }}>
+            <div data-slip-section="delivery-date" style={{ background: BLUE, borderRadius: 10, padding: "12px 16px", boxShadow: "0 3px 10px rgba(21,101,192,0.25)" }}>
               <div style={{ fontSize: 10, color: "rgba(255,255,255,0.8)", textTransform: "uppercase", letterSpacing: "0.1em", marginBottom: 4 }}>
                 <Emoji char="🚚" /> Delivered On
               </div>
@@ -254,11 +254,7 @@ export default function DeliverySlip(props: DeliverySlipProps) {
         </div>
 
         {/* ITEMS */}
-        <div className="no-break" style={{ padding: "0 16px 14px" }}>
-          <div style={{ display: "flex", alignItems: "center", gap: 8, marginBottom: 8 }}>
-            <div style={{ width: 4, height: 18, background: G, borderRadius: 2 }} />
-            <span style={{ fontSize: 11, fontWeight: 700, color: G, textTransform: "uppercase", letterSpacing: "0.08em" }}>Items</span>
-          </div>
+        <div className="no-break" data-slip-section="items" style={{ padding: "0 16px 14px" }}>
           <div style={{ borderRadius: 8, overflow: "hidden", border: `1px solid ${BORDER}` }}>
             <div style={{
               display: "grid", gridTemplateColumns: "28px 44px 1fr 80px 52px 60px 70px 70px 68px",
@@ -371,7 +367,7 @@ export default function DeliverySlip(props: DeliverySlipProps) {
             </div>
           </div>
 
-          <div style={{ flex: 1, border: `2px solid ${GOLD}`, borderRadius: 12, overflow: "hidden", boxShadow: "0 3px 12px rgba(201,168,76,0.2)" }}>
+          <div data-slip-section="payment-summary" style={{ flex: 1, border: `2px solid ${GOLD}`, borderRadius: 12, overflow: "hidden", boxShadow: "0 3px 12px rgba(201,168,76,0.2)" }}>
             <div style={{ background: G, padding: "8px 16px", textAlign: "center" }}>
               <span style={{ color: "#fff", fontWeight: 700, fontSize: 12, textTransform: "uppercase", letterSpacing: "0.08em" }}>Delivery Payment Summary</span>
             </div>
