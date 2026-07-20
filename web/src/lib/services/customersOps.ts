@@ -21,6 +21,14 @@ type BookingRow = {
   createdAt: Date;
 };
 
+const customerListSelect = {
+  id: true,
+  name: true,
+  phone: true,
+  email: true,
+  address: true,
+} as const;
+
 /** Union phone keys that belong to the same person (shared contact / WhatsApp). */
 class PhoneUnionFind {
   private parent = new Map<string, string>();
@@ -249,7 +257,7 @@ function buildMergedCustomers(
 async function listCustomersUncached(category: string): Promise<CustomerListRow[]> {
   if (category) {
     const [customers, bookingsWithItems] = await Promise.all([
-      prisma.customer.findMany({ orderBy: { id: "desc" } }),
+      prisma.customer.findMany({ orderBy: { id: "desc" }, select: customerListSelect }),
       prisma.booking.findMany({
         orderBy: { createdAt: "desc" },
         select: {
@@ -287,7 +295,7 @@ async function listCustomersUncached(category: string): Promise<CustomerListRow[
   }
 
   const [customers, bookings] = await Promise.all([
-    prisma.customer.findMany({ orderBy: { id: "desc" } }),
+    prisma.customer.findMany({ orderBy: { id: "desc" }, select: customerListSelect }),
     prisma.booking.findMany({
       orderBy: { createdAt: "desc" },
       select: {

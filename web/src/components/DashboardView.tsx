@@ -210,7 +210,7 @@ export default function DashboardView({
     } catch {
       /* ignore transient network errors */
     }
-  }, [fiDelivery, fiReturn, fiCategory]);
+  }, [fiDelivery, fiReturn, fiCategory, fiSubCategory]);
 
   useEffect(() => {
     showFreePanelRef.current = showFreePanel;

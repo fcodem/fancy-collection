@@ -17,6 +17,8 @@ import { StandardBookingTableCells, StandardBookingTableHead } from "@/component
 import { serializeStandardBookingDetails } from "@/lib/bookingDetails";
 import { formatInr } from "@/lib/format";
 
+export const dynamic = "force-dynamic";
+
 export default async function RemainingToDeliverPage() {
   const bookings = await prisma.booking.findMany({
     where: await whereRemainingToDeliver(todayIso()),

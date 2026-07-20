@@ -18,17 +18,21 @@ type CustomerRow = {
 export default function CustomersClient() {
   const [q, setQ] = useState("");
   const [rows, setRows] = useState<CustomerRow[]>([]);
+  const [loading, setLoading] = useState(false);
   const [importing, setImporting] = useState(false);
   const [importResult, setImportResult] = useState<string | null>(null);
   const fileRef = useRef<HTMLInputElement>(null);
 
   const load = useCallback(async () => {
+    setLoading(true);
     try {
       const res = await fetch(`/api/customers?q=${encodeURIComponent(q)}`);
       if (!res.ok) return;
       setRows(await res.json());
     } catch {
       /* ignore transient network errors */
+    } finally {
+      setLoading(false);
     }
   }, [q]);
 
@@ -73,7 +77,9 @@ export default function CustomersClient() {
           </p>
           <div style={{ display: "flex", gap: 12, flexWrap: "wrap", alignItems: "center" }}>
             <input className="form-control" placeholder="Search name or phone…" value={q} onChange={(e) => setQ(e.target.value)} onKeyDown={(e) => e.key === "Enter" && load()} />
-            <button className="btn btn-primary" onClick={load}>Search</button>
+            <button className="btn btn-primary" onClick={load} disabled={loading}>
+              {loading ? "Loading…" : "Search"}
+            </button>
             {/* eslint-disable-next-line @next/next/no-html-link-for-pages -- file download endpoint */}
             <a href="/api/customers/export/whatsapp" className="btn btn-outline">
               <i className="fa-brands fa-whatsapp" style={{ marginRight: 6 }} />

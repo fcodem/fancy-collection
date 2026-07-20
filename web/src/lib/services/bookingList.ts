@@ -429,13 +429,15 @@ export function getBookingListDataCached(opts: Omit<BookingListQuery, "section">
 export const BOOKING_LIST_EXPORT_MAX = 500;
 
 export async function getBookingListExportData(opts: Omit<BookingListQuery, "page" | "pageSize">) {
-  const main = await getBookingListData({ ...opts, page: 1, pageSize: BOOKING_LIST_EXPORT_MAX, section: "main" });
-  const unavail = await getBookingListData({
-    ...opts,
-    page: 1,
-    pageSize: BOOKING_LIST_EXPORT_MAX,
-    section: "unavailable",
-  });
+  const [main, unavail] = await Promise.all([
+    getBookingListData({ ...opts, page: 1, pageSize: BOOKING_LIST_EXPORT_MAX, section: "main" }),
+    getBookingListData({
+      ...opts,
+      page: 1,
+      pageSize: BOOKING_LIST_EXPORT_MAX,
+      section: "unavailable",
+    }),
+  ]);
   return {
     bookings: main.bookings,
     unavailable: unavail.unavailable,

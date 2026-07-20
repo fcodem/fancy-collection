@@ -14,8 +14,10 @@ export default async function NewProspectLeadPage({
   const saveConfirmedSerial =
     sp.saved === "1" && sp.serial ? parseInt(sp.serial, 10) || undefined : undefined;
 
-  const cats = await getAllCategories();
-  const staff = await prisma.staff.findMany({ where: { active: true }, orderBy: { name: "asc" } });
+  const [cats, staff] = await Promise.all([
+    getAllCategories(),
+    prisma.staff.findMany({ where: { active: true }, orderBy: { name: "asc" }, select: { id: true, name: true } }),
+  ]);
 
   return (
     <BookingFormClient

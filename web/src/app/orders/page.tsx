@@ -4,12 +4,27 @@ import { todayIso } from "@/lib/constants";
 import OrdersListClient, { type OrderListRow } from "@/components/OrdersListClient";
 
 export const metadata: Metadata = { title: "Custom Orders" };
+export const dynamic = "force-dynamic";
+
+const ORDERS_PAGE_LIMIT = 500;
 
 export default async function OrdersPage() {
   const orders = await prisma.bookingOrder.findMany({
     where: { status: "active" },
     orderBy: { deliveryDate: "asc" },
-    include: {
+    take: ORDERS_PAGE_LIMIT,
+    select: {
+      id: true,
+      description: true,
+      cost: true,
+      advance: true,
+      balance: true,
+      balanceCollected: true,
+      photo: true,
+      deliveryDate: true,
+      deliveryTime: true,
+      collectedAt: true,
+      readyAt: true,
       booking: {
         select: {
           id: true,

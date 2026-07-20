@@ -405,8 +405,8 @@ export default function BookingSearchPage({
                 onKeyDown={(e) => e.key === "Enter" && handleSearchClick()}
               />
             </div>
-            <button className="btn btn-primary" type="button" onClick={handleSearchClick}>
-              <i className="fa-solid fa-search" /> Search
+            <button className="btn btn-primary" type="button" onClick={handleSearchClick} disabled={loading}>
+              <i className={`fa-solid ${loading ? "fa-spinner fa-spin" : "fa-search"}`} /> {loading ? "Searching…" : "Search"}
             </button>
           </div>
         </div>
@@ -537,6 +537,13 @@ export default function BookingSearchPage({
                       </tr>
                       );
                     })
+                  ) : loading ? (
+                    <tr>
+                      <td colSpan={colSpan} style={{ textAlign: "center", padding: 20, color: "var(--text-muted)" }}>
+                        <i className="fa-solid fa-spinner fa-spin" style={{ marginRight: 8 }} />
+                        Searching…
+                      </td>
+                    </tr>
                   ) : (
                     <tr>
                       <td colSpan={colSpan} style={{ textAlign: "center", padding: 20 }}>

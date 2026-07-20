@@ -11,6 +11,7 @@ export async function GET() {
 
   const enquiries = await prisma.shopEnquiry.findMany({
     orderBy: { createdAt: "desc" },
+    take: 200,
   });
 
   return jsonOk(enquiries.map(serializeShopEnquiry));

@@ -37,6 +37,7 @@ export async function GET(req: NextRequest) {
       },
     },
     orderBy: [{ category: "asc" }, { name: "asc" }],
+    take: all && !ids.length ? 3000 : undefined,
   });
 
   return jsonOk({

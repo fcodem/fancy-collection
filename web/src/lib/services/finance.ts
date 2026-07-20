@@ -996,11 +996,14 @@ export async function getCategoryAnalysis(fromStr: string, toStr: string) {
     }
   }
 
-  const stockItems = await prisma.clothingItem.findMany();
+  const stockByCat = await prisma.clothingItem.groupBy({
+    by: ["category"],
+    _count: { _all: true },
+  });
   const stock_by_cat: Record<string, number> = {};
-  for (const item of stockItems) {
-    const cat = (item.category || "Uncategorized").trim() || "Uncategorized";
-    stock_by_cat[cat] = (stock_by_cat[cat] || 0) + 1;
+  for (const row of stockByCat) {
+    const cat = (row.category || "Uncategorized").trim() || "Uncategorized";
+    stock_by_cat[cat] = row._count._all;
   }
 
   const bookingsCreated = await prisma.booking.findMany({
@@ -1102,7 +1105,7 @@ export async function getCategoryAnalysis(fromStr: string, toStr: string) {
       purchases: Object.values(purchase_by_cat).reduce((a, b) => a + b, 0),
       advance: Object.values(advance_by_cat).reduce((a, b) => a + b, 0) - refund_total,
       remaining: Object.values(remaining_by_cat).reduce((a, b) => a + b, 0),
-      stock: stockItems.length,
+      stock: Object.values(stock_by_cat).reduce((a, b) => a + b, 0),
       refunds: refund_total,
     },
   };
