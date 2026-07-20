@@ -7,7 +7,7 @@ import { useMutationOperationId } from "@/lib/useMutationOperationId";
 import { compressImageFile, mapPool } from "@/lib/clientImageCompress";
 import { useToast } from "@/components/ui/Toast";
 import { BookingRecordDetails } from "@/components/BookingRecordDetails";
-import BookingItemWarningsBlock, {
+import {
   BookingItemWarningsSection,
   findItemWarnings,
 } from "@/components/BookingItemWarningsSection";
@@ -31,6 +31,8 @@ import { privateMediaUrl, bookingPhotoUrl, photoUrl } from "@/lib/photoUrl";
 import IncompleteSecuritySummaryBox from "@/components/IncompleteSecuritySummaryBox";
 import type { SlipOrderDisplay } from "@/components/BookingSlip";
 import type { ItemWarningSource } from "@/lib/bookingWarningPdf";
+import CustomerIdPhotosDisplay from "@/components/shared/CustomerIdPhotosDisplay";
+import ReturnSelectDressRow from "@/components/return/ReturnSelectDressRow";
 
 function paymentModeLabel(mode?: string | null): string | null {
   if (mode === "online") return "Online";
@@ -716,55 +718,11 @@ export default function ReturnDetailClient({
         />
       )}
 
-      <div className="card" style={{ marginBottom: 24 }}>
-        <div className="card-header">
-          <h3 className="card-title">
-            <i className="fa-solid fa-id-card" style={{ marginRight: 8 }} />
-            Customer ID Photos
-          </h3>
-        </div>
-        <div className="card-body">
-          {booking.idPhoto1 || booking.idPhoto2 ? (
-            <div style={{ display: "flex", gap: 12, flexWrap: "wrap" }}>
-              {booking.idPhoto1 && (
-                <a href={privateMediaUrl(booking.idPhoto1)} target="_blank" rel="noreferrer">
-                  <img
-                    src={privateMediaUrl(booking.idPhoto1)}
-                    alt="Customer ID 1"
-                    style={{
-                      width: 160,
-                      height: 120,
-                      objectFit: "cover",
-                      borderRadius: 8,
-                      border: "1px solid var(--border)",
-                    }}
-                  />
-                </a>
-              )}
-              {booking.idPhoto2 && (
-                <a href={privateMediaUrl(booking.idPhoto2)} target="_blank" rel="noreferrer">
-                  <img
-                    src={privateMediaUrl(booking.idPhoto2)}
-                    alt="Customer ID 2"
-                    style={{
-                      width: 160,
-                      height: 120,
-                      objectFit: "cover",
-                      borderRadius: 8,
-                      border: "1px solid var(--border)",
-                    }}
-                  />
-                </a>
-              )}
-            </div>
-          ) : (
-            <p style={{ margin: 0, fontSize: 13, color: "var(--text-muted)" }}>
-              No ID photos on file for this booking. Capture them on the delivery page (they upload
-              automatically when you take the photo).
-            </p>
-          )}
-        </div>
-      </div>
+      <CustomerIdPhotosDisplay
+        idPhoto1={booking.idPhoto1}
+        idPhoto2={booking.idPhoto2}
+        variant="card"
+      />
 
       <div className="card" style={{ marginBottom: 24 }}>
         <div className="card-header" style={{ display: "flex", justifyContent: "space-between", alignItems: "center", flexWrap: "wrap", gap: 12 }}>
@@ -1098,34 +1056,6 @@ export default function ReturnDetailClient({
                     {booking.deliveryNotes}
                   </div>
                 )}
-                {(booking.idPhoto1 || booking.idPhoto2) && (
-                  <div style={{ marginTop: 12, padding: "12px 14px", border: "1px solid var(--border)", borderRadius: 8, background: "rgba(90,20,51,0.04)" }}>
-                    <div style={{ fontSize: 11, color: "var(--text-muted)", fontWeight: 700, marginBottom: 10 }}>
-                      <i className="fa-solid fa-id-card" style={{ marginRight: 6 }} />
-                      CUSTOMER ID PHOTOS
-                    </div>
-                    <div style={{ display: "flex", gap: 12, flexWrap: "wrap" }}>
-                      {booking.idPhoto1 && (
-                        <a href={privateMediaUrl(booking.idPhoto1)} target="_blank" rel="noreferrer">
-                          <img
-                            src={privateMediaUrl(booking.idPhoto1)}
-                            alt="Customer ID 1"
-                            style={{ width: 140, height: 100, objectFit: "cover", borderRadius: 8, border: "1px solid var(--border)" }}
-                          />
-                        </a>
-                      )}
-                      {booking.idPhoto2 && (
-                        <a href={privateMediaUrl(booking.idPhoto2)} target="_blank" rel="noreferrer">
-                          <img
-                            src={privateMediaUrl(booking.idPhoto2)}
-                            alt="Customer ID 2"
-                            style={{ width: 140, height: 100, objectFit: "cover", borderRadius: 8, border: "1px solid var(--border)" }}
-                          />
-                        </a>
-                      )}
-                    </div>
-                  </div>
-                )}
                 {deliveryStatusCards.map((d) => (
                   <div
                     key={d.id}
@@ -1333,57 +1263,18 @@ export default function ReturnDetailClient({
                 {multiDress && (
                   <h4 style={{ marginBottom: 12, fontSize: 14 }}>Select dresses to return</h4>
                 )}
-                {returnableItems.map((row) => {
-                  const itemWarnings = findItemWarnings(warningItems, { itemId: row.itemId, dressName: row.dressName });
-                  const selected = Boolean(selectedToReturn[row.id]);
-                  return (
-                  <div
+                {returnableItems.map((row) => (
+                  <ReturnSelectDressRow
                     key={row.id}
-                    style={{
-                      marginBottom: 10,
-                      padding: "12px 14px",
-                      border: `1px solid ${selected ? "#2e7d32" : "var(--border)"}`,
-                      borderRadius: 10,
-                      background: selected ? "rgba(46,125,50,0.06)" : "var(--cream-dark, #fafafa)",
-                    }}
-                  >
-                    <div
-                      style={{
-                        display: "flex",
-                        alignItems: "center",
-                        gap: 12,
-                        flexWrap: "wrap",
-                      }}
-                    >
-                    <label style={{ display: "flex", alignItems: "center", gap: 8, cursor: "pointer", flexShrink: 0 }}>
-                      <input
-                        type="checkbox"
-                        checked={selected}
-                        onChange={(e) => toggleReturnSelect(row.id, e.target.checked)}
-                        style={{ width: 18, height: 18 }}
-                      />
-                      <span style={{ fontSize: 12, fontWeight: 700, color: "var(--text-muted)" }}>Return</span>
-                    </label>
-                    {row.photo && (
-                      <img
-                        src={bookingPhotoUrl(row.photo)}
-                        alt=""
-                        style={{ width: 48, height: 48, borderRadius: 8, objectFit: "cover" }}
-                      />
-                    )}
-                    <div style={{ flex: 1, minWidth: 140 }}>
-                      <strong>{row.dressName}</strong>
-                      {(row.category || row.size) && (
-                        <div style={{ fontSize: 12, color: "var(--text-muted)" }}>
-                          {[row.category, row.size].filter(Boolean).join(" · ")}
-                        </div>
-                      )}
-                    </div>
-                    </div>
-                    {itemWarnings && <BookingItemWarningsBlock item={itemWarnings} />}
-                  </div>
-                  );
-                })}
+                    row={row}
+                    selected={Boolean(selectedToReturn[row.id])}
+                    itemWarnings={findItemWarnings(warningItems, {
+                      itemId: row.itemId,
+                      dressName: row.dressName,
+                    })}
+                    onToggleSelect={toggleReturnSelect}
+                  />
+                ))}
               </div>
             )}
 

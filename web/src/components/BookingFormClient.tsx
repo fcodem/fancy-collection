@@ -40,6 +40,7 @@ import { downloadBookingSlipPdf } from "@/lib/bookingSlipClient";
 import { useRealtimeRefresh } from "@/hooks/useRealtimeRefresh";
 import { BOOKING_EVENTS, INVENTORY_EVENTS } from "@/lib/realtime/types";
 import { cachedFetchJson, yearMonthKey, invalidateClientCache } from "@/lib/clientRequestCache";
+import BookingSelectedDressRow from "@/components/booking/BookingSelectedDressRow";
 
 
 
@@ -1612,77 +1613,15 @@ export default function BookingFormClient(props: Props) {
             {selectedDresses.map((d, i) => {
               const warn = allFreeItems.find((f) => f.id === d.id);
               return (
-              <div key={d.id} style={{ border: "1.5px solid var(--border)", borderRadius: 12, padding: 16, marginBottom: 14, background: "linear-gradient(135deg, rgba(123,31,69,0.02), rgba(201,168,70,0.02))" }}>
-
-                <div style={{ display: "flex", alignItems: "center", gap: 14, marginBottom: 14, paddingBottom: 12, borderBottom: "1px solid var(--border)" }}>
-
-                  <PhotoThumb photo={d.photo} size={56} />
-
-                  <div style={{ flex: 1 }}>
-
-                    <div style={{ fontSize: 15, fontWeight: 700, color: "var(--primary)" }}>{d.name}</div>
-
-                    <div style={{ fontSize: 12, color: "var(--text-muted)" }}>{d.category}{d.size ? ` · ${d.size}` : ""}{d.color ? ` · ${d.color}` : ""}</div>
-
-                    {warn?.returning_warning && (
-                      <div style={{ fontSize: 10, color: "#E65100", marginTop: 4, lineHeight: 1.3 }}>
-                        <i className="fa-solid fa-triangle-exclamation" /> {formatReturningWarning(warn.returning_warning)}
-                      </div>
-                    )}
-
-                    {warn?.booked_warning && (
-                      <div style={{ fontSize: 10, color: "var(--danger)", marginTop: 4, lineHeight: 1.3 }}>
-                        <i className="fa-solid fa-circle-exclamation" /> {formatBookedWarning(warn.booked_warning)}
-                      </div>
-                    )}
-
-                  </div>
-
-                  <button type="button" onClick={() => removeDress(i)} style={{ width: 30, height: 30, borderRadius: "50%", border: "none", background: "var(--danger-bg)", color: "var(--danger)", cursor: "pointer" }}>✕</button>
-
-                </div>
-
-                <div className="payment-grid-3" style={{ marginBottom: 12 }}>
-
-                  <div>
-
-                    <label className="form-label">Rental Price (₹)</label>
-
-                    <input type="number" className="form-control" inputMode="numeric" value={d.price} min={0} onChange={(e) => updateDressField(i, "price", Number(e.target.value))} />
-
-                  </div>
-
-                  <div>
-
-                    <label className="form-label">Advance Paid (₹)</label>
-
-                    <input type="number" className="form-control" inputMode="numeric" value={d.advance} min={0} onChange={(e) => updateDressField(i, "advance", Number(e.target.value))} />
-
-                  </div>
-
-                  <div>
-
-                    <label className="form-label">Remaining</label>
-
-                    <div style={{ padding: "8px 12px", background: "var(--danger-bg)", borderRadius: 8, textAlign: "center", fontSize: 16, fontWeight: 800, color: "var(--danger)" }}>
-
-                      ₹{formatInr(Math.max(0, d.price - d.advance))}
-
-                    </div>
-
-                  </div>
-
-                </div>
-
-                <div>
-
-                  <label className="form-label">Notes for {d.name}</label>
-
-                  <textarea className="form-control" rows={1} value={d.notes} onChange={(e) => updateDressField(i, "notes", e.target.value)} placeholder="Special notes for this dress…" />
-
-                </div>
-
-              </div>
+              <BookingSelectedDressRow
+                key={d.id}
+                dress={d}
+                index={i}
+                returningWarning={warn?.returning_warning}
+                bookedWarning={warn?.booked_warning}
+                onRemove={removeDress}
+                onUpdateField={updateDressField}
+              />
             );
             })}
 

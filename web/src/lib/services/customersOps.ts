@@ -318,6 +318,160 @@ export async function listCustomers(q = "", category = ""): Promise<CustomerList
   return q.trim() ? allRows.filter((r) => matchesQuery(r, q)) : allRows;
 }
 
+export type CustomerListPage = {
+  rows: CustomerListRow[];
+  nextCursor: string | null;
+  hasMore: boolean;
+};
+
+type PhoneProjectionRow = {
+  name: string;
+  phone: string;
+  phone_key: string;
+  address: string | null;
+  customer_id: number | null;
+  email: string | null;
+};
+
+function encodeCustomerCursor(row: { name: string; phoneKey: string; phone: string }): string {
+  return Buffer.from(JSON.stringify({ n: row.name, k: row.phoneKey, p: row.phone }), "utf8").toString("base64url");
+}
+
+function decodeCustomerCursor(cursor: string): { n: string; k: string; p: string } | null {
+  try {
+    const parsed = JSON.parse(Buffer.from(cursor, "base64url").toString("utf8")) as {
+      n?: string;
+      k?: string;
+      p?: string;
+    };
+    if (!parsed?.n || !parsed?.k || !parsed?.p) return null;
+    return { n: parsed.n, k: parsed.k, p: parsed.p };
+  } catch {
+    return null;
+  }
+}
+
+/**
+ * Paginated customer directory — one row per distinct phone from bookings + customers.
+ * Uses SQL DISTINCT ON + keyset cursor so the list UI never loads all bookings into memory.
+ */
+export async function listCustomersPage(opts: {
+  q?: string;
+  category?: string;
+  cursor?: string | null;
+  limit?: number;
+}): Promise<CustomerListPage> {
+  const pageSize = Math.min(Math.max(opts.limit ?? 50, 10), 100);
+  const q = (opts.q || "").trim();
+  const category = (opts.category || "").trim();
+  const cursor = opts.cursor ? decodeCustomerCursor(opts.cursor) : null;
+
+  const params: unknown[] = [];
+  let idx = 1;
+
+  const catIdx = category ? (params.push(category), idx++) : 0;
+  const needle = q ? `%${q.replace(/[%_]/g, "\\$&")}%` : "";
+  const phoneDigits = q.replace(/\D/g, "");
+  const phoneTail = phoneDigits.length >= 4 ? `%${phoneDigits.slice(-10)}` : "";
+  const needleIdx = needle ? (params.push(needle), idx++) : 0;
+  const phoneIdx = phoneTail ? (params.push(phoneTail), idx++) : 0;
+
+  let cursorSql = "";
+  if (cursor) {
+    const nIdx = (params.push(cursor.n), idx++);
+    const kIdx = (params.push(cursor.k), idx++);
+    const pIdx = (params.push(cursor.p), idx++);
+    cursorSql = `AND (
+      d.name > $${nIdx}
+      OR (d.name = $${nIdx} AND d.phone_key > $${kIdx})
+      OR (d.name = $${nIdx} AND d.phone_key = $${kIdx} AND d.phone > $${pIdx})
+    )`;
+  }
+
+  const limitIdx = (params.push(pageSize + 1), idx);
+  const catFilter = catIdx
+    ? `AND EXISTS (SELECT 1 FROM booking_items bi WHERE bi.booking_id = b.id AND bi.category = $${catIdx})`
+    : "";
+
+  const searchFilter =
+    needleIdx || phoneIdx
+      ? `AND (
+          ${needleIdx ? `(d.name ILIKE $${needleIdx} OR d.phone ILIKE $${needleIdx} OR COALESCE(d.email, '') ILIKE $${needleIdx})` : "FALSE"}
+          ${phoneIdx ? `${needleIdx ? "OR" : ""} d.phone_key LIKE $${phoneIdx}` : ""}
+        )`
+      : "";
+
+  const sql = `
+    WITH phone_rows AS (
+      SELECT b.customer_name AS name, b.contact_1 AS phone,
+        RIGHT(REGEXP_REPLACE(COALESCE(b.contact_1, ''), '\\D', '', 'g'), 10) AS phone_key,
+        NULLIF(b.customer_address, '') AS address, b.created_at AS seen_at
+      FROM bookings b
+      WHERE LENGTH(REGEXP_REPLACE(COALESCE(b.contact_1, ''), '\\D', '', 'g')) >= 10 ${catFilter}
+      UNION ALL
+      SELECT b.customer_name, b.whatsapp_no,
+        RIGHT(REGEXP_REPLACE(COALESCE(b.whatsapp_no, ''), '\\D', '', 'g'), 10),
+        NULLIF(b.customer_address, ''), b.created_at
+      FROM bookings b
+      WHERE b.whatsapp_no IS NOT NULL
+        AND LENGTH(REGEXP_REPLACE(COALESCE(b.whatsapp_no, ''), '\\D', '', 'g')) >= 10 ${catFilter}
+      UNION ALL
+      SELECT b.customer_name, b.contact_2,
+        RIGHT(REGEXP_REPLACE(COALESCE(b.contact_2, ''), '\\D', '', 'g'), 10),
+        NULLIF(b.customer_address, ''), b.created_at
+      FROM bookings b
+      WHERE b.contact_2 IS NOT NULL
+        AND LENGTH(REGEXP_REPLACE(COALESCE(b.contact_2, ''), '\\D', '', 'g')) >= 10 ${catFilter}
+      UNION ALL
+      SELECT c.name, c.phone,
+        RIGHT(REGEXP_REPLACE(COALESCE(c.phone, ''), '\\D', '', 'g'), 10),
+        c.address, c.created_at
+      FROM customers c
+      WHERE LENGTH(REGEXP_REPLACE(COALESCE(c.phone, ''), '\\D', '', 'g')) >= 10
+    ),
+    deduped AS (
+      SELECT DISTINCT ON (phone_key, phone)
+        pr.name, pr.phone, pr.phone_key, pr.address,
+        c.id AS customer_id, c.email
+      FROM phone_rows pr
+      LEFT JOIN customers c
+        ON RIGHT(REGEXP_REPLACE(COALESCE(c.phone, ''), '\\D', '', 'g'), 10) = pr.phone_key
+      ORDER BY phone_key, phone, pr.seen_at DESC NULLS LAST
+    )
+    SELECT d.name, d.phone, d.phone_key, d.address, d.customer_id, d.email
+    FROM deduped d
+    WHERE 1=1
+      ${searchFilter}
+      ${cursorSql}
+    ORDER BY d.name ASC, d.phone_key ASC, d.phone ASC
+    LIMIT $${limitIdx}
+  `;
+
+  const raw = await prisma.$queryRawUnsafe<PhoneProjectionRow[]>(sql, ...params);
+  const hasMore = raw.length > pageSize;
+  const out = hasMore ? raw.slice(0, pageSize) : raw;
+
+  const mapped: CustomerListRow[] = out.map((r) => ({
+    id: r.customer_id ?? -1,
+    name: r.name || "Customer",
+    phone: r.phone,
+    whatsapp: "",
+    email: r.email,
+    address: r.address,
+  }));
+
+  const last = mapped[mapped.length - 1];
+  const lastRaw = out[out.length - 1];
+  return {
+    rows: mapped,
+    nextCursor:
+      hasMore && last && lastRaw
+        ? encodeCustomerCursor({ name: last.name, phoneKey: lastRaw.phone_key, phone: last.phone })
+        : null,
+    hasMore,
+  };
+}
+
 export async function shouldSkipCustomerCreate(contact: string, whatsapp?: string): Promise<boolean> {
   const newKeys = phoneKeysFromParts(contact, whatsapp);
   if (!newKeys.length) return false;

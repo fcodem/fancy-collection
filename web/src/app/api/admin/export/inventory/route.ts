@@ -1,14 +1,10 @@
-import { exportInventoryCsv } from "@/lib/services/adminOps";
+import { streamInventoryCsvResponse } from "@/lib/services/adminOps";
 import { requireOwner, isResponse } from "@/lib/api";
+
+export const maxDuration = 60;
 
 export async function GET() {
   const user = await requireOwner();
   if (isResponse(user)) return user;
-  const csv = await exportInventoryCsv();
-  return new Response(csv, {
-    headers: {
-      "Content-Type": "text/csv",
-      "Content-Disposition": 'attachment; filename="inventory_export.csv"',
-    },
-  });
+  return streamInventoryCsvResponse();
 }

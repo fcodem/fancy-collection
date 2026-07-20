@@ -1,5 +1,5 @@
 import { NextRequest } from "next/server";
-import { listCustomers, createCustomer } from "@/lib/services/customersOps";
+import { listCustomers, listCustomersPage, createCustomer } from "@/lib/services/customersOps";
 import { jsonError, jsonOk, requireUser, requireUserReadOnly, isResponse, requireJsonContentType } from "@/lib/api";
 
 export async function GET(req: NextRequest) {
@@ -7,6 +7,23 @@ export async function GET(req: NextRequest) {
   if (isResponse(user)) return user;
   const q = req.nextUrl.searchParams.get("q") || "";
   const category = req.nextUrl.searchParams.get("category") || "";
+  const cursor = req.nextUrl.searchParams.get("cursor");
+  const limitParam = req.nextUrl.searchParams.get("limit");
+  const paginated = req.nextUrl.searchParams.get("page") === "1" || cursor != null || limitParam != null;
+
+  if (paginated) {
+    const page = await listCustomersPage({
+      q,
+      category,
+      cursor,
+      limit: limitParam ? Number(limitParam) : 50,
+    });
+    const res = jsonOk(page);
+    res.headers.set("Cache-Control", "private, max-age=15, stale-while-revalidate=30");
+    return res;
+  }
+
+  // Legacy full list (export / older clients). Prefer ?limit= for UI.
   const customers = await listCustomers(q, category);
   const res = jsonOk(customers);
   res.headers.set("Cache-Control", "private, max-age=15, stale-while-revalidate=30");

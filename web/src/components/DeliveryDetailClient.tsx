@@ -3,23 +3,21 @@
 import Link from "next/link";
 import { useEffect, useRef, useState } from "react";
 import { BookingRecordDetails } from "@/components/BookingRecordDetails";
-import BookingItemWarningsBlock, {
-  BookingItemWarningsSection,
-  findItemWarnings,
-} from "@/components/BookingItemWarningsSection";
+import { BookingItemWarningsSection } from "@/components/BookingItemWarningsSection";
 import PhotoCaptureButton from "@/components/PhotoCaptureButton";
 import PaymentModePicker, { type PaymentMode } from "@/components/PaymentModePicker";
 import type { BookingForStandardDetails } from "@/lib/bookingDetails";
 import { WARNING_BOOKED_ON_RETURN, WARNING_RETURNING_ON_DELIVERY } from "@/lib/bookingDetails";
 import type { ItemWarningSource } from "@/lib/bookingWarningPdf";
 import { formatInr } from "@/lib/format";
-import { privateMediaUrl, bookingPhotoUrl, photoUrl } from "@/lib/photoUrl";
+import { privateMediaUrl, bookingPhotoUrl } from "@/lib/photoUrl";
 import { compressImageFile } from "@/lib/clientImageCompress";
 import ZoomableImage from "@/components/ZoomableImage";
 import { deliverySlipHref, hasPartialDelivery } from "@/lib/bookingStatus";
 import { navigatePrintTab, openBlankPrintTab, withSlipPrintQuery } from "@/lib/slipPrintUrl";
 import { useMutationOperationId } from "@/lib/useMutationOperationId";
 import { useToast } from "@/components/ui/Toast";
+import DeliveryDressItemRow from "@/components/delivery/DeliveryDressItemRow";
 
 type ItemRow = {
   id: number;
@@ -947,240 +945,43 @@ export default function DeliveryDetailClient({
             </p>
           )}
           {localItems.map((it) => (
-            <div
+            <DeliveryDressItemRow
               key={it.id}
-              style={{
-                border: `1.5px solid ${
-                  it.isCancelled
-                    ? "rgba(192,57,43,0.45)"
-                    : it.isDelivered
-                      ? "var(--success)"
-                      : selectedToDeliver[it.id]
-                        ? "#1565c0"
-                        : "var(--border)"
-                }`,
-                borderRadius: 12,
-                padding: 16,
-                marginBottom: 16,
-                background: it.isCancelled
-                  ? "rgba(192,57,43,0.05)"
-                  : it.isDelivered
-                    ? "rgba(46,125,50,0.04)"
-                    : selectedToDeliver[it.id]
-                      ? "rgba(21,101,192,0.04)"
-                      : undefined,
-              }}
-            >
-              <div style={{ display: "flex", alignItems: "center", gap: 12, marginBottom: 14 }}>
-                {!it.isDelivered && !it.isCancelled && (
-                  <label
-                    style={{
-                      display: "flex",
-                      alignItems: "center",
-                      gap: 8,
-                      cursor: "pointer",
-                      flexShrink: 0,
-                    }}
-                  >
-                    <input
-                      type="checkbox"
-                      checked={Boolean(selectedToDeliver[it.id])}
-                      onChange={(e) => toggleDeliverSelect(it.id, e.target.checked)}
-                      style={{ width: 18, height: 18 }}
-                    />
-                    <span style={{ fontSize: 12, fontWeight: 700, color: "var(--text-muted)" }}>
-                      Select
-                    </span>
-                  </label>
-                )}
-                {it.photo && (
-                  <img src={photoUrl(it.photo)} alt="" style={{ width: 48, height: 48, borderRadius: 8, objectFit: "cover", opacity: it.isCancelled ? 0.55 : 1 }} />
-                )}
-                <div style={{ flex: 1 }}>
-                  <div style={{ fontWeight: 700 }}>{it.dressName}</div>
-                  <div style={{ fontSize: 12, color: "var(--text-muted)" }}>
-                    {it.category}{it.size ? ` · ${it.size}` : ""} · Rent ₹{formatInr(it.price)}
-                    {!it.isCancelled && <> · Remaining ₹{formatInr(it.remaining)}</>}
-                    {typeof it.advance === "number" && it.advance > 0 && <> · Advance ₹{formatInr(it.advance)}</>}
-                  </div>
-                </div>
-                {it.isCancelled ? (
-                  <span className="badge" style={{ background: "rgba(192,57,43,0.12)", color: "var(--danger)" }}>
-                    Cancelled{(it.cancelRefundAmount || 0) > 0 ? " · Refunded" : " · Not refunded"}
-                  </span>
-                ) : it.isDelivered ? (
-                  <span className="badge badge-success"><i className="fa-solid fa-check" /> Delivered</span>
-                ) : (
-                  <span className="badge badge-warning">Pending</span>
-                )}
-              </div>
-
-              {it.isCancelled ? (
-                <p style={{ margin: 0, fontSize: 13, color: "var(--text-muted)" }}>
-                  This dress was cancelled
-                  {(it.cancelRefundAmount || 0) > 0
-                    ? ` and advance ₹${formatInr(it.cancelRefundAmount || it.advance || 0)} was refunded (subtracted from finance).`
-                    : " — advance was not refunded (kept in finance)."}
-                </p>
-              ) : (
-                <>
-              {(it.preparedBy || it.checkedBy || it.packingNote) && (
-                <div style={{ marginBottom: 12, padding: "8px 12px", background: "var(--info-bg, #e8f4fd)", borderRadius: 8, fontSize: 12 }}>
-                  <strong style={{ fontSize: 11, color: "var(--text-muted)" }}>PACKING INFO</strong>
-                  {it.preparedBy && <div>Prepared by: {it.preparedBy}</div>}
-                  {it.checkedBy && <div>Checked by: {it.checkedBy}</div>}
-                  {it.packingNote && <div>Note: {it.packingNote}</div>}
-                </div>
-              )}
-
-              {warningItems.length > 1 && (() => {
-                const itemWarnings = findItemWarnings(warningItems, { itemId: it.itemId, dressName: it.dressName });
-                return itemWarnings ? <BookingItemWarningsBlock item={itemWarnings} /> : null;
-              })()}
-
-              <div style={{ display: "grid", gridTemplateColumns: "1fr 1fr", gap: 12, marginBottom: 12 }}>
-                <div>
-                  <label className="form-label">Remaining Collected (₹)</label>
-                  <input
-                    type="number"
-                    inputMode="numeric"
-                    className="form-control"
-                    value={itemForms[it.id]?.remaining ?? ""}
-                    onChange={(e) => updateItem(it.id, "remaining", e.target.value)}
-                    disabled={it.isDelivered && !editingDelivered[it.id]}
-                  />
-                </div>
-                <div>
-                  <label className="form-label">Security Collected (₹)</label>
-                  <input
-                    type="number"
-                    inputMode="numeric"
-                    className="form-control"
-                    value={itemForms[it.id]?.security ?? ""}
-                    onChange={(e) => updateItem(it.id, "security", e.target.value)}
-                    disabled={it.isDelivered && !editingDelivered[it.id]}
-                  />
-                </div>
-              </div>
-              <div style={{ marginBottom: 12 }}>
-                <label className="form-label">Delivery Notes</label>
-                <textarea
-                  className="form-control"
-                  rows={2}
-                  value={itemForms[it.id]?.notes ?? ""}
-                  onChange={(e) => updateItem(it.id, "notes", e.target.value)}
-                  disabled={it.isDelivered && !editingDelivered[it.id]}
-                  placeholder="Notes for this dress…"
-                />
-              </div>
-              {!it.isDelivered && (
-                <div style={{ display: "flex", gap: 8, flexWrap: "wrap", alignItems: "center", justifyContent: "flex-end" }}>
-                  <button
-                    type="button"
-                    className="btn btn-outline btn-sm"
-                    disabled={saving || cancelBusy}
-                    onClick={() => setCancellingId(cancellingId === it.id ? null : it.id)}
-                    style={{ color: "var(--danger)", borderColor: "var(--danger)" }}
-                  >
-                    <i className="fa-solid fa-ban" style={{ marginRight: 6 }} />
-                    Cancel
-                  </button>
-                </div>
-              )}
-              {cancellingId === it.id && !it.isDelivered && (
-                <div
-                  style={{
-                    marginTop: 12,
-                    padding: 14,
-                    borderRadius: 10,
-                    border: "1.5px solid rgba(192,57,43,0.35)",
-                    background: "rgba(192,57,43,0.05)",
-                  }}
-                >
-                  <div style={{ fontWeight: 700, marginBottom: 6, color: "var(--danger)" }}>
-                    Cancel {it.dressName}?
-                  </div>
-                  <p style={{ margin: "0 0 10px", fontSize: 13, color: "var(--text-muted)" }}>
-                    Advance on this dress: ₹{formatInr(it.advance || 0)}. Choose whether that advance was refunded to the customer.
-                  </p>
-                  <div style={{ display: "flex", gap: 8, flexWrap: "wrap" }}>
-                    <button
-                      type="button"
-                      className="btn btn-primary btn-sm"
-                      disabled={cancelBusy}
-                      onClick={() => void cancelDress(it.id, true)}
-                    >
-                      Refunded
-                    </button>
-                    <button
-                      type="button"
-                      className="btn btn-outline btn-sm"
-                      disabled={cancelBusy}
-                      onClick={() => void cancelDress(it.id, false)}
-                      style={{ borderColor: "var(--danger)", color: "var(--danger)" }}
-                    >
-                      Not Refunded
-                    </button>
-                    <button
-                      type="button"
-                      className="btn btn-outline btn-sm"
-                      disabled={cancelBusy}
-                      onClick={() => setCancellingId(null)}
-                    >
-                      Back
-                    </button>
-                  </div>
-                </div>
-              )}
-              {it.isDelivered && !editingDelivered[it.id] && (
-                <div style={{ display: "flex", gap: 8, flexWrap: "wrap" }}>
-                  <button
-                    className="btn btn-outline btn-sm"
-                    onClick={() => setEditingDelivered((prev) => ({ ...prev, [it.id]: true }))}
-                  >
-                    <i className="fa-solid fa-pen" style={{ marginRight: 6 }} />
-                    Edit payment record
-                  </button>
-                  {partialDelivery && (
-                    <Link
-                      href={deliverySlipHref(booking.id, {
+              item={it}
+              selected={Boolean(selectedToDeliver[it.id])}
+              form={itemForms[it.id]}
+              editing={Boolean(editingDelivered[it.id])}
+              cancelling={cancellingId === it.id}
+              saving={saving}
+              cancelBusy={cancelBusy}
+              warningItems={warningItems}
+              showWarnings={warningItems.length > 1}
+              partialDelivery={partialDelivery}
+              viewSlipHref={
+                partialDelivery
+                  ? deliverySlipHref(
+                      booking.id,
+                      {
                         status: booking.status,
                         bookingItems: localItems.map((row) => ({
                           id: row.id,
                           isDelivered: row.isDelivered,
                           isCancelled: row.isCancelled,
                         })),
-                      }, it.id)}
-                      className="btn btn-outline btn-sm"
-                      style={{ color: "#1565c0", borderColor: "#1565c0" }}
-                    >
-                      <i className="fa-solid fa-file-lines" style={{ marginRight: 6 }} />
-                      View slip
-                    </Link>
-                  )}
-                </div>
-              )}
-              {it.isDelivered && editingDelivered[it.id] && (
-                <div style={{ display: "flex", gap: 8 }}>
-                  <button
-                    className="btn btn-primary btn-sm"
-                    disabled={saving}
-                    onClick={() => void saveItem(it.id)}
-                  >
-                    <i className="fa-solid fa-save" style={{ marginRight: 6 }} />
-                    Save Changes
-                  </button>
-                  <button
-                    className="btn btn-outline btn-sm"
-                    onClick={() => setEditingDelivered((prev) => ({ ...prev, [it.id]: false }))}
-                  >
-                    Cancel
-                  </button>
-                </div>
-              )}
-                </>
-              )}
-            </div>
+                      },
+                      it.id,
+                    )
+                  : null
+              }
+              onToggleSelect={toggleDeliverSelect}
+              onUpdateField={updateItem}
+              onToggleCancelling={(id) => setCancellingId(cancellingId === id ? null : id)}
+              onCancelDress={(id, refunded) => void cancelDress(id, refunded)}
+              onDismissCancel={() => setCancellingId(null)}
+              onStartEdit={(id) => setEditingDelivered((prev) => ({ ...prev, [id]: true }))}
+              onSaveItem={(id) => void saveItem(id)}
+              onCancelEdit={(id) => setEditingDelivered((prev) => ({ ...prev, [id]: false }))}
+            />
           ))}
 
           {cancelledItems.length > 0 && (

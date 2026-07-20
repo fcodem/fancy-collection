@@ -15,30 +15,61 @@ type CustomerRow = {
   address: string | null;
 };
 
+type PageResponse = {
+  rows: CustomerRow[];
+  nextCursor: string | null;
+  hasMore: boolean;
+};
+
 export default function CustomersClient() {
   const [q, setQ] = useState("");
   const [rows, setRows] = useState<CustomerRow[]>([]);
+  const [nextCursor, setNextCursor] = useState<string | null>(null);
+  const [hasMore, setHasMore] = useState(false);
   const [loading, setLoading] = useState(false);
+  const [loadingMore, setLoadingMore] = useState(false);
   const [importing, setImporting] = useState(false);
   const [importResult, setImportResult] = useState<string | null>(null);
   const fileRef = useRef<HTMLInputElement>(null);
+  const debounceRef = useRef<ReturnType<typeof setTimeout> | null>(null);
 
-  const load = useCallback(async () => {
-    setLoading(true);
+  const load = useCallback(async (opts?: { append?: boolean; cursor?: string | null; query?: string }) => {
+    const append = opts?.append ?? false;
+    const query = opts?.query ?? q;
+    if (append) setLoadingMore(true);
+    else setLoading(true);
     try {
-      const res = await fetch(`/api/customers?q=${encodeURIComponent(q)}`);
+      const params = new URLSearchParams({ limit: "50", page: "1" });
+      if (query.trim()) params.set("q", query.trim());
+      if (opts?.cursor) params.set("cursor", opts.cursor);
+      const res = await fetch(`/api/customers?${params}`);
       if (!res.ok) return;
-      setRows(await res.json());
+      const data = (await res.json()) as PageResponse;
+      setRows((prev) => (append ? [...prev, ...data.rows] : data.rows));
+      setNextCursor(data.nextCursor);
+      setHasMore(data.hasMore);
     } catch {
       /* ignore transient network errors */
     } finally {
       setLoading(false);
+      setLoadingMore(false);
     }
   }, [q]);
 
-  useEffect(() => { load(); }, []);
+  useEffect(() => {
+    void load();
+    // eslint-disable-next-line react-hooks/exhaustive-deps
+  }, []);
 
-  useRealtimeRefresh(BOOKING_EVENTS, load);
+  useRealtimeRefresh(BOOKING_EVENTS, () => load({ append: false }));
+
+  function onSearchChange(value: string) {
+    setQ(value);
+    if (debounceRef.current) clearTimeout(debounceRef.current);
+    debounceRef.current = setTimeout(() => {
+      void load({ append: false, query: value });
+    }, 300);
+  }
 
   async function handleBulkImport(e: React.ChangeEvent<HTMLInputElement>) {
     const file = e.target.files?.[0];
@@ -52,7 +83,7 @@ export default function CustomersClient() {
       const data = await res.json();
       if (res.ok) {
         setImportResult(`Imported ${data.created} new, merged ${data.merged} duplicates, skipped ${data.skipped} invalid rows.`);
-        load();
+        void load({ append: false });
       } else {
         setImportResult(`Error: ${data.error || "Import failed"}`);
       }
@@ -76,8 +107,14 @@ export default function CustomersClient() {
             Each phone number from bookings is shown as a separate row for easy broadcast. Duplicate contacts are merged on import.
           </p>
           <div style={{ display: "flex", gap: 12, flexWrap: "wrap", alignItems: "center" }}>
-            <input className="form-control" placeholder="Search name or phone…" value={q} onChange={(e) => setQ(e.target.value)} onKeyDown={(e) => e.key === "Enter" && load()} />
-            <button className="btn btn-primary" onClick={load} disabled={loading}>
+            <input
+              className="form-control"
+              placeholder="Search name or phone…"
+              value={q}
+              onChange={(e) => onSearchChange(e.target.value)}
+              onKeyDown={(e) => e.key === "Enter" && load({ append: false })}
+            />
+            <button className="btn btn-primary" onClick={() => load({ append: false })} disabled={loading}>
               {loading ? "Loading…" : "Search"}
             </button>
             {/* eslint-disable-next-line @next/next/no-html-link-for-pages -- file download endpoint */}
@@ -142,13 +179,33 @@ export default function CustomersClient() {
                   </td>
                 </tr>
               ))}
-              {!rows.length && (
+              {!rows.length && !loading && (
                 <tr>
                   <td colSpan={5} style={{ textAlign: "center", color: "var(--text-muted)" }}>No customers found.</td>
                 </tr>
               )}
+              {loading && !rows.length && (
+                <tr>
+                  <td colSpan={5} style={{ textAlign: "center", color: "var(--text-muted)" }}>
+                    <i className="fa-solid fa-spinner fa-spin" style={{ marginRight: 8 }} />
+                    Loading…
+                  </td>
+                </tr>
+              )}
             </tbody>
           </table>
+          {hasMore && (
+            <div style={{ padding: 16, textAlign: "center", borderTop: "1px solid var(--border)" }}>
+              <button
+                type="button"
+                className="btn btn-outline"
+                disabled={loadingMore}
+                onClick={() => load({ append: true, cursor: nextCursor })}
+              >
+                {loadingMore ? "Loading…" : "Load more"}
+              </button>
+            </div>
+          )}
         </div>
       </div>
     </div>

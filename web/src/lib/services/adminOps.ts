@@ -22,69 +22,239 @@ export type CategoryEntry = {
   source: "base" | "custom";
   editable: boolean;
 };
-export async function exportBookingsCsv() {
-  const bookings = await prisma.booking.findMany({
-    where: activeBookingWhere(),
-    include: { bookingItems: true },
-    orderBy: { deliveryDate: "desc" },
-  });
-
+export async function* streamBookingsCsvChunks(batchSize = 250): AsyncGenerator<string> {
   const header = [
     "Serial#", "Booking#", "Status", "Customer", "Address", "Contact", "WhatsApp",
     "Venue", "Delivery Date", "Delivery Time", "Return Date", "Return Time",
     "Dresses", "Total Rent", "Advance Paid", "Remaining", "Security Deposit",
     "Common Notes", "Staff", "Created At",
   ].join(",");
+  yield header + "\n";
 
-  const rows = bookings.map((b) => {
-    const dresses = b.bookingItems.length
-      ? b.bookingItems.map((bi) => bi.dressName).join(" | ")
-      : b.dressName || "";
-    return [
-      b.monthlySerial ? `#${String(b.monthlySerial).padStart(2, "0")}` : "",
-      b.bookingNumber,
-      b.status,
-      `"${b.customerName.replace(/"/g, '""')}"`,
-      `"${b.customerAddress.replace(/"/g, '""')}"`,
-      b.contact1,
-      b.whatsappNo || "",
-      `"${(b.venue || "").replace(/"/g, '""')}"`,
-      b.deliveryDate.toISOString().slice(0, 10),
-      b.deliveryTime,
-      b.returnDate.toISOString().slice(0, 10),
-      b.returnTime,
-      `"${dresses.replace(/"/g, '""')}"`,
-      b.totalPrice,
-      b.totalAdvance,
-      b.totalRemaining,
-      b.securityDeposit,
-      `"${(b.commonNotes || "").replace(/"/g, '""')}"`,
-      `"${(b.staffNames || "").replace(/"/g, '""')}"`,
-      b.createdAt.toISOString(),
-    ].join(",");
+  let cursorDate: Date | null = null;
+  let cursorId = Number.MAX_SAFE_INTEGER;
+
+  type BookingCsvRow = {
+    id: number;
+    monthlySerial: number;
+    bookingNumber: string;
+    status: string;
+    customerName: string;
+    customerAddress: string;
+    contact1: string;
+    whatsappNo: string | null;
+    venue: string | null;
+    deliveryDate: Date;
+    deliveryTime: string;
+    returnDate: Date;
+    returnTime: string;
+    totalPrice: number;
+    totalAdvance: number;
+    totalRemaining: number;
+    securityDeposit: number;
+    commonNotes: string | null;
+    staffNames: string | null;
+    createdAt: Date;
+    dressName: string | null;
+    bookingItems: Array<{ dressName: string }>;
+  };
+
+  for (;;) {
+    const batch: BookingCsvRow[] = await prisma.booking.findMany({
+      where: {
+        ...activeBookingWhere(),
+        ...(cursorDate
+          ? {
+              OR: [
+                { deliveryDate: { lt: cursorDate } },
+                { deliveryDate: cursorDate, id: { lt: cursorId } },
+              ],
+            }
+          : {}),
+      },
+      select: {
+        id: true,
+        monthlySerial: true,
+        bookingNumber: true,
+        status: true,
+        customerName: true,
+        customerAddress: true,
+        contact1: true,
+        whatsappNo: true,
+        venue: true,
+        deliveryDate: true,
+        deliveryTime: true,
+        returnDate: true,
+        returnTime: true,
+        totalPrice: true,
+        totalAdvance: true,
+        totalRemaining: true,
+        securityDeposit: true,
+        commonNotes: true,
+        staffNames: true,
+        createdAt: true,
+        dressName: true,
+        bookingItems: { select: { dressName: true } },
+      },
+      orderBy: [{ deliveryDate: "desc" }, { id: "desc" }],
+      take: batchSize,
+    });
+
+    if (!batch.length) break;
+
+    for (const b of batch) {
+      const dresses = b.bookingItems.length
+        ? b.bookingItems.map((bi: { dressName: string }) => bi.dressName).join(" | ")
+        : b.dressName || "";
+      yield [
+        b.monthlySerial ? `#${String(b.monthlySerial).padStart(2, "0")}` : "",
+        b.bookingNumber,
+        b.status,
+        `"${b.customerName.replace(/"/g, '""')}"`,
+        `"${b.customerAddress.replace(/"/g, '""')}"`,
+        b.contact1,
+        b.whatsappNo || "",
+        `"${(b.venue || "").replace(/"/g, '""')}"`,
+        b.deliveryDate.toISOString().slice(0, 10),
+        b.deliveryTime,
+        b.returnDate.toISOString().slice(0, 10),
+        b.returnTime,
+        `"${dresses.replace(/"/g, '""')}"`,
+        b.totalPrice,
+        b.totalAdvance,
+        b.totalRemaining,
+        b.securityDeposit,
+        `"${(b.commonNotes || "").replace(/"/g, '""')}"`,
+        `"${(b.staffNames || "").replace(/"/g, '""')}"`,
+        b.createdAt.toISOString(),
+      ].join(",") + "\n";
+    }
+
+    if (batch.length < batchSize) break;
+    const last = batch[batch.length - 1]!;
+    cursorDate = last.deliveryDate;
+    cursorId = last.id;
+  }
+}
+
+export function streamBookingsCsvResponse(): Response {
+  const encoder = new TextEncoder();
+  const stream = new ReadableStream({
+    async start(controller) {
+      try {
+        for await (const chunk of streamBookingsCsvChunks()) {
+          controller.enqueue(encoder.encode(chunk));
+        }
+        controller.close();
+      } catch (e) {
+        controller.error(e);
+      }
+    },
   });
+  return new Response(stream, {
+    headers: {
+      "Content-Type": "text/csv; charset=utf-8",
+      "Content-Disposition": 'attachment; filename="bookings_export.csv"',
+      "Cache-Control": "no-store",
+    },
+  });
+}
 
-  return [header, ...rows].join("\n");
+export async function exportBookingsCsv() {
+  let out = "";
+  for await (const chunk of streamBookingsCsvChunks()) out += chunk;
+  return out;
+}
+
+export async function* streamInventoryCsvChunks(batchSize = 500): AsyncGenerator<string> {
+  yield "SKU,Name,Category,Size,Color,Status,Daily Rate,Deposit,Sub-Category,Notes\n";
+
+  let cursorCategory = "";
+  let cursorName = "";
+  let cursorId = 0;
+  let first = true;
+
+  for (;;) {
+    const batch = await prisma.clothingItem.findMany({
+      where: first
+        ? undefined
+        : {
+            OR: [
+              { category: { gt: cursorCategory } },
+              { category: cursorCategory, name: { gt: cursorName } },
+              { category: cursorCategory, name: cursorName, id: { gt: cursorId } },
+            ],
+          },
+      select: {
+        id: true,
+        sku: true,
+        name: true,
+        category: true,
+        size: true,
+        color: true,
+        status: true,
+        dailyRate: true,
+        deposit: true,
+        subCategory: true,
+        conditionNotes: true,
+      },
+      orderBy: [{ category: "asc" }, { name: "asc" }, { id: "asc" }],
+      take: batchSize,
+    });
+
+    if (!batch.length) break;
+
+    for (const i of batch) {
+      yield [
+        i.sku,
+        `"${dressDisplayName(i.name, i.category, i.size).replace(/"/g, '""')}"`,
+        i.category,
+        i.size || "",
+        i.color || "",
+        i.status,
+        i.dailyRate,
+        i.deposit,
+        i.subCategory || "",
+        `"${(i.conditionNotes || "").replace(/"/g, '""')}"`,
+      ].join(",") + "\n";
+    }
+
+    if (batch.length < batchSize) break;
+    const last = batch[batch.length - 1]!;
+    cursorCategory = last.category;
+    cursorName = last.name;
+    cursorId = last.id;
+    first = false;
+  }
+}
+
+export function streamInventoryCsvResponse(): Response {
+  const encoder = new TextEncoder();
+  const stream = new ReadableStream({
+    async start(controller) {
+      try {
+        for await (const chunk of streamInventoryCsvChunks()) {
+          controller.enqueue(encoder.encode(chunk));
+        }
+        controller.close();
+      } catch (e) {
+        controller.error(e);
+      }
+    },
+  });
+  return new Response(stream, {
+    headers: {
+      "Content-Type": "text/csv; charset=utf-8",
+      "Content-Disposition": 'attachment; filename="inventory_export.csv"',
+      "Cache-Control": "no-store",
+    },
+  });
 }
 
 export async function exportInventoryCsv() {
-  const items = await prisma.clothingItem.findMany({ orderBy: [{ category: "asc" }, { name: "asc" }] });
-  const header = "SKU,Name,Category,Size,Color,Status,Daily Rate,Deposit,Sub-Category,Notes\n";
-  const rows = items.map((i) =>
-    [
-      i.sku,
-      `"${dressDisplayName(i.name, i.category, i.size).replace(/"/g, '""')}"`,
-      i.category,
-      i.size || "",
-      i.color || "",
-      i.status,
-      i.dailyRate,
-      i.deposit,
-      i.subCategory || "",
-      `"${(i.conditionNotes || "").replace(/"/g, '""')}"`,
-    ].join(",")
-  );
-  return header + rows.join("\n");
+  let out = "";
+  for await (const chunk of streamInventoryCsvChunks()) out += chunk;
+  return out;
 }
 
 export async function listUsers() {

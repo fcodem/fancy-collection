@@ -344,9 +344,15 @@ model Booking {
   @@index([monthlySerial])
   @@index([customerName])
   @@index([contact1])
+  @@index([contact2])
   @@index([whatsappNo])
   @@index([createdAt])
+  @@index([createdAt, status])
   @@index([customerName, deliveryDate])
+  @@index([deliveredAt])
+  @@index([returnedAt])
+  @@index([status, deliveredAt])
+  @@index([status, returnedAt])
   @@map("bookings")
 }
 /** Concurrency-safe monthly serial allocator (replaces MAX scan on bookings). */
