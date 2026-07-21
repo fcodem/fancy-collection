@@ -49,6 +49,24 @@ const STARTER_PRESETS: Array<{
   apply: () => FormState;
 }> = [
   {
+    id: "welcome",
+    label: "Customer welcome (Maps + Instagram)",
+    apply: () => ({
+      ...EMPTY_FORM,
+      name: "customer_welcome_v1",
+      category: "UTILITY",
+      headerText: BRAND_FULL_NAME,
+      bodyText:
+        "Namaste! 🙏 We are delighted to connect with you.\n\n" +
+        "Moradabad's trusted boutique for premium bridal & designer outfit rentals.\n\n" +
+        "📞 For queries: 8077843874 • 8630834711\n\n" +
+        "Use URL buttons: Shop Location (Google Maps) + View Dress Samples (Instagram).",
+      footerText: "8077843874 • 8630834711",
+      button1: "",
+      exampleName: "Customer",
+    }),
+  },
+  {
     id: "offer",
     label: "Festive offer (marketing)",
     apply: () => ({
@@ -167,6 +185,7 @@ export default function WhatsAppTemplatesClient() {
   const [submitting, setSubmitting] = useState(false);
   const [deleting, setDeleting] = useState<string | null>(null);
   const [ensuringBookingBill, setEnsuringBookingBill] = useState(false);
+  const [ensuringWelcome, setEnsuringWelcome] = useState(false);
   const [ensuringAll, setEnsuringAll] = useState(false);
   const [cleaningLegacy, setCleaningLegacy] = useState(false);
 
@@ -216,6 +235,33 @@ export default function WhatsAppTemplatesClient() {
     }
   };
 
+  const ensureWelcomeTemplate = async () => {
+    setEnsuringWelcome(true);
+    try {
+      const res = await fetch("/api/whatsapp/templates/welcome", { method: "POST" });
+      const data = (await res.json()) as {
+        ok?: boolean;
+        status?: string;
+        name?: string;
+        message?: string;
+        error?: string;
+      };
+      if (!res.ok || data.error) {
+        alert(data.error || "Failed to submit customer welcome template");
+        return;
+      }
+      alert(
+        data.message ||
+          `Template "${data.name}" status: ${data.status || "PENDING"}. Meta approval may take 24–48 hours.`,
+      );
+      await load();
+    } catch (e) {
+      if (!isTransientNetworkError(e)) alert("Failed to submit customer welcome template");
+    } finally {
+      setEnsuringWelcome(false);
+    }
+  };
+
   const ensureAllTemplates = async () => {
     setEnsuringAll(true);
     try {
@@ -234,6 +280,7 @@ export default function WhatsAppTemplatesClient() {
           error?: string;
         }>;
         booking_confirmation?: { name?: string; status?: string; ok?: boolean };
+        customer_welcome?: { name?: string; status?: string; ok?: boolean; message?: string };
       };
       if (!res.ok || data.error) {
         alert(data.error || "Failed to submit templates");
@@ -241,6 +288,7 @@ export default function WhatsAppTemplatesClient() {
       }
       const lines = [
         `booking_confirmation: ${data.booking_confirmation?.status || (data.booking_confirmation?.ok ? "ok" : "failed")}`,
+        `customer_welcome: ${data.customer_welcome?.status || data.customer_welcome?.message || (data.customer_welcome?.ok ? "ok" : "failed")}`,
         ...(data.slips || []).map(
           (s) =>
             `${s.name}: ${s.ok ? s.status || (s.skipped ? "exists" : "submitted") : s.error || "failed"}`,
@@ -502,6 +550,29 @@ export default function WhatsAppTemplatesClient() {
           >
             <i className="fa-solid fa-file-pdf" style={{ fontSize: 12 }} />
             {ensuringBookingBill ? "Submitting…" : "Submit booking bill template"}
+          </button>
+          <button
+            type="button"
+            onClick={ensureWelcomeTemplate}
+            disabled={ensuringWelcome}
+            style={{
+              display: "flex",
+              alignItems: "center",
+              gap: 8,
+              background: "#0369a1",
+              color: "#fff",
+              border: "none",
+              borderRadius: 12,
+              padding: "8px 16px",
+              fontSize: 13,
+              cursor: ensuringWelcome ? "wait" : "pointer",
+              fontWeight: 500,
+              opacity: ensuringWelcome ? 0.7 : 1,
+            }}
+            title="Auto-welcome for new / returning customers — Google Maps + Instagram buttons"
+          >
+            <i className="fa-solid fa-hand-sparkles" style={{ fontSize: 12 }} />
+            {ensuringWelcome ? "Submitting…" : "Submit welcome template"}
           </button>
           <button
             type="button"

@@ -5,6 +5,7 @@ import {
   ensureAllSlipTemplates,
   SLIP_TEMPLATE_DEFS,
 } from "@/lib/services/whatsapp/slipTemplates";
+import { ensureCustomerWelcomeTemplate } from "@/lib/services/whatsapp/welcomeTemplate";
 
 /** Owner-only: submit all slip + marketing templates to Meta. */
 export async function POST(req: NextRequest) {
@@ -21,10 +22,12 @@ export async function POST(req: NextRequest) {
 
   try {
     const booking = await ensureBookingBillTemplate();
+    const welcome = await ensureCustomerWelcomeTemplate();
     const slips = await ensureAllSlipTemplates({ includeMarketing });
     return jsonOk({
-      ok: booking.ok && slips.ok,
+      ok: booking.ok && welcome.ok && slips.ok,
       booking_confirmation: booking,
+      customer_welcome: welcome,
       slips: slips.results,
       catalog: SLIP_TEMPLATE_DEFS.map((d) => ({
         key: d.key,

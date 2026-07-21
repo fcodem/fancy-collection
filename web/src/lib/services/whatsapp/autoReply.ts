@@ -12,6 +12,11 @@ import {
   shouldSendAutoWelcome,
   type BotConversationState,
 } from "./botFlow";
+import {
+  customerWelcomeTemplatePreviewBody,
+  getCustomerWelcomeTemplateStatus,
+  sendCustomerWelcomeTemplate,
+} from "./welcomeTemplate";
 
 /** Env-only kill switch (WHATSAPP_BOT_DISABLED=1). Prefer isBotDisabled() for full check. */
 export function isAutoReplyDisabled(): boolean {
@@ -124,6 +129,48 @@ export async function handleInboundAutoReply(args: {
       botStep: state.botStep,
       settings,
     });
+
+    if (shouldSendWelcome) {
+      const welcomeTpl = await getCustomerWelcomeTemplateStatus();
+      if (welcomeTpl.ready) {
+        const sendResult = await sendCustomerWelcomeTemplate(args.phone);
+        if (sendResult.ok) {
+          const now = new Date();
+          const previewBody = customerWelcomeTemplatePreviewBody(settings);
+          await prisma.$transaction([
+            prisma.whatsAppMessage.create({
+              data: {
+                conversationId: args.conversationId,
+                phone: args.phone,
+                direction: "outbound",
+                messageType: "template",
+                body: previewBody,
+                metaMessageId: sendResult.messageId ?? null,
+                isAutomated: true,
+                deliveryStatus: "sent",
+              },
+            }),
+            prisma.whatsAppConversation.update({
+              where: { id: args.conversationId },
+              data: {
+                lastMessageAt: now,
+                lastAutomatedInboundMetaMessageId: args.metaMessageId,
+                botUpdatedAt: now,
+                lastWelcomeSentAt: now,
+                botInvalidAttempts: 0,
+              },
+            }),
+          ]);
+          console.log(
+            `[bot] Welcome template sent to ${args.phone.replace(/\d(?=\d{4})/g, "*")}`,
+          );
+          return;
+        }
+        console.warn(
+          `[bot] Welcome template send failed, using interactive fallback: ${sendResult.error}`,
+        );
+      }
+    }
 
     const result = processBotInbound({
       text: args.inboundText,
