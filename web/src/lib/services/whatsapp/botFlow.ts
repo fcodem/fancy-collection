@@ -9,6 +9,10 @@ import {
   todayIso,
 } from "@/lib/constants";
 import type { WhatsAppBotSettings } from "./botSettings";
+import {
+  buildProfessionalWelcomeMessage,
+  buildWelcomeLinkButtons,
+} from "./botSettings";
 
 export const BOT_MODES = ["ACTIVE", "NEEDS_STAFF", "TEAM_HANDLING"] as const;
 export type BotMode = (typeof BOT_MODES)[number];
@@ -41,10 +45,12 @@ export type BotConversationState = {
 export type BotProcessResult = {
   reply: string | null;
   quickReplyButtons?: { id: string; title: string }[];
+  urlButtons?: { displayText: string; url: string }[];
   nextState: Partial<BotConversationState>;
   sendHandover: boolean;
   resetInvalidAttempts?: boolean;
   incrementInvalidAttempts?: boolean;
+  markWelcomeSent?: boolean;
 };
 
 const DATE_INVALID_MSG =
@@ -305,6 +311,32 @@ function resolveQuickReply(text: string): string | null {
   return QUICK_CATEGORY_MAP[key] ?? QUICK_CATEGORY_MAP[`cat_${key}`] ?? null;
 }
 
+function buildAutoWelcomeResult(settings: WhatsAppBotSettings): BotProcessResult {
+  return {
+    reply: buildProfessionalWelcomeMessage(settings),
+    urlButtons: buildWelcomeLinkButtons(settings),
+    nextState: {},
+    sendHandover: false,
+    resetInvalidAttempts: true,
+    markWelcomeSent: true,
+  };
+}
+
+/** True when the professional welcome should be sent (first contact or long gap). */
+export function shouldSendAutoWelcome(args: {
+  isFirstContact: boolean;
+  daysSinceLastInbound: number | null;
+  botMode: BotMode;
+  botStep: BotStep;
+  settings: WhatsAppBotSettings;
+}): boolean {
+  if (args.botMode !== "ACTIVE") return false;
+  if (args.botStep !== "IDLE") return false;
+  if (args.isFirstContact) return true;
+  if (args.daysSinceLastInbound === null) return true;
+  return args.daysSinceLastInbound >= args.settings.welcomeCooldownDays;
+}
+
 function handoverResult(
   settings: WhatsAppBotSettings,
   state: BotConversationState,
@@ -487,6 +519,8 @@ export function processBotInbound(args: {
   text: string;
   messageType: string;
   isFirstContact: boolean;
+  shouldSendWelcome?: boolean;
+  daysSinceLastInbound?: number | null;
   state: BotConversationState;
   settings: WhatsAppBotSettings;
 }): BotProcessResult {
@@ -494,6 +528,19 @@ export function processBotInbound(args: {
 
   if (state.botMode === "TEAM_HANDLING" || state.botMode === "NEEDS_STAFF") {
     return { reply: null, nextState: {}, sendHandover: false };
+  }
+
+  if (
+    args.shouldSendWelcome &&
+    shouldSendAutoWelcome({
+      isFirstContact,
+      daysSinceLastInbound: args.daysSinceLastInbound ?? null,
+      botMode: state.botMode,
+      botStep: state.botStep,
+      settings,
+    })
+  ) {
+    return buildAutoWelcomeResult(settings);
   }
 
   const isTextLike = messageType === "text" || messageType === "interactive";
@@ -567,9 +614,8 @@ export function processBotInbound(args: {
   if (isFirstContact) {
     return {
       reply:
-        `Namaste! 🙏 Welcome to ${settings.shopName}.\n` +
-        "Please tell us the outfit/jewellery you're looking for and your function date, and our team will help you right away.",
-      quickReplyButtons: settings.flowEnabled ? QUICK_WELCOME_BUTTONS : undefined,
+        `Thank you for messaging ${settings.shopName}! 🙏\n` +
+        "Please share the outfit/jewellery you're looking for and your function date, and our team will help you right away.",
       nextState: {},
       sendHandover: false,
     };

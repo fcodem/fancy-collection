@@ -8,9 +8,10 @@ import {
   matchKeywordRule,
   parseCustomerDate,
   processBotInbound,
+  shouldSendAutoWelcome,
   type BotConversationState,
 } from "./botFlow";
-import { getWhatsAppBotSettingsDefaults } from "./botSettings";
+import { buildProfessionalWelcomeMessage, getWhatsAppBotSettingsDefaults } from "./botSettings";
 
 const settings = getWhatsAppBotSettingsDefaults();
 
@@ -347,5 +348,64 @@ describe("WhatsApp bot flow", () => {
     );
     assert.match(s, /Lehenga/);
     assert.match(s, /Blue/);
+  });
+
+  it("auto welcome on first contact", () => {
+    const r = processBotInbound({
+      text: "Hi",
+      messageType: "text",
+      isFirstContact: true,
+      shouldSendWelcome: true,
+      daysSinceLastInbound: null,
+      state: baseState(),
+      settings,
+    });
+    assert.match(r.reply || "", /Welcome to/i);
+    assert.match(r.reply || "", /8077843874/);
+    assert.match(r.reply || "", /instagram\.com\/fancycollection_renuagarwal/i);
+    assert.ok(r.urlButtons?.length);
+    assert.equal(r.markWelcomeSent, true);
+  });
+
+  it("auto welcome after long gap", () => {
+    assert.ok(
+      shouldSendAutoWelcome({
+        isFirstContact: false,
+        daysSinceLastInbound: 45,
+        botMode: "ACTIVE",
+        botStep: "IDLE",
+        settings,
+      }),
+    );
+    const r = processBotInbound({
+      text: "Hello again",
+      messageType: "text",
+      isFirstContact: false,
+      shouldSendWelcome: true,
+      daysSinceLastInbound: 45,
+      state: baseState(),
+      settings,
+    });
+    assert.match(r.reply || "", /Welcome to/i);
+  });
+
+  it("no auto welcome within cooldown", () => {
+    assert.equal(
+      shouldSendAutoWelcome({
+        isFirstContact: false,
+        daysSinceLastInbound: 5,
+        botMode: "ACTIVE",
+        botStep: "IDLE",
+        settings,
+      }),
+      false,
+    );
+  });
+
+  it("professional welcome includes both contact numbers", () => {
+    const msg = buildProfessionalWelcomeMessage(settings);
+    assert.match(msg, /8630834711/);
+    assert.match(msg, /8077843874/);
+    assert.match(msg, /Shop Location|Google Maps|directions/i);
   });
 });

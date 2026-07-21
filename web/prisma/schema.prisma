@@ -706,6 +706,7 @@ model WhatsAppConversation {
   handoverMessageSentAt DateTime? @map("handover_message_sent_at")
   botResumedAt   DateTime? @map("bot_resumed_at")
   botUpdatedAt   DateTime? @map("bot_updated_at")
+  lastWelcomeSentAt DateTime? @map("last_welcome_sent_at")
 
   booking  Booking?          @relation(fields: [bookingId], references: [id], onDelete: SetNull)
   messages WhatsAppMessage[]

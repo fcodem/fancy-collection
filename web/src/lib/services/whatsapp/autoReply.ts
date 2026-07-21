@@ -1,9 +1,15 @@
 import prisma from "@/lib/prisma";
-import { isWhatsAppConfigured, sendWhatsAppInteractiveButtons, sendWhatsAppText } from "./metaApi";
+import {
+  isWhatsAppConfigured,
+  sendWhatsAppInteractiveButtons,
+  sendWhatsAppText,
+  sendWhatsAppWelcomeWithLinkButtons,
+} from "./metaApi";
 import { loadWhatsAppBotSettings } from "./botSettings";
 import {
   botBadgeLabel,
   processBotInbound,
+  shouldSendAutoWelcome,
   type BotConversationState,
 } from "./botFlow";
 
@@ -48,6 +54,23 @@ function readState(row: {
   };
 }
 
+async function daysSincePreviousInbound(
+  conversationId: number,
+  currentMetaMessageId: string,
+): Promise<number | null> {
+  const prior = await prisma.whatsAppMessage.findFirst({
+    where: {
+      conversationId,
+      direction: "inbound",
+      NOT: { metaMessageId: currentMetaMessageId },
+    },
+    orderBy: { createdAt: "desc" },
+    select: { createdAt: true },
+  });
+  if (!prior) return null;
+  return (Date.now() - prior.createdAt.getTime()) / (24 * 60 * 60 * 1000);
+}
+
 /**
  * Process inbound WhatsApp message with keyword rules + booking flow.
  * At most one automated reply per inbound Meta message ID.
@@ -89,10 +112,25 @@ export async function handleInboundAutoReply(args: {
     }
 
     const state = readState(conv);
+    const daysSinceLastInbound = await daysSincePreviousInbound(
+      args.conversationId,
+      args.metaMessageId,
+    );
+    const isFirstContact = args.isFirstContact ?? false;
+    const shouldSendWelcome = shouldSendAutoWelcome({
+      isFirstContact,
+      daysSinceLastInbound,
+      botMode: state.botMode,
+      botStep: state.botStep,
+      settings,
+    });
+
     const result = processBotInbound({
       text: args.inboundText,
       messageType: args.messageType,
-      isFirstContact: args.isFirstContact ?? false,
+      isFirstContact,
+      shouldSendWelcome,
+      daysSinceLastInbound,
       state,
       settings,
     });
@@ -113,9 +151,17 @@ export async function handleInboundAutoReply(args: {
       return;
     }
 
-    const sendResult = result.quickReplyButtons?.length
-      ? await sendWhatsAppInteractiveButtons(args.phone, result.reply, result.quickReplyButtons)
-      : await sendWhatsAppText(args.phone, result.reply);
+    const footer = `Call: ${settings.phone} • ${settings.phone2}`;
+    const sendResult = result.urlButtons?.length
+      ? await sendWhatsAppWelcomeWithLinkButtons(
+          args.phone,
+          result.reply,
+          result.urlButtons,
+          { header: settings.shopName, footer },
+        )
+      : result.quickReplyButtons?.length
+        ? await sendWhatsAppInteractiveButtons(args.phone, result.reply, result.quickReplyButtons)
+        : await sendWhatsAppText(args.phone, result.reply);
 
     if (!sendResult.ok) {
       console.warn(`[bot] Auto-reply send failed to ${args.phone}: ${sendResult.error}`);
@@ -135,7 +181,11 @@ export async function handleInboundAutoReply(args: {
           conversationId: args.conversationId,
           phone: args.phone,
           direction: "outbound",
-          messageType: result.quickReplyButtons?.length ? "interactive" : "text",
+          messageType: result.urlButtons?.length
+            ? "interactive"
+            : result.quickReplyButtons?.length
+              ? "interactive"
+              : "text",
           body: result.reply,
           metaMessageId: sendResult.messageId ?? null,
           isAutomated: true,
@@ -149,6 +199,7 @@ export async function handleInboundAutoReply(args: {
           lastAutomatedInboundMetaMessageId: args.metaMessageId,
           botUpdatedAt: now,
           botInvalidAttempts: invalidAttempts,
+          ...(result.markWelcomeSent ? { lastWelcomeSentAt: now } : {}),
           ...(result.nextState.botMode ? { botMode: result.nextState.botMode } : {}),
           ...(result.nextState.botStep ? { botStep: result.nextState.botStep } : {}),
           ...(result.nextState.botCategory !== undefined

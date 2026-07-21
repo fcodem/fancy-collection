@@ -171,6 +171,66 @@ export async function sendWhatsAppText(
   });
 }
 
+/** Interactive CTA URL button (opens external link). WhatsApp allows one URL button per message. */
+export async function sendWhatsAppCtaUrlMessage(
+  phone: string,
+  body: string,
+  cta: { displayText: string; url: string },
+  opts?: { header?: string; footer?: string },
+): Promise<WhatsAppSendResult> {
+  const to = whatsAppApiPhone(phone);
+  if (!to) return { ok: false, error: `Invalid phone number: ${phone}` };
+
+  const interactive: Record<string, unknown> = {
+    type: "cta_url",
+    body: { text: body.slice(0, 1024) },
+    action: {
+      name: "cta_url",
+      parameters: {
+        display_text: cta.displayText.slice(0, 20),
+        url: cta.url.slice(0, 2000),
+      },
+    },
+  };
+
+  if (opts?.header?.trim()) {
+    interactive.header = { type: "text", text: opts.header.trim().slice(0, 60) };
+  }
+  if (opts?.footer?.trim()) {
+    interactive.footer = { text: opts.footer.trim().slice(0, 60) };
+  }
+
+  const result = await postWhatsAppMessage({
+    recipient_type: "individual",
+    to,
+    type: "interactive",
+    interactive,
+  });
+
+  if (!result.ok) {
+    const fallback =
+      `${body}\n\n${cta.displayText}: ${cta.url}`;
+    return sendWhatsAppText(phone, fallback);
+  }
+  return result;
+}
+
+/**
+ * Professional welcome with link actions.
+ * WhatsApp allows one CTA URL button per message — maps opens via button;
+ * Instagram opens via the tappable link already included in the body.
+ */
+export async function sendWhatsAppWelcomeWithLinkButtons(
+  phone: string,
+  body: string,
+  buttons: { displayText: string; url: string }[],
+  opts?: { header?: string; footer?: string },
+): Promise<WhatsAppSendResult> {
+  const primary = buttons[0];
+  if (!primary) return sendWhatsAppText(phone, body);
+  return sendWhatsAppCtaUrlMessage(phone, body, primary, opts);
+}
+
 /** Interactive quick-reply buttons (max 3). Falls back to plain text if send fails. */
 export async function sendWhatsAppInteractiveButtons(
   phone: string,
