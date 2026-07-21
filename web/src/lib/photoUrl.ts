@@ -15,7 +15,7 @@ export function privateMediaUrl(stored?: string | null): string {
 function looksPrivateBookingMedia(stored: string): boolean {
   return (
     /uploads\/private\//i.test(stored) ||
-    /(?:^|\/)(id-proofs|orders|incomplete-returns|jewellery-selections|delivery-evidence|return-evidence|damage-evidence|fittings|measurements)\//i.test(
+    /(?:^|\/)(id-proofs|orders|incomplete-returns|jewellery-selections|delivery-evidence|return-evidence|damage-evidence|fittings|measurements|whatsapp-inbox)\//i.test(
       stored,
     ) ||
     /\.private\.blob\./i.test(stored)

@@ -301,6 +301,92 @@ export async function sendWhatsAppDocumentByMediaId(
   );
 }
 
+/** Send an image already uploaded to Meta (by media id). */
+export async function sendWhatsAppImageByMediaId(
+  phone: string,
+  mediaId: string,
+  caption?: string,
+  opts?: { signal?: AbortSignal },
+): Promise<WhatsAppSendResult> {
+  const to = whatsAppApiPhone(phone);
+  if (!to) return { ok: false, error: `Invalid phone number: ${phone}` };
+
+  return postWhatsAppMessage(
+    {
+      recipient_type: "individual",
+      to,
+      type: "image",
+      image: {
+        id: mediaId,
+        ...(caption ? { caption } : {}),
+      },
+    },
+    opts,
+  );
+}
+
+/** Send a video already uploaded to Meta (by media id). */
+export async function sendWhatsAppVideoByMediaId(
+  phone: string,
+  mediaId: string,
+  caption?: string,
+  opts?: { signal?: AbortSignal },
+): Promise<WhatsAppSendResult> {
+  const to = whatsAppApiPhone(phone);
+  if (!to) return { ok: false, error: `Invalid phone number: ${phone}` };
+
+  return postWhatsAppMessage(
+    {
+      recipient_type: "individual",
+      to,
+      type: "video",
+      video: {
+        id: mediaId,
+        ...(caption ? { caption } : {}),
+      },
+    },
+    opts,
+  );
+}
+
+export type WhatsAppInboxMediaKind = "image" | "video";
+
+const INBOX_IMAGE_MIMES = new Set(["image/jpeg", "image/png", "image/webp"]);
+const INBOX_VIDEO_MIMES = new Set(["video/mp4", "video/3gpp"]);
+
+export function classifyWhatsAppInboxMedia(mimeType: string): WhatsAppInboxMediaKind | null {
+  const mime = mimeType.toLowerCase();
+  if (INBOX_IMAGE_MIMES.has(mime)) return "image";
+  if (INBOX_VIDEO_MIMES.has(mime)) return "video";
+  return null;
+}
+
+/** Upload bytes to Meta and send as image or video in the 24h customer-care window. */
+export async function sendWhatsAppInboxMediaBuffer(opts: {
+  phone: string;
+  fileBuffer: Buffer;
+  filename: string;
+  mimeType: string;
+  caption?: string;
+}): Promise<WhatsAppSendResult & { messageType?: WhatsAppInboxMediaKind }> {
+  const kind = classifyWhatsAppInboxMedia(opts.mimeType);
+  if (!kind) {
+    return { ok: false, error: "Only JPEG, PNG, WebP images and MP4/3GP videos are supported." };
+  }
+
+  const uploaded = await uploadWhatsAppMedia(opts.fileBuffer, opts.filename, opts.mimeType);
+  if (!uploaded.ok) return uploaded;
+
+  const caption = opts.caption?.trim() || undefined;
+  if (kind === "image") {
+    const sent = await sendWhatsAppImageByMediaId(opts.phone, uploaded.mediaId, caption);
+    return sent.ok ? { ...sent, messageType: "image" } : sent;
+  }
+
+  const sent = await sendWhatsAppVideoByMediaId(opts.phone, uploaded.mediaId, caption);
+  return sent.ok ? { ...sent, messageType: "video" } : sent;
+}
+
 /** Send an approved template whose HEADER is a DOCUMENT (PDF booking slip). */
 export async function sendWhatsAppDocumentTemplate(opts: {
   phone: string;

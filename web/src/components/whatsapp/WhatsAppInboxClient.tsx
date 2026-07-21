@@ -1,7 +1,8 @@
 "use client";
 
-import { useEffect, useState, useRef } from "react";
+import { useEffect, useState, useRef, type ChangeEvent } from "react";
 import { isTransientNetworkError } from "@/lib/fetchJson";
+import { privateMediaUrl } from "@/lib/photoUrl";
 
 type Message = {
   id: number;
@@ -9,6 +10,7 @@ type Message = {
   messageType: string;
   body: string;
   mediaUrl?: string | null;
+  filename?: string | null;
   deliveryStatus?: string | null;
   isAutomated: boolean;
   createdAt: string;
@@ -40,9 +42,11 @@ export default function WhatsAppInboxClient() {
   const [messages, setMessages] = useState<Message[]>([]);
   const [replyText, setReplyText] = useState("");
   const [sending, setSending] = useState(false);
+  const [uploadingMedia, setUploadingMedia] = useState(false);
   const [loading, setLoading] = useState(true);
   const [search, setSearch] = useState("");
   const bottomRef = useRef<HTMLDivElement>(null);
+  const fileInputRef = useRef<HTMLInputElement>(null);
 
   const loadConversations = async () => {
     try {
@@ -76,7 +80,7 @@ export default function WhatsAppInboxClient() {
   };
 
   const sendReply = async () => {
-    if (!selected || !replyText.trim() || sending) return;
+    if (!selected || !replyText.trim() || sending || uploadingMedia) return;
     setSending(true);
     try {
       const res = await fetch(`/api/whatsapp/conversations/${selected.id}/send`, {
@@ -84,21 +88,66 @@ export default function WhatsAppInboxClient() {
         headers: { "Content-Type": "application/json" },
         body: JSON.stringify({ message: replyText }),
       });
-      const data = await res.json() as { message?: Message };
+      const data = await res.json() as { message?: Message; error?: string };
+      if (!res.ok) {
+        alert(data.error || "Failed to send message");
+        return;
+      }
       if (data.message) {
         setMessages((prev) => [...prev, data.message!]);
         setReplyText("");
-        // A manual reply hands control from the bot to the team.
-        setSelected((prev) => (prev ? { ...prev, botActive: false, humanHandled: true } : prev));
-        setConversations((prev) =>
-          prev.map((c) => (c.id === selected.id ? { ...c, botActive: false, humanHandled: true } : c)),
-        );
+        markHumanHandled(selected.id);
       }
     } catch (e) {
       if (!isTransientNetworkError(e)) console.error(e);
+      alert("Failed to send message");
     } finally {
       setSending(false);
     }
+  };
+
+  const markHumanHandled = (convId: number) => {
+    setSelected((prev) => (prev && prev.id === convId ? { ...prev, botActive: false, humanHandled: true } : prev));
+    setConversations((prev) =>
+      prev.map((c) => (c.id === convId ? { ...c, botActive: false, humanHandled: true } : c)),
+    );
+  };
+
+  const sendMedia = async (file: File) => {
+    if (!selected || uploadingMedia || sending) return;
+
+    setUploadingMedia(true);
+    try {
+      const form = new FormData();
+      form.append("file", file);
+      if (replyText.trim()) form.append("caption", replyText.trim());
+
+      const res = await fetch(`/api/whatsapp/conversations/${selected.id}/send-media`, {
+        method: "POST",
+        body: form,
+      });
+      const data = await res.json() as { message?: Message; error?: string };
+      if (!res.ok) {
+        alert(data.error || "Failed to send media");
+        return;
+      }
+      if (data.message) {
+        setMessages((prev) => [...prev, data.message!]);
+        setReplyText("");
+        markHumanHandled(selected.id);
+      }
+    } catch (e) {
+      if (!isTransientNetworkError(e)) console.error(e);
+      alert("Failed to send media");
+    } finally {
+      setUploadingMedia(false);
+      if (fileInputRef.current) fileInputRef.current.value = "";
+    }
+  };
+
+  const onMediaSelected = (e: ChangeEvent<HTMLInputElement>) => {
+    const file = e.target.files?.[0];
+    if (file) void sendMedia(file);
   };
 
   useEffect(() => {
@@ -242,7 +291,32 @@ export default function WhatsAppInboxClient() {
                 ⚠️ 24-hour messaging window is closed. You can only send approved templates.
               </div>
             )}
-            <div style={{ display: "flex", gap: 8 }}>
+            <div style={{ display: "flex", gap: 8, alignItems: "flex-end" }}>
+              <input
+                ref={fileInputRef}
+                type="file"
+                accept="image/jpeg,image/png,image/webp,video/mp4,video/3gpp"
+                onChange={onMediaSelected}
+                style={{ display: "none" }}
+              />
+              <button
+                type="button"
+                onClick={() => fileInputRef.current?.click()}
+                disabled={uploadingMedia || sending || !selected.isWindowOpen}
+                title={selected.isWindowOpen ? "Send image or video" : "24-hour window closed"}
+                style={{
+                  background: "#f3f4f6",
+                  color: uploadingMedia || sending || !selected.isWindowOpen ? "#9ca3af" : "#374151",
+                  border: "1px solid #d1d5db",
+                  borderRadius: 12,
+                  width: 44,
+                  height: 44,
+                  cursor: uploadingMedia || sending || !selected.isWindowOpen ? "not-allowed" : "pointer",
+                  flexShrink: 0,
+                }}
+              >
+                <i className={uploadingMedia ? "fa-solid fa-spinner fa-spin" : "fa-solid fa-paperclip"} />
+              </button>
               <textarea
                 value={replyText}
                 onChange={(e) => setReplyText(e.target.value)}
@@ -254,22 +328,25 @@ export default function WhatsAppInboxClient() {
                 }}
                 placeholder="Type a message… (Enter to send)"
                 rows={2}
+                disabled={uploadingMedia}
                 style={{ flex: 1, resize: "none", border: "1px solid #d1d5db", borderRadius: 12, padding: "8px 12px", fontSize: 13, outline: "none" }}
               />
               <button
                 onClick={sendReply}
-                disabled={sending || !replyText.trim()}
+                disabled={sending || uploadingMedia || !replyText.trim()}
                 style={{
-                  background: sending || !replyText.trim() ? "#d1d5db" : "#16a34a",
+                  background: sending || uploadingMedia || !replyText.trim() ? "#d1d5db" : "#16a34a",
                   color: "#fff",
                   border: "none",
                   borderRadius: 12,
                   padding: "0 16px",
-                  cursor: sending || !replyText.trim() ? "not-allowed" : "pointer",
+                  height: 44,
+                  cursor: sending || uploadingMedia || !replyText.trim() ? "not-allowed" : "pointer",
                   fontSize: 14,
+                  flexShrink: 0,
                 }}
               >
-                <i className="fa-solid fa-paper-plane" />
+                <i className={sending ? "fa-solid fa-spinner fa-spin" : "fa-solid fa-paper-plane"} />
               </button>
             </div>
           </div>
@@ -331,7 +408,16 @@ function ConversationItem({
               )}
             </div>
             <div style={{ fontSize: 12, color: "#6b7280", overflow: "hidden", textOverflow: "ellipsis", whiteSpace: "nowrap" }}>
-              {lastMsg?.body || "No messages yet"}
+              {lastMsg?.body ||
+                (lastMsg?.messageType === "image"
+                  ? "📷 Image"
+                  : lastMsg?.messageType === "video"
+                  ? "🎬 Video"
+                  : lastMsg?.messageType === "document"
+                  ? "📄 Document"
+                  : lastMsg?.messageType === "audio"
+                  ? "🎵 Audio"
+                  : "No messages yet")}
             </div>
           </div>
         </div>
@@ -350,6 +436,11 @@ function ConversationItem({
 
 function MessageBubble({ msg }: { msg: Message }) {
   const isOutbound = msg.direction === "outbound";
+  const mediaSrc = msg.mediaUrl ? privateMediaUrl(msg.mediaUrl) : "";
+  const isImage = msg.messageType === "image" || (mediaSrc && /\.(jpe?g|png|webp)(\?|$)/i.test(mediaSrc));
+  const isVideo = msg.messageType === "video" || (mediaSrc && /\.(mp4|webm|3gp)(\?|$)/i.test(mediaSrc));
+  const isAudio = msg.messageType === "audio";
+  const isDocument = msg.messageType === "document";
 
   return (
     <div style={{ display: "flex", justifyContent: isOutbound ? "flex-end" : "flex-start" }}>
@@ -366,7 +457,59 @@ function MessageBubble({ msg }: { msg: Message }) {
         {msg.isAutomated && isOutbound && (
           <div style={{ fontSize: 11, color: "#bbf7d0", marginBottom: 4 }}>🤖 Automated</div>
         )}
-        <p style={{ margin: 0, whiteSpace: "pre-wrap" }}>{msg.body}</p>
+
+        {mediaSrc && isImage && (
+          <a href={mediaSrc} target="_blank" rel="noopener noreferrer" style={{ display: "block", marginBottom: msg.body ? 8 : 0 }}>
+            {/* eslint-disable-next-line @next/next/no-img-element */}
+            <img
+              src={mediaSrc}
+              alt="WhatsApp image"
+              style={{ maxWidth: "100%", borderRadius: 8, display: "block" }}
+            />
+          </a>
+        )}
+
+        {mediaSrc && isVideo && (
+          <video
+            controls
+            src={mediaSrc}
+            style={{ maxWidth: "100%", borderRadius: 8, display: "block", marginBottom: msg.body ? 8 : 0 }}
+          />
+        )}
+
+        {mediaSrc && isAudio && (
+          <audio controls src={mediaSrc} style={{ width: "100%", marginBottom: msg.body ? 8 : 0 }} />
+        )}
+
+        {mediaSrc && isDocument && (
+          <a
+            href={mediaSrc}
+            target="_blank"
+            rel="noopener noreferrer"
+            style={{
+              display: "inline-flex",
+              alignItems: "center",
+              gap: 6,
+              marginBottom: msg.body ? 8 : 0,
+              color: isOutbound ? "#ecfdf5" : "#2563eb",
+              textDecoration: "underline",
+            }}
+          >
+            <i className="fa-solid fa-file" />
+            {msg.filename || "Document"}
+          </a>
+        )}
+
+        {!mediaSrc && (isImage || isVideo || isAudio || isDocument) && (
+          <p style={{ margin: "0 0 8px", fontStyle: "italic", opacity: 0.85 }}>
+            {isImage ? "Image" : isVideo ? "Video" : isAudio ? "Audio" : "Document"} processing…
+          </p>
+        )}
+
+        {msg.body && (
+          <p style={{ margin: 0, whiteSpace: "pre-wrap" }}>{msg.body}</p>
+        )}
+
         <div style={{ fontSize: 10, marginTop: 4, display: "flex", alignItems: "center", gap: 3, justifyContent: "flex-end", color: isOutbound ? "#bbf7d0" : "#9ca3af" }}>
           <i className="fa-regular fa-clock" style={{ fontSize: 9 }} />
           {new Date(msg.createdAt).toLocaleTimeString("en-IN", { hour: "2-digit", minute: "2-digit" })}
