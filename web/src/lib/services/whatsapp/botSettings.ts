@@ -15,6 +15,7 @@ export type WhatsAppBotSettings = {
   securityAdvanceReply: string;
   handoverReply: string;
   bookingCompleteReply: string;
+  automatedDisclaimer: string;
   botEnabled: boolean;
   flowEnabled: boolean;
   maxInvalidResponses: number;
@@ -29,6 +30,15 @@ const DEFAULT_MAPS_URL =
 const DEFAULT_INSTAGRAM_URL = "https://www.instagram.com/fancycollection_renuagarwal";
 const DEFAULT_PHONE_1 = "8077843874";
 const DEFAULT_PHONE_2 = "8630834711";
+export const DEFAULT_AUTOMATED_DISCLAIMER =
+  "This is an automated reply. Our team will personally assist you shortly.";
+
+function automatedDisclaimerFromEnv(): string {
+  const v = process.env.WHATSAPP_BOT_AUTOMATED_DISCLAIMER?.trim();
+  if (v === "0" || v === "false" || v === "no" || v === "off") return "";
+  if (v) return v;
+  return DEFAULT_AUTOMATED_DISCLAIMER;
+}
 
 function envBool(name: string, fallback: boolean): boolean {
   const v = process.env[name]?.trim().toLowerCase();
@@ -74,6 +84,7 @@ function buildDefaults(): WhatsAppBotSettings {
     handoverReply: "Our team will assist you personally. Someone will reply shortly. 🙏",
     bookingCompleteReply:
       "Thank you. Our team will check availability and confirm shortly.",
+    automatedDisclaimer: automatedDisclaimerFromEnv(),
     botEnabled: !envBool("WHATSAPP_BOT_DISABLED", false),
     flowEnabled: envBool("WHATSAPP_BOT_FLOW_ENABLED", true),
     maxInvalidResponses: Math.max(
@@ -120,6 +131,7 @@ export async function loadWhatsAppBotSettings(): Promise<WhatsAppBotSettings> {
       securityAdvanceReply: row.securityAdvanceReply?.trim() || defaults.securityAdvanceReply,
       handoverReply: row.handoverReply?.trim() || defaults.handoverReply,
       bookingCompleteReply: row.bookingCompleteReply?.trim() || defaults.bookingCompleteReply,
+      automatedDisclaimer: row.automatedDisclaimer?.trim() || defaults.automatedDisclaimer,
       botEnabled: row.botEnabled,
       flowEnabled: row.flowEnabled,
       maxInvalidResponses: defaults.maxInvalidResponses,
@@ -137,21 +149,30 @@ export function clearWhatsAppBotSettingsCache(): void {
   cachedAt = 0;
 }
 
+/** Append the automated-reply disclaimer once (customer-facing bot messages). */
+export function appendAutomatedDisclaimer(body: string, settings: WhatsAppBotSettings): string {
+  const disclaimer = settings.automatedDisclaimer?.trim();
+  if (!disclaimer) return body;
+  if (body.includes(disclaimer)) return body;
+  return `${body.trim()}\n\n— ${disclaimer}`;
+}
+
 /** Professional auto-welcome sent on first contact or after a long gap. */
 export function buildProfessionalWelcomeMessage(settings: WhatsAppBotSettings): string {
   const phones = [settings.phone, settings.phone2].filter(Boolean).join("  •  ");
 
-  return (
+  return appendAutomatedDisclaimer(
     `✨ *Welcome to ${settings.shopName}* ✨\n\n` +
-    `Namaste! 🙏 We are delighted to connect with you.\n\n` +
-    `Moradabad's trusted boutique for premium bridal & designer outfit rentals — ` +
-    `Lehenga, Sherwani, Gown, Saree, Jewellery & more.\n\n` +
-    `📍 *Store Address*\n${settings.address}\n\n` +
-    `🕙 *Open:* ${settings.hours}\n\n` +
-    `📞 *For further queries, contact us on:*\n${phones}\n\n` +
-    `Tap the button below for Google Maps directions.\n\n` +
-    `👗 *View our dress samples on Instagram:*\n${settings.instagramUrl}\n\n` +
-    `Please share the outfit you are looking for and your function date — our team will assist you shortly. 🙏`
+      `Namaste! 🙏 We are delighted to connect with you.\n\n` +
+      `Moradabad's trusted boutique for premium bridal & designer outfit rentals — ` +
+      `Lehenga, Sherwani, Gown, Saree, Jewellery & more.\n\n` +
+      `📍 *Store Address*\n${settings.address}\n\n` +
+      `🕙 *Open:* ${settings.hours}\n\n` +
+      `📞 *For further queries, contact us on:*\n${phones}\n\n` +
+      `Tap the button below for Google Maps directions.\n\n` +
+      `👗 *View our dress samples on Instagram:*\n${settings.instagramUrl}\n\n` +
+      `Please share the outfit you are looking for and your function date — our team will assist you shortly. 🙏`,
+    settings,
   );
 }
 

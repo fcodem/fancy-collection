@@ -407,5 +407,6 @@ describe("WhatsApp bot flow", () => {
     assert.match(msg, /8630834711/);
     assert.match(msg, /8077843874/);
     assert.match(msg, /Shop Location|Google Maps|directions/i);
+    assert.match(msg, /automated reply/i);
   });
 });

@@ -1,4 +1,4 @@
-import { getWhatsAppBotSettingsDefaults, type WhatsAppBotSettings } from "./botSettings";
+import { getWhatsAppBotSettingsDefaults, appendAutomatedDisclaimer, type WhatsAppBotSettings } from "./botSettings";
 
 /** Default Meta template — two URL buttons (Maps + Instagram). Immutable once approved; bump version to change. */
 export const CUSTOMER_WELCOME_TEMPLATE_NAME_DEFAULT = "customer_welcome_v1";
@@ -17,30 +17,33 @@ export function customerWelcomeTemplateLanguage(): string {
 /** Body text stored in inbox when the approved template is sent. */
 export function customerWelcomeTemplatePreviewBody(settings: WhatsAppBotSettings): string {
   const phones = [settings.phone, settings.phone2].filter(Boolean).join(" • ");
-  return (
+  return appendAutomatedDisclaimer(
     `Welcome to ${settings.shopName}\n\n` +
-    `Namaste! We are delighted to connect with you.\n\n` +
-    `Premium bridal & designer outfit rentals in Moradabad — Lehenga, Sherwani, Gown, Saree, Jewellery & more.\n\n` +
-    `📍 ${settings.address}\n` +
-    `🕙 Open: ${settings.hours}\n` +
-    `📞 ${phones}\n\n` +
-    `Buttons: Shop Location (Google Maps) • View Dress Samples (Instagram)\n\n` +
-    `Please share your outfit preference and function date — our team will assist you shortly.`
+      `Namaste! We are delighted to connect with you.\n\n` +
+      `Premium bridal & designer outfit rentals in Moradabad — Lehenga, Sherwani, Gown, Saree, Jewellery & more.\n\n` +
+      `📍 ${settings.address}\n` +
+      `🕙 Open: ${settings.hours}\n` +
+      `📞 ${phones}\n\n` +
+      `Buttons: Shop Location (Google Maps) • View Dress Samples (Instagram)\n\n` +
+      `Please share your outfit preference and function date — our team will assist you shortly.`,
+    settings,
   );
 }
 
 export function buildCustomerWelcomeTemplateComponents(settings: WhatsAppBotSettings) {
   const phones = [settings.phone, settings.phone2].filter(Boolean).join(" • ");
 
-  const body =
+  const body = appendAutomatedDisclaimer(
     `Namaste! 🙏 We are delighted to connect with you.\n\n` +
-    `Moradabad's trusted boutique for premium bridal & designer outfit rentals — ` +
-    `Lehenga, Sherwani, Gown, Saree, Jewellery & more.\n\n` +
-    `📍 ${settings.address}\n\n` +
-    `🕙 Open: ${settings.hours}\n\n` +
-    `📞 For further queries, contact us on:\n${phones}\n\n` +
-    `Tap the buttons below for Google Maps directions or to view dress samples on Instagram.\n\n` +
-    `Please share the outfit you are looking for and your function date — our team will assist you shortly. 🙏`;
+      `Moradabad's trusted boutique for premium bridal & designer outfit rentals — ` +
+      `Lehenga, Sherwani, Gown, Saree, Jewellery & more.\n\n` +
+      `📍 ${settings.address}\n\n` +
+      `🕙 Open: ${settings.hours}\n\n` +
+      `📞 For further queries, contact us on:\n${phones}\n\n` +
+      `Tap the buttons below for Google Maps directions or to view dress samples on Instagram.\n\n` +
+      `Please share the outfit you are looking for and your function date — our team will assist you shortly. 🙏`,
+    settings,
+  );
 
   return [
     {

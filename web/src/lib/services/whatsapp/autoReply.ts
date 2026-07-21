@@ -5,7 +5,7 @@ import {
   sendWhatsAppText,
   sendWhatsAppWelcomeWithLinkButtons,
 } from "./metaApi";
-import { loadWhatsAppBotSettings } from "./botSettings";
+import { loadWhatsAppBotSettings, appendAutomatedDisclaimer } from "./botSettings";
 import {
   botBadgeLabel,
   processBotInbound,
@@ -136,7 +136,10 @@ export async function handleInboundAutoReply(args: {
         const sendResult = await sendCustomerWelcomeTemplate(args.phone);
         if (sendResult.ok) {
           const now = new Date();
-          const previewBody = customerWelcomeTemplatePreviewBody(settings);
+          const previewBody = appendAutomatedDisclaimer(
+            customerWelcomeTemplatePreviewBody(settings),
+            settings,
+          );
           await prisma.$transaction([
             prisma.whatsAppMessage.create({
               data: {
@@ -198,17 +201,18 @@ export async function handleInboundAutoReply(args: {
       return;
     }
 
+    const customerReply = appendAutomatedDisclaimer(result.reply, settings);
     const footer = `Call: ${settings.phone} • ${settings.phone2}`;
     const sendResult = result.urlButtons?.length
       ? await sendWhatsAppWelcomeWithLinkButtons(
           args.phone,
-          result.reply,
+          customerReply,
           result.urlButtons,
           { header: settings.shopName, footer },
         )
       : result.quickReplyButtons?.length
-        ? await sendWhatsAppInteractiveButtons(args.phone, result.reply, result.quickReplyButtons)
-        : await sendWhatsAppText(args.phone, result.reply);
+        ? await sendWhatsAppInteractiveButtons(args.phone, customerReply, result.quickReplyButtons)
+        : await sendWhatsAppText(args.phone, customerReply);
 
     if (!sendResult.ok) {
       console.warn(`[bot] Auto-reply send failed to ${args.phone}: ${sendResult.error}`);
@@ -233,7 +237,7 @@ export async function handleInboundAutoReply(args: {
             : result.quickReplyButtons?.length
               ? "interactive"
               : "text",
-          body: result.reply,
+          body: customerReply,
           metaMessageId: sendResult.messageId ?? null,
           isAutomated: true,
           deliveryStatus: "sent",

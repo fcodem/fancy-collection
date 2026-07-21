@@ -46,6 +46,7 @@ export async function PUT(req: NextRequest) {
     securityAdvanceReply?: string;
     handoverReply?: string;
     bookingCompleteReply?: string;
+    automatedDisclaimer?: string;
     botEnabled?: boolean;
     flowEnabled?: boolean;
   };
@@ -61,6 +62,7 @@ export async function PUT(req: NextRequest) {
     securityAdvanceReply: body.securityAdvanceReply?.trim() || null,
     handoverReply: body.handoverReply?.trim() || null,
     bookingCompleteReply: body.bookingCompleteReply?.trim() || null,
+    automatedDisclaimer: body.automatedDisclaimer?.trim() || null,
     botEnabled: body.botEnabled ?? true,
     flowEnabled: body.flowEnabled ?? true,
   };

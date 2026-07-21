@@ -731,6 +731,7 @@ model WhatsAppBotConfig {
   securityAdvanceReply String?  @map("security_advance_reply") @db.Text
   handoverReply        String?  @map("handover_reply") @db.Text
   bookingCompleteReply String?  @map("booking_complete_reply") @db.Text
+  automatedDisclaimer String?  @map("automated_disclaimer") @db.Text
   botEnabled           Boolean  @default(true) @map("bot_enabled")
   flowEnabled          Boolean  @default(true) @map("flow_enabled")
   updatedAt            DateTime @updatedAt @map("updated_at")

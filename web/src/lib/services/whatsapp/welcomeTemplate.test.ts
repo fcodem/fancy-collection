@@ -38,6 +38,14 @@ describe("customer welcome Meta template", () => {
     const preview = customerWelcomeTemplatePreviewBody(settings);
     assert.match(preview, /Shop Location/i);
     assert.match(preview, /Instagram/i);
+    assert.match(preview, /automated reply/i);
+  });
+
+  it("template body includes automated disclaimer", () => {
+    const components = buildCustomerWelcomeTemplateComponents(settings);
+    const body = components.find((c) => c.type === "BODY");
+    assert.ok(body && "text" in body);
+    assert.match(String(body.text), /automated reply/i);
   });
 
   it("defaults export matches template name", () => {

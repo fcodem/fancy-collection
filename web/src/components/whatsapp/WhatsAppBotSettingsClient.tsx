@@ -13,6 +13,7 @@ type Settings = {
   securityAdvanceReply: string;
   handoverReply: string;
   bookingCompleteReply: string;
+  automatedDisclaimer: string;
   botEnabled: boolean;
   flowEnabled: boolean;
 };
@@ -101,6 +102,7 @@ export default function WhatsAppBotSettingsClient() {
       {field("Security / advance reply", "securityAdvanceReply", true)}
       {field("Handover reply", "handoverReply", true)}
       {field("Booking complete reply", "bookingCompleteReply", true)}
+      {field("Automated reply disclaimer", "automatedDisclaimer", true)}
 
       <label style={{ display: "flex", alignItems: "center", gap: 8, marginBottom: 12 }}>
         <input
