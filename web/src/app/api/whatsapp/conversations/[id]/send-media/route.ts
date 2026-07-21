@@ -10,6 +10,7 @@ import {
   savePrivateBookingMedia,
 } from "@/lib/storage/privateBookingMedia";
 import { enforceRateLimit } from "@/lib/rateLimit";
+import { markTeamHandlingOnStaffReply } from "@/lib/services/whatsapp/botControl";
 
 const MAX_IMAGE_BYTES = 5 * 1024 * 1024;
 const MAX_VIDEO_BYTES = 16 * 1024 * 1024;
@@ -113,6 +114,8 @@ export async function POST(
     where: { id: convId },
     data: { lastMessageAt: new Date() },
   });
+
+  await markTeamHandlingOnStaffReply(convId);
 
   return jsonOk({ ok: true, message: saved });
 }

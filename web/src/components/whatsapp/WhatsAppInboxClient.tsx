@@ -1,6 +1,6 @@
 "use client";
 
-import { useEffect, useState, useRef, type ChangeEvent } from "react";
+import { useEffect, useState, useRef, type ChangeEvent, type CSSProperties } from "react";
 import { isTransientNetworkError } from "@/lib/fetchJson";
 import { privateMediaUrl } from "@/lib/photoUrl";
 import {
@@ -22,6 +22,17 @@ type Message = {
   receivedAt?: string | null;
 };
 
+type BotState = {
+  botMode: string;
+  botStep: string;
+  botCategory: string | null;
+  botDeliveryDate: string | null;
+  botReturnDate: string | null;
+  botSize: string | null;
+  botColour: string | null;
+  botNotes: string | null;
+};
+
 type Conversation = {
   id: number;
   customerPhone: string;
@@ -31,6 +42,12 @@ type Conversation = {
   isWindowOpen: boolean;
   botActive?: boolean;
   humanHandled?: boolean;
+  needsStaff?: boolean;
+  teamHandling?: boolean;
+  bookingEnquiryComplete?: boolean;
+  botBadge?: string;
+  bot?: BotState;
+  enquirySummary?: string | null;
   messages: Message[];
   booking?: {
     publicBookingId: string;
@@ -40,6 +57,14 @@ type Conversation = {
     returnDate: string;
   } | null;
 };
+
+type InboxFilter =
+  | "all"
+  | "unread"
+  | "needs_staff"
+  | "team_handling"
+  | "bot_active"
+  | "booking_enquiries";
 
 export default function WhatsAppInboxClient() {
   const [conversations, setConversations] = useState<Conversation[]>([]);
@@ -52,12 +77,16 @@ export default function WhatsAppInboxClient() {
   const [shopLocationReady, setShopLocationReady] = useState(false);
   const [loading, setLoading] = useState(true);
   const [search, setSearch] = useState("");
+  const [inboxFilter, setInboxFilter] = useState<InboxFilter>("all");
+  const [enquirySummary, setEnquirySummary] = useState<string | null>(null);
+  const [botControlBusy, setBotControlBusy] = useState(false);
   const bottomRef = useRef<HTMLDivElement>(null);
   const fileInputRef = useRef<HTMLInputElement>(null);
 
   const loadConversations = async () => {
     try {
-      const res = await fetch("/api/whatsapp/conversations");
+      const qs = inboxFilter !== "all" ? `?filter=${inboxFilter}` : "";
+      const res = await fetch(`/api/whatsapp/conversations${qs}`);
       const data = await res.json() as { conversations?: Conversation[] };
       setConversations(data.conversations || []);
     } catch (e) {
@@ -72,14 +101,22 @@ export default function WhatsAppInboxClient() {
     try {
       const res = await fetch(`/api/whatsapp/conversations/${conv.id}`);
       const data = await res.json() as {
-        conversation?: { messages: Message[]; botActive?: boolean; humanHandled?: boolean };
+        conversation?: Conversation & { enquirySummary?: string | null };
       };
       setMessages(data.conversation?.messages || []);
-      const botActive = data.conversation?.botActive;
-      const humanHandled = data.conversation?.humanHandled;
-      setSelected((prev) => (prev && prev.id === conv.id ? { ...prev, botActive, humanHandled } : prev));
+      const convPatch = {
+        botActive: data.conversation?.botActive,
+        humanHandled: data.conversation?.humanHandled,
+        needsStaff: data.conversation?.needsStaff,
+        teamHandling: data.conversation?.teamHandling,
+        bookingEnquiryComplete: data.conversation?.bookingEnquiryComplete,
+        botBadge: data.conversation?.botBadge,
+        bot: data.conversation?.bot,
+      };
+      setEnquirySummary(data.conversation?.enquirySummary ?? null);
+      setSelected((prev) => (prev && prev.id === conv.id ? { ...prev, ...convPatch, unreadCount: 0 } : prev));
       setConversations((prev) =>
-        prev.map((c) => (c.id === conv.id ? { ...c, unreadCount: 0, botActive, humanHandled } : c)),
+        prev.map((c) => (c.id === conv.id ? { ...c, unreadCount: 0, ...convPatch } : c)),
       );
     } catch (e) {
       if (!isTransientNetworkError(e)) console.error(e);
@@ -114,10 +151,45 @@ export default function WhatsAppInboxClient() {
   };
 
   const markHumanHandled = (convId: number) => {
-    setSelected((prev) => (prev && prev.id === convId ? { ...prev, botActive: false, humanHandled: true } : prev));
-    setConversations((prev) =>
-      prev.map((c) => (c.id === convId ? { ...c, botActive: false, humanHandled: true } : c)),
+    setSelected((prev) =>
+      prev && prev.id === convId
+        ? { ...prev, botActive: false, humanHandled: true, teamHandling: true, needsStaff: false, botBadge: "Team Handling" }
+        : prev,
     );
+    setConversations((prev) =>
+      prev.map((c) =>
+        c.id === convId
+          ? { ...c, botActive: false, humanHandled: true, teamHandling: true, needsStaff: false, botBadge: "Team Handling" }
+          : c,
+      ),
+    );
+  };
+
+  const runBotControl = async (
+    action: "take_over" | "resume_bot" | "restart_flow",
+    resumeMode?: "continue" | "restart" | "clear",
+  ) => {
+    if (!selected || botControlBusy) return;
+    setBotControlBusy(true);
+    try {
+      const res = await fetch(`/api/whatsapp/conversations/${selected.id}/bot-control`, {
+        method: "POST",
+        headers: { "Content-Type": "application/json" },
+        body: JSON.stringify({ action, resumeMode }),
+      });
+      const data = await res.json() as { error?: string };
+      if (!res.ok) {
+        alert(data.error || "Bot control failed");
+        return;
+      }
+      await loadConversation(selected);
+      await loadConversations();
+    } catch (e) {
+      if (!isTransientNetworkError(e)) console.error(e);
+      alert("Bot control failed");
+    } finally {
+      setBotControlBusy(false);
+    }
   };
 
   const sendMedia = async (file: File) => {
@@ -194,7 +266,7 @@ export default function WhatsAppInboxClient() {
       .catch(() => setShopLocationReady(false));
     const interval = setInterval(loadConversations, 30000);
     return () => clearInterval(interval);
-  }, []);
+  }, [inboxFilter]);
 
   useEffect(() => {
     if (!selected) return;
@@ -258,6 +330,27 @@ export default function WhatsAppInboxClient() {
               }}
             />
           </div>
+          <select
+            value={inboxFilter}
+            onChange={(e) => setInboxFilter(e.target.value as InboxFilter)}
+            style={{
+              marginTop: 8,
+              width: "100%",
+              padding: "6px 8px",
+              borderRadius: 8,
+              border: "1px solid #16a34a",
+              background: "#15803d",
+              color: "#fff",
+              fontSize: 12,
+            }}
+          >
+            <option value="all">All</option>
+            <option value="unread">Unread</option>
+            <option value="needs_staff">Needs Staff</option>
+            <option value="team_handling">Team Handling</option>
+            <option value="bot_active">Bot Active</option>
+            <option value="booking_enquiries">Booking Enquiries</option>
+          </select>
         </div>
 
         <div style={{ flex: 1, overflowY: "auto" }}>
@@ -282,19 +375,40 @@ export default function WhatsAppInboxClient() {
       {selected ? (
         <div style={{ flex: 1, display: "flex", flexDirection: "column", minWidth: 0 }}>
           <div style={{ padding: "16px", borderBottom: "1px solid #e5e7eb", background: "#fff", boxShadow: "0 1px 3px rgba(0,0,0,0.1)" }}>
-            <div style={{ display: "flex", alignItems: "center", justifyContent: "space-between", gap: 8 }}>
+            <div style={{ display: "flex", alignItems: "center", justifyContent: "space-between", gap: 8, flexWrap: "wrap" }}>
               <div style={{ fontWeight: 600, color: "#1f2937" }}>{selected.customerName}</div>
-              {selected.botActive ? (
-                <span title="The chatbot is answering this customer automatically. Send a message to take over." style={{ background: "#ecfdf5", color: "#047857", border: "1px solid #a7f3d0", fontSize: 11, fontWeight: 600, padding: "3px 8px", borderRadius: 20, display: "flex", alignItems: "center", gap: 4, whiteSpace: "nowrap" }}>
-                  <i className="fa-solid fa-robot" style={{ fontSize: 10 }} />
-                  Bot auto-replying
-                </span>
-              ) : (
-                <span title="A team member has taken over this chat. The bot will stay silent here." style={{ background: "#eff6ff", color: "#1d4ed8", border: "1px solid #bfdbfe", fontSize: 11, fontWeight: 600, padding: "3px 8px", borderRadius: 20, display: "flex", alignItems: "center", gap: 4, whiteSpace: "nowrap" }}>
-                  <i className="fa-solid fa-user-headset" style={{ fontSize: 10 }} />
-                  Team handling
-                </span>
-              )}
+              <BotStatusBadge badge={selected.botBadge} conv={selected} />
+            </div>
+            <div style={{ display: "flex", gap: 8, marginTop: 8, flexWrap: "wrap" }}>
+              <button
+                type="button"
+                disabled={botControlBusy || selected.teamHandling}
+                onClick={() => void runBotControl("take_over")}
+                style={botControlBtnStyle}
+              >
+                Take Over Chat
+              </button>
+              <button
+                type="button"
+                disabled={botControlBusy || selected.botActive}
+                onClick={() => {
+                  const mode = window.confirm("Restart booking flow? OK = restart flow, Cancel = continue current flow")
+                    ? "restart"
+                    : "continue";
+                  void runBotControl("resume_bot", mode);
+                }}
+                style={botControlBtnStyle}
+              >
+                Resume Bot
+              </button>
+              <button
+                type="button"
+                disabled={botControlBusy}
+                onClick={() => void runBotControl("restart_flow")}
+                style={botControlBtnStyle}
+              >
+                Restart Booking Flow
+              </button>
             </div>
             <div style={{ fontSize: 13, color: "#6b7280", display: "flex", alignItems: "center", gap: 8, marginTop: 2 }}>
               <i className="fa-solid fa-phone" style={{ fontSize: 11 }} />
@@ -313,6 +427,22 @@ export default function WhatsAppInboxClient() {
             )}
           </div>
 
+          {(enquirySummary || selected.bot?.botStep) && (
+            <div style={{ padding: "12px 16px", borderBottom: "1px solid #e5e7eb", background: "#f0fdf4" }}>
+              <div style={{ fontSize: 12, fontWeight: 700, color: "#047857", marginBottom: 6 }}>Booking Enquiry</div>
+              {enquirySummary ? (
+                <pre style={{ margin: 0, fontSize: 12, whiteSpace: "pre-wrap", color: "#1f2937", fontFamily: "inherit" }}>
+                  {enquirySummary}
+                </pre>
+              ) : null}
+              {selected.bot?.botStep && (
+                <div style={{ fontSize: 11, color: "#6b7280", marginTop: 6 }}>
+                  Flow step: {selected.bot.botStep.replace(/_/g, " ")}
+                </div>
+              )}
+            </div>
+          )}
+
           <div style={{ flex: 1, overflowY: "auto", padding: 16, display: "flex", flexDirection: "column", gap: 8 }}>
             {messages.map((msg) => (
               <MessageBubble key={msg.id} msg={msg} />
@@ -323,7 +453,12 @@ export default function WhatsAppInboxClient() {
           <div style={{ padding: 16, borderTop: "1px solid #e5e7eb", background: "#fff" }}>
             {selected.botActive && (
               <div style={{ background: "#ecfdf5", color: "#047857", borderRadius: 8, padding: "6px 10px", marginBottom: 8, fontSize: 12, textAlign: "center" }}>
-                🤖 The chatbot is auto-replying to this customer. Send a message to take over the chat.
+                🤖 Bot is active for this chat. Use Take Over Chat to reply manually.
+              </div>
+            )}
+            {selected.needsStaff && (
+              <div style={{ background: "#fef3c7", color: "#92400e", borderRadius: 8, padding: "6px 10px", marginBottom: 8, fontSize: 12, textAlign: "center" }}>
+                ⚠️ This conversation needs staff attention.
               </div>
             )}
             {!selected.isWindowOpen && (
@@ -434,6 +569,69 @@ export default function WhatsAppInboxClient() {
   );
 }
 
+const botControlBtnStyle: CSSProperties = {
+  background: "#f3f4f6",
+  border: "1px solid #d1d5db",
+  borderRadius: 8,
+  padding: "4px 10px",
+  fontSize: 11,
+  cursor: "pointer",
+  color: "#374151",
+};
+
+function badgeStyle(badge: string): CSSProperties {
+  if (badge === "Needs Staff") {
+    return { background: "#fef3c7", color: "#92400e", border: "1px solid #fcd34d" };
+  }
+  if (badge === "Team Handling") {
+    return { background: "#eff6ff", color: "#1d4ed8", border: "1px solid #bfdbfe" };
+  }
+  if (badge === "Booking Enquiry Complete") {
+    return { background: "#ede9fe", color: "#6d28d9", border: "1px solid #ddd6fe" };
+  }
+  return { background: "#ecfdf5", color: "#047857", border: "1px solid #a7f3d0" };
+}
+
+function BotStatusBadge({ badge, conv }: { badge?: string; conv: Conversation }) {
+  const label = badge || (conv.teamHandling ? "Team Handling" : conv.needsStaff ? "Needs Staff" : conv.botActive ? "Bot Active" : "Team Handling");
+  return (
+    <span
+      title={label}
+      style={{
+        ...badgeStyle(label),
+        fontSize: 11,
+        fontWeight: 600,
+        padding: "3px 8px",
+        borderRadius: 20,
+        display: "flex",
+        alignItems: "center",
+        gap: 4,
+        whiteSpace: "nowrap",
+      }}
+    >
+      <i className={`fa-solid ${label === "Bot Active" ? "fa-robot" : label === "Team Handling" ? "fa-user-headset" : "fa-bell"}`} style={{ fontSize: 10 }} />
+      {label}
+    </span>
+  );
+}
+
+function BotListBadge({ badge }: { badge: string }) {
+  return (
+    <span
+      style={{
+        ...badgeStyle(badge),
+        fontSize: 9,
+        fontWeight: 700,
+        padding: "1px 5px",
+        borderRadius: 10,
+        flexShrink: 0,
+      }}
+    >
+      {badge === "Bot Active" ? "Bot" : badge === "Needs Staff" ? "Staff" : badge === "Booking Enquiry Complete" ? "Enquiry" : "Team"}
+    </span>
+  );
+}
+
 function ConversationItem({
   conv,
   isSelected,
@@ -473,8 +671,8 @@ function ConversationItem({
           <div style={{ minWidth: 0 }}>
             <div style={{ fontWeight: 500, fontSize: 13, color: "#1f2937", overflow: "hidden", textOverflow: "ellipsis", whiteSpace: "nowrap", display: "flex", alignItems: "center", gap: 5 }}>
               {conv.customerName}
-              {conv.botActive && (
-                <i className="fa-solid fa-robot" title="Bot auto-replying" style={{ fontSize: 10, color: "#059669", flexShrink: 0 }} />
+              {conv.botBadge && (
+                <BotListBadge badge={conv.botBadge} />
               )}
             </div>
             <div style={{ fontSize: 12, color: "#6b7280", overflow: "hidden", textOverflow: "ellipsis", whiteSpace: "nowrap" }}>

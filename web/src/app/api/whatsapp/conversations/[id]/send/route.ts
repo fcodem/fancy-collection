@@ -2,6 +2,7 @@ import { NextRequest } from "next/server";
 import prisma from "@/lib/prisma";
 import { jsonOk, jsonError, requireOwner, isResponse, requireJsonContentType } from "@/lib/api";
 import { sendWhatsAppText } from "@/lib/services/whatsapp/metaApi";
+import { markTeamHandlingOnStaffReply } from "@/lib/services/whatsapp/botControl";
 import { enforceRateLimit } from "@/lib/rateLimit";
 
 export async function POST(
@@ -56,6 +57,8 @@ export async function POST(
     where: { id: convId },
     data: { lastMessageAt: new Date() },
   });
+
+  await markTeamHandlingOnStaffReply(convId);
 
   return jsonOk({ ok: true, message: saved });
 }

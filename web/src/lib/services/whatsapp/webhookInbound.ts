@@ -262,6 +262,7 @@ export async function processInboundFollowUp(payload: InboundFollowUpPayload): P
     phone: payload.phone,
     inboundText: payload.inboundText,
     messageType: payload.messageType,
+    metaMessageId: payload.metaMessageId,
     isFirstContact: payload.isFirstContact,
   });
 

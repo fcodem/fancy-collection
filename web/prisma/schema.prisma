@@ -691,13 +691,50 @@ model WhatsAppConversation {
   lastMessageAt  DateTime? @map("last_message_at")
   unreadCount    Int       @default(0) @map("unread_count")
   createdAt      DateTime  @default(now()) @map("created_at")
+  /// ACTIVE | NEEDS_STAFF | TEAM_HANDLING
+  botMode        String    @default("ACTIVE") @map("bot_mode")
+  /// IDLE | AWAITING_CATEGORY | AWAITING_DELIVERY_DATE | AWAITING_RETURN_DATE | AWAITING_SIZE | AWAITING_COLOUR | READY_FOR_STAFF
+  botStep        String    @default("IDLE") @map("bot_step")
+  botCategory    String?   @map("bot_category")
+  botDeliveryDate String?  @map("bot_delivery_date")
+  botReturnDate  String?   @map("bot_return_date")
+  botSize        String?   @map("bot_size")
+  botColour      String?   @map("bot_colour")
+  botNotes       String?   @map("bot_notes")
+  botInvalidAttempts Int   @default(0) @map("bot_invalid_attempts")
+  lastAutomatedInboundMetaMessageId String? @map("last_automated_inbound_meta_message_id")
+  handoverMessageSentAt DateTime? @map("handover_message_sent_at")
+  botResumedAt   DateTime? @map("bot_resumed_at")
+  botUpdatedAt   DateTime? @map("bot_updated_at")
 
   booking  Booking?          @relation(fields: [bookingId], references: [id], onDelete: SetNull)
   messages WhatsAppMessage[]
 
   @@index([bookingId])
   @@index([lastMessageAt])
+  @@index([botMode])
+  @@index([botStep])
   @@map("whatsapp_conversations")
+}
+
+/// Owner-editable WhatsApp bot copy and toggles (single row, id = 1).
+model WhatsAppBotConfig {
+  id                   Int      @id @default(1)
+  shopName             String?  @map("shop_name")
+  address              String?  @db.Text
+  hours                String?  @db.Text
+  phone                String?
+  greetingReply        String?  @map("greeting_reply") @db.Text
+  priceReply           String?  @map("price_reply") @db.Text
+  rentalProcessReply   String?  @map("rental_process_reply") @db.Text
+  securityAdvanceReply String?  @map("security_advance_reply") @db.Text
+  handoverReply        String?  @map("handover_reply") @db.Text
+  bookingCompleteReply String?  @map("booking_complete_reply") @db.Text
+  botEnabled           Boolean  @default(true) @map("bot_enabled")
+  flowEnabled          Boolean  @default(true) @map("flow_enabled")
+  updatedAt            DateTime @updatedAt @map("updated_at")
+
+  @@map("whatsapp_bot_config")
 }
 
 model WhatsAppMessage {

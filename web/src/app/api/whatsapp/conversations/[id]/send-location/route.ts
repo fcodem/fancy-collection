@@ -7,6 +7,7 @@ import {
   getBusinessWhatsAppLocation,
 } from "@/lib/services/whatsapp/whatsappLocation";
 import { enforceRateLimit } from "@/lib/rateLimit";
+import { markTeamHandlingOnStaffReply } from "@/lib/services/whatsapp/botControl";
 
 export async function POST(
   req: NextRequest,
@@ -75,6 +76,8 @@ export async function POST(
     where: { id: convId },
     data: { lastMessageAt: new Date() },
   });
+
+  await markTeamHandlingOnStaffReply(convId);
 
   return jsonOk({ ok: true, message: saved });
 }

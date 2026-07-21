@@ -171,6 +171,41 @@ export async function sendWhatsAppText(
   });
 }
 
+/** Interactive quick-reply buttons (max 3). Falls back to plain text if send fails. */
+export async function sendWhatsAppInteractiveButtons(
+  phone: string,
+  body: string,
+  buttons: { id: string; title: string }[],
+): Promise<WhatsAppSendResult> {
+  const to = whatsAppApiPhone(phone);
+  if (!to) return { ok: false, error: `Invalid phone number: ${phone}` };
+
+  const trimmed = buttons.slice(0, 3).map((b) => ({
+    type: "reply",
+    reply: { id: b.id.slice(0, 256), title: b.title.slice(0, 20) },
+  }));
+
+  if (!trimmed.length) {
+    return sendWhatsAppText(phone, body);
+  }
+
+  const result = await postWhatsAppMessage({
+    recipient_type: "individual",
+    to,
+    type: "interactive",
+    interactive: {
+      type: "button",
+      body: { text: body.slice(0, 1024) },
+      action: { buttons: trimmed },
+    },
+  });
+
+  if (!result.ok) {
+    return sendWhatsAppText(phone, body);
+  }
+  return result;
+}
+
 export async function sendWhatsAppTemplate(
   to: string,
   templateName: string,
