@@ -30,22 +30,20 @@ export async function GET(req: NextRequest) {
     const bytes = Buffer.byteLength(body, "utf8");
 
     let blobUrl: string | null = null;
-    const token =
-      process.env.BACKUP_BLOB_READ_WRITE_TOKEN?.trim() ||
-      process.env.BLOB_READ_WRITE_TOKEN?.trim();
-    if (token) {
-      const uploaded = await put(filename, body, {
-        access: "private",
-        contentType: "application/json",
-        token,
-        addRandomSuffix: true,
-      });
-      blobUrl = uploaded.url;
-    } else {
-      console.warn(
-        "[cron/db-backup] No BACKUP_BLOB_READ_WRITE_TOKEN or BLOB_READ_WRITE_TOKEN — backup built but not uploaded off-box",
+    const token = process.env.BACKUP_BLOB_READ_WRITE_TOKEN?.trim();
+    if (!token) {
+      return jsonError(
+        "BACKUP_BLOB_READ_WRITE_TOKEN is required for database backup upload",
+        503,
       );
     }
+    const uploaded = await put(filename, body, {
+      access: "private",
+      contentType: "application/json",
+      token,
+      addRandomSuffix: true,
+    });
+    blobUrl = uploaded.url;
 
     return jsonOk({
       ok: true,

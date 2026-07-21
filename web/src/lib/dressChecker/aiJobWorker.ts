@@ -24,16 +24,25 @@ import { touchDurableWorkerHeartbeat, getDurableWorkerHealth } from "./workerHea
 /** Skip native AI work when /tmp is nearly full (prevents SIGABRT / ENOSPC). */
 const MIN_TMP_FREE_BYTES = 64 * 1024 * 1024;
 
-function aiFeatureFlag(envVar: string, defaultValue = true): boolean {
+function aiFeatureFlag(envVar: string, defaultValue = false): boolean {
   const raw = (process.env[envVar] || "").trim().toLowerCase();
   if (!raw) return defaultValue;
   return raw !== "0" && raw !== "false" && raw !== "no";
 }
 
 export const AI_FLAGS = {
-  get nativeColourEnabled() { return aiFeatureFlag("AI_LOCAL_COLOUR_ANALYSIS_ENABLED"); },
-  get nativeEmbeddingEnabled() { return aiFeatureFlag("AI_NATIVE_EMBEDDING_ENABLED"); },
-  get openaiEnrichmentEnabled() { return aiFeatureFlag("AI_OPENAI_ENRICHMENT_ENABLED"); },
+  get nativeImageProcessingEnabled() {
+    return aiFeatureFlag("AI_NATIVE_IMAGE_PROCESSING_ENABLED", false);
+  },
+  get nativeColourEnabled() {
+    return aiFeatureFlag("AI_LOCAL_COLOUR_ANALYSIS_ENABLED", false);
+  },
+  get nativeEmbeddingEnabled() {
+    return aiFeatureFlag("AI_NATIVE_EMBEDDING_ENABLED", false);
+  },
+  get openaiEnrichmentEnabled() {
+    return aiFeatureFlag("AI_OPENAI_ENRICHMENT_ENABLED", true);
+  },
 } as const;
 
 /** Local pump only — not a health signal. */
@@ -113,6 +122,26 @@ async function runClaimedJob(job: {
   retryCount: number;
   maxRetries: number;
 }): Promise<void> {
+  const nativeEnabled =
+    AI_FLAGS.nativeImageProcessingEnabled ||
+    AI_FLAGS.nativeEmbeddingEnabled ||
+    AI_FLAGS.nativeColourEnabled;
+
+  if (!nativeEnabled) {
+    console.info(
+      `[ai-worker] skipped native job=${job.id} item=${job.itemId} — native processing disabled by feature flag`,
+    );
+    if (!AI_FLAGS.openaiEnrichmentEnabled) {
+      await completeAiJob(job.id);
+      return;
+    }
+  }
+
+  if (!nativeEnabled && AI_FLAGS.openaiEnrichmentEnabled) {
+    await completeAiJob(job.id);
+    return;
+  }
+
   const { default: prisma } = await import("@/lib/prisma");
   const { loadPhotoBuffer, PHOTO_SEARCH_MAX_BYTES } = await import("@/lib/services/siglipSearch");
   const item = await prisma.clothingItem.findUnique({

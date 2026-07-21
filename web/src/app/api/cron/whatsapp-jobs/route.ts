@@ -19,7 +19,7 @@ export async function GET(req: NextRequest) {
   }
 
   try {
-    const summary = await processWhatsAppJobQueue(20);
+    const summary = await processWhatsAppJobQueue(3);
     return jsonOk({ ok: true, ...summary });
   } catch (e) {
     Sentry.captureException(e);

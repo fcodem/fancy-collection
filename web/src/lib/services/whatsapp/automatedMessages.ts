@@ -66,9 +66,6 @@ import {
   type PremiumSlipKind,
 } from "@/lib/premiumSlip";
 import { PREMIUM_SLIP_RENDER_FAILED } from "@/lib/premiumSlip";
-import { generateBookingBillPdfFallback } from "./bookingBillPdfFallback";
-import { generateOperationSlipPdfFallback } from "./operationSlipPdfFallback";
-import { renderSlipWithFallback } from "./slipRenderWithFallback";
 import { markWhatsAppProviderSendStarted } from "./whatsappSendLedger";
 import type { WhatsAppJobSendContext } from "./whatsappJobSendContext";
 
@@ -79,9 +76,6 @@ export type WhatsAppSendOutcome = {
   retryable?: boolean;
   phone?: string;
   messageId?: string;
-  renderer?: "premium" | "jspdf_fallback";
-  premiumFailureCategory?: string;
-  premiumRenderError?: string;
 };
 
 async function beginWhatsAppProviderSend(sendContext?: WhatsAppJobSendContext): Promise<void> {
@@ -266,27 +260,13 @@ export async function sendBookingBillWhatsApp(
   }
 
   let pdfBuffer: Buffer;
-  let slipRenderer: "premium" | "jspdf_fallback" = "premium";
-  let premiumFailureCategory: string | undefined;
-  let premiumRenderError: string | undefined;
   try {
-    const rendered = await renderSlipWithFallback({
-      kind: "booking",
-      bookingId,
-      jobId: sendContext?.jobId,
-      premium: () =>
-        generateValidatedPremiumSlipPdf("booking", bookingId, () =>
-          generateBookingSlipPdf(bookingId, requestOrigin),
-        ),
-      fallback: () => generateBookingBillPdfFallback(booking, publicBookingId, requestOrigin),
-    });
-    pdfBuffer = rendered.pdf;
-    slipRenderer = rendered.renderer;
-    premiumFailureCategory = rendered.premiumFailureCategory;
-    premiumRenderError = rendered.premiumError;
+    pdfBuffer = await generateValidatedPremiumSlipPdf("booking", bookingId, () =>
+      generateBookingSlipPdf(bookingId, requestOrigin),
+    );
   } catch (htmlErr) {
     const htmlMsg = htmlErr instanceof Error ? htmlErr.message : "HTML PDF failed";
-    return failSlipRenderCompletely({
+    return failPremiumSlipRender({
       kind: "booking",
       bookingId,
       publicBookingId,
@@ -294,7 +274,6 @@ export async function sendBookingBillWhatsApp(
       filename: bookingSlipPdfFilename(publicBookingId),
       htmlMsg,
       logTag: "sendBookingBillWhatsApp",
-      retryable: false,
     });
   }
 
@@ -435,7 +414,7 @@ export async function sendBookingBillWhatsApp(
     data: {
       whatsappStatus: "sent",
       whatsappSentAt: new Date(),
-      whatsappError: premiumRenderError ?? null,
+      whatsappError: null,
     },
   }).catch(() => {});
 
@@ -443,9 +422,6 @@ export async function sendBookingBillWhatsApp(
     ok: true,
     phone: phoneRaw,
     messageId: docResult.messageId,
-    renderer: slipRenderer,
-    premiumFailureCategory,
-    premiumRenderError,
   };
 }
 
@@ -638,28 +614,14 @@ export async function sendReturnReceiptWhatsApp(
   const publicBookingId = resolvePublicBookingId(booking);
 
   let pdfBuffer: Buffer;
-  let slipRenderer: "premium" | "jspdf_fallback" = "premium";
-  let premiumFailureCategory: string | undefined;
-  let premiumRenderError: string | undefined;
   try {
-    const rendered = await renderSlipWithFallback({
-      kind: "return",
-      bookingId,
-      jobId: sendContext?.jobId,
-      premium: () =>
-        generateValidatedPremiumSlipPdf("return", bookingId, () =>
-          generateReturnSlipPdf(bookingId, requestOrigin, { scope: "full" }),
-          { scope: "full" },
-        ),
-      fallback: () => generateOperationSlipPdfFallback("return", booking),
-    });
-    pdfBuffer = rendered.pdf;
-    slipRenderer = rendered.renderer;
-    premiumFailureCategory = rendered.premiumFailureCategory;
-    premiumRenderError = rendered.premiumError;
+    pdfBuffer = await generateValidatedPremiumSlipPdf("return", bookingId, () =>
+      generateReturnSlipPdf(bookingId, requestOrigin, { scope: "full" }),
+      { scope: "full" },
+    );
   } catch (htmlErr) {
     const htmlMsg = htmlErr instanceof Error ? htmlErr.message : "HTML PDF failed";
-    return failSlipRenderCompletely({
+    return failPremiumSlipRender({
       kind: "return",
       bookingId,
       publicBookingId,
@@ -667,7 +629,6 @@ export async function sendReturnReceiptWhatsApp(
       filename: returnReceiptPdfFilename(publicBookingId),
       htmlMsg,
       logTag: "sendReturnReceiptWhatsApp",
-      retryable: false,
     });
   }
 
@@ -721,9 +682,6 @@ export async function sendReturnReceiptWhatsApp(
     ok: true,
     phone: phoneRaw,
     messageId: docResult.messageId,
-    renderer: slipRenderer,
-    premiumFailureCategory,
-    premiumRenderError,
   };
 }
 
@@ -827,7 +785,7 @@ async function generateValidatedPremiumSlipPdf(
   return pdf;
 }
 
-async function failSlipRenderCompletely(opts: {
+async function failPremiumSlipRender(opts: {
   kind: PremiumSlipKind;
   bookingId: number;
   publicBookingId: string;
@@ -835,34 +793,17 @@ async function failSlipRenderCompletely(opts: {
   filename: string;
   htmlMsg: string;
   logTag: string;
-  retryable?: boolean;
 }): Promise<WhatsAppSendOutcome> {
-  const staffBody =
-    `[STAFF] ${opts.kind} slip PDF failed for booking ${opts.publicBookingId}. ` +
-    `Premium + jsPDF fallback both failed. (${PREMIUM_SLIP_RENDER_FAILED})`;
-  console.warn(`[${opts.logTag}] Slip render failed (premium + fallback):`, {
+  console.warn(`[${opts.logTag}] Premium slip rendering failed — Meta was not contacted:`, {
     bookingId: opts.bookingId,
     slipKind: opts.kind,
     templateVersion: PREMIUM_SLIP_TEMPLATE_VERSION,
     code: PREMIUM_SLIP_RENDER_FAILED,
-    retryable: opts.retryable ?? false,
-  });
-  await saveWhatsAppOutboundMessage({
-    bookingId: opts.bookingId,
-    phone: opts.phoneRaw,
-    messageType: "document",
-    body: staffBody,
-    mediaUrl: null,
-    filename: opts.filename,
-    metaMessageId: null,
-    status: "failed",
-    error: `${PREMIUM_SLIP_RENDER_FAILED}: ${opts.htmlMsg}`,
-    isAutomated: true,
   });
   return {
     ok: false,
     error: `${PREMIUM_SLIP_RENDER_FAILED}: ${opts.htmlMsg}`,
-    retryable: opts.retryable ?? false,
+    retryable: true,
     phone: opts.phoneRaw,
   };
 }
@@ -1027,40 +968,21 @@ export async function sendDeliverySlipWhatsApp(
   const itemIds = slipItemIds(payload);
 
   let pdfBuffer: Buffer;
-  let slipRenderer: "premium" | "jspdf_fallback" = "premium";
-  let premiumFailureCategory: string | undefined;
-  let premiumRenderError: string | undefined;
   try {
-    const rendered = await renderSlipWithFallback({
-      kind: "delivery",
+    pdfBuffer = await generateValidatedPremiumSlipPdf(
+      "delivery",
       bookingId,
-      jobId: sendContext?.jobId,
-      premium: () =>
-        generateValidatedPremiumSlipPdf(
-          "delivery",
-          bookingId,
-          () =>
-            generateDeliverySlipPdf(bookingId, requestOrigin, {
-              scope: payload.scope,
-              bookingItemId: payload.scope === "single" ? payload.bookingItemId : undefined,
-              bookingItemIds: itemIds.length ? itemIds : undefined,
-            }),
-          { scope: payload.scope, itemIds: itemIds.length ? itemIds : undefined },
-        ),
-      fallback: () =>
-        generateOperationSlipPdfFallback(
-          "delivery",
-          booking,
-          itemIds.length ? itemIds : undefined,
-        ),
-    });
-    pdfBuffer = rendered.pdf;
-    slipRenderer = rendered.renderer;
-    premiumFailureCategory = rendered.premiumFailureCategory;
-    premiumRenderError = rendered.premiumError;
+      () =>
+        generateDeliverySlipPdf(bookingId, requestOrigin, {
+          scope: payload.scope,
+          bookingItemId: payload.scope === "single" ? payload.bookingItemId : undefined,
+          bookingItemIds: itemIds.length ? itemIds : undefined,
+        }),
+      { scope: payload.scope, itemIds: itemIds.length ? itemIds : undefined },
+    );
   } catch (htmlErr) {
     const htmlMsg = htmlErr instanceof Error ? htmlErr.message : "HTML PDF failed";
-    return failSlipRenderCompletely({
+    return failPremiumSlipRender({
       kind: "delivery",
       bookingId,
       publicBookingId,
@@ -1068,7 +990,6 @@ export async function sendDeliverySlipWhatsApp(
       filename: deliverySlipPdfFilename(publicBookingId),
       htmlMsg,
       logTag: "sendDeliverySlipWhatsApp",
-      retryable: false,
     });
   }
 
@@ -1120,12 +1041,7 @@ export async function sendDeliverySlipWhatsApp(
           ).map((r) => r.id);
     await markDeliverySlipNotified(markIds);
   }
-  return {
-    ...result,
-    renderer: slipRenderer,
-    premiumFailureCategory,
-    premiumRenderError,
-  };
+  return result;
 }
 
 export async function sendPartialReturnSlipWhatsApp(
@@ -1154,40 +1070,21 @@ export async function sendPartialReturnSlipWhatsApp(
   const itemIds = slipItemIds(payload);
 
   let pdfBuffer: Buffer;
-  let slipRenderer: "premium" | "jspdf_fallback" = "premium";
-  let premiumFailureCategory: string | undefined;
-  let premiumRenderError: string | undefined;
   try {
-    const rendered = await renderSlipWithFallback({
-      kind: "return",
+    pdfBuffer = await generateValidatedPremiumSlipPdf(
+      "return",
       bookingId,
-      jobId: sendContext?.jobId,
-      premium: () =>
-        generateValidatedPremiumSlipPdf(
-          "return",
-          bookingId,
-          () =>
-            generateReturnSlipPdf(bookingId, requestOrigin, {
-              scope: payload.scope === "full" ? "full" : payload.scope,
-              bookingItemId: payload.scope === "single" ? payload.bookingItemId : undefined,
-              bookingItemIds: itemIds.length ? itemIds : undefined,
-            }),
-          { scope: payload.scope, itemIds: itemIds.length ? itemIds : undefined },
-        ),
-      fallback: () =>
-        generateOperationSlipPdfFallback(
-          "return",
-          booking,
-          itemIds.length ? itemIds : undefined,
-        ),
-    });
-    pdfBuffer = rendered.pdf;
-    slipRenderer = rendered.renderer;
-    premiumFailureCategory = rendered.premiumFailureCategory;
-    premiumRenderError = rendered.premiumError;
+      () =>
+        generateReturnSlipPdf(bookingId, requestOrigin, {
+          scope: payload.scope === "full" ? "full" : payload.scope,
+          bookingItemId: payload.scope === "single" ? payload.bookingItemId : undefined,
+          bookingItemIds: itemIds.length ? itemIds : undefined,
+        }),
+      { scope: payload.scope, itemIds: itemIds.length ? itemIds : undefined },
+    );
   } catch (htmlErr) {
     const htmlMsg = htmlErr instanceof Error ? htmlErr.message : "HTML PDF failed";
-    return failSlipRenderCompletely({
+    return failPremiumSlipRender({
       kind: "return",
       bookingId,
       publicBookingId,
@@ -1195,7 +1092,6 @@ export async function sendPartialReturnSlipWhatsApp(
       filename: returnSlipPdfFilename(publicBookingId),
       htmlMsg,
       logTag: "sendPartialReturnSlipWhatsApp",
-      retryable: false,
     });
   }
 
@@ -1254,12 +1150,7 @@ export async function sendPartialReturnSlipWhatsApp(
           ).map((r) => r.id);
     await markReturnSlipNotified(markIds);
   }
-  return {
-    ...result,
-    renderer: slipRenderer,
-    premiumFailureCategory,
-    premiumRenderError,
-  };
+  return result;
 }
 
 export async function sendIncompleteSlipWhatsApp(
@@ -1295,35 +1186,21 @@ export async function sendIncompleteSlipWhatsApp(
   const publicBookingId = resolvePublicBookingId(booking);
 
   let pdfBuffer: Buffer;
-  let slipRenderer: "premium" | "jspdf_fallback" = "premium";
-  let premiumFailureCategory: string | undefined;
-  let premiumRenderError: string | undefined;
   try {
-    const rendered = await renderSlipWithFallback({
-      kind: "incomplete",
+    pdfBuffer = await generateValidatedPremiumSlipPdf(
+      "incomplete",
       bookingId,
-      jobId: sendContext?.jobId,
-      premium: () =>
-        generateValidatedPremiumSlipPdf(
-          "incomplete",
-          bookingId,
-          () =>
-            generateIncompleteSlipPdf(bookingId, requestOrigin, {
-              scope: payload.scope === "full" ? "combined" : payload.scope,
-              bookingItemId: payload.scope === "single" ? payload.bookingItemId : undefined,
-              bookingItemIds: ids,
-            }),
-          { scope: payload.scope, itemIds: ids },
-        ),
-      fallback: () => generateOperationSlipPdfFallback("incomplete", booking, ids),
-    });
-    pdfBuffer = rendered.pdf;
-    slipRenderer = rendered.renderer;
-    premiumFailureCategory = rendered.premiumFailureCategory;
-    premiumRenderError = rendered.premiumError;
+      () =>
+        generateIncompleteSlipPdf(bookingId, requestOrigin, {
+          scope: payload.scope === "full" ? "combined" : payload.scope,
+          bookingItemId: payload.scope === "single" ? payload.bookingItemId : undefined,
+          bookingItemIds: ids,
+        }),
+      { scope: payload.scope, itemIds: ids },
+    );
   } catch (htmlErr) {
     const htmlMsg = htmlErr instanceof Error ? htmlErr.message : "HTML PDF failed";
-    return failSlipRenderCompletely({
+    return failPremiumSlipRender({
       kind: "incomplete",
       bookingId,
       publicBookingId,
@@ -1331,7 +1208,6 @@ export async function sendIncompleteSlipWhatsApp(
       filename: incompleteSlipPdfFilename(publicBookingId),
       htmlMsg,
       logTag: "sendIncompleteSlipWhatsApp",
-      retryable: false,
     });
   }
 
@@ -1369,10 +1245,5 @@ export async function sendIncompleteSlipWhatsApp(
   if (result.ok) {
     await markReturnSlipNotified(ids);
   }
-  return {
-    ...result,
-    renderer: slipRenderer,
-    premiumFailureCategory,
-    premiumRenderError,
-  };
+  return result;
 }

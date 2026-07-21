@@ -58,8 +58,9 @@ describe("WhatsApp slip rendering", () => {
     assert.ok(exists("src/app/api/internal/slip/health/route.ts"));
     const source = read("src/app/api/internal/slip/health/route.ts");
     assert.match(source, /freeTmpBytes/);
-    assert.match(source, /sparticuzExtractPresent/);
+    assert.match(source, /chromiumReady/);
     assert.match(source, /activeRenders/);
+    assert.match(source, /lastRenderSuccess/);
   });
 
   it("slip renderer does not import Sharp or ONNX", () => {

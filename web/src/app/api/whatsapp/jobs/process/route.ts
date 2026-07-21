@@ -10,7 +10,7 @@ export async function POST(req: NextRequest) {
   try {
     const bookingIdParam = req.nextUrl.searchParams.get("bookingId");
     const bookingId = bookingIdParam ? parseInt(bookingIdParam, 10) : undefined;
-    const summary = await processWhatsAppJobQueue(20, {
+    const summary = await processWhatsAppJobQueue(3, {
       bookingId: bookingId && !Number.isNaN(bookingId) ? bookingId : undefined,
     });
     return jsonOk({ ok: true, ...summary });

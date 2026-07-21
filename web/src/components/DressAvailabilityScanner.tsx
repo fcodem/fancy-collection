@@ -494,7 +494,7 @@ export default function DressAvailabilityScanner({
       try {
         const { QrCameraSession } = await import("@/lib/cameraScanner");
         if (cancelled) return;
-        const session = new QrCameraSession("dress-availability-camera", { qrOnly: true });
+        const session = new QrCameraSession("dress-availability-camera", { qrOnly: false });
         sessionRef.current = session;
         scanLockedRef.current = false;
         const status = await session.start(decode);
@@ -811,7 +811,7 @@ export default function DressAvailabilityScanner({
                   void (async () => {
                     try {
                       const { QrCameraSession } = await import("@/lib/cameraScanner");
-                      const session = new QrCameraSession("dress-availability-camera", { qrOnly: true });
+                      const session = new QrCameraSession("dress-availability-camera", { qrOnly: false });
                       sessionRef.current = session;
                       const status = await session.start(decode);
                       setCameraStatus(status);

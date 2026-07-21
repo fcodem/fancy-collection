@@ -34,6 +34,11 @@ import {
 } from "@/lib/premiumSlipHtmlValidation";
 import { logSlipRenderDiagnostic } from "./slipRenderDiagnostics";
 import { enqueueSlipRender } from "./slipRenderQueue";
+import {
+  recordSlipRenderFailure,
+  recordSlipRenderSuccess,
+  setChromiumReady,
+} from "./slipRenderHealth";
 
 const CHROME_ARGS = [
   "--no-sandbox",
@@ -48,8 +53,7 @@ const CHROME_ARGS = [
 ];
 
 const MAX_RENDER_ATTEMPTS = 3;
-/** Do not relaunch Chromium repeatedly on the same broken binary (e.g. missing libnss3). */
-const MAX_LAUNCH_ATTEMPTS = 1;
+const MAX_LAUNCH_ATTEMPTS = 3;
 const LAUNCH_RETRY_DELAYS_MS = [500, 1000] as const;
 
 function sleep(ms: number): Promise<void> {
@@ -256,6 +260,7 @@ async function extractChromiumExecutable(): Promise<ChromiumExecutableResolution
 
   await verifyChromiumExecutable(executablePath);
   configureSparticuzLambdaEnv(chromiumMod, executablePath);
+  setChromiumReady(true);
 
   console.info(
     "[pdfBrowserPool]",
@@ -567,6 +572,7 @@ export async function renderHtmlUrlToPdf(
           }
 
           if (opts.slipKind) {
+            recordSlipRenderSuccess();
             return {
               pdf: buffer,
               slipKind: opts.slipKind,
@@ -574,10 +580,12 @@ export async function renderHtmlUrlToPdf(
               htmlValidated: true as const,
             };
           }
+          recordSlipRenderSuccess();
           return buffer;
         } catch (err) {
           lastError = err;
           const errorCode = errorCodeFromUnknown(err);
+          recordSlipRenderFailure(errorCode ?? "RENDER_FAILED");
           const freeTmpAfter = await measureTmpFreeBytes();
 
           if (opts.slipKind && opts.bookingId != null) {

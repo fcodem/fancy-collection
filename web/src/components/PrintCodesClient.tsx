@@ -156,7 +156,7 @@ export default function PrintCodesClient() {
         @media print {
           @page {
             size: A4;
-            margin: 4.5mm 0mm 4.5mm 0mm;
+            margin: 0;
           }
           body { margin: 0; padding: 0; }
           .no-print { display: none !important; }
@@ -169,12 +169,15 @@ export default function PrintCodesClient() {
           .label-page {
             width: 210mm;
             height: 296mm;
+            margin-top: 0.5mm;
             page-break-after: always;
             display: grid;
             grid-template-columns: repeat(3, 70mm);
             grid-template-rows: repeat(8, 37mm);
             padding: 0;
-            margin: 0;
+            margin-left: 0;
+            margin-right: 0;
+            margin-bottom: 0;
           }
           .label-page:last-child {
             page-break-after: auto;
@@ -483,11 +486,20 @@ export default function PrintCodesClient() {
         <div className="print-area" style={{ position: "fixed", left: "-9999px", top: 0 }}>
           {pages.map((page, pageIdx) => (
             <div key={pageIdx} className="label-page">
-              {page.map((item, slotIdx) => (
-                <div key={slotIdx} className="label-cell">
+              {page.map((item, slotIdx) => {
+                const layoutClass =
+                  item &&
+                  (printFormat === "QR_CODE"
+                    ? "label-qr-only"
+                    : printFormat === "CODE_128"
+                      ? "label-barcode-only"
+                      : "label-both");
+                return (
+                <div key={slotIdx} className={`label-cell${layoutClass ? ` ${layoutClass}` : ""}`}>
                   {item && <StickerLabel item={item} format={printFormat} />}
                 </div>
-              ))}
+                );
+              })}
             </div>
           ))}
         </div>
@@ -557,7 +569,7 @@ function StickerLabel({ item, format }: { item: InventoryItem; format: PrintForm
   }
 
   return (
-    <div className={`label-row ${layoutClass}`} style={{ display: "flex", width: "100%", height: "100%" }}>
+    <div className="label-row" style={{ width: "100%", height: "100%" }}>
       <div className="label-left">
         <div className="label-text">
           <div className="label-brand">

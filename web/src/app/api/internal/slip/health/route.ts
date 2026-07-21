@@ -2,6 +2,7 @@ import { NextResponse } from "next/server";
 import os from "node:os";
 import fs from "node:fs";
 import { measureTmpFreeBytes, measureSlipTempUsage } from "@/lib/slipTempCleanup";
+import { getSlipRenderHealthSnapshot } from "@/lib/services/whatsapp/slipRenderHealth";
 
 export const dynamic = "force-dynamic";
 export const maxDuration = 10;
@@ -14,6 +15,7 @@ export async function GET() {
     const sparticuzMarkers = ["chromium", "al2023"].filter((name) =>
       fs.existsSync(`${tmpDir}/${name}`),
     );
+    const renderHealth = getSlipRenderHealthSnapshot();
 
     return NextResponse.json({
       freeTmpBytes: freeTmpBytes ?? 0,
@@ -21,7 +23,11 @@ export async function GET() {
       slipTempUsageBytes: slipTempUsage,
       sparticuzExtractPresent: sparticuzMarkers.length > 0,
       sparticuzMarkers,
-      activeRenders: 0,
+      chromiumReady: renderHealth.chromiumReady || sparticuzMarkers.length > 0,
+      activeRenders: renderHealth.activeRenders,
+      lastRenderSuccess: renderHealth.lastRenderSuccess,
+      lastRenderFailureCode: renderHealth.lastRenderFailureCode,
+      lastRenderFailureAt: renderHealth.lastRenderFailureAt,
     });
   } catch (e) {
     return NextResponse.json(

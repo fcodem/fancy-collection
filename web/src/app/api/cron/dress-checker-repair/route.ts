@@ -22,7 +22,7 @@ export async function GET(req: NextRequest) {
 
   try {
     const enqueued = await enqueueRepairJobs(200);
-    const drained = await drainAiJobQueue(10, { source: "repair" });
+    const drained = await drainAiJobQueue(1, { source: "repair" });
     return jsonOk({ ok: true, enqueued, ...drained });
   } catch (e) {
     Sentry.captureException(e);

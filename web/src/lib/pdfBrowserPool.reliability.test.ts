@@ -137,7 +137,7 @@ describe("pdfBrowserPool concurrency", () => {
     assert.match(source, /SLIP_RENDER_PREFIX/);
     assert.match(source, /purgeIncompleteLegacyChromiumCache/);
     assert.match(source, /chromium\.executablePath/);
-    assert.match(source, /MAX_LAUNCH_ATTEMPTS = 1/);
+    assert.match(source, /MAX_LAUNCH_ATTEMPTS = 3/);
     assert.match(source, /LAUNCH_RETRY_DELAYS_MS = \[500, 1000\]/);
     assert.doesNotMatch(source, /puppeteer_dev_chrome_profile-/);
   });
@@ -169,8 +169,8 @@ describe("WhatsApp render/job concurrency contracts", () => {
 
   it("keeps renderer failures retryable without customer jsPDF fallback", () => {
     const automated = read("src/lib/services/whatsapp/automatedMessages.ts");
-    assert.match(automated, /renderSlipWithFallback/);
-    assert.match(automated, /generateBookingBillPdfFallback/);
+    assert.doesNotMatch(automated, /generateOperationSlipPdfFallback\(\s*["']delivery["']/);
+    assert.match(automated, /failPremiumSlipRender/);
   });
 
   it("manual retry uses atomic updateMany to avoid double queue", () => {

@@ -750,10 +750,19 @@ async function executeJob(
   }
 }
 
+function premiumRenderRetryDelayMs(attempts: number): number {
+  if (attempts <= 1) return 30_000;
+  if (attempts === 2) return 120_000;
+  return 600_000;
+}
+
 export async function processWhatsAppJobQueue(
-  limit = 20,
+  limit = 3,
   options?: { bookingId?: number },
 ) {
+  const RUNTIME_BUDGET_MS = 45_000;
+  const batchStartedAt = Date.now();
+
   await recoverStuckWhatsAppJobs();
 
   const jobs = await claimPendingWhatsAppJobs(limit, options);
@@ -765,7 +774,25 @@ export async function processWhatsAppJobQueue(
     error?: string;
   }> = [];
 
-  for (const job of jobs) {
+  for (let jobIndex = 0; jobIndex < jobs.length; jobIndex++) {
+    const job = jobs[jobIndex];
+    if (Date.now() - batchStartedAt > RUNTIME_BUDGET_MS) {
+      const remainingIds = jobs.slice(jobIndex).map((j) => j.id);
+      console.info(
+        `[whatsapp] Runtime budget exhausted — releasing ${remainingIds.length} job(s) back to pending`,
+      );
+      await prisma.whatsAppJob.updateMany({
+        where: { id: { in: remainingIds }, status: "processing" },
+        data: {
+          status: "pending",
+          claimedAt: null,
+          leaseExpiresAt: null,
+          claimedBy: null,
+        },
+      });
+      break;
+    }
+
     const idempotencyKey = job.idempotencyKey;
     const sendContext: WhatsAppJobSendContext = {
       jobId: job.id,
@@ -882,7 +909,7 @@ export async function processWhatsAppJobQueue(
 
       const retryDelay =
         renderRetryable && !terminal
-          ? new Date(Date.now() + 30_000 * attempts)
+          ? new Date(Date.now() + premiumRenderRetryDelayMs(attempts))
           : undefined;
 
       await prisma.whatsAppJob.update({
