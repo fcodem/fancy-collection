@@ -12,6 +12,7 @@ import type {
   WhatsAppWebhookPayload,
 } from "./webhookTypes";
 import { parseIncomingWhatsAppMessage } from "./webhookTypes";
+import { formatInboundLocationText } from "./whatsappLocation";
 
 export type PersistInboundResult =
   | { duplicate: true; metaMessageId: string }
@@ -76,6 +77,7 @@ export async function persistInboundWhatsAppMessage(
           body: parsed.body,
           filename: parsed.filename,
           mediaUrl: null,
+          inboundMediaMetaId: parsed.media?.metaMediaId ?? null,
           metaMessageId: parsed.metaMessageId,
           isAutomated: false,
           receivedAt: parsed.receivedAt,
@@ -218,7 +220,20 @@ export async function processInboundFollowUp(payload: InboundFollowUpPayload): P
     if (privateUrl) {
       await prisma.whatsAppMessage.updateMany({
         where: { metaMessageId: payload.metaMessageId },
-        data: { mediaUrl: privateUrl },
+        data: { mediaUrl: privateUrl, error: null },
+      });
+    } else {
+      await prisma.whatsAppMessage.updateMany({
+        where: { metaMessageId: payload.metaMessageId },
+        data: {
+          error: "Inbound media download failed — will retry automatically.",
+        },
+      });
+      logWebhookProcessingResult({
+        phone: payload.phone,
+        metaMessageId: payload.metaMessageId,
+        messageType: payload.messageType,
+        result: "media_download_failed",
       });
     }
   }
@@ -298,4 +313,123 @@ export async function drainWhatsAppWebhookQueue(opts?: { limit?: number }): Prom
   }
 
   return processed;
+}
+
+function mimeForInboundMessageType(type: string): string {
+  switch (type) {
+    case "image":
+      return "image/jpeg";
+    case "video":
+      return "video/mp4";
+    case "audio":
+      return "audio/ogg";
+    case "document":
+      return "application/pdf";
+    default:
+      return "application/octet-stream";
+  }
+}
+
+/** Retry failed webhook queue rows (e.g. when private blob was temporarily unavailable). */
+export async function requeueFailedWebhookFollowUps(opts?: { limit?: number }): Promise<number> {
+  const limit = opts?.limit ?? 20;
+  const staleBefore = new Date(Date.now() - 5 * 60_000);
+
+  const failed = await prisma.whatsAppWebhookQueue.findMany({
+    where: { status: "failed", eventType: "inbound_followup" },
+    orderBy: { id: "asc" },
+    take: limit,
+    select: { id: true },
+  });
+
+  const stuck = await prisma.whatsAppWebhookQueue.findMany({
+    where: {
+      status: "processing",
+      eventType: "inbound_followup",
+      scheduledAt: { lt: staleBefore },
+    },
+    orderBy: { id: "asc" },
+    take: limit,
+    select: { id: true },
+  });
+
+  const ids = [...failed, ...stuck].map((row) => row.id);
+  if (!ids.length) return 0;
+
+  const updated = await prisma.whatsAppWebhookQueue.updateMany({
+    where: { id: { in: ids } },
+    data: {
+      status: "pending",
+      scheduledAt: new Date(),
+      lastError: null,
+    },
+  });
+
+  return updated.count;
+}
+
+/** Download inbound media when webhook queue did not finish (common on serverless). */
+export async function repairMissingInboundMedia(opts?: {
+  limit?: number;
+  conversationId?: number;
+}): Promise<number> {
+  const limit = opts?.limit ?? 20;
+  const pending = await prisma.whatsAppMessage.findMany({
+    where: {
+      direction: "inbound",
+      mediaUrl: null,
+      messageType: { in: ["image", "video", "audio", "document"] },
+      OR: [{ inboundMediaMetaId: { not: null } }, { metaMessageId: { not: null } }],
+      ...(opts?.conversationId ? { conversationId: opts.conversationId } : {}),
+    },
+    orderBy: { createdAt: "asc" },
+    take: limit,
+    select: {
+      id: true,
+      metaMessageId: true,
+      inboundMediaMetaId: true,
+      messageType: true,
+      filename: true,
+    },
+  });
+
+  let repaired = 0;
+  for (const row of pending) {
+    let metaMediaId = row.inboundMediaMetaId;
+    let filename = row.filename ?? undefined;
+
+    if (!metaMediaId && row.metaMessageId) {
+      const queueRow = await prisma.whatsAppWebhookQueue.findFirst({
+        where: { metaMessageId: row.metaMessageId, eventType: "inbound_followup" },
+        orderBy: { id: "desc" },
+        select: { payload: true },
+      });
+      const payload = queueRow?.payload as InboundFollowUpPayload | undefined;
+      if (payload?.media?.metaMediaId) {
+        metaMediaId = payload.media.metaMediaId;
+        filename = payload.media.filename ?? filename;
+        await prisma.whatsAppMessage.update({
+          where: { id: row.id },
+          data: { inboundMediaMetaId: metaMediaId },
+        });
+      }
+    }
+
+    if (!metaMediaId) continue;
+
+    const privateUrl = await storeWhatsAppInboundMedia({
+      metaMediaId,
+      mimeType: mimeForInboundMessageType(row.messageType),
+      filename,
+    });
+    if (!privateUrl) continue;
+
+    await prisma.whatsAppMessage.update({
+      where: { id: row.id },
+      data: { mediaUrl: privateUrl, error: null, inboundMediaMetaId: metaMediaId },
+    });
+    repaired += 1;
+  }
+
+  return repaired;
 }

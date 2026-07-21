@@ -3,6 +3,11 @@
 import { useEffect, useState, useRef, type ChangeEvent } from "react";
 import { isTransientNetworkError } from "@/lib/fetchJson";
 import { privateMediaUrl } from "@/lib/photoUrl";
+import {
+  googleMapsUrl,
+  parseLocationBody,
+  formatLocationPreview,
+} from "@/lib/services/whatsapp/whatsappLocation";
 
 type Message = {
   id: number;
@@ -43,6 +48,8 @@ export default function WhatsAppInboxClient() {
   const [replyText, setReplyText] = useState("");
   const [sending, setSending] = useState(false);
   const [uploadingMedia, setUploadingMedia] = useState(false);
+  const [sendingLocation, setSendingLocation] = useState(false);
+  const [shopLocationReady, setShopLocationReady] = useState(false);
   const [loading, setLoading] = useState(true);
   const [search, setSearch] = useState("");
   const bottomRef = useRef<HTMLDivElement>(null);
@@ -145,6 +152,32 @@ export default function WhatsAppInboxClient() {
     }
   };
 
+  const sendLocation = async () => {
+    if (!selected || sendingLocation || uploadingMedia || sending) return;
+    setSendingLocation(true);
+    try {
+      const res = await fetch(`/api/whatsapp/conversations/${selected.id}/send-location`, {
+        method: "POST",
+        headers: { "Content-Type": "application/json" },
+        body: JSON.stringify({ useBusinessLocation: true }),
+      });
+      const data = await res.json() as { message?: Message; error?: string };
+      if (!res.ok) {
+        alert(data.error || "Failed to send location");
+        return;
+      }
+      if (data.message) {
+        setMessages((prev) => [...prev, data.message!]);
+        markHumanHandled(selected.id);
+      }
+    } catch (e) {
+      if (!isTransientNetworkError(e)) console.error(e);
+      alert("Failed to send location");
+    } finally {
+      setSendingLocation(false);
+    }
+  };
+
   const onMediaSelected = (e: ChangeEvent<HTMLInputElement>) => {
     const file = e.target.files?.[0];
     if (file) void sendMedia(file);
@@ -152,6 +185,13 @@ export default function WhatsAppInboxClient() {
 
   useEffect(() => {
     loadConversations();
+    fetch("/api/whatsapp/business-location")
+      .then(async (res) => {
+        if (!res.ok) return;
+        const data = (await res.json()) as { configured?: boolean };
+        setShopLocationReady(Boolean(data.configured));
+      })
+      .catch(() => setShopLocationReady(false));
     const interval = setInterval(loadConversations, 30000);
     return () => clearInterval(interval);
   }, []);
@@ -302,20 +342,50 @@ export default function WhatsAppInboxClient() {
               <button
                 type="button"
                 onClick={() => fileInputRef.current?.click()}
-                disabled={uploadingMedia || sending || !selected.isWindowOpen}
+                disabled={uploadingMedia || sending || sendingLocation || !selected.isWindowOpen}
                 title={selected.isWindowOpen ? "Send image or video" : "24-hour window closed"}
                 style={{
                   background: "#f3f4f6",
-                  color: uploadingMedia || sending || !selected.isWindowOpen ? "#9ca3af" : "#374151",
+                  color: uploadingMedia || sending || sendingLocation || !selected.isWindowOpen ? "#9ca3af" : "#374151",
                   border: "1px solid #d1d5db",
                   borderRadius: 12,
                   width: 44,
                   height: 44,
-                  cursor: uploadingMedia || sending || !selected.isWindowOpen ? "not-allowed" : "pointer",
+                  cursor: uploadingMedia || sending || sendingLocation || !selected.isWindowOpen ? "not-allowed" : "pointer",
                   flexShrink: 0,
                 }}
               >
                 <i className={uploadingMedia ? "fa-solid fa-spinner fa-spin" : "fa-solid fa-paperclip"} />
+              </button>
+              <button
+                type="button"
+                onClick={sendLocation}
+                disabled={sendingLocation || uploadingMedia || sending || !selected.isWindowOpen || !shopLocationReady}
+                title={
+                  !shopLocationReady
+                    ? "Set BUSINESS_LATITUDE and BUSINESS_LONGITUDE in Vercel env"
+                    : selected.isWindowOpen
+                      ? "Send shop location"
+                      : "24-hour window closed"
+                }
+                style={{
+                  background: "#f3f4f6",
+                  color:
+                    sendingLocation || uploadingMedia || sending || !selected.isWindowOpen || !shopLocationReady
+                      ? "#9ca3af"
+                      : "#374151",
+                  border: "1px solid #d1d5db",
+                  borderRadius: 12,
+                  width: 44,
+                  height: 44,
+                  cursor:
+                    sendingLocation || uploadingMedia || sending || !selected.isWindowOpen || !shopLocationReady
+                      ? "not-allowed"
+                      : "pointer",
+                  flexShrink: 0,
+                }}
+              >
+                <i className={sendingLocation ? "fa-solid fa-spinner fa-spin" : "fa-solid fa-location-dot"} />
               </button>
               <textarea
                 value={replyText}
@@ -333,9 +403,9 @@ export default function WhatsAppInboxClient() {
               />
               <button
                 onClick={sendReply}
-                disabled={sending || uploadingMedia || !replyText.trim()}
+                disabled={sending || uploadingMedia || sendingLocation || !replyText.trim()}
                 style={{
-                  background: sending || uploadingMedia || !replyText.trim() ? "#d1d5db" : "#16a34a",
+                  background: sending || uploadingMedia || sendingLocation || !replyText.trim() ? "#d1d5db" : "#16a34a",
                   color: "#fff",
                   border: "none",
                   borderRadius: 12,
@@ -417,6 +487,8 @@ function ConversationItem({
                   ? "📄 Document"
                   : lastMsg?.messageType === "audio"
                   ? "🎵 Audio"
+                  : lastMsg?.messageType === "location"
+                  ? "📍 Location"
                   : "No messages yet")}
             </div>
           </div>
@@ -436,11 +508,13 @@ function ConversationItem({
 
 function MessageBubble({ msg }: { msg: Message }) {
   const isOutbound = msg.direction === "outbound";
-  const mediaSrc = msg.mediaUrl ? privateMediaUrl(msg.mediaUrl) : "";
-  const isImage = msg.messageType === "image" || (mediaSrc && /\.(jpe?g|png|webp)(\?|$)/i.test(mediaSrc));
-  const isVideo = msg.messageType === "video" || (mediaSrc && /\.(mp4|webm|3gp)(\?|$)/i.test(mediaSrc));
+  const location = msg.messageType === "location" ? parseLocationBody(msg.body) : null;
+  const isImage = msg.messageType === "image";
+  const isVideo = msg.messageType === "video";
   const isAudio = msg.messageType === "audio";
   const isDocument = msg.messageType === "document";
+  const isMediaPlaceholder = /^\[(Image|Video|Voice message|Document) received\]$/i.test(msg.body || "");
+  const showCaption = Boolean(msg.body && !location && !isMediaPlaceholder && !msg.body.startsWith('{"kind":"location"'));
 
   return (
     <div style={{ display: "flex", justifyContent: isOutbound ? "flex-end" : "flex-start" }}>
@@ -458,56 +532,58 @@ function MessageBubble({ msg }: { msg: Message }) {
           <div style={{ fontSize: 11, color: "#bbf7d0", marginBottom: 4 }}>🤖 Automated</div>
         )}
 
-        {mediaSrc && isImage && (
-          <a href={mediaSrc} target="_blank" rel="noopener noreferrer" style={{ display: "block", marginBottom: msg.body ? 8 : 0 }}>
-            {/* eslint-disable-next-line @next/next/no-img-element */}
-            <img
-              src={mediaSrc}
-              alt="WhatsApp image"
-              style={{ maxWidth: "100%", borderRadius: 8, display: "block" }}
-            />
-          </a>
+        {location && (
+          <div style={{ marginBottom: msg.body && !location ? 8 : 0 }}>
+            <a
+              href={googleMapsUrl(location.latitude, location.longitude)}
+              target="_blank"
+              rel="noopener noreferrer"
+              style={{
+                color: isOutbound ? "#ecfdf5" : "#2563eb",
+                textDecoration: "underline",
+                display: "inline-flex",
+                alignItems: "center",
+                gap: 6,
+              }}
+            >
+              <i className="fa-solid fa-location-dot" />
+              {formatLocationPreview(location)}
+            </a>
+            {location.address && (
+              <div style={{ fontSize: 12, marginTop: 4, opacity: 0.9 }}>{location.address}</div>
+            )}
+          </div>
         )}
 
-        {mediaSrc && isVideo && (
-          <video
-            controls
-            src={mediaSrc}
-            style={{ maxWidth: "100%", borderRadius: 8, display: "block", marginBottom: msg.body ? 8 : 0 }}
+        {msg.mediaUrl && isImage && (
+          <InboxMediaAttachment mediaUrl={msg.mediaUrl} kind="image" isOutbound={isOutbound} />
+        )}
+
+        {msg.mediaUrl && isVideo && (
+          <InboxMediaAttachment mediaUrl={msg.mediaUrl} kind="video" isOutbound={isOutbound} />
+        )}
+
+        {msg.mediaUrl && isAudio && (
+          <InboxMediaAttachment mediaUrl={msg.mediaUrl} kind="audio" isOutbound={isOutbound} />
+        )}
+
+        {msg.mediaUrl && isDocument && (
+          <InboxMediaAttachment
+            mediaUrl={msg.mediaUrl}
+            kind="document"
+            isOutbound={isOutbound}
+            filename={msg.filename || "Document"}
           />
         )}
 
-        {mediaSrc && isAudio && (
-          <audio controls src={mediaSrc} style={{ width: "100%", marginBottom: msg.body ? 8 : 0 }} />
-        )}
-
-        {mediaSrc && isDocument && (
-          <a
-            href={mediaSrc}
-            target="_blank"
-            rel="noopener noreferrer"
-            style={{
-              display: "inline-flex",
-              alignItems: "center",
-              gap: 6,
-              marginBottom: msg.body ? 8 : 0,
-              color: isOutbound ? "#ecfdf5" : "#2563eb",
-              textDecoration: "underline",
-            }}
-          >
-            <i className="fa-solid fa-file" />
-            {msg.filename || "Document"}
-          </a>
-        )}
-
-        {!mediaSrc && (isImage || isVideo || isAudio || isDocument) && (
+        {!msg.mediaUrl && (isImage || isVideo || isAudio || isDocument) && (
           <p style={{ margin: "0 0 8px", fontStyle: "italic", opacity: 0.85 }}>
-            {isImage ? "Image" : isVideo ? "Video" : isAudio ? "Audio" : "Document"} processing…
+            {isImage ? "Image" : isVideo ? "Video" : isAudio ? "Audio" : "Document"} loading…
           </p>
         )}
 
-        {msg.body && (
-          <p style={{ margin: 0, whiteSpace: "pre-wrap" }}>{msg.body}</p>
+        {showCaption && (
+          <p style={{ margin: (msg.mediaUrl || location) ? "8px 0 0" : 0, whiteSpace: "pre-wrap" }}>{msg.body}</p>
         )}
 
         <div style={{ fontSize: 10, marginTop: 4, display: "flex", alignItems: "center", gap: 3, justifyContent: "flex-end", color: isOutbound ? "#bbf7d0" : "#9ca3af" }}>
@@ -523,5 +599,101 @@ function MessageBubble({ msg }: { msg: Message }) {
         </div>
       </div>
     </div>
+  );
+}
+
+function InboxMediaAttachment({
+  mediaUrl,
+  kind,
+  isOutbound,
+  filename,
+}: {
+  mediaUrl: string;
+  kind: "image" | "video" | "audio" | "document";
+  isOutbound: boolean;
+  filename?: string;
+}) {
+  const [src, setSrc] = useState<string | null>(null);
+  const [failed, setFailed] = useState(false);
+
+  useEffect(() => {
+    let objectUrl: string | null = null;
+    let cancelled = false;
+    const proxyUrl = privateMediaUrl(mediaUrl);
+
+    fetch(proxyUrl, { credentials: "same-origin" })
+      .then(async (res) => {
+        if (!res.ok) throw new Error("load failed");
+        const blob = await res.blob();
+        if (cancelled) return;
+        objectUrl = URL.createObjectURL(blob);
+        setSrc(objectUrl);
+        setFailed(false);
+      })
+      .catch(() => {
+        if (!cancelled) setFailed(true);
+      });
+
+    return () => {
+      cancelled = true;
+      if (objectUrl) URL.revokeObjectURL(objectUrl);
+    };
+  }, [mediaUrl]);
+
+  if (failed) {
+    return (
+      <p style={{ margin: "0 0 8px", fontStyle: "italic", opacity: 0.85 }}>
+        Unable to load media
+      </p>
+    );
+  }
+
+  if (!src) {
+    return (
+      <p style={{ margin: "0 0 8px", fontStyle: "italic", opacity: 0.85 }}>
+        Loading media…
+      </p>
+    );
+  }
+
+  if (kind === "image") {
+    return (
+      <a href={src} target="_blank" rel="noopener noreferrer" style={{ display: "block", marginBottom: 8 }}>
+        {/* eslint-disable-next-line @next/next/no-img-element */}
+        <img src={src} alt="WhatsApp attachment" style={{ maxWidth: "100%", borderRadius: 8, display: "block" }} />
+      </a>
+    );
+  }
+
+  if (kind === "video") {
+    return (
+      <video
+        controls
+        src={src}
+        style={{ maxWidth: "100%", borderRadius: 8, display: "block", marginBottom: 8 }}
+      />
+    );
+  }
+
+  if (kind === "audio") {
+    return <audio controls src={src} style={{ width: "100%", marginBottom: 8 }} />;
+  }
+
+  return (
+    <a
+      href={src}
+      download={filename}
+      style={{
+        display: "inline-flex",
+        alignItems: "center",
+        gap: 6,
+        marginBottom: 8,
+        color: isOutbound ? "#ecfdf5" : "#2563eb",
+        textDecoration: "underline",
+      }}
+    >
+      <i className="fa-solid fa-file" />
+      {filename || "Document"}
+    </a>
   );
 }

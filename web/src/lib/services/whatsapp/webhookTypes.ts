@@ -1,3 +1,5 @@
+import { formatInboundLocationText } from "./whatsappLocation";
+
 export type WhatsAppWebhookPayload = {
   entry?: Array<{
     changes?: Array<{
@@ -22,6 +24,7 @@ export type IncomingWhatsAppMessage = {
   document?: { id: string; filename: string; mime_type: string; caption?: string };
   audio?: { id: string; mime_type: string };
   video?: { id: string; mime_type: string; caption?: string };
+  location?: { latitude: number; longitude: number; name?: string; address?: string };
   interactive?: {
     type: string;
     button_reply?: { id: string; title: string };
@@ -117,6 +120,18 @@ export function parseIncomingWhatsAppMessage(
           metaMediaId: message.video.id,
           mimeType: message.video.mime_type || "video/mp4",
         };
+      }
+      break;
+    case "location":
+      if (message.location) {
+        body = formatInboundLocationText({
+          latitude: message.location.latitude,
+          longitude: message.location.longitude,
+          name: message.location.name,
+          address: message.location.address,
+        });
+      } else {
+        body = "[Location received]";
       }
       break;
     case "interactive":

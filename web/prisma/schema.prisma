@@ -709,6 +709,7 @@ model WhatsAppMessage {
   messageType    String                @map("message_type")
   body           String?
   mediaUrl       String?               @map("media_url")
+  inboundMediaMetaId String?           @map("inbound_media_meta_id")
   filename       String?
   metaMessageId  String?               @unique @map("meta_message_id")
   isAutomated    Boolean               @default(false) @map("is_automated")

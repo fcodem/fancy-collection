@@ -387,6 +387,27 @@ export async function sendWhatsAppInboxMediaBuffer(opts: {
   return sent.ok ? { ...sent, messageType: "video" } : sent;
 }
 
+/** Send a location pin in the 24h customer-care window. */
+export async function sendWhatsAppLocation(
+  phone: string,
+  loc: { latitude: number; longitude: number; name?: string; address?: string },
+): Promise<WhatsAppSendResult> {
+  const to = whatsAppApiPhone(phone);
+  if (!to) return { ok: false, error: `Invalid phone number: ${phone}` };
+
+  return postWhatsAppMessage({
+    recipient_type: "individual",
+    to,
+    type: "location",
+    location: {
+      latitude: loc.latitude,
+      longitude: loc.longitude,
+      ...(loc.name ? { name: loc.name } : {}),
+      ...(loc.address ? { address: loc.address } : {}),
+    },
+  });
+}
+
 /** Send an approved template whose HEADER is a DOCUMENT (PDF booking slip). */
 export async function sendWhatsAppDocumentTemplate(opts: {
   phone: string;

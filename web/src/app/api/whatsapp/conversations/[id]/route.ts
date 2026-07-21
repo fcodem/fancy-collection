@@ -1,6 +1,7 @@
 import { NextRequest } from "next/server";
 import prisma from "@/lib/prisma";
 import { jsonOk, jsonError, requireOwner, isResponse } from "@/lib/api";
+import { repairMissingInboundMedia } from "@/lib/services/whatsapp/webhookInbound";
 
 export async function GET(
   req: NextRequest,
@@ -33,15 +34,25 @@ export async function GET(
 
   if (!conversation) return jsonError("Not found", 404);
 
+  await repairMissingInboundMedia({ conversationId: convId, limit: 10 });
+
+  const messages = await prisma.whatsAppMessage.findMany({
+    where: { conversationId: convId },
+    orderBy: { createdAt: "asc" },
+    take: 150,
+  });
+
   await prisma.whatsAppConversation.update({
     where: { id: convId },
     data: { unreadCount: 0 },
   });
 
   // The bot stays active until a human sends a manual (non-automated) reply.
-  const humanHandled = conversation.messages.some(
+  const humanHandled = messages.some(
     (m) => m.direction === "outbound" && !m.isAutomated,
   );
 
-  return jsonOk({ conversation: { ...conversation, humanHandled, botActive: !humanHandled } });
+  return jsonOk({
+    conversation: { ...conversation, messages, humanHandled, botActive: !humanHandled },
+  });
 }
