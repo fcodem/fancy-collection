@@ -134,7 +134,10 @@ export default function WhatsAppConnectionClient() {
               <code>WHATSAPP_BUSINESS_ACCOUNT_ID</code> — WABA ID
             </li>
             <li>
-              <code>WHATSAPP_WEBHOOK_VERIFY_TOKEN</code> — your webhook secret
+              <code>META_APP_SECRET</code> — App secret for webhook POST signature verification
+            </li>
+            <li>
+              <code>WHATSAPP_WEBHOOK_VERIFY_TOKEN</code> — your webhook verify token
             </li>
             <li>
               <code>BLOB_READ_WRITE_TOKEN</code> — required to attach PDF slips on Vercel
@@ -324,6 +327,9 @@ export default function WhatsAppConnectionClient() {
           </p>
           <p style={{ fontSize: 13, color: "#374151" }}>
             Verify token: same as <code>WHATSAPP_WEBHOOK_VERIFY_TOKEN</code> in <code>.env.local</code>
+          </p>
+          <p style={{ fontSize: 13, color: "#374151" }}>
+            POST signatures: validated with <code>META_APP_SECRET</code> (never shown in the UI).
           </p>
         </div>
       </div>

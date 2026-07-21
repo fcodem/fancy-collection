@@ -12,7 +12,8 @@ export type PrivateBookingMediaFolder =
   | "incomplete-returns"
   | "damage-evidence"
   | "fittings"
-  | "measurements";
+  | "measurements"
+  | "whatsapp-inbox";
 
 export const APPROVED_PRIVATE_MEDIA_FOLDERS: readonly PrivateBookingMediaFolder[] = [
   "id-proofs",
@@ -24,6 +25,7 @@ export const APPROVED_PRIVATE_MEDIA_FOLDERS: readonly PrivateBookingMediaFolder[
   "damage-evidence",
   "fittings",
   "measurements",
+  "whatsapp-inbox",
 ] as const;
 
 export class PrivateMediaError extends Error {
@@ -117,7 +119,7 @@ async function storePrivateBuffer(
 export async function savePrivateBookingMedia(
   bytes: Buffer,
   folder: PrivateBookingMediaFolder,
-  extension: "jpg" | "png" | "webp" = "jpg",
+  extension: "jpg" | "png" | "webp" | "pdf" | "mp4" | "mp3" | "ogg" | "webm" = "jpg",
 ): Promise<string> {
   const filename = `${randomUUID().replaceAll("-", "")}.${extension}`;
   return storePrivateBuffer(bytes, folder, filename);

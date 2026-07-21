@@ -710,7 +710,7 @@ model WhatsAppMessage {
   body           String?
   mediaUrl       String?               @map("media_url")
   filename       String?
-  metaMessageId  String?               @map("meta_message_id")
+  metaMessageId  String?               @unique @map("meta_message_id")
   isAutomated    Boolean               @default(false) @map("is_automated")
   status         String                @default("sent")
   deliveryStatus String?               @map("delivery_status")
@@ -726,8 +726,23 @@ model WhatsAppMessage {
   @@index([bookingId])
   @@index([conversationId])
   @@index([createdAt])
-  @@index([metaMessageId])
   @@map("whatsapp_messages")
+}
+
+model WhatsAppWebhookQueue {
+  id            Int       @id @default(autoincrement())
+  eventType     String    @map("event_type")
+  metaMessageId String?   @map("meta_message_id")
+  payload       Json
+  status        String    @default("pending")
+  attempts      Int       @default(0)
+  scheduledAt   DateTime  @default(now()) @map("scheduled_at")
+  processedAt   DateTime? @map("processed_at")
+  lastError     String?   @map("last_error")
+  createdAt     DateTime  @default(now()) @map("created_at")
+
+  @@index([status, scheduledAt])
+  @@map("whatsapp_webhook_queue")
 }
 
 model WhatsAppBroadcast {

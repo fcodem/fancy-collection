@@ -181,7 +181,7 @@ export async function handleInboundAutoReply(args: {
       data: { lastMessageAt: new Date() },
     });
 
-    console.log(`[bot] Auto-replied to ${args.phone}`);
+    console.log(`[bot] Auto-replied to ${args.phone.replace(/\d(?=\d{4})/g, "*")}`);
   } catch (e) {
     console.error("[bot] Auto-reply error:", e);
   }

@@ -19,6 +19,7 @@ export async function GET(req: NextRequest) {
     WHATSAPP_PHONE_NUMBER_ID: phoneNumberId ? "✅ Set" : "❌ Missing",
     WHATSAPP_BUSINESS_ACCOUNT_ID: businessId ? "✅ Set" : "❌ Missing",
     WHATSAPP_API_VERSION: apiVersion,
+    META_APP_SECRET: process.env.META_APP_SECRET ? "✅ Set" : "❌ Missing",
     WHATSAPP_WEBHOOK_VERIFY_TOKEN: process.env.WHATSAPP_WEBHOOK_VERIFY_TOKEN
       ? "✅ Set"
       : "❌ Missing",
