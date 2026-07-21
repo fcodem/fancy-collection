@@ -22,6 +22,7 @@ const SLIP_HTML_MARKERS = [
   "delivery-slip-root",
   "return-slip-root",
   "incomplete-slip-root",
+  "postponed-slip-content",
 ];
 
 function assertSlipHtml(html: string): void {
@@ -52,6 +53,22 @@ export async function renderSlipPdfDirect(
   opts?: SlipPdfRenderOptions,
 ): Promise<PremiumSlipDirectRenderResult> {
   const url = buildSlipPageUrl(kind, bookingId, requestOrigin, opts);
+
+  if (kind === "postponement") {
+    const pdf = await renderHtmlUrlToPdf({
+      url,
+      rootSelector: "#postponed-slip-content",
+      validateHtml: assertSlipHtml,
+      bookingId,
+    });
+    return {
+      pdf,
+      slipKind: kind,
+      templateVersion: "postponement-v1",
+      htmlValidated: true,
+    };
+  }
+
   const rootSelector = `#${PREMIUM_SLIP_ROOT_ID[kind]}`;
   return renderHtmlUrlToPdf({
     url,

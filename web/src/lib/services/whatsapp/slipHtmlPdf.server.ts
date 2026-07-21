@@ -12,7 +12,7 @@ import {
   WHATSAPP_RENDERER_REQUEST_TIMEOUT_MS,
 } from "./whatsappRuntime";
 
-export type SlipPdfKind = "booking" | "delivery" | "return" | "incomplete";
+export type SlipPdfKind = "booking" | "delivery" | "return" | "incomplete" | "postponement";
 
 export type SlipPdfRenderOptions = {
   scope?: "full" | "single" | "combined";
@@ -49,6 +49,8 @@ function slipPath(kind: SlipPdfKind, bookingId: number): string {
       return `/booking/${bookingId}/return-slip`;
     case "incomplete":
       return `/booking/${bookingId}/incomplete-slip`;
+    case "postponement":
+      return `/postponed-booking/${bookingId}/print`;
   }
 }
 
@@ -169,12 +171,30 @@ export async function renderSlipViaEndpoint(
     throw new PremiumSlipRenderError(message, errorCode, retryable);
   }
 
-  assertPremiumSlipRenderHeaders(res.headers, kind);
+  if (kind !== "postponement") {
+    assertPremiumSlipRenderHeaders(res.headers, kind);
+  }
 
   const ab = await res.arrayBuffer();
   const pdf = Buffer.from(ab);
+  if (kind === "postponement") {
+    assertBasicSlipPdf(pdf);
+    return pdf;
+  }
   assertPremiumSlipPdf(pdf, kind);
   return pdf;
+}
+
+function assertBasicSlipPdf(pdf: Buffer): void {
+  if (!pdf?.length || pdf[0] !== 0x25 || pdf[1] !== 0x50) {
+    throw new PremiumSlipRenderError("Invalid PDF header", "INVALID_PDF");
+  }
+  if (pdf.length < 2_000) {
+    throw new PremiumSlipRenderError(
+      `PDF too small (${pdf.length} bytes)`,
+      "INVALID_PDF",
+    );
+  }
 }
 
 export async function generateBookingSlipPdf(
@@ -210,4 +230,12 @@ export async function generateIncompleteSlipPdf(
   fetchOpts?: SlipRenderFetchOptions,
 ): Promise<Buffer> {
   return renderSlipViaEndpoint("incomplete", bookingId, requestOrigin, opts, fetchOpts);
+}
+
+export async function generatePostponementSlipPdf(
+  bookingId: number,
+  requestOrigin?: string,
+  fetchOpts?: SlipRenderFetchOptions,
+): Promise<Buffer> {
+  return renderSlipViaEndpoint("postponement", bookingId, requestOrigin, undefined, fetchOpts);
 }

@@ -45,6 +45,7 @@ describe("WhatsApp runtime budget", () => {
   it("classifies heavy vs light jobs", () => {
     assert.equal(isHeavyWhatsAppJobType("booking_bill"), true);
     assert.equal(isHeavyWhatsAppJobType("delivery_slip"), true);
+    assert.equal(isHeavyWhatsAppJobType("postponement_held"), true);
     assert.equal(isLightWhatsAppJobType("postponement_notice"), true);
     assert.equal(isHeavyWhatsAppJobType("postponement_notice"), false);
   });

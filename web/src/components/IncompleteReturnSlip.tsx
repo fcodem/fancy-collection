@@ -15,7 +15,6 @@ import SlipLogo from "@/components/SlipLogo";
 import SlipMottoBanner from "@/components/SlipMottoBanner";
 import Emoji from "@/components/Emoji";
 import PremiumSlipMarker from "@/components/PremiumSlipMarker";
-import { privateMediaUrl, photoUrl } from "@/lib/photoUrl";
 
 export type IncompleteReturnSlipProps = {
   booking: {
@@ -336,13 +335,6 @@ export default function IncompleteReturnSlip(props: IncompleteReturnSlipProps) {
                           style={{ width: 56, height: 56, objectFit: "cover", borderRadius: 6, marginTop: 6, border: `1px solid ${SLIP_BORDER}` }}
                         />
                       )}
-                      {item.photo && (
-                        <img
-                          src={photoUrl(item.photo)}
-                          alt=""
-                          style={{ width: 56, height: 56, objectFit: "cover", borderRadius: 6, marginTop: 6, border: `1px solid ${SLIP_BORDER}` }}
-                        />
-                      )}
                     </td>
                     <td data-label="Category" style={{ padding: "10px 12px", fontSize: 13 }}>
                       {item.category || "—"} / {item.size || "—"}
@@ -408,20 +400,13 @@ export default function IncompleteReturnSlip(props: IncompleteReturnSlipProps) {
           </div>
         </section>
 
-        {(b.incompleteNotes || b.incompletePhoto) && (
+        {b.incompleteNotes && (
           <section style={{ padding: "0 clamp(12px, 2.5vw, 24px) 14px" }}>
             <div style={{ border: `1px solid ${SLIP_BORDER}`, borderRadius: 10, padding: "12px 14px", background: "#fafafa" }}>
               <div style={{ fontWeight: 800, fontSize: 13, color: SLIP_GREY, textTransform: "uppercase", marginBottom: 8 }}>
                 Additional Notes
               </div>
-              {b.incompleteNotes && <p style={{ margin: 0, fontSize: 14, lineHeight: 1.5 }}>{b.incompleteNotes}</p>}
-              {b.incompletePhoto && (
-                <img
-                  src={privateMediaUrl(b.incompletePhoto)}
-                  alt="Incomplete return"
-                  style={{ maxWidth: 200, maxHeight: 160, objectFit: "cover", borderRadius: 8, marginTop: 10, border: `1px solid ${SLIP_BORDER}` }}
-                />
-              )}
+              <p style={{ margin: 0, fontSize: 14, lineHeight: 1.5 }}>{b.incompleteNotes}</p>
             </div>
           </section>
         )}
@@ -440,9 +425,20 @@ export default function IncompleteReturnSlip(props: IncompleteReturnSlipProps) {
         </section>
 
         {qrDataUrl && (
-          <section style={{ padding: "12px clamp(12px, 2.5vw, 24px) 20px", textAlign: "center", borderTop: `1px dashed ${SLIP_BORDER}` }}>
-            <img src={qrDataUrl} alt="Booking QR" style={{ width: 100, height: 100 }} />
-            <div style={{ fontSize: 11, color: SLIP_GREY, marginTop: 4 }}>Scan to view booking</div>
+          <section
+            style={{
+              padding: "24px clamp(12px, 2.5vw, 24px) 32px",
+              borderTop: `1px dashed ${SLIP_BORDER}`,
+              display: "flex",
+              flexDirection: "column",
+              alignItems: "center",
+              justifyContent: "center",
+              minHeight: 220,
+              textAlign: "center",
+            }}
+          >
+            <img src={qrDataUrl} alt="Booking QR" style={{ width: 200, height: 200, display: "block" }} />
+            <div style={{ fontSize: 12, color: SLIP_GREY, marginTop: 10, fontWeight: 600 }}>Scan to view booking</div>
           </section>
         )}
       </div>

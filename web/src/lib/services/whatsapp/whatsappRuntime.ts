@@ -27,11 +27,11 @@ export const HEAVY_WHATSAPP_JOB_TYPES = new Set([
   "return_slip",
   "return_receipt",
   "incomplete_slip",
+  "postponement_held",
 ]);
 
 export const LIGHT_WHATSAPP_JOB_TYPES = new Set([
   "postponement_notice",
-  "postponement_held",
   "booking_reminder",
   "custom_template",
 ]);

@@ -45,7 +45,6 @@ export default function PostponedBookingDetailClient({
         headers: { "Content-Type": "application/json" },
         body: JSON.stringify({ action: "postpone", booking_id: booking.id }),
       });
-      router.push(`/postponed-booking/${booking.id}/print?issued=1`);
       router.refresh();
     } catch (e) {
       setError(e instanceof Error ? e.message : "Could not postpone booking");
@@ -86,15 +85,10 @@ export default function PostponedBookingDetailClient({
           </Link>
         )}
         {isPostponed && (
-          <a
-            href={`/postponed-booking/${booking.id}/print`}
-            target="_blank"
-            rel="noreferrer"
-            className="btn btn-primary"
-          >
+          <Link href={`/postponed-booking/${booking.id}/print`} className="btn btn-primary">
             <i className="fa-solid fa-print" style={{ marginRight: 6 }} />
             Postponed Slip
-          </a>
+          </Link>
         )}
       </div>
 

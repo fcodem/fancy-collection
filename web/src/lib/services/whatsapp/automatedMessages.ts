@@ -8,13 +8,16 @@ import {
   generateDeliverySlipPdf,
   generateReturnSlipPdf,
   generateIncompleteSlipPdf,
+  generatePostponementSlipPdf,
   uploadBookingSlipPdf,
   uploadDeliverySlipPdf,
   uploadReturnSlipPdf,
   uploadIncompleteSlipPdf,
+  uploadPostponementSlipPdf,
   deliverySlipPdfFilename,
   returnSlipPdfFilename,
   incompleteSlipPdfFilename,
+  postponementSlipPdfFilename,
 } from "./slipPdf";
 import {
   isOutsideCustomerCareWindowError,
@@ -50,11 +53,14 @@ import {
   buildBookingSlipCaption,
   buildDeliverySlipCaption,
   buildIncompleteSlipCaption,
+  buildPostponementHeldCaption,
   buildReturnSlipCaption,
   deliverySlipBodyParamsForTemplate,
   deliverySlipDetailsFromBooking,
   incompleteSlipBodyParamsForTemplate,
   incompleteSlipDetailsFromBooking,
+  postponementHeldBodyParamsForTemplate,
+  postponementHeldDetailsFromBooking,
   returnSlipBodyParamsForTemplate,
   returnSlipDetailsFromBooking,
   SLIP_WA_CONTACT_LINE,
@@ -103,19 +109,18 @@ function metaFetchOpts(sendContext?: WhatsAppJobSendContext): { signal?: AbortSi
 
 export function buildPostponementHeldMessage(opts: {
   customerName: string;
-  publicBookingId: string;
-  deliveryDate: string;
-  returnDate: string;
+  serialNo: string;
+  totalPaymentHeld: string;
+  datePostponed: string;
+  dateOfBooking: string;
 }): string {
-  return (
-    `Hi ${opts.customerName},\n\n` +
-    `⏸️ Your booking ${opts.publicBookingId} has been postponed.\n\n` +
-    `📅 Scheduled Delivery: ${opts.deliveryDate}\n` +
-    `📅 Scheduled Return: ${opts.returnDate}\n\n` +
-    `Your advance is held with us. Please contact us when you are ready to reschedule.\n\n` +
-    `${SLIP_WA_CONTACT_LINE}\n\n` +
-    whatsAppSignature()
-  );
+  return buildPostponementHeldCaption({
+    customerName: opts.customerName,
+    serialNo: opts.serialNo,
+    totalPaymentHeld: opts.totalPaymentHeld,
+    datePostponed: opts.datePostponed,
+    dateOfBooking: opts.dateOfBooking,
+  });
 }
 
 export function buildPostponementNoticeMessage(opts: {
@@ -499,6 +504,7 @@ export async function sendPostponementNoticeWhatsApp(
 
 export async function sendPostponementHeldWhatsApp(
   bookingId: number,
+  requestOrigin?: string,
   sendContext?: WhatsAppJobSendContext,
 ): Promise<WhatsAppSendOutcome> {
   if (!isWhatsAppConfigured()) {
@@ -507,46 +513,67 @@ export async function sendPostponementHeldWhatsApp(
 
   const booking = await prisma.booking.findUnique({ where: { id: bookingId } });
   if (!booking) return { ok: false, error: "Booking not found" };
+  if (booking.status !== "postponed") {
+    return { ok: false, error: "Booking is not postponed" };
+  }
 
-  const phoneRaw = booking.whatsappNo || booking.contact1;
-  if (!phoneRaw?.trim()) return { ok: false, error: "No WhatsApp number on booking" };
+  const phoneRaw = booking.whatsappNo?.trim() || booking.contact1?.trim() || "";
+  if (!phoneRaw) return { ok: false, error: "No WhatsApp number on booking" };
+  if (!normalizeIndianPhone(phoneRaw)) {
+    return { ok: false, error: `Invalid phone number: ${phoneRaw}` };
+  }
 
   const publicBookingId = resolvePublicBookingId(booking);
-  const message = buildPostponementHeldMessage({
+  const details = postponementHeldDetailsFromBooking(booking);
+  const caption = buildPostponementHeldCaption(details);
+
+  let pdfBuffer: Buffer;
+  try {
+    pdfBuffer = await generatePostponementSlipPdf(
+      bookingId,
+      requestOrigin,
+      slipRenderFetchOpts(sendContext),
+    );
+  } catch (htmlErr) {
+    const htmlMsg = htmlErr instanceof Error ? htmlErr.message : "HTML PDF failed";
+    console.warn("[sendPostponementHeldWhatsApp] Postponement slip rendering failed:", {
+      bookingId,
+      error: htmlMsg,
+    });
+    return {
+      ok: false,
+      error: `${PREMIUM_SLIP_RENDER_FAILED}: ${htmlMsg}`,
+      retryable: true,
+      phone: phoneRaw,
+    };
+  }
+
+  let pdfUrl = "";
+  try {
+    pdfUrl = await uploadPostponementSlipPdf(pdfBuffer, publicBookingId);
+  } catch (e) {
+    console.warn("[sendPostponementHeldWhatsApp] Archive upload failed:", e);
+  }
+
+  const filename = postponementSlipPdfFilename(publicBookingId);
+  return sendSlipDocument({
+    bookingId,
+    phoneRaw,
+    caption,
+    filename,
+    pdfBuffer,
+    pdfUrl,
+    templateKey: "postponement_held",
     customerName: booking.customerName,
     publicBookingId,
-    deliveryDate: formatDate(booking.deliveryDate, "display"),
-    returnDate: formatDate(booking.returnDate, "display"),
+    sendContext,
+    bodyParamsForTemplate: (templateName) =>
+      postponementHeldBodyParamsForTemplate(templateName, details, {
+        publicBookingId,
+        deliveryDate: formatDate(booking.deliveryDate, "display"),
+        returnDate: formatDate(booking.returnDate, "display"),
+      }),
   });
-
-  const useTemplate = await isSlipTemplateApproved("postponement_held");
-  await beginWhatsAppProviderSend(sendContext);
-  const result = useTemplate
-    ? await sendTextSlipTemplate({
-        key: "postponement_held",
-        phone: phoneRaw,
-        bodyParams: [
-          `${publicBookingId} / ${String(booking.monthlySerial).padStart(2, "0")}`,
-          formatDate(booking.deliveryDate, "display"),
-          formatDate(booking.returnDate, "display"),
-        ],
-      })
-    : await sendWhatsAppText(phoneRaw, message);
-
-  await saveWhatsAppOutboundMessage({
-    bookingId,
-    phone: phoneRaw,
-    messageType: useTemplate ? "template" : "text",
-    body: message,
-    metaMessageId: result.ok ? result.messageId : null,
-    status: result.ok ? "sent" : "failed",
-    error: result.ok ? null : result.error,
-    isAutomated: true,
-  });
-
-  return result.ok
-    ? { ok: true, phone: phoneRaw, messageId: result.messageId }
-    : { ok: false, error: result.error, phone: phoneRaw };
 }
 
 export async function sendBookingReminderWhatsApp(

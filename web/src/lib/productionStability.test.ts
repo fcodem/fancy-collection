@@ -8,23 +8,35 @@ const read = (rel: string) => fs.readFileSync(path.join(root, rel), "utf8");
 const exists = (rel: string) => fs.existsSync(path.join(root, rel));
 
 describe("QR label printing", () => {
-  it("QR is constrained to 18mm inside sticker boundary", () => {
+  it("QR fits inside 60×30mm sticker on the right side", () => {
     const source = read("src/components/PrintCodesClient.tsx");
-    assert.match(source, /18mm/);
-    assert.match(source, /max-width:\s*18mm/);
-    assert.doesNotMatch(source, /width:\s*30mm/);
-    assert.doesNotMatch(source, /width:\s*32mm/);
+    assert.match(source, /QR_SIZE_MM = 15/);
+    assert.match(source, /LABEL_W_MM = 60/);
+    assert.match(source, /LABEL_H_MM = 30/);
   });
 
-  it("label cell uses safe 2.5mm padding", () => {
+  it("A4 sheet uses 1cm margins and 24 labels in a 3×8 grid", () => {
     const source = read("src/components/PrintCodesClient.tsx");
-    assert.match(source, /padding:\s*2\.5mm/);
+    assert.match(source, /PAGE_MARGIN_MM = 10/);
+    assert.match(source, /padding: \$\{PAGE_MARGIN_MM\}mm/);
+    assert.match(source, /grid-template-columns: repeat\(3, \$\{LABEL_W_MM\}mm\)/);
+    assert.match(source, /grid-template-rows: repeat\(8, \$\{LABEL_H_MM\}mm\)/);
+    assert.match(source, /COLS = 3/);
+    assert.match(source, /ROWS = 8/);
   });
 
-  it("dress name is prominent at 11pt or larger", () => {
+  it("column and row gaps fill printable area after margins", () => {
+    const source = read("src/components/PrintCodesClient.tsx");
+    assert.match(source, /COL_GAP_MM/);
+    assert.match(source, /ROW_GAP_MM/);
+    assert.match(source, /column-gap: \$\{COL_GAP_MM\}mm/);
+    assert.match(source, /row-gap: \$\{ROW_GAP_MM\}mm/);
+  });
+
+  it("dress name is prominent at 9pt or larger", () => {
     const source = read("src/components/PrintCodesClient.tsx");
     assert.match(source, /label-name/);
-    assert.match(source, /font-size:\s*11pt/);
+    assert.match(source, /font-size:\s*9pt/);
     assert.match(source, /font-weight:\s*900/);
   });
 
@@ -34,22 +46,22 @@ describe("QR label printing", () => {
     assert.match(source, /SIZE/);
   });
 
-  it("branding uses two-line split", () => {
+  it("branding uses two-line split on the left side", () => {
     const source = read("src/components/PrintCodesClient.tsx");
     assert.match(source, /BRAND_NAME/);
     assert.match(source, /BRAND_OWNER/);
+    assert.match(source, /label-left/);
   });
 
-  it("QR-only layout uses grid not absolute positioning", () => {
+  it("QR-only layout uses grid with left text and right QR column", () => {
     const source = read("src/components/PrintCodesClient.tsx");
     assert.match(source, /display:\s*grid/);
+    assert.match(source, /grid-template-columns: minmax\(0, 1fr\) \$\{QR_COL_MM\}mm/);
     assert.doesNotMatch(source, /position:\s*absolute/);
   });
 
-  it("human-readable code stays within 20mm", () => {
-    const source = read("src/components/PrintCodesClient.tsx");
-    assert.match(source, /max-width:\s*20mm/);
-    assert.match(source, /text-overflow:\s*ellipsis/);
+  it("label-cell receives layout class", () => {
+    assert.match(read("src/components/PrintCodesClient.tsx"), /label-cell\$\{layoutClass/);
   });
 });
 

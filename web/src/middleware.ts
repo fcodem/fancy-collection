@@ -20,7 +20,8 @@ const PUBLIC_PATHS = [
   "/api/cron/",
 ];
 
-const SLIP_PDF_PATH = /^\/booking\/\d+\/(slip|delivery-slip|return-slip|incomplete-slip)(\/|$)/;
+const SLIP_PDF_PATH =
+  /^\/(booking\/\d+\/(slip|delivery-slip|return-slip|incomplete-slip)|postponed-booking\/\d+\/print)(\/|$)/;
 
 const PWA_ASSET_PATHS = [
   "/manifest.json",

@@ -102,14 +102,16 @@ export const SLIP_TEMPLATE_DEFS: SlipTemplateDef[] = [
   },
   {
     key: "postponement_held",
-    name: "booking_held_v3",
+    name: "booking_held_v4",
     envVar: "WA_TEMPLATE_POSTPONEMENT_HELD",
     category: "UTILITY",
-    kind: "text",
+    kind: "document",
+    buttonText: "View postponement slip",
+    urlPath: "/api/public/slip/postponement/{{1}}",
     body: POSTPONEMENT_HELD_TEMPLATE_BODY,
     bodyExample: POSTPONEMENT_HELD_TEMPLATE_EXAMPLE,
     footer: FOOTER,
-    description: "Postponement held (advance retained)",
+    description: "Postponement held PDF + payment held details",
   },
   {
     key: "return_reminder",
@@ -201,6 +203,8 @@ function documentTemplateNameCandidates(def: SlipTemplateDef): string[] {
     versioned.push("return_slip_v4", "return_slip_v3");
   } else if (def.key === "incomplete_return_slip") {
     versioned.push("incomplete_return_v4", "incomplete_return_v3");
+  } else if (def.key === "postponement_held") {
+    versioned.push("booking_held_v4", "booking_held_v3");
   } else {
     versioned.push(def.name);
   }

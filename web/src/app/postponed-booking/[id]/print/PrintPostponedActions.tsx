@@ -1,23 +1,8 @@
 "use client";
 
 import Link from "next/link";
-import { useEffect } from "react";
 
-export default function PrintPostponedActions({
-  bookingId,
-  justIssued = false,
-}: {
-  bookingId: number;
-  justIssued?: boolean;
-}) {
-  useEffect(() => {
-    if (justIssued) {
-      window.scrollTo({ top: 0, behavior: "smooth" });
-      const slip = document.getElementById("postponed-slip-content");
-      slip?.scrollIntoView({ behavior: "smooth", block: "start" });
-    }
-  }, [justIssued]);
-
+export default function PrintPostponedActions({ bookingId }: { bookingId: number }) {
   return (
     <div
       className="no-print"
@@ -30,11 +15,6 @@ export default function PrintPostponedActions({
         flexWrap: "wrap",
       }}
     >
-      {justIssued && (
-        <p style={{ width: "100%", fontSize: 13, color: "var(--text-muted)", margin: "0 0 8px" }}>
-          After photographing the slip, use the buttons below or return to the postponed list.
-        </p>
-      )}
       <button type="button" className="btn btn-primary" onClick={() => window.print()}>
         <i className="fa-solid fa-print" style={{ marginRight: 6 }} />
         Print Slip

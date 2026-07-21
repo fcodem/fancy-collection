@@ -43,7 +43,7 @@ export const dynamic = "force-dynamic";
 export const runtime = "nodejs";
 export const maxDuration = 60;
 
-const KINDS = new Set<SlipPdfKind>(["booking", "delivery", "return", "incomplete"]);
+const KINDS = new Set<SlipPdfKind>(["booking", "delivery", "return", "incomplete", "postponement"]);
 
 export async function POST(req: NextRequest) {
   const rawBody = await req.text();
@@ -107,16 +107,19 @@ export async function POST(req: NextRequest) {
       ok: true,
     });
     const bytes = new Uint8Array(rendered.pdf);
+    const headers: Record<string, string> = {
+      "content-type": "application/pdf",
+      "content-length": String(bytes.byteLength),
+      "cache-control": "no-store",
+    };
+    if (kind !== "postponement") {
+      headers[PREMIUM_SLIP_HEADER_VALIDATED] = "1";
+      headers[PREMIUM_SLIP_HEADER_KIND] = rendered.slipKind;
+      headers[PREMIUM_SLIP_HEADER_VERSION] = PREMIUM_SLIP_TEMPLATE_VERSION;
+    }
     return new NextResponse(bytes, {
       status: 200,
-      headers: {
-        "content-type": "application/pdf",
-        "content-length": String(bytes.byteLength),
-        "cache-control": "no-store",
-        [PREMIUM_SLIP_HEADER_VALIDATED]: "1",
-        [PREMIUM_SLIP_HEADER_KIND]: rendered.slipKind,
-        [PREMIUM_SLIP_HEADER_VERSION]: PREMIUM_SLIP_TEMPLATE_VERSION,
-      },
+      headers,
     });
   } catch (e) {
     await cleanSlipTempDirs();

@@ -1,4 +1,5 @@
 import { formatDate } from "@/lib/constants";
+import { formatInr } from "@/lib/format";
 import {
   BRAND_FULL_NAME,
   BRAND_OWNER,
@@ -70,6 +71,14 @@ export type IncompleteSlipDetailFields = {
   serialNo: string;
   returnDate: string;
   itemsPending: string;
+};
+
+export type PostponementHeldDetailFields = {
+  customerName: string;
+  serialNo: string;
+  totalPaymentHeld: string;
+  datePostponed: string;
+  dateOfBooking: string;
 };
 
 /** Meta template body — booking confirmation ({{1}}…{{7}}). */
@@ -153,16 +162,18 @@ export const POSTPONEMENT_DATES_TEMPLATE_EXAMPLE = [
 export const POSTPONEMENT_HELD_TEMPLATE_BODY =
   `${THANK_YOU}\n\n` +
   `⏸️ Booking Postponed\n\n` +
-  `🔖 Serial No / Booking: {{1}}\n` +
-  `📅 Scheduled Delivery: {{2}}\n` +
-  `📅 Scheduled Return: {{3}}\n\n` +
+  `🔖 Serial No: {{1}}\n` +
+  `💰 Total Payment Held: {{2}}\n` +
+  `📅 Date Postponed: {{3}}\n` +
+  `📅 Date of Booking: {{4}}\n\n` +
   `Your advance is held with us. Please contact us when you are ready to reschedule.\n\n` +
-  SLIP_WA_CONTACT_LINE;
+  SLIP_WA_CLOSING;
 
 export const POSTPONEMENT_HELD_TEMPLATE_EXAMPLE = [
-  "BK-000001 / 20",
-  "20 Jul 2026",
-  "23 Jul 2026",
+  "20",
+  "₹5,000",
+  "22 Jul 2026",
+  "15 Jul 2026",
 ];
 
 export const RETURN_DUE_REMINDER_TEMPLATE_BODY =
@@ -310,6 +321,60 @@ export function buildIncompleteSlipCaption(d: IncompleteSlipDetailFields): strin
       `📅 Return Date: ${d.returnDate}\n` +
       `📦 Items Pending: ${d.itemsPending}`,
   );
+}
+
+export function buildPostponementHeldCaption(d: PostponementHeldDetailFields): string {
+  return withFooter(
+    `${THANK_YOU}\n\n` +
+      `${dearCustomerLine(d.customerName)}\n\n` +
+      `⏸️ Booking Postponed\n\n` +
+      `🔖 Serial No: ${d.serialNo}\n` +
+      `💰 Total Payment Held: ${d.totalPaymentHeld}\n` +
+      `📅 Date Postponed: ${d.datePostponed}\n` +
+      `📅 Date of Booking: ${d.dateOfBooking}\n\n` +
+      `Your advance is held with us. Please contact us when you are ready to reschedule.\n\n` +
+      `Your slip PDF is attached above.`,
+  );
+}
+
+export function postponementHeldDetailsFromBooking(booking: {
+  customerName: string;
+  monthlySerial: number;
+  totalAdvance?: number | null;
+  advance?: number | null;
+  createdAt: Date;
+  postponedAt?: Date | null;
+}): PostponementHeldDetailFields {
+  const held = booking.totalAdvance || booking.advance || 0;
+  return {
+    customerName: booking.customerName || "Customer",
+    serialNo: String(booking.monthlySerial).padStart(2, "0"),
+    totalPaymentHeld: `₹${formatInr(held)}`,
+    datePostponed: formatSlipDate(booking.postponedAt ?? new Date()),
+    dateOfBooking: formatSlipDate(booking.createdAt),
+  };
+}
+
+export function postponementHeldBodyParams(d: PostponementHeldDetailFields): string[] {
+  return [d.serialNo, d.totalPaymentHeld, d.datePostponed, d.dateOfBooking];
+}
+
+/** v4 = serial + payment held + dates; v3 legacy = serial/booking + delivery + return. */
+export function postponementHeldBodyParamsForTemplate(
+  templateName: string,
+  d: PostponementHeldDetailFields,
+  legacy?: { publicBookingId: string; deliveryDate: string; returnDate: string },
+): string[] {
+  const name = templateName.toLowerCase();
+  if (name.includes("v4") || name.includes("v5")) return postponementHeldBodyParams(d);
+  if (legacy) {
+    return [
+      `${legacy.publicBookingId} / ${d.serialNo}`,
+      legacy.deliveryDate,
+      legacy.returnDate,
+    ];
+  }
+  return postponementHeldBodyParams(d);
 }
 
 export function bookingSlipBodyParams(d: BookingSlipDetailFields): string[] {

@@ -680,7 +680,11 @@ async function executeJob(
       return outcomeFromSend(result, "Booking bill send failed");
     }
     case "postponement_held": {
-      const result = await sendPostponementHeldWhatsApp(job.bookingId, sendContext);
+      const result = await sendPostponementHeldWhatsApp(
+        job.bookingId,
+        typeof payload.requestOrigin === "string" ? payload.requestOrigin : undefined,
+        sendContext,
+      );
       return outcomeFromSend(result, "Postponement held notice failed");
     }
     case "booking_reminder":

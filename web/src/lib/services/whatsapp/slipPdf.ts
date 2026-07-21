@@ -11,6 +11,7 @@ export {
   generateDeliverySlipPdf,
   generateReturnSlipPdf,
   generateIncompleteSlipPdf,
+  generatePostponementSlipPdf,
   type SlipPdfRenderOptions,
   type SlipRenderFetchOptions,
 } from "./slipHtmlPdf.server";
@@ -55,6 +56,10 @@ export function incompleteSlipPdfFilename(publicBookingId: string, suffix = ""):
   return `IncompleteReturn_${publicBookingId}${suffix}.pdf`;
 }
 
+export function postponementSlipPdfFilename(publicBookingId: string): string {
+  return `PostponementSlip_${publicBookingId}.pdf`;
+}
+
 export function bookingSlipArchiveFilename(publicBookingId: string): string {
   return `${publicBookingId}.pdf`;
 }
@@ -73,6 +78,10 @@ export async function uploadIncompleteSlipPdf(
   suffix = "",
 ) {
   return uploadSlipPdf("incomplete-slips", incompleteSlipPdfFilename(publicBookingId, suffix), pdfBuffer);
+}
+
+export async function uploadPostponementSlipPdf(pdfBuffer: Buffer, publicBookingId: string) {
+  return uploadSlipPdf("postponement-slips", postponementSlipPdfFilename(publicBookingId), pdfBuffer);
 }
 
 export async function uploadBookingSlipPdf(pdfBuffer: Buffer, publicBookingId: string) {

@@ -18,9 +18,23 @@ type InventoryItem = {
 
 type PrintFormat = "QR_CODE" | "CODE_128" | "BOTH";
 
+/** A4 24-up sheet — measured: 60×30 mm labels, 10 mm page margins (Apple Measure). */
 const COLS = 3;
 const ROWS = 8;
-const LABELS_PER_PAGE = COLS * ROWS; // 24
+const PAGE_W_MM = 210;
+const PAGE_H_MM = 297;
+const PAGE_MARGIN_MM = 10;
+const LABEL_W_MM = 60;
+const LABEL_H_MM = 30;
+const LABELS_PER_PAGE = COLS * ROWS;
+/** Printable area after 1 cm margins on all sides. */
+const PRINT_W_MM = PAGE_W_MM - PAGE_MARGIN_MM * 2;
+const PRINT_H_MM = PAGE_H_MM - PAGE_MARGIN_MM * 2;
+/** Gutter between die-cut labels on the physical sheet. */
+const COL_GAP_MM = (PRINT_W_MM - COLS * LABEL_W_MM) / (COLS - 1);
+const ROW_GAP_MM = (PRINT_H_MM - ROWS * LABEL_H_MM) / (ROWS - 1);
+const QR_COL_MM = 18;
+const QR_SIZE_MM = 15;
 
 function activeScanCode(item: InventoryItem, format: "QR_CODE" | "CODE_128") {
   return item.scanCodes.find((code) => code.format === format);
@@ -114,14 +128,11 @@ export default function PrintCodesClient() {
     }
   };
 
-  // Build pages: each page has 24 label slots (3x8).
-  // First page may have empty slots if starting from a specific position.
   const buildPages = () => {
     const pages: (InventoryItem | null)[][] = [];
     const skipSlots = (startRow - 1) * COLS + (startCol - 1);
     let currentPage: (InventoryItem | null)[] = [];
 
-    // Fill skipped slots on first page with null
     for (let i = 0; i < skipSlots; i++) {
       currentPage.push(null);
     }
@@ -134,7 +145,6 @@ export default function PrintCodesClient() {
       currentPage.push(item);
     }
 
-    // Pad last page
     while (currentPage.length < LABELS_PER_PAGE) {
       currentPage.push(null);
     }
@@ -151,7 +161,6 @@ export default function PrintCodesClient() {
 
   return (
     <div className="min-h-screen bg-gray-50 p-4">
-      {/* Print-specific styles */}
       <style>{`
         @media print {
           @page {
@@ -167,40 +176,43 @@ export default function PrintCodesClient() {
             top: auto !important;
           }
           .label-page {
-            width: 210mm;
-            height: 296mm;
-            margin-top: 0.5mm;
+            width: ${PAGE_W_MM}mm;
+            height: ${PAGE_H_MM}mm;
+            box-sizing: border-box;
+            padding: ${PAGE_MARGIN_MM}mm;
             page-break-after: always;
             display: grid;
-            grid-template-columns: repeat(3, 70mm);
-            grid-template-rows: repeat(8, 37mm);
-            padding: 0;
-            margin-left: 0;
-            margin-right: 0;
-            margin-bottom: 0;
+            grid-template-columns: repeat(3, ${LABEL_W_MM}mm);
+            grid-template-rows: repeat(8, ${LABEL_H_MM}mm);
+            column-gap: ${COL_GAP_MM}mm;
+            row-gap: ${ROW_GAP_MM}mm;
+            margin: 0;
           }
           .label-page:last-child {
             page-break-after: auto;
           }
           .label-cell {
-            width: 70mm;
-            height: 37mm;
+            width: ${LABEL_W_MM}mm;
+            height: ${LABEL_H_MM}mm;
             overflow: hidden;
-            display: flex;
-            flex-direction: column;
-            padding: 2.5mm;
             box-sizing: border-box;
-            gap: 0.5mm;
+            padding: 1.5mm;
           }
           .label-cell.label-qr-only {
             display: grid;
-            grid-template-columns: minmax(0, 1fr) 22mm;
-            column-gap: 2mm;
+            grid-template-columns: minmax(0, 1fr) ${QR_COL_MM}mm;
+            column-gap: 1mm;
             align-items: center;
+            padding: 1mm 1.5mm;
           }
           .label-cell.label-barcode-only,
           .label-cell.label-both {
+            display: flex;
             flex-direction: column;
+            gap: 0.5mm;
+          }
+          .label-row {
+            display: contents;
           }
           .label-left {
             min-width: 0;
@@ -215,46 +227,31 @@ export default function PrintCodesClient() {
             flex-direction: column;
             align-items: center;
             justify-content: center;
+            width: ${QR_COL_MM}mm;
+            max-width: ${QR_COL_MM}mm;
             min-width: 0;
-            max-width: 100%;
-          }
-          .label-qr-only .label-code-block {
-            width: 22mm;
-            max-width: 22mm;
-          }
-          .label-human-code {
-            font-size: 5.5pt;
-            font-family: "Courier New", monospace;
-            font-weight: 700;
-            letter-spacing: 0.2pt;
-            margin-top: 0.5mm;
-            max-width: 20mm;
-            overflow: hidden;
-            text-overflow: ellipsis;
-            white-space: nowrap;
-            text-align: center;
           }
           .label-cell canvas.label-qr {
-            width: 18mm !important;
-            height: 18mm !important;
-            max-width: 18mm !important;
-            max-height: 18mm !important;
+            width: ${QR_SIZE_MM}mm !important;
+            height: ${QR_SIZE_MM}mm !important;
+            max-width: ${QR_SIZE_MM}mm !important;
+            max-height: ${QR_SIZE_MM}mm !important;
             display: block;
           }
           .label-both canvas.label-qr {
-            width: 14mm !important;
-            height: 14mm !important;
-            max-width: 14mm !important;
-            max-height: 14mm !important;
+            width: 12mm !important;
+            height: 12mm !important;
+            max-width: 12mm !important;
+            max-height: 12mm !important;
           }
           .label-cell svg.barcode-svg {
             width: 100% !important;
-            max-width: 62mm !important;
+            max-width: 54mm !important;
             height: auto !important;
-            max-height: 10mm !important;
+            max-height: 8mm !important;
           }
           .label-both svg.barcode-svg {
-            max-height: 7mm !important;
+            max-height: 6mm !important;
           }
           .label-text {
             font-family: Arial, sans-serif;
@@ -264,7 +261,7 @@ export default function PrintCodesClient() {
           }
           .label-name {
             font-weight: 900;
-            font-size: 11pt;
+            font-size: 9pt;
             overflow: hidden;
             display: -webkit-box;
             -webkit-line-clamp: 2;
@@ -277,34 +274,33 @@ export default function PrintCodesClient() {
           .label-brand {
             color: #7B1F45;
             letter-spacing: 0.3pt;
-            margin-bottom: 1mm;
-            line-height: 1.15;
+            margin-bottom: 0.3mm;
+            line-height: 1.1;
           }
           .label-size-badge {
             display: inline-flex;
-            font-size: 9pt;
+            font-size: 8pt;
             font-weight: 900;
             border: 1.5pt solid #333;
             border-radius: 3px;
-            padding: 0.3mm 1.5mm;
-            margin-top: 0.8mm;
+            padding: 0.2mm 1.2mm;
+            margin-top: 0.5mm;
             line-height: 1.1;
           }
           .label-sku {
-            font-size: 7pt;
+            font-size: 6pt;
             font-weight: 700;
             font-family: "Courier New", monospace;
             color: #333;
-            margin-top: 0.6mm;
+            margin-top: 0.4mm;
           }
         }
       `}</style>
 
       <div className="max-w-7xl mx-auto">
-        {/* Controls - hidden during print */}
         <div className="no-print mb-6">
           <h1 className="text-2xl font-bold text-gray-900 mb-4">
-            Print QR Codes — A4 Sticker Sheet (24 labels, 70×37mm)
+            Print QR Codes — A4 Sticker Sheet (24 labels, 60×30mm, 1cm margins)
           </h1>
 
           <div className="bg-white border rounded-lg p-4 mb-4">
@@ -384,15 +380,15 @@ export default function PrintCodesClient() {
               </p>
             ) : null}
             <p className="text-xs text-gray-400 mt-2">
-              Skipping {(startRow - 1) * COLS + (startCol - 1)} sticker(s) on the first sheet.
-              Total pages needed: {pages.length}
+              24 labels per A4 sheet (3×8 grid, 60×30mm). Page margins: 1cm top/bottom/left/right.
+              Each label: left = branding + dress name + size; right = QR code.
+              Skipping {(startRow - 1) * COLS + (startCol - 1)} sticker(s) on the first sheet. Total pages: {pages.length}
             </p>
             <p className="text-xs text-gray-400 mt-1">
               Print at 100% scale (Actual Size). Disable &quot;Fit to page&quot;. Paper: A4. Margins: None or minimum.
             </p>
           </div>
 
-          {/* Inventory selection grid */}
           {loading ? (
             <p className="text-gray-500">Loading inventory...</p>
           ) : items.length === 0 ? (
@@ -449,31 +445,38 @@ export default function PrintCodesClient() {
             </div>
           )}
 
-          {/* Preview */}
           {selected.size > 0 && (
             <div className="mt-6">
-              <h2 className="font-semibold text-gray-700 mb-2">Preview (first page)</h2>
+              <h2 className="font-semibold text-gray-700 mb-2">Preview (first page, 3×8)</h2>
               <div className="border rounded bg-white p-2 inline-block">
                 <div
                   style={{
                     display: "grid",
                     gridTemplateColumns: "repeat(3, 90px)",
-                    gridTemplateRows: `repeat(8, 48px)`,
+                    gridTemplateRows: "repeat(8, 48px)",
                     gap: "1px",
                   }}
                 >
                   {(pages[0] || []).map((item, idx) => (
                     <div
                       key={idx}
-                      className={`border text-center flex items-center justify-center text-[8px] ${
+                      className={`border flex text-[7px] ${
                         item ? "bg-blue-50 border-blue-300" : "bg-gray-50 border-gray-200"
                       }`}
                     >
+                      <div className="flex-1 p-0.5 flex flex-col justify-center min-w-0 overflow-hidden">
+                        {item ? (
+                          <>
+                            <div className="font-bold text-[6px] text-[#7B1F45] truncate">{BRAND_NAME}</div>
+                            <div className="font-semibold truncate">{item.name}</div>
+                          </>
+                        ) : (
+                          <span className="text-gray-300">—</span>
+                        )}
+                      </div>
                       {item ? (
-                        <span className="truncate px-0.5">{item.name}</span>
-                      ) : (
-                        <span className="text-gray-300">—</span>
-                      )}
+                        <div className="w-5 border-l flex items-center justify-center text-gray-400">QR</div>
+                      ) : null}
                     </div>
                   ))}
                 </div>
@@ -482,7 +485,6 @@ export default function PrintCodesClient() {
           )}
         </div>
 
-        {/* Print area — only visible during print */}
         <div className="print-area" style={{ position: "fixed", left: "-9999px", top: 0 }}>
           {pages.map((page, pageIdx) => (
             <div key={pageIdx} className="label-page">
@@ -495,9 +497,9 @@ export default function PrintCodesClient() {
                       ? "label-barcode-only"
                       : "label-both");
                 return (
-                <div key={slotIdx} className={`label-cell${layoutClass ? ` ${layoutClass}` : ""}`}>
-                  {item && <StickerLabel item={item} format={printFormat} />}
-                </div>
+                  <div key={slotIdx} className={`label-cell${layoutClass ? ` ${layoutClass}` : ""}`}>
+                    {item && <StickerLabel item={item} format={printFormat} />}
+                  </div>
                 );
               })}
             </div>
@@ -516,17 +518,11 @@ function StickerLabel({ item, format }: { item: InventoryItem; format: PrintForm
   const barcode = activeScanCode(item, "CODE_128");
   const qrValue = qrCode?.code;
   const barcodeValue = barcode?.code;
-  const layoutClass =
-    format === "QR_CODE"
-      ? "label-qr-only"
-      : format === "CODE_128"
-        ? "label-barcode-only"
-        : "label-both";
 
   useEffect(() => {
     if ((format === "QR_CODE" || format === "BOTH") && qrRef.current && qrValue) {
       void QRCode.toCanvas(qrRef.current, qrValue, {
-        width: format === "BOTH" ? 120 : 140,
+        width: format === "BOTH" ? 100 : 120,
         margin: 1,
         errorCorrectionLevel: "H",
       });
@@ -552,7 +548,6 @@ function StickerLabel({ item, format }: { item: InventoryItem; format: PrintForm
   if (!isItemPrintReady(item, format)) {
     return (
       <div
-        className="label-row"
         style={{
           display: "flex",
           width: "100%",
@@ -569,12 +564,12 @@ function StickerLabel({ item, format }: { item: InventoryItem; format: PrintForm
   }
 
   return (
-    <div className="label-row" style={{ width: "100%", height: "100%" }}>
+    <div className="label-row">
       <div className="label-left">
         <div className="label-text">
           <div className="label-brand">
-            <div style={{ fontWeight: 900, fontSize: '8pt' }}>{BRAND_NAME}</div>
-            <div style={{ fontWeight: 600, fontSize: '6pt', marginTop: '0.3mm' }}>by {BRAND_OWNER}</div>
+            <div style={{ fontWeight: 900, fontSize: "7pt" }}>{BRAND_NAME}</div>
+            <div style={{ fontWeight: 600, fontSize: "5.5pt", marginTop: "0.2mm" }}>by {BRAND_OWNER}</div>
           </div>
           <div className="label-name">{item.name}</div>
           <div className="label-size-badge">SIZE {item.size || "—"}</div>
@@ -583,15 +578,11 @@ function StickerLabel({ item, format }: { item: InventoryItem; format: PrintForm
       </div>
       <div className="label-code-block">
         {(format === "QR_CODE" || format === "BOTH") && qrValue ? (
-          <>
-            <canvas ref={qrRef} className="label-qr" />
-            <div className="label-human-code">{qrValue}</div>
-          </>
+          <canvas ref={qrRef} className="label-qr" />
         ) : null}
         {(format === "CODE_128" || format === "BOTH") && barcodeValue ? (
           <>
             <svg ref={barcodeRef} className="barcode-svg" />
-            <div className="label-human-code">{barcodeValue}</div>
           </>
         ) : null}
       </div>
