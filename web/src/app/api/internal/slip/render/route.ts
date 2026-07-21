@@ -21,6 +21,8 @@ import {
   errorCodeFromUnknown,
   PREMIUM_SLIP_RENDER_FAILED,
   isPremiumRenderFailureRetryable,
+  isSlipRenderTimeoutError,
+  PREMIUM_SLIP_RENDER_TIMEOUT,
 } from "@/lib/services/whatsapp/slipRenderErrors";
 import { logSlipRenderDiagnostic } from "@/lib/services/whatsapp/slipRenderDiagnostics";
 import {
@@ -120,6 +122,29 @@ export async function POST(req: NextRequest) {
     await cleanSlipTempDirs();
     const tmpBytesAfter = measureSlipTempUsage();
     const freeTmpAfter = await measureTmpFreeBytes();
+    if (isSlipRenderTimeoutError(e)) {
+      logSlipRenderDiagnostic({
+        kind,
+        bookingId,
+        attempt: 1,
+        freeTmpBefore,
+        freeTmpAfter,
+        tmpBytesBefore,
+        tmpBytesAfter,
+        durationMs: Date.now() - started,
+        ok: false,
+        errorCode: PREMIUM_SLIP_RENDER_TIMEOUT,
+      });
+      return NextResponse.json(
+        {
+          error: "Slip render timed out",
+          code: PREMIUM_SLIP_RENDER_TIMEOUT,
+          retryable: true,
+          stage: e.stage,
+        },
+        { status: 503 },
+      );
+    }
     const errorCode = errorCodeFromUnknown(e) ?? PREMIUM_SLIP_RENDER_FAILED;
     const message = e instanceof Error ? e.message : "Slip render failed";
     console.error("[slip/render] Render failed:", { kind, bookingId, errorCode, message });

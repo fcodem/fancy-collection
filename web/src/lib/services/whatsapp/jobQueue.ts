@@ -31,6 +31,19 @@ import {
   markWhatsAppProviderSendConfirmed,
 } from "./whatsappSendLedger";
 import type { WhatsAppJobSendContext } from "./whatsappJobSendContext";
+import {
+  WHATSAPP_CRON_SAFE_BUDGET_MS,
+  WHATSAPP_JOB_LEASE_MS,
+  WHATSAPP_RENDERER_REQUEST_TIMEOUT_MS,
+  WHATSAPP_STUCK_PROCESSING_MS,
+  canStartWhatsAppJobWithBudget,
+  isHeavyWhatsAppJobType,
+  normalizeProcessWhatsAppJobQueueOptions,
+  premiumSlipRenderTimeoutMessage,
+  runWithAbortTimeout,
+  whatsAppJobTimeoutMs,
+  type ProcessWhatsAppJobQueueOptions,
+} from "./whatsappRuntime";
 
 export type WhatsAppJobType =
   | "postponement_notice"
@@ -79,10 +92,7 @@ function outcomeFromSend(
   throw new Error(result.error || fallbackError);
 }
 
-const JOB_TIMEOUT_MS = 120_000;
-/** Must exceed JOB_TIMEOUT_MS so legitimate long PDF work is not reclaimed mid-run. */
-const STUCK_PROCESSING_MS = 180_000;
-const LEASE_MS = JOB_TIMEOUT_MS + 60_000;
+const LEASE_MS = WHATSAPP_JOB_LEASE_MS;
 
 /** Open jobs that block a normal (non-force) schedule for the same key. */
 const OPEN_WA_JOB_STATUSES = ["pending", "processing"] as const;
@@ -92,22 +102,45 @@ export type WhatsAppScheduleOptions = {
   forceResend?: boolean;
 };
 
-function withJobTimeout<T>(promise: Promise<T>, jobId: number, jobType: string): Promise<T> {
-  return Promise.race([
-    promise,
-    new Promise<T>((_, reject) => {
-      setTimeout(
-        () => reject(new Error(`Job #${jobId} (${jobType}) timed out after ${JOB_TIMEOUT_MS / 1000}s`)),
-        JOB_TIMEOUT_MS,
-      );
-    }),
-  ]);
+export type { ProcessWhatsAppJobQueueOptions };
+
+type ClaimedWhatsAppJob = {
+  id: number;
+  jobType: string;
+  bookingId: number | null;
+  payload: unknown;
+  attempts: number;
+  maxAttempts: number;
+  idempotencyKey: string | null;
+};
+
+function jobTimeoutErrorMessage(jobId: number, jobType: string, timeoutMs: number): string {
+  if (isHeavyWhatsAppJobType(jobType)) {
+    return `${PREMIUM_SLIP_RENDER_FAILED}: ${premiumSlipRenderTimeoutMessage()}`;
+  }
+  return `Job #${jobId} (${jobType}) timed out after ${timeoutMs / 1000}s`;
+}
+
+async function runJobWithAbort<T>(
+  job: { id: number; jobType: string },
+  fn: (signal: AbortSignal) => Promise<T>,
+): Promise<T> {
+  const timeoutMs = whatsAppJobTimeoutMs(job.jobType);
+  try {
+    return await runWithAbortTimeout(fn, timeoutMs);
+  } catch (err) {
+    const msg = err instanceof Error ? err.message : String(err);
+    if (/aborted|timeout/i.test(msg)) {
+      throw new Error(jobTimeoutErrorMessage(job.id, job.jobType, timeoutMs));
+    }
+    throw err;
+  }
 }
 
 /** Reset jobs left in processing after a crash or expired lease. */
 export async function recoverStuckWhatsAppJobs(): Promise<number> {
   const now = new Date();
-  const cutoff = new Date(Date.now() - STUCK_PROCESSING_MS);
+  const cutoff = new Date(Date.now() - WHATSAPP_STUCK_PROCESSING_MS);
   const result = await prisma.whatsAppJob.updateMany({
     where: {
       status: "processing",
@@ -128,64 +161,31 @@ export async function recoverStuckWhatsAppJobs(): Promise<number> {
   return result.count;
 }
 
-/**
- * Atomically claim pending jobs via FOR UPDATE SKIP LOCKED.
- * Falls back to conditional updateMany when lease columns are absent.
- */
-async function claimPendingWhatsAppJobs(
-  limit: number,
-  options?: { bookingId?: number },
-): Promise<
-  Array<{
-    id: number;
-    jobType: string;
-    bookingId: number | null;
-    payload: unknown;
-    attempts: number;
-    maxAttempts: number;
-    idempotencyKey: string | null;
-  }>
-> {
+async function listPendingWhatsAppJobCandidates(options?: {
+  bookingId?: number;
+  limit?: number;
+}): Promise<Array<{ id: number; jobType: string }>> {
+  const now = new Date();
+  return prisma.whatsAppJob.findMany({
+    where: {
+      status: "pending",
+      scheduledAt: { lte: now },
+      ...(options?.bookingId != null ? { bookingId: options.bookingId } : {}),
+    },
+    orderBy: [{ scheduledAt: "asc" }, { id: "asc" }],
+    take: options?.limit ?? 30,
+    select: { id: true, jobType: true },
+  });
+}
+
+async function claimWhatsAppJobById(jobId: number): Promise<ClaimedWhatsAppJob | null> {
   const workerId = `w-${process.env.VERCEL_REGION || "local"}-${Date.now().toString(36)}`;
   const now = new Date();
   const leaseExpires = new Date(Date.now() + LEASE_MS);
 
   try {
-    type ClaimRow = {
-      id: number;
-      jobType: string;
-      bookingId: number | null;
-      payload: unknown;
-      attempts: number;
-      maxAttempts: number;
-      idempotencyKey: string | null;
-    };
-    if (options?.bookingId != null) {
-      const bookingId = options.bookingId;
-      return await prisma.$queryRaw<ClaimRow[]>`
-        UPDATE whatsapp_jobs AS j
-        SET
-          status = 'processing',
-          attempts = j.attempts + 1,
-          last_attempt_at = ${now},
-          claimed_at = ${now},
-          lease_expires_at = ${leaseExpires},
-          claimed_by = ${workerId}
-        WHERE j.id IN (
-          SELECT id FROM whatsapp_jobs
-          WHERE status = 'pending'
-            AND scheduled_at <= ${now}
-            AND booking_id = ${bookingId}
-          ORDER BY scheduled_at ASC, id ASC
-          FOR UPDATE SKIP LOCKED
-          LIMIT ${limit}
-        )
-        RETURNING j.id, j.job_type AS "jobType", j.booking_id AS "bookingId",
-                  j.payload, j.attempts, j.max_attempts AS "maxAttempts",
-                  j.idempotency_key AS "idempotencyKey"
-      `;
-    }
-    return await prisma.$queryRaw<ClaimRow[]>`
+    type ClaimRow = ClaimedWhatsAppJob;
+    const rows = await prisma.$queryRaw<ClaimRow[]>`
       UPDATE whatsapp_jobs AS j
       SET
         status = 'processing',
@@ -194,60 +194,72 @@ async function claimPendingWhatsAppJobs(
         claimed_at = ${now},
         lease_expires_at = ${leaseExpires},
         claimed_by = ${workerId}
-      WHERE j.id IN (
-        SELECT id FROM whatsapp_jobs
-        WHERE status = 'pending'
-          AND scheduled_at <= ${now}
-        ORDER BY scheduled_at ASC, id ASC
-        FOR UPDATE SKIP LOCKED
-        LIMIT ${limit}
-      )
+      WHERE j.id = ${jobId}
+        AND j.status = 'pending'
+        AND j.scheduled_at <= ${now}
       RETURNING j.id, j.job_type AS "jobType", j.booking_id AS "bookingId",
                 j.payload, j.attempts, j.max_attempts AS "maxAttempts",
                 j.idempotency_key AS "idempotencyKey"
     `;
+    return rows[0] ?? null;
   } catch {
-    const primary = await prisma.whatsAppJob.findMany({
-      where: {
-        status: "pending",
-        scheduledAt: { lte: now },
-        ...(options?.bookingId != null ? { bookingId: options.bookingId } : {}),
+    const updated = await prisma.whatsAppJob.updateMany({
+      where: { id: jobId, status: "pending", scheduledAt: { lte: now } },
+      data: {
+        status: "processing",
+        attempts: { increment: 1 },
+        lastAttemptAt: now,
       },
-      orderBy: [{ scheduledAt: "asc" }, { id: "asc" }],
-      take: limit,
     });
-    const claimed: Array<{
-      id: number;
-      jobType: string;
-      bookingId: number | null;
-      payload: unknown;
-      attempts: number;
-      maxAttempts: number;
-      idempotencyKey: string | null;
-    }> = [];
-    for (const job of primary) {
-      const updated = await prisma.whatsAppJob.updateMany({
-        where: { id: job.id, status: "pending" },
-        data: {
-          status: "processing",
-          attempts: { increment: 1 },
-          lastAttemptAt: now,
-        },
-      });
-      if (updated.count === 1) {
-        claimed.push({
-          id: job.id,
-          jobType: job.jobType,
-          bookingId: job.bookingId,
-          payload: job.payload,
-          attempts: job.attempts + 1,
-          maxAttempts: job.maxAttempts,
-          idempotencyKey: job.idempotencyKey ?? null,
-        });
-      }
-    }
-    return claimed;
+    if (updated.count !== 1) return null;
+    const job = await prisma.whatsAppJob.findUnique({ where: { id: jobId } });
+    if (!job || job.status !== "processing") return null;
+    return {
+      id: job.id,
+      jobType: job.jobType,
+      bookingId: job.bookingId,
+      payload: job.payload,
+      attempts: job.attempts,
+      maxAttempts: job.maxAttempts,
+      idempotencyKey: job.idempotencyKey ?? null,
+    };
   }
+}
+
+async function releaseWhatsAppJobWithoutAttempt(
+  jobId: number,
+  reason: string,
+): Promise<boolean> {
+  const updated = await prisma.whatsAppJob.updateMany({
+    where: { id: jobId, status: "processing" },
+    data: {
+      status: "pending",
+      attempts: { decrement: 1 },
+      claimedAt: null,
+      leaseExpiresAt: null,
+      claimedBy: null,
+      failedReason: reason.slice(0, 500),
+    },
+  });
+  return updated.count === 1;
+}
+
+/** @deprecated batch claim — prefer claimWhatsAppJobById in the cron loop */
+async function claimPendingWhatsAppJobs(
+  limit: number,
+  options?: { bookingId?: number },
+): Promise<ClaimedWhatsAppJob[]> {
+  const claimed: ClaimedWhatsAppJob[] = [];
+  const candidates = await listPendingWhatsAppJobCandidates({
+    bookingId: options?.bookingId,
+    limit,
+  });
+  for (const candidate of candidates) {
+    if (claimed.length >= limit) break;
+    const job = await claimWhatsAppJobById(candidate.id);
+    if (job) claimed.push(job);
+  }
+  return claimed;
 }
 
 async function cancelPendingJobs(bookingId: number, jobType: WhatsAppJobType) {
@@ -756,16 +768,163 @@ function premiumRenderRetryDelayMs(attempts: number): number {
   return 600_000;
 }
 
+async function processClaimedWhatsAppJob(
+  job: ClaimedWhatsAppJob,
+  results: Array<{ jobId: number; jobType: string; ok: boolean; error?: string }>,
+): Promise<void> {
+  const idempotencyKey = job.idempotencyKey;
+  const sendContext: WhatsAppJobSendContext = {
+    jobId: job.id,
+    idempotencyKey,
+    bookingId: job.bookingId,
+  };
+
+  try {
+    if (idempotencyKey) {
+      try {
+        const ledger = await prisma.whatsAppSendLedger.findUnique({
+          where: { idempotencyKey },
+        });
+        if (ledger?.sendConfirmedAt && ledger.providerMessageId) {
+          await prisma.whatsAppJob.update({
+            where: { id: job.id },
+            data: {
+              status: "done",
+              completedAt: new Date(),
+              failedReason: null,
+              claimedAt: null,
+              leaseExpiresAt: null,
+              claimedBy: null,
+              payload: mergeSendMetaIntoPayload(job.payload, {
+                messageId: ledger.providerMessageId,
+              }) as Prisma.InputJsonValue,
+            },
+          });
+          results.push({ jobId: job.id, jobType: job.jobType, ok: true });
+          return;
+        }
+      } catch (ledgerErr) {
+        const msg = ledgerErr instanceof Error ? ledgerErr.message : "";
+        if (!/does not exist|P2021|Unknown arg/i.test(msg)) throw ledgerErr;
+      }
+    }
+
+    const sendMeta = await runJobWithAbort(job, (signal) =>
+      executeJob(job, { ...sendContext, abortSignal: signal }),
+    );
+
+    if (idempotencyKey && sendMeta.messageId) {
+      try {
+        await markWhatsAppProviderSendConfirmed({
+          idempotencyKey,
+          providerMessageId: sendMeta.messageId,
+        });
+      } catch {
+        /* ledger optional until migration */
+      }
+    }
+
+    await prisma.whatsAppJob.update({
+      where: { id: job.id },
+      data: {
+        status: "done",
+        ...(sendMeta.messageId ? { completedAt: new Date() } : {}),
+        failedReason: null,
+        claimedAt: null,
+        leaseExpiresAt: null,
+        claimedBy: null,
+        payload: mergeSendMetaIntoPayload(job.payload, {
+          phone: sendMeta.phone,
+          messageId: sendMeta.messageId,
+          sendStage: "PROVIDER_CONFIRMED",
+          renderer: sendMeta.renderer,
+          premiumFailureCategory: sendMeta.premiumFailureCategory,
+          premiumRenderError: sendMeta.premiumRenderError,
+        }) as Prisma.InputJsonValue,
+      },
+    });
+    results.push({ jobId: job.id, jobType: job.jobType, ok: true });
+  } catch (e) {
+    const error = e instanceof Error ? e.message : "Job failed";
+    let ledger: {
+      sendStartedAt?: Date | null;
+      sendConfirmedAt?: Date | null;
+      providerMessageId?: string | null;
+    } | null = null;
+
+    if (idempotencyKey) {
+      try {
+        ledger = await prisma.whatsAppSendLedger.findUnique({
+          where: { idempotencyKey },
+        });
+        if (ledger?.sendConfirmedAt && ledger.providerMessageId) {
+          await prisma.whatsAppJob.update({
+            where: { id: job.id },
+            data: {
+              status: "done",
+              completedAt: new Date(),
+              failedReason: null,
+              claimedAt: null,
+              leaseExpiresAt: null,
+              claimedBy: null,
+              payload: mergeSendMetaIntoPayload(job.payload, {
+                messageId: ledger.providerMessageId,
+              }) as Prisma.InputJsonValue,
+            },
+          });
+          results.push({ jobId: job.id, jobType: job.jobType, ok: true });
+          return;
+        }
+      } catch {
+        /* ledger optional */
+      }
+    }
+
+    const providerOutcome = providerOutcomeForFailure(error, ledger);
+    const renderFailure = isPremiumSlipRenderFailureMessage(error);
+    const renderRetryable = renderFailure && isPremiumRenderFailureRetryable(error);
+    const providerUnknown = providerOutcome === "UNKNOWN";
+    const attempts = job.attempts;
+    const effectiveMax = renderRetryable ? Math.max(job.maxAttempts, 5) : job.maxAttempts;
+    const terminal = providerUnknown || attempts >= effectiveMax;
+
+    const retryDelay =
+      renderRetryable && !terminal
+        ? new Date(Date.now() + premiumRenderRetryDelayMs(attempts))
+        : undefined;
+
+    await prisma.whatsAppJob.update({
+      where: { id: job.id },
+      data: {
+        status: terminal ? "failed" : "pending",
+        failedReason: formatJobFailedReason(error, ledger),
+        completedAt: null,
+        claimedAt: null,
+        leaseExpiresAt: null,
+        claimedBy: null,
+        ...(retryDelay ? { scheduledAt: retryDelay } : {}),
+        payload: mergeSendMetaIntoPayload(job.payload, {
+          providerOutcome,
+          sendStage: sendStageForFailure(error, ledger),
+          ...(renderFailure ? { errorCode: PREMIUM_SLIP_RENDER_FAILED } : {}),
+        }) as Prisma.InputJsonValue,
+      },
+    });
+    results.push({ jobId: job.id, jobType: job.jobType, ok: false, error });
+  }
+}
+
 export async function processWhatsAppJobQueue(
-  limit = 3,
-  options?: { bookingId?: number },
+  limitOrOptions: number | ProcessWhatsAppJobQueueOptions = {},
+  legacyOptions?: { bookingId?: number },
 ) {
-  const RUNTIME_BUDGET_MS = 45_000;
+  const opts = normalizeProcessWhatsAppJobQueueOptions(limitOrOptions, legacyOptions);
+  const maxJobs = opts.maxJobs ?? 3;
+  const maxHeavyJobs = opts.maxHeavyJobs ?? 1;
+  const runtimeBudgetMs = opts.runtimeBudgetMs ?? WHATSAPP_CRON_SAFE_BUDGET_MS;
   const batchStartedAt = Date.now();
 
   await recoverStuckWhatsAppJobs();
-
-  const jobs = await claimPendingWhatsAppJobs(limit, options);
 
   const results: Array<{
     jobId: number;
@@ -773,170 +932,70 @@ export async function processWhatsAppJobQueue(
     ok: boolean;
     error?: string;
   }> = [];
+  const attemptedThisRun = new Set<number>();
+  let heavyJobsStarted = 0;
+  let released = 0;
+  let executed = 0;
 
-  for (let jobIndex = 0; jobIndex < jobs.length; jobIndex++) {
-    const job = jobs[jobIndex];
-    if (Date.now() - batchStartedAt > RUNTIME_BUDGET_MS) {
-      const remainingIds = jobs.slice(jobIndex).map((j) => j.id);
-      console.info(
-        `[whatsapp] Runtime budget exhausted — releasing ${remainingIds.length} job(s) back to pending`,
+  while (executed < maxJobs) {
+    const elapsedMs = Date.now() - batchStartedAt;
+    const remainingBudgetMs = runtimeBudgetMs - elapsedMs;
+    if (remainingBudgetMs <= 0) break;
+
+    const candidates = await listPendingWhatsAppJobCandidates({
+      bookingId: opts.bookingId,
+      limit: 30,
+    });
+    const pick = candidates.find(
+      (c) =>
+        !attemptedThisRun.has(c.id) &&
+        canStartWhatsAppJobWithBudget(
+          c.jobType,
+          remainingBudgetMs,
+          heavyJobsStarted,
+          maxHeavyJobs,
+        ),
+    );
+    if (!pick) break;
+
+    attemptedThisRun.add(pick.id);
+
+    const job = await claimWhatsAppJobById(pick.id);
+    if (!job) continue;
+
+    const remainingAfterClaim = runtimeBudgetMs - (Date.now() - batchStartedAt);
+    if (
+      !canStartWhatsAppJobWithBudget(
+        job.jobType,
+        remainingAfterClaim,
+        heavyJobsStarted,
+        maxHeavyJobs,
+      )
+    ) {
+      const releasedOk = await releaseWhatsAppJobWithoutAttempt(
+        job.id,
+        "Released — insufficient runtime budget before execution",
       );
-      await prisma.whatsAppJob.updateMany({
-        where: { id: { in: remainingIds }, status: "processing" },
-        data: {
-          status: "pending",
-          claimedAt: null,
-          leaseExpiresAt: null,
-          claimedBy: null,
-        },
-      });
-      break;
+      if (releasedOk) released += 1;
+      continue;
     }
 
-    const idempotencyKey = job.idempotencyKey;
-    const sendContext: WhatsAppJobSendContext = {
-      jobId: job.id,
-      idempotencyKey,
-      bookingId: job.bookingId,
-    };
-
-    try {
-      if (idempotencyKey) {
-        try {
-          const ledger = await prisma.whatsAppSendLedger.findUnique({
-            where: { idempotencyKey },
-          });
-          if (ledger?.sendConfirmedAt && ledger.providerMessageId) {
-            await prisma.whatsAppJob.update({
-              where: { id: job.id },
-              data: {
-                status: "done",
-                completedAt: new Date(),
-                failedReason: null,
-                claimedAt: null,
-                leaseExpiresAt: null,
-                claimedBy: null,
-                payload: mergeSendMetaIntoPayload(job.payload, {
-                  messageId: ledger.providerMessageId,
-                }) as Prisma.InputJsonValue,
-              },
-            });
-            results.push({ jobId: job.id, jobType: job.jobType, ok: true });
-            continue;
-          }
-        } catch (ledgerErr) {
-          const msg = ledgerErr instanceof Error ? ledgerErr.message : "";
-          if (!/does not exist|P2021|Unknown arg/i.test(msg)) throw ledgerErr;
-        }
-      }
-
-      const sendMeta = await withJobTimeout(executeJob(job, sendContext), job.id, job.jobType);
-
-      if (idempotencyKey && sendMeta.messageId) {
-        try {
-          await markWhatsAppProviderSendConfirmed({
-            idempotencyKey,
-            providerMessageId: sendMeta.messageId,
-          });
-        } catch {
-          /* ledger optional until migration */
-        }
-      }
-
-      await prisma.whatsAppJob.update({
-        where: { id: job.id },
-        data: {
-          status: "done",
-          ...(sendMeta.messageId ? { completedAt: new Date() } : {}),
-          failedReason: null,
-          claimedAt: null,
-          leaseExpiresAt: null,
-          claimedBy: null,
-          payload: mergeSendMetaIntoPayload(job.payload, {
-            phone: sendMeta.phone,
-            messageId: sendMeta.messageId,
-            sendStage: "PROVIDER_CONFIRMED",
-            renderer: sendMeta.renderer,
-            premiumFailureCategory: sendMeta.premiumFailureCategory,
-            premiumRenderError: sendMeta.premiumRenderError,
-          }) as Prisma.InputJsonValue,
-        },
-      });
-      results.push({ jobId: job.id, jobType: job.jobType, ok: true });
-    } catch (e) {
-      const error = e instanceof Error ? e.message : "Job failed";
-      let ledger: {
-        sendStartedAt?: Date | null;
-        sendConfirmedAt?: Date | null;
-        providerMessageId?: string | null;
-      } | null = null;
-
-      if (idempotencyKey) {
-        try {
-          ledger = await prisma.whatsAppSendLedger.findUnique({
-            where: { idempotencyKey },
-          });
-          if (ledger?.sendConfirmedAt && ledger.providerMessageId) {
-            await prisma.whatsAppJob.update({
-              where: { id: job.id },
-              data: {
-                status: "done",
-                completedAt: new Date(),
-                failedReason: null,
-                claimedAt: null,
-                leaseExpiresAt: null,
-                claimedBy: null,
-                payload: mergeSendMetaIntoPayload(job.payload, {
-                  messageId: ledger.providerMessageId,
-                }) as Prisma.InputJsonValue,
-              },
-            });
-            results.push({ jobId: job.id, jobType: job.jobType, ok: true });
-            continue;
-          }
-        } catch {
-          /* ledger optional */
-        }
-      }
-
-      const providerOutcome = providerOutcomeForFailure(error, ledger);
-      const renderFailure = isPremiumSlipRenderFailureMessage(error);
-      const renderRetryable = renderFailure && isPremiumRenderFailureRetryable(error);
-      const providerUnknown = providerOutcome === "UNKNOWN";
-      const attempts = job.attempts;
-      const effectiveMax = renderRetryable ? Math.max(job.maxAttempts, 5) : job.maxAttempts;
-      const terminal = providerUnknown || attempts >= effectiveMax;
-
-      const retryDelay =
-        renderRetryable && !terminal
-          ? new Date(Date.now() + premiumRenderRetryDelayMs(attempts))
-          : undefined;
-
-      await prisma.whatsAppJob.update({
-        where: { id: job.id },
-        data: {
-          status: terminal ? "failed" : "pending",
-          failedReason: formatJobFailedReason(error, ledger),
-          completedAt: null,
-          claimedAt: null,
-          leaseExpiresAt: null,
-          claimedBy: null,
-          ...(retryDelay ? { scheduledAt: retryDelay } : {}),
-          payload: mergeSendMetaIntoPayload(job.payload, {
-            providerOutcome,
-            sendStage: sendStageForFailure(error, ledger),
-            ...(renderFailure ? { errorCode: PREMIUM_SLIP_RENDER_FAILED } : {}),
-          }) as Prisma.InputJsonValue,
-        },
-      });
-      results.push({ jobId: job.id, jobType: job.jobType, ok: false, error });
+    if (isHeavyWhatsAppJobType(job.jobType)) {
+      heavyJobsStarted += 1;
     }
+
+    executed += 1;
+    await processClaimedWhatsAppJob(job, results);
   }
 
+  const elapsedMs = Date.now() - batchStartedAt;
   return {
-    processed: jobs.length,
+    processed: executed,
     succeeded: results.filter((r) => r.ok).length,
     failed: results.filter((r) => !r.ok).length,
+    released,
+    elapsedMs,
+    heavyJobsStarted,
     results,
   };
 }

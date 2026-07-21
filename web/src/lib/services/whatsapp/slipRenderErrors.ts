@@ -1,4 +1,26 @@
 export const PREMIUM_SLIP_RENDER_FAILED = "PREMIUM_SLIP_RENDER_FAILED";
+export const PREMIUM_SLIP_RENDER_TIMEOUT = "PREMIUM_SLIP_RENDER_TIMEOUT";
+
+export type SlipRenderTimeoutStage =
+  | "chromiumPrep"
+  | "browserLaunch"
+  | "navigation"
+  | "domValidation"
+  | "pdfGeneration";
+
+export class SlipRenderTimeoutError extends Error {
+  readonly code = PREMIUM_SLIP_RENDER_TIMEOUT;
+  readonly retryable = true;
+
+  constructor(readonly stage: SlipRenderTimeoutStage) {
+    super(`Slip render timed out at ${stage}`);
+    this.name = "SlipRenderTimeoutError";
+  }
+}
+
+export function isSlipRenderTimeoutError(err: unknown): err is SlipRenderTimeoutError {
+  return err instanceof SlipRenderTimeoutError;
+}
 
 export type PremiumRenderFailureCategory =
   | "SHARED_LIBRARY"

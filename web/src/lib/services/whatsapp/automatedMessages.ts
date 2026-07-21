@@ -68,6 +68,8 @@ import {
 import { PREMIUM_SLIP_RENDER_FAILED } from "@/lib/premiumSlip";
 import { markWhatsAppProviderSendStarted } from "./whatsappSendLedger";
 import type { WhatsAppJobSendContext } from "./whatsappJobSendContext";
+import { WHATSAPP_RENDERER_REQUEST_TIMEOUT_MS } from "./whatsappRuntime";
+import type { SlipRenderFetchOptions } from "./slipPdf";
 
 export type WhatsAppSendOutcome = {
   ok: boolean;
@@ -85,6 +87,18 @@ async function beginWhatsAppProviderSend(sendContext?: WhatsAppJobSendContext): 
     jobId: sendContext.jobId,
     bookingId: sendContext.bookingId ?? null,
   });
+}
+
+function slipRenderFetchOpts(sendContext?: WhatsAppJobSendContext): SlipRenderFetchOptions | undefined {
+  if (!sendContext?.abortSignal) return undefined;
+  return {
+    signal: sendContext.abortSignal,
+    timeoutMs: WHATSAPP_RENDERER_REQUEST_TIMEOUT_MS,
+  };
+}
+
+function metaFetchOpts(sendContext?: WhatsAppJobSendContext): { signal?: AbortSignal } | undefined {
+  return sendContext?.abortSignal ? { signal: sendContext.abortSignal } : undefined;
 }
 
 export function buildPostponementHeldMessage(opts: {
@@ -262,7 +276,7 @@ export async function sendBookingBillWhatsApp(
   let pdfBuffer: Buffer;
   try {
     pdfBuffer = await generateValidatedPremiumSlipPdf("booking", bookingId, () =>
-      generateBookingSlipPdf(bookingId, requestOrigin),
+      generateBookingSlipPdf(bookingId, requestOrigin, slipRenderFetchOpts(sendContext)),
     );
   } catch (htmlErr) {
     const htmlMsg = htmlErr instanceof Error ? htmlErr.message : "HTML PDF failed";
@@ -292,7 +306,7 @@ export async function sendBookingBillWhatsApp(
   const details = bookingSlipDetailsFromBooking(booking);
   const caption = buildBookingSlipCaption(details);
 
-  const uploaded = await uploadWhatsAppMedia(pdfBuffer, filename);
+  const uploaded = await uploadWhatsAppMedia(pdfBuffer, filename, "application/pdf", metaFetchOpts(sendContext));
   if (!uploaded.ok) {
     await saveWhatsAppOutboundMessage({
       bookingId,
@@ -329,6 +343,7 @@ export async function sendBookingBillWhatsApp(
       uploaded.mediaId,
       filename,
       caption,
+      metaFetchOpts(sendContext),
     );
     if (!docResult.ok && templateReady) {
       usedTemplate = true;
@@ -616,7 +631,12 @@ export async function sendReturnReceiptWhatsApp(
   let pdfBuffer: Buffer;
   try {
     pdfBuffer = await generateValidatedPremiumSlipPdf("return", bookingId, () =>
-      generateReturnSlipPdf(bookingId, requestOrigin, { scope: "full" }),
+      generateReturnSlipPdf(
+        bookingId,
+        requestOrigin,
+        { scope: "full" },
+        slipRenderFetchOpts(sendContext),
+      ),
       { scope: "full" },
     );
   } catch (htmlErr) {
@@ -833,7 +853,12 @@ async function sendSlipDocument(opts: {
   let docResult;
   let usedTemplate = false;
 
-  const uploaded = await uploadWhatsAppMedia(opts.pdfBuffer, opts.filename);
+  const uploaded = await uploadWhatsAppMedia(
+    opts.pdfBuffer,
+    opts.filename,
+    "application/pdf",
+    metaFetchOpts(opts.sendContext),
+  );
   if (!uploaded.ok) {
     await saveWhatsAppOutboundMessage({
       bookingId: opts.bookingId,
@@ -861,6 +886,7 @@ async function sendSlipDocument(opts: {
       uploaded.mediaId,
       opts.filename,
       opts.caption,
+      metaFetchOpts(opts.sendContext),
     );
     if (!docResult.ok && templateReady && approved) {
       usedTemplate = true;
@@ -973,11 +999,16 @@ export async function sendDeliverySlipWhatsApp(
       "delivery",
       bookingId,
       () =>
-        generateDeliverySlipPdf(bookingId, requestOrigin, {
-          scope: payload.scope,
-          bookingItemId: payload.scope === "single" ? payload.bookingItemId : undefined,
-          bookingItemIds: itemIds.length ? itemIds : undefined,
-        }),
+        generateDeliverySlipPdf(
+          bookingId,
+          requestOrigin,
+          {
+            scope: payload.scope,
+            bookingItemId: payload.scope === "single" ? payload.bookingItemId : undefined,
+            bookingItemIds: itemIds.length ? itemIds : undefined,
+          },
+          slipRenderFetchOpts(sendContext),
+        ),
       { scope: payload.scope, itemIds: itemIds.length ? itemIds : undefined },
     );
   } catch (htmlErr) {
@@ -1075,11 +1106,16 @@ export async function sendPartialReturnSlipWhatsApp(
       "return",
       bookingId,
       () =>
-        generateReturnSlipPdf(bookingId, requestOrigin, {
-          scope: payload.scope === "full" ? "full" : payload.scope,
-          bookingItemId: payload.scope === "single" ? payload.bookingItemId : undefined,
-          bookingItemIds: itemIds.length ? itemIds : undefined,
-        }),
+        generateReturnSlipPdf(
+          bookingId,
+          requestOrigin,
+          {
+            scope: payload.scope === "full" ? "full" : payload.scope,
+            bookingItemId: payload.scope === "single" ? payload.bookingItemId : undefined,
+            bookingItemIds: itemIds.length ? itemIds : undefined,
+          },
+          slipRenderFetchOpts(sendContext),
+        ),
       { scope: payload.scope, itemIds: itemIds.length ? itemIds : undefined },
     );
   } catch (htmlErr) {
@@ -1191,11 +1227,16 @@ export async function sendIncompleteSlipWhatsApp(
       "incomplete",
       bookingId,
       () =>
-        generateIncompleteSlipPdf(bookingId, requestOrigin, {
-          scope: payload.scope === "full" ? "combined" : payload.scope,
-          bookingItemId: payload.scope === "single" ? payload.bookingItemId : undefined,
-          bookingItemIds: ids,
-        }),
+        generateIncompleteSlipPdf(
+          bookingId,
+          requestOrigin,
+          {
+            scope: payload.scope === "full" ? "combined" : payload.scope,
+            bookingItemId: payload.scope === "single" ? payload.bookingItemId : undefined,
+            bookingItemIds: ids,
+          },
+          slipRenderFetchOpts(sendContext),
+        ),
       { scope: payload.scope, itemIds: ids },
     );
   } catch (htmlErr) {

@@ -39,6 +39,13 @@ import {
   recordSlipRenderSuccess,
   setChromiumReady,
 } from "./slipRenderHealth";
+import {
+  runStageWithTimeout,
+  runWithAbortTimeout,
+  WHATSAPP_RENDERER_REQUEST_TIMEOUT_MS,
+  WHATSAPP_RENDERER_STAGE_MS,
+} from "./whatsappRuntime";
+import { SlipRenderTimeoutError } from "./slipRenderErrors";
 
 const CHROME_ARGS = [
   "--no-sandbox",
@@ -438,6 +445,7 @@ export type HtmlToPdfOptions = {
   viewport?: { width: number; height: number };
   slipKind?: PremiumSlipKind;
   bookingId?: number;
+  abortSignal?: AbortSignal;
 };
 
 export type PremiumSlipPdfRenderResult = {
@@ -454,14 +462,32 @@ export async function renderHtmlUrlToPdf(opts: HtmlToPdfOptions): Promise<Buffer
 export async function renderHtmlUrlToPdf(
   opts: HtmlToPdfOptions,
 ): Promise<Buffer | PremiumSlipPdfRenderResult> {
-  return enqueueSlipRender(async () => {
-    beginSlipRender();
-    let lastError: unknown;
-    const renderStarted = Date.now();
-    let freeTmpBefore: number | null = null;
+  return enqueueSlipRender(() =>
+    runWithAbortTimeout(
+      async (signal) => renderHtmlUrlToPdfInner({ ...opts, abortSignal: signal }),
+      WHATSAPP_RENDERER_REQUEST_TIMEOUT_MS,
+      opts.abortSignal,
+    ).catch((err) => {
+      if (err instanceof SlipRenderTimeoutError) throw err;
+      const msg = err instanceof Error ? err.message : String(err);
+      if (/aborted|timeout/i.test(msg)) {
+        throw new SlipRenderTimeoutError("pdfGeneration");
+      }
+      throw err;
+    }),
+  );
+}
 
-    try {
-      freeTmpBefore = await measureTmpFreeBytes();
+async function renderHtmlUrlToPdfInner(
+  opts: HtmlToPdfOptions,
+): Promise<Buffer | PremiumSlipPdfRenderResult> {
+  beginSlipRender();
+  let lastError: unknown;
+  const renderStarted = Date.now();
+  let freeTmpBefore: number | null = null;
+
+  try {
+    freeTmpBefore = await measureTmpFreeBytes();
 
       for (let attempt = 1; attempt <= MAX_RENDER_ATTEMPTS; attempt++) {
         let browser: Browser | null = null;
@@ -488,20 +514,31 @@ export async function renderHtmlUrlToPdf(
             browserLaunchMs,
             executableReused,
             extractionMs,
-          } = await launchRenderBrowserWithRetry(isServerless));
+          } = await runStageWithTimeout(
+            "browserLaunch",
+            WHATSAPP_RENDERER_STAGE_MS.browserLaunch,
+            () => launchRenderBrowserWithRetry(isServerless),
+            opts.abortSignal,
+          ));
 
           page = await browser.newPage();
-          page.setDefaultNavigationTimeout(90_000);
-          page.setDefaultTimeout(60_000);
+          page.setDefaultNavigationTimeout(WHATSAPP_RENDERER_STAGE_MS.navigation);
+          page.setDefaultTimeout(WHATSAPP_RENDERER_STAGE_MS.domValidation + WHATSAPP_RENDERER_STAGE_MS.pdfGeneration);
 
           const viewport = opts.viewport ?? { width: 794, height: 1123 };
           await page.setViewport({ ...viewport, deviceScaleFactor: 1 });
 
           const pageLoadStarted = Date.now();
-          const response = await page.goto(opts.url, {
-            waitUntil: "networkidle0",
-            timeout: 90_000,
-          });
+          const response = await runStageWithTimeout(
+            "navigation",
+            WHATSAPP_RENDERER_STAGE_MS.navigation,
+            () =>
+              page!.goto(opts.url, {
+                waitUntil: "networkidle0",
+                timeout: WHATSAPP_RENDERER_STAGE_MS.navigation,
+              }),
+            opts.abortSignal,
+          );
           pageLoadMs = Date.now() - pageLoadStarted;
 
           if (!response || !response.ok()) {
@@ -517,7 +554,9 @@ export async function renderHtmlUrlToPdf(
             );
           }
 
-          await page.waitForSelector(opts.rootSelector, { timeout: 30_000 });
+          await page.waitForSelector(opts.rootSelector, {
+            timeout: WHATSAPP_RENDERER_STAGE_MS.navigation,
+          });
           const html = await page.content();
           opts.validateHtml?.(html);
 
@@ -537,18 +576,29 @@ export async function renderHtmlUrlToPdf(
           });
 
           if (opts.slipKind) {
-            await validatePremiumSlipDom(page, opts.slipKind);
+            await runStageWithTimeout(
+              "domValidation",
+              WHATSAPP_RENDERER_STAGE_MS.domValidation,
+              () => validatePremiumSlipDom(page!, opts.slipKind!),
+              opts.abortSignal,
+            );
           }
 
           await preparePremiumSlipMarkersForPdf(page);
 
           const pdfStarted = Date.now();
-          const pdf = await page.pdf({
-            format: "A4",
-            printBackground: true,
-            margin: { top: 0, right: 0, bottom: 0, left: 0 },
-            timeout: 60_000,
-          });
+          const pdf = await runStageWithTimeout(
+            "pdfGeneration",
+            WHATSAPP_RENDERER_STAGE_MS.pdfGeneration,
+            () =>
+              page!.pdf({
+                format: "A4",
+                printBackground: true,
+                margin: { top: 0, right: 0, bottom: 0, left: 0 },
+                timeout: WHATSAPP_RENDERER_STAGE_MS.pdfGeneration,
+              }),
+            opts.abortSignal,
+          );
           pdfMs = Date.now() - pdfStarted;
 
           const buffer = Buffer.from(pdf);
@@ -633,13 +683,13 @@ export async function renderHtmlUrlToPdf(
         );
       }
       if (lastError instanceof SlipRenderPoolError) throw lastError;
+      if (lastError instanceof SlipRenderTimeoutError) throw lastError;
       const msg = lastError instanceof Error ? lastError.message : "PDF generation failed";
       const nonRetryable = isNonRetryablePremiumRenderError(lastError);
       throw new SlipRenderPoolError(msg, code, !nonRetryable);
-    } finally {
-      endSlipRender();
-    }
-  });
+  } finally {
+    endSlipRender();
+  }
 }
 
 /** Test hook — reset cached Chromium extraction between tests. */

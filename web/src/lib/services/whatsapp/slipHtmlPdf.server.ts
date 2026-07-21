@@ -7,6 +7,10 @@ import {
   assertPremiumSlipRenderHeaders,
 } from "@/lib/premiumSlip";
 import { PremiumSlipRenderError } from "./slipRenderErrors";
+import {
+  linkAbortSignal,
+  WHATSAPP_RENDERER_REQUEST_TIMEOUT_MS,
+} from "./whatsappRuntime";
 
 export type SlipPdfKind = "booking" | "delivery" | "return" | "incomplete";
 
@@ -14,6 +18,11 @@ export type SlipPdfRenderOptions = {
   scope?: "full" | "single" | "combined";
   bookingItemId?: number;
   bookingItemIds?: number[];
+};
+
+export type SlipRenderFetchOptions = {
+  signal?: AbortSignal;
+  timeoutMs?: number;
 };
 
 export function resolveAppOrigin(requestOrigin?: string): string {
@@ -82,11 +91,12 @@ export function buildSlipPageUrl(
  *   inline. If the renderer is unreachable/misconfigured, callers throw and the
  *   upstream callers decide retry/fallback policy (delivery slips never use jsPDF).
  */
-async function renderSlipViaEndpoint(
+export async function renderSlipViaEndpoint(
   kind: SlipPdfKind,
   bookingId: number,
   requestOrigin?: string,
   opts?: SlipPdfRenderOptions,
+  fetchOpts?: SlipRenderFetchOptions,
 ): Promise<Buffer> {
   const secret = getPdfRenderSecret();
   if (!secret) {
@@ -98,8 +108,10 @@ async function renderSlipViaEndpoint(
 
   const origin = resolveAppOrigin(requestOrigin);
   const rawBody = JSON.stringify({ kind, bookingId, origin, opts: opts ?? null });
+  const timeoutMs = fetchOpts?.timeoutMs ?? WHATSAPP_RENDERER_REQUEST_TIMEOUT_MS;
   const controller = new AbortController();
-  const timeout = setTimeout(() => controller.abort(), 90_000);
+  const unlink = linkAbortSignal(controller, fetchOpts?.signal);
+  const timeout = setTimeout(() => controller.abort(), timeoutMs);
   let res: Response;
   try {
     res = await fetch(`${origin}/api/internal/slip/render`, {
@@ -114,13 +126,21 @@ async function renderSlipViaEndpoint(
     });
   } catch (fetchErr) {
     clearTimeout(timeout);
+    unlink();
     const msg = fetchErr instanceof Error ? fetchErr.message : "Slip render fetch failed";
+    const aborted =
+      fetchErr instanceof Error &&
+      (fetchErr.name === "AbortError" || controller.signal.aborted);
     throw new PremiumSlipRenderError(
-      `Slip render endpoint unreachable: ${msg}`,
-      fetchErr instanceof Error && fetchErr.name === "AbortError" ? "TIMEOUT" : "FETCH_FAILED",
+      aborted
+        ? "Premium slip rendering timed out — Meta was not contacted."
+        : `Slip render endpoint unreachable: ${msg}`,
+      aborted ? "TIMEOUT" : "FETCH_FAILED",
+      aborted,
     );
   }
   clearTimeout(timeout);
+  unlink();
 
   if (!res.ok) {
     const detail = await res.text().catch(() => "");
@@ -160,30 +180,34 @@ async function renderSlipViaEndpoint(
 export async function generateBookingSlipPdf(
   bookingId: number,
   requestOrigin?: string,
+  fetchOpts?: SlipRenderFetchOptions,
 ): Promise<Buffer> {
-  return renderSlipViaEndpoint("booking", bookingId, requestOrigin);
+  return renderSlipViaEndpoint("booking", bookingId, requestOrigin, undefined, fetchOpts);
 }
 
 export async function generateDeliverySlipPdf(
   bookingId: number,
   requestOrigin?: string,
   opts?: SlipPdfRenderOptions,
+  fetchOpts?: SlipRenderFetchOptions,
 ): Promise<Buffer> {
-  return renderSlipViaEndpoint("delivery", bookingId, requestOrigin, opts);
+  return renderSlipViaEndpoint("delivery", bookingId, requestOrigin, opts, fetchOpts);
 }
 
 export async function generateReturnSlipPdf(
   bookingId: number,
   requestOrigin?: string,
   opts?: SlipPdfRenderOptions,
+  fetchOpts?: SlipRenderFetchOptions,
 ): Promise<Buffer> {
-  return renderSlipViaEndpoint("return", bookingId, requestOrigin, opts);
+  return renderSlipViaEndpoint("return", bookingId, requestOrigin, opts, fetchOpts);
 }
 
 export async function generateIncompleteSlipPdf(
   bookingId: number,
   requestOrigin?: string,
   opts?: SlipPdfRenderOptions,
+  fetchOpts?: SlipRenderFetchOptions,
 ): Promise<Buffer> {
-  return renderSlipViaEndpoint("incomplete", bookingId, requestOrigin, opts);
+  return renderSlipViaEndpoint("incomplete", bookingId, requestOrigin, opts, fetchOpts);
 }

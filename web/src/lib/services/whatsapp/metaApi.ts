@@ -101,7 +101,10 @@ export function formatWhatsAppApiError(opts: {
   return msg || `WhatsApp API HTTP ${opts.httpStatus ?? "error"}`;
 }
 
-async function postWhatsAppMessage(body: Record<string, unknown>): Promise<WhatsAppSendResult> {
+async function postWhatsAppMessage(
+  body: Record<string, unknown>,
+  opts?: { signal?: AbortSignal },
+): Promise<WhatsAppSendResult> {
   if (!isWhatsAppConfigured()) {
     return { ok: false, error: "WhatsApp Meta API is not configured.", skipped: true };
   }
@@ -119,6 +122,7 @@ async function postWhatsAppMessage(body: Record<string, unknown>): Promise<Whats
         messaging_product: "whatsapp",
         ...body,
       }),
+      signal: opts?.signal,
     });
 
     const raw = (await res.json().catch(() => ({}))) as {
@@ -214,6 +218,7 @@ export async function uploadWhatsAppMedia(
   fileBuffer: Buffer,
   filename: string,
   mimeType = "application/pdf",
+  opts?: { signal?: AbortSignal },
 ): Promise<{ ok: true; mediaId: string } | { ok: false; error: string }> {
   if (!isWhatsAppConfigured()) {
     return { ok: false, error: "WhatsApp Meta API is not configured." };
@@ -231,6 +236,7 @@ export async function uploadWhatsAppMedia(
       method: "POST",
       headers: { Authorization: `Bearer ${metaAccessToken()}` },
       body: form,
+      signal: opts?.signal,
     });
 
     const raw = (await res.json().catch(() => ({}))) as {
@@ -275,20 +281,24 @@ export async function sendWhatsAppDocumentByMediaId(
   mediaId: string,
   filename: string,
   caption?: string,
+  opts?: { signal?: AbortSignal },
 ): Promise<WhatsAppSendResult> {
   const to = whatsAppApiPhone(phone);
   if (!to) return { ok: false, error: `Invalid phone number: ${phone}` };
 
-  return postWhatsAppMessage({
-    recipient_type: "individual",
-    to,
-    type: "document",
-    document: {
-      id: mediaId,
-      filename,
-      ...(caption ? { caption } : {}),
+  return postWhatsAppMessage(
+    {
+      recipient_type: "individual",
+      to,
+      type: "document",
+      document: {
+        id: mediaId,
+        filename,
+        ...(caption ? { caption } : {}),
+      },
     },
-  });
+    opts,
+  );
 }
 
 /** Send an approved template whose HEADER is a DOCUMENT (PDF booking slip). */

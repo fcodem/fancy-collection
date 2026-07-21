@@ -12,6 +12,7 @@ export {
   generateReturnSlipPdf,
   generateIncompleteSlipPdf,
   type SlipPdfRenderOptions,
+  type SlipRenderFetchOptions,
 } from "./slipHtmlPdf.server";
 
 async function uploadSlipPdf(

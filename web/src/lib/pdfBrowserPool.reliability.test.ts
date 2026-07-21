@@ -181,7 +181,7 @@ describe("WhatsApp render/job concurrency contracts", () => {
 
   it("does not mark Meta accepted before provider message id", () => {
     const queue = read("src/lib/services/whatsapp/jobQueue.ts");
-    const processBlock = queue.slice(queue.indexOf("export async function processWhatsAppJobQueue"));
+    const processBlock = queue.slice(queue.indexOf("async function processClaimedWhatsAppJob"));
     assert.match(processBlock, /sendMeta\.messageId \? \{ completedAt/);
     assert.match(processBlock, /markWhatsAppProviderSendConfirmed/);
     assert.doesNotMatch(processBlock, /sendStartedAt: new Date\(\)/);

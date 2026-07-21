@@ -18,7 +18,7 @@ export const PROVIDER_OUTCOME_UNKNOWN_PREFIX = "PROVIDER_OUTCOME_UNKNOWN:";
 
 /** True when premium slip rendering/validation failed before any Meta API call. */
 export function isPremiumSlipRenderFailureMessage(error: string): boolean {
-  return /PREMIUM_SLIP_RENDER_FAILED|PREMIUM_SLIP_HTML_VALIDATION_FAILED|PREMIUM_SLIP_VALIDATION_FAILED/i.test(
+  return /PREMIUM_SLIP_RENDER_FAILED|PREMIUM_SLIP_RENDER_TIMEOUT|PREMIUM_SLIP_HTML_VALIDATION_FAILED|PREMIUM_SLIP_VALIDATION_FAILED|Meta was not contacted/i.test(
     error,
   );
 }

@@ -76,15 +76,20 @@ for (const [file, src] of [
   ["cron/whatsapp-jobs/route.ts", waCron],
   ["whatsapp/jobs/process/route.ts", waProcess],
 ]) {
-  const m = src.match(/processWhatsAppJobQueue\s*\(\s*(\d+)/);
-  if (!m || Number(m[1]) > 3) {
-    fail(`WhatsApp batch size ≤ 3 in ${file}`, file, m ? `found ${m[1]}` : "no literal limit");
+  const m = src.match(/maxJobs:\s*3|processWhatsAppJobQueue\s*\(\s*3/);
+  if (!m) {
+    fail(`WhatsApp batch size ≤ 3 in ${file}`, file, "no maxJobs: 3");
   } else {
-    pass(`WhatsApp batch size ≤ 3 in ${file} (${m[1]})`);
+    pass(`WhatsApp batch size ≤ 3 in ${file}`);
+  }
+  if (!/maxHeavyJobs:\s*1/.test(src)) {
+    fail(`WhatsApp max one heavy job per invocation in ${file}`, file, "missing maxHeavyJobs: 1");
+  } else {
+    pass(`WhatsApp max one heavy job per invocation in ${file}`);
   }
 }
 
-matchRegex(jobQueue, /RUNTIME_BUDGET_MS\s*=\s*45_?000|45\s*\*\s*1000/, "jobQueue.ts", "WhatsApp worker runtime budget ~45s");
+matchRegex(jobQueue, /runtimeBudgetMs|WHATSAPP_CRON_SAFE_BUDGET_MS|45_000/, "jobQueue.ts", "WhatsApp worker runtime budget ~45s");
 
 // 8–9 Scanner qrOnly:false
 const scanner = read("src/components/DressAvailabilityScanner.tsx");
@@ -196,6 +201,34 @@ includesAll(
 // Chromium launch attempts
 const pool = read("src/lib/services/whatsapp/pdfBrowserPool.ts");
 matchRegex(pool, /MAX_LAUNCH_ATTEMPTS\s*=\s*3/, "pdfBrowserPool.ts", "Chromium MAX_LAUNCH_ATTEMPTS = 3");
+
+// WhatsApp runtime budget (timeout fix)
+const waRuntime = read("src/lib/services/whatsapp/whatsappRuntime.ts");
+matchRegex(waRuntime, /WHATSAPP_SLIP_JOB_TIMEOUT_MS\s*=\s*38_000/, "whatsappRuntime.ts", "Heavy slip job timeout ~38s");
+matchRegex(waRuntime, /WHATSAPP_CRON_SAFE_BUDGET_MS\s*=\s*45_000/, "whatsappRuntime.ts", "Cron safe budget ~45s");
+matchRegex(waRuntime, /WHATSAPP_RENDERER_REQUEST_TIMEOUT_MS\s*=\s*31_000/, "whatsappRuntime.ts", "Renderer request timeout ~31s");
+excludes(jobQueue, ["JOB_TIMEOUT_MS = 120_000"], "jobQueue.ts", "No 120s WhatsApp job timeout");
+includesAll(jobQueue, ["maxHeavyJobs", "canStartWhatsAppJobWithBudget", "releaseWhatsAppJobWithoutAttempt", "abortSignal"], "jobQueue.ts", "Bounded heavy job claiming and release");
+includesAll(read("src/lib/services/whatsapp/slipHtmlPdf.server.ts"), ["WHATSAPP_RENDERER_REQUEST_TIMEOUT_MS", "controller.signal", "linkAbortSignal"], "slipHtmlPdf.server.ts", "AbortSignal reaches renderSlipViaEndpoint");
+
+if (!exists("src/app/admin/premium-slip-test/page.tsx")) {
+  fail("Premium slip owner test page exists", "src/app/admin/premium-slip-test/page.tsx", "missing");
+} else {
+  pass("Premium slip owner test page exists");
+}
+if (!exists("src/app/api/admin/test-all-premium-slips/route.ts")) {
+  fail("Premium slip test API exists", "src/app/api/admin/test-all-premium-slips/route.ts", "missing");
+} else {
+  pass("Premium slip test API exists");
+}
+const premiumTestClient = exists("src/components/PremiumSlipTestClient.tsx")
+  ? read("src/components/PremiumSlipTestClient.tsx")
+  : "";
+if (premiumTestClient && /8077843874|whatsappNo/.test(premiumTestClient)) {
+  fail("Owner test page never defaults to customer WhatsApp number", "PremiumSlipTestClient.tsx", "default phone found");
+} else if (premiumTestClient) {
+  pass("Owner test page never defaults to customer WhatsApp number");
+}
 
 console.log("\n--- Summary ---");
 console.log(`FAIL: ${fails.length}`);
