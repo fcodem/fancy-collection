@@ -5,7 +5,7 @@ import { jsonError, jsonOk, requireOwner, isResponse, requireOperationId } from 
 import { InventoryItemSchema } from "@/lib/validation";
 import { photoUrl } from "@/lib/photoUrl";
 import { computePipelineStatus, enqueueInventoryPhotoJobsDurable } from "@/lib/inventoryPhotoPipeline";
-import { saveFastInventoryPhotoWithThumb } from "@/lib/upload";
+import { persistInventoryPhotoFromForm } from "@/lib/upload";
 import { broadcastShopEvent } from "@/lib/realtime/broadcast";
 import { invalidateInventoryListCaches } from "@/lib/inventoryCacheTags";
 import { logActivity, snapshotInventory } from "@/lib/activityLog";
@@ -154,7 +154,7 @@ export async function POST(req: NextRequest) {
           photo_content_hash: photoHash,
         });
       } else {
-        const saved = await saveFastInventoryPhotoWithThumb(photo as File);
+        const saved = await persistInventoryPhotoFromForm(form);
         uploadedPhotoPath = saved.photo;
         uploadedThumbPath = saved.thumbnailPhoto;
         await storeMutationStaging(operationId, {

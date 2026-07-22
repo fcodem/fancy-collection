@@ -324,47 +324,6 @@ export default function InventoryFormClient({
     return { error: text?.trim()?.slice(0, 280) || `Save failed (HTTP ${res.status}).` };
   }
 
-  async function uploadPreparedPhotoDirect(
-    form: FormData,
-    operationId: string,
-  ): Promise<void> {
-    const photo = form.get("photo");
-    const thumbnail = form.get("thumbnail");
-    if (!(photo instanceof File) || photo.size <= 0 || !(thumbnail instanceof File)) return;
-    const isLocalHost =
-      typeof window !== "undefined" &&
-      (window.location.hostname === "localhost" || window.location.hostname === "127.0.0.1");
-    try {
-      setStatusMessage("Uploading photo…");
-      const { upload } = await import("@vercel/blob/client");
-      const [originalBlob, thumbnailBlob] = await Promise.all([
-        upload(`inventory/${operationId}/original.jpg`, photo, {
-          access: "public",
-          handleUploadUrl: "/api/inventory/upload",
-          multipart: photo.size > 4 * 1024 * 1024,
-        }),
-        upload(`inventory/${operationId}/thumbnail.webp`, thumbnail, {
-          access: "public",
-          handleUploadUrl: "/api/inventory/upload",
-        }),
-      ]);
-      form.delete("photo");
-      form.delete("thumbnail");
-      form.set("photo_path", originalBlob.url);
-      form.set("thumbnail_path", thumbnailBlob.url);
-    } catch (error) {
-      if (isLocalHost) {
-        setStatusMessage("Uploading through server fallback…");
-        return;
-      }
-      throw new Error(
-        error instanceof Error
-          ? `Photo upload failed: ${error.message}`
-          : "Photo upload failed. Check your connection and try again.",
-      );
-    }
-  }
-
   async function saveForm(form: FormData, url: string, method: string) {
     setSaving(true);
     setStatusMessage("Saving record…");
@@ -379,9 +338,7 @@ export default function InventoryFormClient({
         return;
       }
       uploadForm.set("operation_id", operationId);
-      await uploadPreparedPhotoDirect(uploadForm, operationId);
 
-      setStatusMessage(photoHash ? "Uploading…" : "Saving record…");
       const res = await fetchWithOperationInProgressRetry(
         url,
         { method, body: uploadForm, credentials: "same-origin" },

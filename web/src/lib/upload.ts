@@ -170,6 +170,39 @@ export async function saveFastInventoryPhotoWithThumb(
   return { photo, thumbnailPhoto };
 }
 
+/** Store worker-prepared original + thumbnail via server-side Blob put (no Sharp, no client upload webhook). */
+export async function savePreparedInventoryPhotos(
+  photo: File,
+  thumbnail: File,
+): Promise<{ photo: string; thumbnailPhoto: string }> {
+  const [raw, thumbRaw] = await Promise.all([
+    photo.arrayBuffer().then((buffer) => Buffer.from(buffer)),
+    thumbnail.arrayBuffer().then((buffer) => Buffer.from(buffer)),
+  ]);
+  if (!raw.length) throw new Error("Empty photo file.");
+  if (!thumbRaw.length) throw new Error("Empty thumbnail file.");
+
+  const [savedPhoto, savedThumb] = await Promise.all([
+    savePermanentInventoryImage(raw, "dresses", `${randomUUID().replace(/-/g, "")}.jpg`),
+    savePermanentInventoryImage(thumbRaw, "thumbnails", `${randomUUID().replace(/-/g, "")}.webp`),
+  ]);
+  return { photo: savedPhoto, thumbnailPhoto: savedThumb };
+}
+
+export async function persistInventoryPhotoFromForm(
+  form: FormData,
+): Promise<{ photo: string; thumbnailPhoto: string | null }> {
+  const photo = form.get("photo");
+  const thumbnail = form.get("thumbnail");
+  if (!(photo instanceof File) || photo.size <= 0) {
+    throw new Error("Photo file missing.");
+  }
+  if (thumbnail instanceof File && thumbnail.size > 0) {
+    return savePreparedInventoryPhotos(photo, thumbnail);
+  }
+  return saveFastInventoryPhotoWithThumb(photo);
+}
+
 /** Resize, strip metadata, and JPEG-compress before storage. */
 export async function compressImageBuffer(buffer: Buffer): Promise<Buffer> {
   return sharp(buffer, { failOn: "none", limitInputPixels: 40_000_000 })

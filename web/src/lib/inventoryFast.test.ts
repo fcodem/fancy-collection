@@ -53,12 +53,13 @@ describe("one-click inventory save contracts", () => {
     assert.match(worker, /720/);
   });
 
-  it("uploads prepared files concurrently and defers AI work until after commit", () => {
+  it("uploads prepared files in one save request and defers AI work until after commit", () => {
     const form = read("src/components/InventoryFormClient.tsx");
     const createRoute = read("src/app/api/inventory/route.ts");
     const operations = read("src/lib/services/inventoryOps.ts");
-    assert.match(form, /Promise\.all\(\[[\s\S]*upload\(`inventory\/\$\{operationId\}\/original\.jpg`/);
-    assert.match(form, /photo_path/);
+    assert.match(form, /applyPreparedPhoto\(form\)/);
+    assert.doesNotMatch(form, /@vercel\/blob\/client/);
+    assert.match(createRoute, /persistInventoryPhotoFromForm/);
     assert.match(createRoute, /after\(async \(\) =>/);
     assert.match(createRoute, /generateDefaultScanCodesInTx/);
     assert.match(operations, /createMany/);

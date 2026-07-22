@@ -6,7 +6,7 @@ import { dressDisplayName } from "@/lib/dress";
 import { catalogPhotoUrl, recognitionPhotoUrl } from "@/lib/catalogPhotoUrl";
 import { photoUrl } from "@/lib/photoUrl";
 import { computePipelineStatus, enqueueInventoryPhotoJobsDurable } from "@/lib/inventoryPhotoPipeline";
-import { saveFastInventoryPhotoWithThumb } from "@/lib/upload";
+import { persistInventoryPhotoFromForm } from "@/lib/upload";
 import { enqueueBlobCleanup } from "@/lib/blobCleanup";
 import { broadcastShopEvent } from "@/lib/realtime/broadcast";
 import { invalidateInventoryListCaches, invalidateInventoryCaches } from "@/lib/inventoryCacheTags";
@@ -154,7 +154,7 @@ export async function PUT(req: NextRequest, { params }: { params: Promise<{ id: 
           photo_content_hash: photoHash,
         });
       } else {
-        const saved = await saveFastInventoryPhotoWithThumb(photo as File);
+        const saved = await persistInventoryPhotoFromForm(form);
         stagedPhotoPath = saved.photo;
         stagedThumbPath = saved.thumbnailPhoto;
         await storeMutationStaging(operationId, {

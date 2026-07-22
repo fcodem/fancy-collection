@@ -24,9 +24,6 @@ export async function POST(request: NextRequest) {
           tokenPayload: JSON.stringify({ userId: user.id }),
         };
       },
-      onUploadCompleted: async () => {
-        // The inventory mutation authoritatively associates the uploaded URLs.
-      },
     });
     return Response.json(response);
   } catch (error) {
