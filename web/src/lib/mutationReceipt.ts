@@ -203,6 +203,16 @@ export async function readMutationStaging(
   }
 }
 
+export function stagedPhotoPaths(staging: Record<string, unknown> | null | undefined): {
+  stagedPhoto: string | null;
+  stagedThumb: string | null;
+} {
+  return {
+    stagedPhoto: typeof staging?.staging_photo === "string" ? staging.staging_photo : null,
+    stagedThumb: typeof staging?.staging_thumbnail === "string" ? staging.staging_thumbnail : null,
+  };
+}
+
 /** Must be called on the same transaction client as the business mutation, before commit. */
 export async function completeMutationReceiptInTx(
   tx: Prisma.TransactionClient,

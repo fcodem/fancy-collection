@@ -121,11 +121,8 @@ async function createInventoryUnitsInTx(
   const count = Math.max(1, Math.min(quantity, 50));
   const skus = await allocateInventorySkus(count, tx);
   const rows = buildUnitRows(base, count, skus);
-  await tx.clothingItem.createMany({ data: rows });
-  return tx.clothingItem.findMany({
-    where: { sku: { in: skus } },
-    orderBy: { sku: "asc" },
-  });
+  const created = await tx.clothingItem.createManyAndReturn({ data: rows });
+  return created.sort((a, b) => a.sku.localeCompare(b.sku));
 }
 
 export type CreateInventoryForm = {
@@ -201,12 +198,11 @@ export async function createInventoryItemInTx(
         ),
       );
     }
-    await tx.clothingItem.createMany({ data: rows });
-    const created = await tx.clothingItem.findMany({
-      where: { sku: { in: skus } },
-      orderBy: { sku: "asc" },
-    });
-    return { items: created, inventoryGroupId };
+    const created = await tx.clothingItem.createManyAndReturn({ data: rows });
+    return {
+      items: created.sort((a, b) => a.sku.localeCompare(b.sku)),
+      inventoryGroupId,
+    };
   }
 
   const units = await createInventoryUnitsInTx(

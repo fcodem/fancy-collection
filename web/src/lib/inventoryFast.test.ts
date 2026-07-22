@@ -62,7 +62,7 @@ describe("one-click inventory save contracts", () => {
     assert.match(createRoute, /persistInventoryPhotoFromForm/);
     assert.match(createRoute, /after\(async \(\) =>/);
     assert.match(createRoute, /generateDefaultScanCodesInTx/);
-    assert.match(operations, /createMany/);
+    assert.match(operations, /createManyAndReturn/);
   });
 
   it("clears photo fields and protects shared references before cleanup", () => {

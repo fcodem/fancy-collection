@@ -362,7 +362,7 @@ export default function InventoryFormClient({
       };
       op.succeed();
       setStatusMessage("Completed");
-      await finishSaveSuccess(uploadForm, data);
+      void finishSaveSuccess(uploadForm, data);
     } catch (error) {
       op.fail();
       alert(

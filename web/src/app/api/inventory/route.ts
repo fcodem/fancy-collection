@@ -19,7 +19,7 @@ import {
   MutationIdempotencyError,
   claimMutationReceipt,
   completeMutationReceiptInTx,
-  readMutationStaging,
+  stagedPhotoPaths,
   storeMutationStaging,
   toPublicErrorPayload,
 } from "@/lib/mutationReceipt";
@@ -123,7 +123,10 @@ export async function POST(req: NextRequest) {
       thumbnail_path: directThumbnailPath,
     };
 
-    // Claim BEFORE upload so completed retries never create orphan Blob files.
+    // Start photo upload immediately; claim runs in parallel (saves one cross-region RTT).
+    const uploadTask =
+      hasPhoto && !directPhotoPath ? persistInventoryPhotoFromForm(form) : null;
+
     const claim = await claimMutationReceipt({
       operationId,
       operationType: "inventory_create",
@@ -135,11 +138,7 @@ export async function POST(req: NextRequest) {
     }
     claimedOperationId = claim.operationId;
 
-    const staging = await readMutationStaging(operationId);
-    const stagedPhoto =
-      typeof staging?.staging_photo === "string" ? staging.staging_photo : null;
-    const stagedThumb =
-      typeof staging?.staging_thumbnail === "string" ? staging.staging_thumbnail : null;
+    const { stagedPhoto, stagedThumb } = stagedPhotoPaths(claim.staging);
 
     if (hasPhoto) {
       if (stagedPhoto) {
@@ -154,10 +153,10 @@ export async function POST(req: NextRequest) {
           photo_content_hash: photoHash,
         });
       } else {
-        const saved = await persistInventoryPhotoFromForm(form);
+        const saved = uploadTask ? await uploadTask : await persistInventoryPhotoFromForm(form);
         uploadedPhotoPath = saved.photo;
         uploadedThumbPath = saved.thumbnailPhoto;
-        await storeMutationStaging(operationId, {
+        void storeMutationStaging(operationId, {
           staging_photo: uploadedPhotoPath,
           staging_thumbnail: uploadedThumbPath,
           photo_content_hash: photoHash,
