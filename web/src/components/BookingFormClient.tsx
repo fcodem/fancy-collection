@@ -887,12 +887,7 @@ export default function BookingFormClient(props: Props) {
     }
     const next = isDateBeforeToday(value) ? minDate : value.slice(0, 10);
     setDeliveryDate(next);
-    const nextReturn = addDaysIso(next, 1);
-    if (!props.editId) {
-      setReturnDate(nextReturn);
-    } else if (!returnDate || returnDate < next) {
-      setReturnDate(nextReturn);
-    }
+    setReturnDate(addDaysIso(next, 1));
   }
 
   function applyReturnDate(value: string) {
@@ -1367,7 +1362,7 @@ export default function BookingFormClient(props: Props) {
                 onChange={applyDeliveryDate}
               />
 
-              <span className="form-hint">Type DD-MM-YYYY or use the calendar · cannot be before today</span>
+              <span className="form-hint">Type DD-MM-YYYY or use the calendar · return date auto-fills to next day</span>
 
             </div>
 

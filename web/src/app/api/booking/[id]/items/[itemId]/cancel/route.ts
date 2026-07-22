@@ -1,6 +1,7 @@
-import { NextRequest } from "next/server";
+import { NextRequest, after } from "next/server";
 import { cancelBookingItem } from "@/lib/services/operations";
 import { jsonError, jsonOk, requireUser, isResponse, requireJsonContentType } from "@/lib/api";
+import { triggerCancellationWhatsApp } from "@/lib/services/whatsapp/cancellationWhatsApp";
 
 export async function POST(
   req: NextRequest,
@@ -30,6 +31,15 @@ export async function POST(
       { refundAdvance },
       user.username,
     );
+
+    if (booking?.status === "cancelled") {
+      after(async () => {
+        await triggerCancellationWhatsApp(bookingId, {
+          refundAmount: booking.refundAmount ?? undefined,
+          createdBy: user.username,
+        });
+      });
+    }
 
     return jsonOk({
       ok: true,

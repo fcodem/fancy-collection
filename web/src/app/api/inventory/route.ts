@@ -207,9 +207,6 @@ export async function POST(req: NextRequest) {
         pipeline,
       };
       await completeMutationReceiptInTx(tx, operationId, publicPayload);
-      for (const item of items) {
-        await generateDefaultScanCodesInTx(tx, item.id);
-      }
       return {
         ...publicPayload,
         _hasPhoto: Boolean(uploadedPhotoPath),
@@ -225,8 +222,20 @@ export async function POST(req: NextRequest) {
 
     const { _hasPhoto: _a, _itemSnapshots: _b, ...publicResult } = result;
     const timings = perf.finish({ kind: "mutation" });
+    const createdIds = result.ids;
 
     after(async () => {
+      if (createdIds.length) {
+        await Promise.all(
+          createdIds.map((id) =>
+            prisma
+              .$transaction((tx) => generateDefaultScanCodesInTx(tx, id))
+              .catch((error) => {
+                console.error(`[inventory POST] scan code gen failed for item ${id}:`, error);
+              }),
+          ),
+        );
+      }
       invalidateInventoryListCaches();
       broadcastShopEvent({
         type: "inventory.changed",

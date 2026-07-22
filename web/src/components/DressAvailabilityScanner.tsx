@@ -123,7 +123,7 @@ const statusCopy: Record<
   },
   CODE_NOT_FOUND: {
     label: "NOT LINKED",
-    detail: "QR/barcode is not linked to inventory.",
+    detail: "QR code is not linked to inventory.",
     tone: "#667085",
   },
   AMBIGUOUS_LEGACY_CODE: {
@@ -268,6 +268,7 @@ export default function DressAvailabilityScanner({
   const [feedback, setFeedback] = useState(
     "Enter a booking window to start scanning.",
   );
+  const [scanSuccess, setScanSuccess] = useState(false);
   const [manualCode, setManualCode] = useState("");
   const [rows, setRows] = useState<ScanRow[]>([]);
   const [highlightId, setHighlightId] = useState<string | null>(null);
@@ -434,11 +435,8 @@ export default function DressAvailabilityScanner({
       }
       setCameraActive(false);
       scanLockedRef.current = true;
-      setFeedback(
-        result.status === "AVAILABLE"
-          ? "✓ Dress scanned successfully — Camera has been turned off."
-          : "✓ Result received — Camera has been turned off.",
-      );
+      setScanSuccess(true);
+      setFeedback("Scanned");
     } catch (error) {
       if (
         !controller.signal.aborted &&
@@ -472,6 +470,7 @@ export default function DressAvailabilityScanner({
         }
         return;
       }
+      setScanSuccess(false);
       setFeedback("Code scanned — checking availability…");
       if (
         !queueRef.current.some((queued) => queued.code === claim.code)
@@ -494,7 +493,7 @@ export default function DressAvailabilityScanner({
       try {
         const { QrCameraSession } = await import("@/lib/cameraScanner");
         if (cancelled) return;
-        const session = new QrCameraSession("dress-availability-camera", { qrOnly: false });
+        const session = new QrCameraSession("dress-availability-camera", { qrOnly: true });
         sessionRef.current = session;
         scanLockedRef.current = false;
         const status = await session.start(decode);
@@ -549,6 +548,7 @@ export default function DressAvailabilityScanner({
       });
       generationRef.current += 1;
       scanLockedRef.current = false;
+      setScanSuccess(false);
       setActiveWindow(window);
       setWindowError("");
       setCameraError("");
@@ -573,6 +573,7 @@ export default function DressAvailabilityScanner({
     setRows([]);
     setActiveWindow(null);
     setCameraPaused(false);
+    setScanSuccess(false);
     setPhase("dates");
     setFeedback("Dates changed — previous scan results were cleared.");
   }
@@ -583,6 +584,7 @@ export default function DressAvailabilityScanner({
     dressResultRef.current.clear();
     setRows([]);
     setHighlightId(null);
+    setScanSuccess(false);
     setFeedback("Scanned list cleared. Ready for next scan.");
   }
 
@@ -725,6 +727,18 @@ export default function DressAvailabilityScanner({
 
   return (
     <div>
+      <style>{`
+        #dress-availability-camera {
+          position: relative;
+        }
+        #dress-availability-camera video {
+          object-fit: cover !important;
+        }
+        #dress-availability-camera #qr-shaded-region {
+          border-width: 0 !important;
+          border-radius: 10px !important;
+        }
+      `}</style>
       <div
         className="card"
         style={{ marginBottom: 14, border: "2px solid var(--gold)" }}
@@ -737,20 +751,78 @@ export default function DressAvailabilityScanner({
           </span>
         </div>
         <div className="card-body">
-          <div
-            id="dress-availability-camera"
-            data-testid="dress-availability-camera"
-            style={{
-              width: "100%",
-              maxWidth: 720,
-              minHeight: 260,
-              aspectRatio: "4 / 3",
-              margin: "0 auto",
-              background: "#111",
-              borderRadius: 12,
-              overflow: "hidden",
-            }}
-          />
+          <div style={{ position: "relative", maxWidth: 420, margin: "0 auto" }}>
+            <div
+              id="dress-availability-camera"
+              data-testid="dress-availability-camera"
+              style={{
+                width: "100%",
+                minHeight: 280,
+                aspectRatio: "1 / 1",
+                background: "#111",
+                borderRadius: 12,
+                overflow: "hidden",
+              }}
+            />
+            {cameraActive && (
+              <div
+                aria-hidden
+                style={{
+                  position: "absolute",
+                  inset: 0,
+                  pointerEvents: "none",
+                  borderRadius: 12,
+                  overflow: "hidden",
+                }}
+              >
+                <div
+                  style={{
+                    position: "absolute",
+                    top: "50%",
+                    left: "50%",
+                    transform: "translate(-50%, -50%)",
+                    width: "min(78%, 280px)",
+                    aspectRatio: "1",
+                    boxShadow: "0 0 0 9999px rgba(0,0,0,0.45)",
+                    border: "2px solid rgba(255,255,255,0.95)",
+                    borderRadius: 12,
+                    outline: "1px solid rgba(255,255,255,0.25)",
+                  }}
+                />
+                <div
+                  style={{
+                    position: "absolute",
+                    top: "50%",
+                    left: "50%",
+                    transform: "translate(-50%, -50%)",
+                    width: "min(78%, 280px)",
+                    aspectRatio: "1",
+                    borderRadius: 12,
+                  }}
+                >
+                  <span style={{ position: "absolute", top: -2, left: -2, width: 22, height: 22, borderTop: "3px solid #fff", borderLeft: "3px solid #fff", borderRadius: "4px 0 0 0" }} />
+                  <span style={{ position: "absolute", top: -2, right: -2, width: 22, height: 22, borderTop: "3px solid #fff", borderRight: "3px solid #fff", borderRadius: "0 4px 0 0" }} />
+                  <span style={{ position: "absolute", bottom: -2, left: -2, width: 22, height: 22, borderBottom: "3px solid #fff", borderLeft: "3px solid #fff", borderRadius: "0 0 0 4px" }} />
+                  <span style={{ position: "absolute", bottom: -2, right: -2, width: 22, height: 22, borderBottom: "3px solid #fff", borderRight: "3px solid #fff", borderRadius: "0 0 4px 0" }} />
+                </div>
+                <p
+                  style={{
+                    position: "absolute",
+                    bottom: 10,
+                    left: 0,
+                    right: 0,
+                    textAlign: "center",
+                    margin: 0,
+                    fontSize: 11,
+                    color: "rgba(255,255,255,0.9)",
+                    textShadow: "0 1px 3px rgba(0,0,0,0.8)",
+                  }}
+                >
+                  Align QR inside frame · hold 15–25 cm from label
+                </p>
+              </div>
+            )}
+          </div>
           <div
             role="status"
             aria-live="polite"
@@ -759,8 +831,11 @@ export default function DressAvailabilityScanner({
               marginTop: 12,
               padding: 10,
               borderRadius: 8,
-              background: "var(--bg)",
+              background: scanSuccess ? "rgba(46,125,50,0.14)" : "var(--bg)",
+              color: scanSuccess ? "#1b5e20" : "inherit",
               fontWeight: 700,
+              border: scanSuccess ? "2px solid #2e7d32" : "1px solid transparent",
+              textAlign: "center",
             }}
           >
             {feedback}
@@ -806,18 +881,19 @@ export default function DressAvailabilityScanner({
                 onClick={() => {
                   scanLockedRef.current = false;
                   setCameraPaused(false);
+                  setScanSuccess(false);
                   setFeedback("Opening camera…");
                   const decode = (code: string) => scanHandlerRef.current(code);
                   void (async () => {
                     try {
                       const { QrCameraSession } = await import("@/lib/cameraScanner");
-                      const session = new QrCameraSession("dress-availability-camera", { qrOnly: false });
+                      const session = new QrCameraSession("dress-availability-camera", { qrOnly: true });
                       sessionRef.current = session;
                       const status = await session.start(decode);
                       setCameraStatus(status);
                       setCameraActive(true);
                       setCameraError("");
-                      setFeedback("Camera ready. Scan a dress QR code or Code 128 barcode.");
+                      setFeedback("Camera ready. Scan a dress QR code.");
                     } catch (error) {
                       const { cameraErrorMessage } = await import("@/lib/cameraScanner");
                       setCameraError(cameraErrorMessage(error, window.isSecureContext));

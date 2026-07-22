@@ -301,11 +301,6 @@ export default function InventoryFormClient({
     return { form, photoHash: prepared.hash };
   }
 
-  async function prepareFormForUpload(form: FormData): Promise<FormData> {
-    const { form: next } = await applyPreparedPhoto(form);
-    return next;
-  }
-
   async function readApiError(res: Response): Promise<MutationApiError> {
     const text = await res.text().catch(() => "");
     try {
@@ -336,6 +331,9 @@ export default function InventoryFormClient({
     const photo = form.get("photo");
     const thumbnail = form.get("thumbnail");
     if (!(photo instanceof File) || photo.size <= 0 || !(thumbnail instanceof File)) return;
+    const isLocalHost =
+      typeof window !== "undefined" &&
+      (window.location.hostname === "localhost" || window.location.hostname === "127.0.0.1");
     try {
       setStatusMessage("Uploading photo…");
       const { upload } = await import("@vercel/blob/client");
@@ -354,10 +352,16 @@ export default function InventoryFormClient({
       form.delete("thumbnail");
       form.set("photo_path", originalBlob.url);
       form.set("thumbnail_path", thumbnailBlob.url);
-    } catch {
-      // Local development and unconfigured Blob environments retain the secure
-      // multipart fallback; production uses the direct upload path above.
-      setStatusMessage("Uploading through server fallback…");
+    } catch (error) {
+      if (isLocalHost) {
+        setStatusMessage("Uploading through server fallback…");
+        return;
+      }
+      throw new Error(
+        error instanceof Error
+          ? `Photo upload failed: ${error.message}`
+          : "Photo upload failed. Check your connection and try again.",
+      );
     }
   }
 
@@ -371,7 +375,7 @@ export default function InventoryFormClient({
       const payloadKey = buildPayloadKey(uploadForm, photoHash);
       const operationId = op.begin(payloadKey);
       if (!operationId) {
-        setStatusMessage("");
+        setStatusMessage("Save already in progress…");
         return;
       }
       uploadForm.set("operation_id", operationId);
@@ -402,9 +406,13 @@ export default function InventoryFormClient({
       op.succeed();
       setStatusMessage("Completed");
       await finishSaveSuccess(uploadForm, data);
-    } catch {
+    } catch (error) {
       op.fail();
-      alert("Could not reach the server. Check your connection and try again.");
+      alert(
+        error instanceof Error
+          ? error.message
+          : "Could not reach the server. Check your connection and try again.",
+      );
       setStatusMessage("");
     } finally {
       setSaving(false);
@@ -463,41 +471,6 @@ export default function InventoryFormClient({
 
     const url = isEdit ? `/api/inventory/${item!.id}` : "/api/inventory";
     const method = isEdit ? "PUT" : "POST";
-    const photo = form.get("photo");
-
-    if (!isEdit && photo instanceof File && photo.size > 0 && category) {
-      const uploadForm = await prepareFormForUpload(form);
-      const sourceKey = `${photo.name}:${photo.size}:${photo.lastModified}`;
-      const currentPrepared =
-        preparedPhoto?.sourceKey === sourceKey
-          ? preparedPhoto
-          : prepPromiseRef.current?.sourceKey === sourceKey
-            ? await prepPromiseRef.current.promise
-            : null;
-      let dup = dupCheckResult;
-      if (!dup && currentPrepared) {
-        const pending =
-          duplicatePromiseRef.current ||
-          startDuplicateCheck(currentPrepared, category);
-        dup = await Promise.race([
-          pending,
-          new Promise<null>((resolve) => setTimeout(() => resolve(null), 400)),
-        ]);
-      }
-      if (dup?.is_duplicate && dup.match) {
-        setDuplicateWarning({
-          sku: dup.match.sku,
-          name: dup.match.name,
-          similarity: dup.match.similarity,
-        });
-        setPendingForm(uploadForm);
-        return;
-      }
-
-      await saveForm(uploadForm, url, method);
-      return;
-    }
-
     await saveForm(form, url, method);
   }
 

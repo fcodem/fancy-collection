@@ -42,10 +42,10 @@ describe("Premium-only customer WhatsApp slips", () => {
 });
 
 describe("Scanner and labels", () => {
-  it("dress scanner enables Code 128 via qrOnly:false", () => {
+  it("dress scanner uses square QR-only viewfinder on mobile", () => {
     const scanner = read("src/components/DressAvailabilityScanner.tsx");
-    assert.doesNotMatch(scanner, /qrOnly:\s*true/);
-    assert.match(scanner, /qrOnly:\s*false/);
+    assert.match(scanner, /qrOnly:\s*true/);
+    assert.match(scanner, /aspectRatio:\s*"1 \/ 1"/);
   });
 
   it("label-cell receives layout class", () => {

@@ -1,4 +1,4 @@
-import { NextRequest } from "next/server";
+import { NextRequest, after } from "next/server";
 import prisma from "@/lib/prisma";
 import { updateBooking } from "@/lib/services/bookingCrud";
 import { cancelBooking } from "@/lib/services/operations";
@@ -10,6 +10,7 @@ import { formatDate } from "@/lib/constants";
 import {
   resetLateReminderOnDateChange,
 } from "@/lib/services/whatsapp/jobQueue";
+import { triggerCancellationWhatsApp } from "@/lib/services/whatsapp/cancellationWhatsApp";
 import { BookingFormSchema, formatZodValidationError } from "@/lib/validation";
 
 export async function GET(_req: NextRequest, { params }: { params: Promise<{ id: string }> }) {
@@ -81,6 +82,9 @@ export async function DELETE(_req: NextRequest, { params }: { params: Promise<{ 
   }
   try {
     await cancelBooking(bookingId, 0, user.username);
+    after(async () => {
+      await triggerCancellationWhatsApp(bookingId, { createdBy: user.username });
+    });
     return jsonOk({ ok: true });
   } catch (e) {
     return jsonError(e instanceof Error ? e.message : "Failed to cancel booking");

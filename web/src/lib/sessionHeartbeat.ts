@@ -11,3 +11,17 @@ export function skipHeartbeat(pathname: string | null): boolean {
   if (pathname === "/~offline") return true;
   return false;
 }
+
+/** End staff session when the app/tab is closed so the next open shows login. */
+export function logoutOnAppClose(): void {
+  if (typeof window === "undefined") return;
+  try {
+    void fetch("/api/logout", {
+      method: "POST",
+      credentials: "same-origin",
+      keepalive: true,
+    });
+  } catch {
+    /* tab may already be unloading */
+  }
+}

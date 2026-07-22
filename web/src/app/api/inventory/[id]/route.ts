@@ -31,6 +31,9 @@ import {
 } from "@/lib/mutationReceipt";
 import { createPerfTimer, withServerTiming } from "@/lib/perfTiming";
 
+export const maxDuration = 60;
+export const dynamic = "force-dynamic";
+
 export async function GET(_req: NextRequest, { params }: { params: Promise<{ id: string }> }) {
   const perf = createPerfTimer("GET /api/inventory/[id]");
   perf.mark("auth");

@@ -47,14 +47,23 @@ type Categories = {
 };
 
 const MODE_HINTS: Record<string, string> = {
-  serial: "Serial number match — sorted nearest to selected date",
-  customer: "Customer name match — sorted nearest to selected date",
-  phone: "Phone / WhatsApp match — sorted nearest to selected date",
-  dress: "Dress name match — sorted nearest to selected date",
-  mixed: "Combined matches — sorted nearest to selected date",
+  serial: "Serial number match",
+  customer: "Customer name match",
+  phone: "Phone / WhatsApp match",
+  dress: "Dress name match",
+  mixed: "Combined matches",
   year: "All records in selected year",
   month: "Booked only for the selected month — delivered and returned records are hidden",
-  date: "Showing bookings nearest to the selected date",
+  date: "Showing bookings for the selected date",
+};
+
+const MODE_HINTS_DELIVERY: Record<string, string> = {
+  serial: "Serial number match on the selected delivery date",
+  customer: "Customer name match on the selected delivery date",
+  phone: "Phone / WhatsApp match on the selected delivery date",
+  dress: "Dress name match on the selected delivery date",
+  mixed: "Combined matches on the selected delivery date",
+  date: "Deliveries scheduled on the selected date only",
 };
 
 export default function BookingSearchPage({
@@ -261,11 +270,15 @@ export default function BookingSearchPage({
 
   const colSpan = 10 + (showRemaining ? 1 : 0) + (showStatus ? 1 : 0) + (showDeliveryInfo ? 1 : 0);
   const suggestMode = apiPath.includes("return") ? "return" : "delivery";
+  const exactDeliveryDate = apiPath.includes("/delivery/search");
+  const modeHints = exactDeliveryDate ? MODE_HINTS_DELIVERY : MODE_HINTS;
   const defaultHint = monthBased
     ? "Pick any date in a month — only active booked records for that month appear below (delivered and returned are hidden). Use Search to filter by customer, dress, phone, or serial. Large lists are paginated — use Next/Previous at the bottom."
-    : monthGroupField
-      ? "All matching bookings appear below, grouped by month, oldest date first. Use Search to filter by customer, dress, phone, or serial."
-      : "Search by customer name, dress, phone, WhatsApp, or serial. Includes booked, delivered, and returned records. Customer name searches full lifetime; other fields search within the selected year. Results are paginated for large datasets.";
+    : exactDeliveryDate
+      ? "Deliveries scheduled on the selected date only (defaults to today), grouped by month, earliest first. Use Search or Category to filter within that day."
+      : monthGroupField
+        ? "All matching bookings appear below, grouped by month, oldest date first. Use Search to filter by customer, dress, phone, or serial."
+        : "Search by customer name, dress, phone, WhatsApp, or serial. Includes booked, delivered, and returned records. Customer name searches full lifetime; other fields search within the selected year. Results are paginated for large datasets.";
 
   const tableBodyRows = useMemo(() => {
     if (!rows.length) return null;
@@ -353,7 +366,7 @@ export default function BookingSearchPage({
               <label style={{ fontWeight: 600, fontSize: 13 }}>{dateLabel}</label>
               <input
                 type="date"
-                className="form-input"
+                className="form-control"
                 value={searchDate}
                 onChange={(e) => setSearchDate(e.target.value)}
               />
@@ -395,7 +408,7 @@ export default function BookingSearchPage({
               <label style={{ fontWeight: 600, fontSize: 13 }}>Search</label>
               <BookingSearchSuggestInput
                 type="text"
-                className="form-input"
+                className="form-control"
                 placeholder="Serial / customer / phone / dress…"
                 value={query}
                 searchDate={searchDate}
@@ -414,7 +427,7 @@ export default function BookingSearchPage({
 
       {loaded && (
         <div className="card">
-          {searchMode && MODE_HINTS[searchMode] && (
+          {searchMode && modeHints[searchMode] && (
             <div
               style={{
                 padding: "10px 16px",
@@ -427,7 +440,7 @@ export default function BookingSearchPage({
               {searchMode === "month" && searchMonth
                 ? `Delivery month: ${new Date(`${searchMonth}-15T00:00:00.000Z`).toLocaleDateString("en-IN", { month: "long", year: "numeric", timeZone: "UTC" })} · `
                 : ""}
-              {MODE_HINTS[searchMode]} · {total.toLocaleString()} result{total === 1 ? "" : "s"}
+              {modeHints[searchMode]} · {total.toLocaleString()} result{total === 1 ? "" : "s"}
               {total > 0 ? ` · showing ${pageStart.toLocaleString()}–${pageEnd.toLocaleString()}` : ""}
             </div>
           )}

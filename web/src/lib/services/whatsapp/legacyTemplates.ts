@@ -10,6 +10,7 @@ export const ACTIVE_WHATSAPP_TEMPLATE_NAMES = new Set([
   "return_slip_v4",
   "incomplete_return_v4",
   "booking_dates_v3",
+  "booking_cancelled_v1",
   "booking_held_v3",
   "return_due_v3",
   "festive_offer",

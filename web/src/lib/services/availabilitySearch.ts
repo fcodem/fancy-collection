@@ -112,10 +112,58 @@ export function needsJewelleryOccupancy(
   return true;
 }
 
+function availabilityBookingWarnJson(alias: string) {
+  return Prisma.sql`CASE WHEN ${Prisma.raw(alias)}.id IS NULL THEN NULL ELSE jsonb_build_object(
+    'booking_id', ${Prisma.raw(alias)}.id,
+    'serial_no', ${Prisma.raw(alias)}.monthly_serial,
+    'customer_name', ${Prisma.raw(alias)}.customer_name,
+    'customer_address', COALESCE(${Prisma.raw(alias)}.customer_address, ''),
+    'contact_1', COALESCE(${Prisma.raw(alias)}.contact_1, ''),
+    'whatsapp_no', COALESCE(${Prisma.raw(alias)}.whatsapp_no, ''),
+    'venue', COALESCE(${Prisma.raw(alias)}.venue, ''),
+    'staff_names', COALESCE(${Prisma.raw(alias)}.staff_names, ''),
+    'total_advance', COALESCE(${Prisma.raw(alias)}.total_advance, ${Prisma.raw(alias)}.advance, 0),
+    'total_rent', COALESCE(${Prisma.raw(alias)}.total_price, ${Prisma.raw(alias)}.price, 0),
+    'dress_names', COALESCE(
+      (SELECT string_agg(bi.dress_name, ', ' ORDER BY bi.id)
+       FROM booking_items bi
+       WHERE bi.booking_id = ${Prisma.raw(alias)}.id AND bi.is_cancelled = false),
+      COALESCE(${Prisma.raw(alias)}.dress_name, '')
+    ),
+    'item_notes', COALESCE(${Prisma.raw(alias)}.notes, ''),
+    'common_notes', COALESCE(${Prisma.raw(alias)}.common_notes, ''),
+    'delivery_date', to_char(${Prisma.raw(alias)}.delivery_date, 'DD/MM/YYYY'),
+    'delivery_time', COALESCE(${Prisma.raw(alias)}.delivery_time, ''),
+    'return_date', to_char(${Prisma.raw(alias)}.return_date, 'DD/MM/YYYY'),
+    'return_time', COALESCE(${Prisma.raw(alias)}.return_time, ''),
+    'booking_date', to_char((${Prisma.raw(alias)}.created_at AT TIME ZONE 'UTC') AT TIME ZONE 'Asia/Kolkata', 'DD Mon YYYY'),
+    'booking_time', to_char((${Prisma.raw(alias)}.created_at AT TIME ZONE 'UTC') AT TIME ZONE 'Asia/Kolkata', 'HH12:MI AM')
+  ) END`;
+}
+
 function warningShape(raw: Record<string, unknown> | null) {
   if (!raw) return null;
   return {
-    ...raw,
+    booking_id: raw.booking_id as number | undefined,
+    serial_no: Number(raw.serial_no ?? 0),
+    customer_name: String(raw.customer_name ?? ""),
+    customer_address: String(raw.customer_address ?? ""),
+    contact_1: String(raw.contact_1 ?? ""),
+    whatsapp_no: String(raw.whatsapp_no ?? ""),
+    venue: String(raw.venue ?? ""),
+    staff_names: String(raw.staff_names ?? ""),
+    total_advance: Number(raw.total_advance ?? 0),
+    total_rent: Number(raw.total_rent ?? 0),
+    dress_names: String(raw.dress_names ?? ""),
+    item_notes: String(raw.item_notes ?? ""),
+    common_notes: String(raw.common_notes ?? ""),
+    delivery_date: String(raw.delivery_date ?? ""),
+    delivery_time: String(raw.delivery_time ?? ""),
+    return_date: String(raw.return_date ?? ""),
+    return_time: String(raw.return_time ?? ""),
+    booking_date: String(raw.booking_date ?? ""),
+    booking_time: String(raw.booking_time ?? ""),
+    security_deposit: 0,
     customer: raw.customer_name,
     contact: raw.contact_1,
   };
@@ -257,7 +305,7 @@ function buildAvailabilityQuery(opts: {
         ci.color,
         ci.status,
         ci.item_type AS "itemType",
-        ci.thumbnail_photo AS thumbnail,
+        COALESCE(ci.thumbnail_photo, ci.photo) AS thumbnail,
         ci.has_necklace AS "hasNecklace",
         ci.has_earrings AS "hasEarrings",
         ci.has_teeka AS "hasTeeka",
@@ -461,26 +509,8 @@ export async function searchAvailableItems(
       COALESCE(jew.teeka_busy, false) AS "teekaBusy",
       COALESCE(jew.pasa_busy, false) AS "pasaBusy",
       COALESCE(jew.whole_busy, false) AS "wholeJewelleryBusy",
-      CASE WHEN rb.id IS NULL THEN NULL ELSE jsonb_build_object(
-        'booking_id', rb.id,
-        'serial_no', rb.monthly_serial,
-        'customer_name', rb.customer_name,
-        'contact_1', rb.contact_1,
-        'delivery_date', to_char(rb.delivery_date, 'DD/MM/YYYY'),
-        'delivery_time', rb.delivery_time,
-        'return_date', to_char(rb.return_date, 'DD/MM/YYYY'),
-        'return_time', rb.return_time
-      ) END AS "returningWarning",
-      CASE WHEN bb.id IS NULL THEN NULL ELSE jsonb_build_object(
-        'booking_id', bb.id,
-        'serial_no', bb.monthly_serial,
-        'customer_name', bb.customer_name,
-        'contact_1', bb.contact_1,
-        'delivery_date', to_char(bb.delivery_date, 'DD/MM/YYYY'),
-        'delivery_time', bb.delivery_time,
-        'return_date', to_char(bb.return_date, 'DD/MM/YYYY'),
-        'return_time', bb.return_time
-      ) END AS "bookedWarning"
+      ${availabilityBookingWarnJson("rb")} AS "returningWarning",
+      ${availabilityBookingWarnJson("bb")} AS "bookedWarning"
     FROM final_availability fa
     LEFT JOIN jewellery_part_occupancy jew ON jew.item_id = fa.id
     LEFT JOIN same_day_return_warnings rw ON rw.item_id = fa.id

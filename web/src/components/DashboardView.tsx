@@ -7,6 +7,7 @@ import DressNameSuggestInput from "@/components/DressNameSuggestInput";
 import ScanDressAvailabilityCard from "@/components/ScanDressAvailabilityCard";
 import { formatDate } from "@/lib/constants";
 import { formatInr } from "@/lib/format";
+import { addDaysIso } from "@/lib/dateInput";
 import { fetchJson, parseResponseJson } from "@/lib/fetchJson";
 import { useToast } from "@/components/ui/Toast";
 import { BookingNotesBlock } from "@/components/BookingNotesBlock";
@@ -126,13 +127,13 @@ export default function DashboardView({
   const [showDashResults, setShowDashResults] = useState(false);
 
   const [dcDelivery, setDcDelivery] = useState(data.today_iso);
-  const [dcReturn, setDcReturn] = useState(data.today_iso);
+  const [dcReturn, setDcReturn] = useState(() => addDaysIso(data.today_iso, 1));
   const [dcDress, setDcDress] = useState("");
   const [dcCategory, setDcCategory] = useState("");
   const [dcState, setDcState] = useState<DressCheckerState>({ kind: "idle" });
 
   const [fiDelivery, setFiDelivery] = useState(data.today_iso);
-  const [fiReturn, setFiReturn] = useState(data.today_iso);
+  const [fiReturn, setFiReturn] = useState(() => addDaysIso(data.today_iso, 1));
   const [fiCategory, setFiCategory] = useState("");
   const [fiSubCategory, setFiSubCategory] = useState("");
   const [fiSubCategories, setFiSubCategories] = useState<string[]>([]);
@@ -518,7 +519,7 @@ export default function DashboardView({
           </div>
           <div className="card-body">
             <div className="filter-grid-5" style={{ marginBottom: 16 }}>
-              <div><label className="form-label">Delivery Date</label><input type="date" className="form-control" value={dcDelivery} onChange={(e) => setDcDelivery(e.target.value)} /></div>
+              <div><label className="form-label">Delivery Date</label><input type="date" className="form-control" value={dcDelivery} onChange={(e) => { const next = e.target.value; setDcDelivery(next); if (next) setDcReturn(addDaysIso(next, 1)); }} /></div>
               <div><label className="form-label">Return Date</label><input type="date" className="form-control" value={dcReturn} onChange={(e) => setDcReturn(e.target.value)} /></div>
               <div><label className="form-label">Category</label>
                 <select className="form-control" id="dcCategory" value={dcCategory} onChange={(e) => setDcCategory(e.target.value)}>
@@ -608,7 +609,7 @@ export default function DashboardView({
           </div>
           <div className="card-body">
             <div className="filter-grid-5" style={{ marginBottom: 16 }}>
-              <div><label className="form-label">Pickup</label><input type="date" className="form-control" value={fiDelivery} onChange={(e) => setFiDelivery(e.target.value)} /></div>
+              <div><label className="form-label">Pickup</label><input type="date" className="form-control" value={fiDelivery} onChange={(e) => { const next = e.target.value; setFiDelivery(next); if (next) setFiReturn(addDaysIso(next, 1)); }} /></div>
               <div><label className="form-label">Return</label><input type="date" className="form-control" value={fiReturn} onChange={(e) => setFiReturn(e.target.value)} /></div>
               <div><label className="form-label">Category</label>
                 <select className="form-control" value={fiCategory} onChange={(e) => setFiCategory(e.target.value)}>

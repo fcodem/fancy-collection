@@ -52,7 +52,7 @@ export default function ScanDressAvailabilityCard() {
               lineHeight: 1.45,
             }}
           >
-            Scan a dress QR/barcode and check whether it is available between
+            Scan a dress QR code and check whether it is available between
             selected delivery and return dates.
           </p>
         </div>
@@ -62,8 +62,8 @@ export default function ScanDressAvailabilityCard() {
           className="btn btn-primary"
           style={{ minHeight: 44, flexShrink: 0 }}
         >
-          <i className="fa-solid fa-barcode" style={{ marginRight: 8 }} />
-          Open Scanner
+          <i className="fa-solid fa-qrcode" style={{ marginRight: 8 }} />
+          Open QR Scanner
         </Link>
       </div>
     </div>

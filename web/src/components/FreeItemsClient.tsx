@@ -10,6 +10,8 @@ import { useRealtimeRefresh } from "@/hooks/useRealtimeRefresh";
 import { BOOKING_EVENTS, INVENTORY_EVENTS } from "@/lib/realtime/types";
 import DownloadPdfButton from "@/components/DownloadPdfButton";
 import { formatJewelleryPartsLabel, type JewelleryPartKey } from "@/lib/jewelleryParts";
+import { addDaysIso } from "@/lib/dateInput";
+import { photoUrl } from "@/lib/photoUrl";
 
 type FreeItem = {
   id: number;
@@ -89,7 +91,7 @@ function FreeItemBlock({
         <button type="button" onClick={() => onImageClick(item)} style={{ padding: 0, border: 0, background: "transparent", cursor: "zoom-in" }}>
           {/* API returns only the 320px thumbnail; original is fetched after this click. */}
           {/* eslint-disable-next-line @next/next/no-img-element */}
-          <img src={item.photo} alt={item.display_name || item.name} style={{ width: 56, height: 56, borderRadius: 8, objectFit: "cover", display: "block" }} />
+          <img src={photoUrl(item.photo) || item.photo} alt={item.display_name || item.name} style={{ width: 56, height: 56, borderRadius: 8, objectFit: "cover", display: "block" }} />
         </button>
       ) : (
         <div
@@ -188,7 +190,7 @@ function FreeItemsSection({
 
 export default function FreeItemsClient({ today }: { today: string }) {
   const [deliveryDate, setDeliveryDate] = useState(today);
-  const [returnDate, setReturnDate] = useState(today);
+  const [returnDate, setReturnDate] = useState(() => addDaysIso(today, 1));
   const [group, setGroup] = useState("");
   const [category, setCategory] = useState("");
   const [size, setSize] = useState("");
@@ -319,7 +321,16 @@ export default function FreeItemsClient({ today }: { today: string }) {
           <div className="filter-grid-5">
             <div>
               <label className="form-label">Pickup Date</label>
-              <input type="date" className="form-control" value={deliveryDate} onChange={(e) => setDeliveryDate(e.target.value)} />
+              <input
+                type="date"
+                className="form-control"
+                value={deliveryDate}
+                onChange={(e) => {
+                  const next = e.target.value;
+                  setDeliveryDate(next);
+                  if (next) setReturnDate(addDaysIso(next, 1));
+                }}
+              />
             </div>
             <div>
               <label className="form-label">Return Date</label>

@@ -46,7 +46,7 @@ describe("one-click inventory save contracts", () => {
     const worker = read("public/inventory-photo-worker.js");
     assert.match(form, /URL\.createObjectURL/);
     assert.match(form, /prepPromiseRef/);
-    assert.match(form, /await prepareFormForUpload\(form\)/);
+    assert.match(form, /applyPreparedPhoto\(form\)/);
     assert.doesNotMatch(form, /Image is still being prepared/);
     assert.match(worker, /OffscreenCanvas/);
     assert.match(worker, /crypto\.subtle\.digest/);
@@ -60,6 +60,7 @@ describe("one-click inventory save contracts", () => {
     assert.match(form, /Promise\.all\(\[[\s\S]*upload\(`inventory\/\$\{operationId\}\/original\.jpg`/);
     assert.match(form, /photo_path/);
     assert.match(createRoute, /after\(async \(\) =>/);
+    assert.match(createRoute, /generateDefaultScanCodesInTx/);
     assert.match(operations, /createMany/);
   });
 

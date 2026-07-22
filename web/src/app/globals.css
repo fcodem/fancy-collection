@@ -171,6 +171,12 @@ select.form-control {
   text-transform: none !important;
 }
 
+.booking-search-input,
+[data-preserve-case] input.form-control {
+  color: var(--text-dark) !important;
+  -webkit-text-fill-color: var(--text-dark);
+}
+
 .typeable-date-input__picker-btn {
   position: absolute;
   right: 0;

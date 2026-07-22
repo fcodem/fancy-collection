@@ -13,6 +13,7 @@ import { useRealtimeRefresh } from "@/hooks/useRealtimeRefresh";
 import { BOOKING_EVENTS } from "@/lib/realtime/types";
 import DownloadPdfButton from "@/components/DownloadPdfButton";
 import StarBookingBadge from "@/components/StarBookingBadge";
+import { addDaysIso } from "@/lib/dateInput";
 import { warningPanelsFromItems } from "@/lib/bookingWarningPdf";
 import {
   STANDARD_BOOKING_HEADERS,
@@ -414,7 +415,16 @@ export default function BookingListClient({
           <div className="filter-grid-5" style={{ marginBottom: 16 }}>
             <div>
               <label style={labelStyle}>From Date</label>
-              <input type="date" className="form-control" value={from} onChange={(e) => setFrom(e.target.value)} />
+              <input
+                type="date"
+                className="form-control"
+                value={from}
+                onChange={(e) => {
+                  const next = e.target.value;
+                  setFrom(next);
+                  if (next) setTo(addDaysIso(next, 1));
+                }}
+              />
             </div>
             <div>
               <label style={labelStyle}>To Date</label>

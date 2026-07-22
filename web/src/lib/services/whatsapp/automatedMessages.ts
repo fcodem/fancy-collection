@@ -51,6 +51,8 @@ import {
 import {
   bookingSlipDetailsFromBooking,
   buildBookingSlipCaption,
+  buildCancellationNoticeMessage,
+  cancellationNoticeBodyParams,
   buildDeliverySlipCaption,
   buildIncompleteSlipCaption,
   buildPostponementHeldCaption,
@@ -483,6 +485,66 @@ export async function sendPostponementNoticeWhatsApp(
           payload.newDeliveryDate,
           payload.newReturnDate,
         ],
+      })
+    : await sendWhatsAppText(phoneRaw, message);
+
+  await saveWhatsAppOutboundMessage({
+    bookingId,
+    phone: phoneRaw,
+    messageType: useTemplate ? "template" : "text",
+    body: message,
+    metaMessageId: result.ok ? result.messageId : null,
+    status: result.ok ? "sent" : "failed",
+    error: result.ok ? null : result.error,
+    isAutomated: true,
+  });
+
+  return result.ok
+    ? { ok: true, phone: phoneRaw, messageId: result.messageId }
+    : { ok: false, error: result.error, phone: phoneRaw };
+}
+
+export async function sendCancellationNoticeWhatsApp(
+  bookingId: number,
+  payload: { refundAmount?: number },
+  sendContext?: WhatsAppJobSendContext,
+): Promise<WhatsAppSendOutcome> {
+  if (!isWhatsAppConfigured()) {
+    return { ok: false, error: "WhatsApp Meta API is not configured.", skipped: true };
+  }
+
+  const booking = await prisma.booking.findUnique({ where: { id: bookingId } });
+  if (!booking) return { ok: false, error: "Booking not found" };
+  if (booking.status !== "cancelled") {
+    return { ok: false, error: "Booking is not cancelled" };
+  }
+
+  const phoneRaw = booking.whatsappNo?.trim() || booking.contact1?.trim() || "";
+  if (!phoneRaw) return { ok: false, error: "No WhatsApp number on booking" };
+  if (!normalizeIndianPhone(phoneRaw)) {
+    return { ok: false, error: `Invalid phone number: ${phoneRaw}` };
+  }
+
+  const publicBookingId = resolvePublicBookingId(booking);
+  const refundAmount = Math.max(0, Number(payload.refundAmount ?? booking.refundAmount) || 0);
+  const noticeFields = {
+    customerName: booking.customerName,
+    publicBookingId,
+    serialNo: String(booking.monthlySerial).padStart(2, "0"),
+    deliveryDate: formatDate(booking.deliveryDate, "display"),
+    returnDate: formatDate(booking.returnDate, "display"),
+    refundAmount,
+  };
+  const message = buildCancellationNoticeMessage(noticeFields);
+  const bodyParams = cancellationNoticeBodyParams(noticeFields);
+
+  const useTemplate = await isSlipTemplateApproved("booking_cancelled");
+  await beginWhatsAppProviderSend(sendContext);
+  const result = useTemplate
+    ? await sendTextSlipTemplate({
+        key: "booking_cancelled",
+        phone: phoneRaw,
+        bodyParams,
       })
     : await sendWhatsAppText(phoneRaw, message);
 

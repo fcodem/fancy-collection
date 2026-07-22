@@ -6,6 +6,7 @@ import { usePathname, useRouter } from "next/navigation";
 import {
   SESSION_HEARTBEAT_INITIAL_DELAY_MS,
   SESSION_HEARTBEAT_INTERVAL_MS,
+  logoutOnAppClose,
   skipHeartbeat,
 } from "@/lib/sessionHeartbeat";
 
@@ -56,16 +57,22 @@ export default function SessionHeartbeat() {
   useEffect(() => {
     if (shouldSkipHeartbeat) return;
 
+    const onPageHide = () => {
+      logoutOnAppClose();
+    };
+
     const initial = setTimeout(() => {
       void checkSessionOnce(router);
     }, SESSION_HEARTBEAT_INITIAL_DELAY_MS);
     const id = setInterval(() => {
       void checkSessionOnce(router);
     }, SESSION_HEARTBEAT_INTERVAL_MS);
+    window.addEventListener("pagehide", onPageHide);
 
     return () => {
       clearTimeout(initial);
       clearInterval(id);
+      window.removeEventListener("pagehide", onPageHide);
     };
   }, [router, shouldSkipHeartbeat]);
 

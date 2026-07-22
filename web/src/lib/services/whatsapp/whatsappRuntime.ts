@@ -32,6 +32,7 @@ export const HEAVY_WHATSAPP_JOB_TYPES = new Set([
 
 export const LIGHT_WHATSAPP_JOB_TYPES = new Set([
   "postponement_notice",
+  "cancellation_notice",
   "booking_reminder",
   "custom_template",
 ]);

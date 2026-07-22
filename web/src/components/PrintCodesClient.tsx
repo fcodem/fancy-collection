@@ -572,7 +572,7 @@ function StickerLabel({ item, format }: { item: InventoryItem; format: PrintForm
             <div style={{ fontWeight: 600, fontSize: "5.5pt", marginTop: "0.2mm" }}>by {BRAND_OWNER}</div>
           </div>
           <div className="label-name">{item.name}</div>
-          <div className="label-size-badge">SIZE {item.size || "—"}</div>
+          {item.size ? <div className="label-size-badge">SIZE {item.size}</div> : null}
           {item.sku ? <div className="label-sku">SKU: {item.sku}</div> : null}
         </div>
       </div>

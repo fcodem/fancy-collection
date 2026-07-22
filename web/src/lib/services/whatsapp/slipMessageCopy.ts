@@ -159,6 +159,25 @@ export const POSTPONEMENT_DATES_TEMPLATE_EXAMPLE = [
   "18 Jul 2026",
 ];
 
+export const CANCELLATION_NOTICE_TEMPLATE_BODY =
+  `${THANK_YOU}\n\n` +
+  `❌ Booking Cancelled\n\n` +
+  `Dear {{1}},\n\n` +
+  `Your booking has been cancelled as requested.\n\n` +
+  `🔖 Serial No / Booking: {{2}}\n` +
+  `📅 Delivery Date: {{3}}\n` +
+  `📅 Return Date: {{4}}\n` +
+  `💰 Refund: {{5}}\n\n` +
+  SLIP_WA_CONTACT_LINE;
+
+export const CANCELLATION_NOTICE_TEMPLATE_EXAMPLE = [
+  "Priya",
+  "BK-000001 / 20",
+  "28 Jul 2026",
+  "29 Jul 2026",
+  "₹1,500",
+];
+
 export const POSTPONEMENT_HELD_TEMPLATE_BODY =
   `${THANK_YOU}\n\n` +
   `⏸️ Booking Postponed\n\n` +
@@ -321,6 +340,53 @@ export function buildIncompleteSlipCaption(d: IncompleteSlipDetailFields): strin
       `📅 Return Date: ${d.returnDate}\n` +
       `📦 Items Pending: ${d.itemsPending}`,
   );
+}
+
+export function buildCancellationNoticeMessage(opts: {
+  customerName: string;
+  publicBookingId: string;
+  serialNo: string;
+  deliveryDate: string;
+  returnDate: string;
+  refundAmount: number;
+}): string {
+  const refundLine =
+    opts.refundAmount > 0
+      ? `₹${formatInr(opts.refundAmount)}`
+      : "No refund recorded";
+
+  return withFooter(
+    `Hi ${opts.customerName},\n\n` +
+      `❌ Your booking has been cancelled.\n\n` +
+      `🔖 Booking: ${opts.publicBookingId}\n` +
+      `🔢 Serial No: ${opts.serialNo}\n` +
+      `📅 Delivery Date: ${opts.deliveryDate}\n` +
+      `📅 Return Date: ${opts.returnDate}\n` +
+      `💰 Refund: ${refundLine}\n\n` +
+      `If you have any questions, please contact us.`,
+  );
+}
+
+export function cancellationNoticeBodyParams(opts: {
+  customerName: string;
+  publicBookingId: string;
+  serialNo: string;
+  deliveryDate: string;
+  returnDate: string;
+  refundAmount: number;
+}): string[] {
+  const refundLine =
+    opts.refundAmount > 0
+      ? `₹${formatInr(opts.refundAmount)}`
+      : "No refund recorded";
+
+  return [
+    opts.customerName.trim() || "Customer",
+    `${opts.publicBookingId} / ${opts.serialNo}`,
+    opts.deliveryDate,
+    opts.returnDate,
+    refundLine,
+  ];
 }
 
 export function buildPostponementHeldCaption(d: PostponementHeldDetailFields): string {

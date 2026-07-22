@@ -163,7 +163,10 @@ export async function saveFastInventoryPhotoWithThumb(
     }
   }
 
-  const thumbnailPhoto = await saveInventoryThumbnailFromBuffer(raw);
+  // Sharp thumbnail generation OOMs on Vercel — client direct-upload sends thumbnail_path instead.
+  const thumbnailPhoto = process.env.VERCEL
+    ? null
+    : await saveInventoryThumbnailFromBuffer(raw);
   return { photo, thumbnailPhoto };
 }
 

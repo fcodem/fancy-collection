@@ -181,12 +181,15 @@ export async function searchDeliveryOrReturn(opts: {
       ? await whereDeliveryInRange(refIso, refIso)
       : await whereReturnInRange(refIso, refIso);
   const base = [statusWhere(opts.mode), categoryWhere(category)];
+  const scopedBase = (includeDate: boolean) =>
+    includeDate ? [...base, dateWhere] : base;
+  const searchScoped = opts.mode === "delivery";
 
   let mode: SearchMode = "date";
   let result;
 
   if (!q) {
-    result = await fetchPage({ mode: opts.mode, base: [...base, dateWhere], cursor, limit });
+    result = await fetchPage({ mode: opts.mode, base: scopedBase(true), cursor, limit });
   } else {
     const numeric = /^\d+$/.test(q);
     const id = numeric ? Number(q) : 0;
@@ -194,7 +197,7 @@ export async function searchDeliveryOrReturn(opts: {
     // 1. Exact booking ID.
     if (numeric && Number.isSafeInteger(id)) {
       mode = "id";
-      result = await fetchPage({ mode: opts.mode, base, search: { id }, cursor, limit });
+      result = await fetchPage({ mode: opts.mode, base: scopedBase(searchScoped), search: { id }, cursor, limit });
     }
 
     // 2. Exact monthly serial.
@@ -202,7 +205,7 @@ export async function searchDeliveryOrReturn(opts: {
       mode = "serial";
       result = await fetchPage({
         mode: opts.mode,
-        base,
+        base: scopedBase(searchScoped),
         search: { monthlySerial: id },
         cursor,
         limit,
@@ -215,7 +218,7 @@ export async function searchDeliveryOrReturn(opts: {
       mode = "phone";
       result = await fetchPage({
         mode: opts.mode,
-        base,
+        base: scopedBase(searchScoped),
         search: { OR: [{ contact1: digits }, { whatsappNo: digits }] },
         cursor,
         limit,
@@ -223,7 +226,7 @@ export async function searchDeliveryOrReturn(opts: {
       if (!result.rows.length) {
         result = await fetchPage({
           mode: opts.mode,
-          base,
+          base: scopedBase(searchScoped),
           search: {
             OR: [
               { contact1: { endsWith: digits, mode: "insensitive" } },
@@ -241,7 +244,7 @@ export async function searchDeliveryOrReturn(opts: {
       mode = "customer";
       result = await fetchPage({
         mode: opts.mode,
-        base,
+        base: scopedBase(searchScoped),
         search: { customerName: { startsWith: q, mode: "insensitive" } },
         cursor,
         limit,
@@ -253,7 +256,7 @@ export async function searchDeliveryOrReturn(opts: {
       mode = "dress";
       result = await fetchPage({
         mode: opts.mode,
-        base,
+        base: scopedBase(searchScoped),
         search: {
           OR: [
             { dressName: { startsWith: q, mode: "insensitive" } },
@@ -270,7 +273,7 @@ export async function searchDeliveryOrReturn(opts: {
       mode = "fuzzy";
       result = await fetchPage({
         mode: opts.mode,
-        base: [...base, dateWhere],
+        base: scopedBase(true),
         search: {
           OR: [
             { customerName: { contains: q, mode: "insensitive" } },

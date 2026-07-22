@@ -29,6 +29,7 @@ const RECEIPT_JOB_TYPES = new Set([
   "incomplete_slip",
   "postponement_held",
   "postponement_notice",
+  "cancellation_notice",
 ]);
 
 export function isWhatsAppReceiptJobType(jobType: string): boolean {

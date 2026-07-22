@@ -76,13 +76,13 @@ export default function BookingSearchSuggestInput({
   }
 
   return (
-    <div ref={wrapRef} className="dress-suggest-wrap" style={{ position: "relative", zIndex: open ? 50 : undefined }}>
+    <div ref={wrapRef} className="dress-suggest-wrap" data-preserve-case style={{ position: "relative", zIndex: open ? 50 : undefined }}>
       <input
         {...props}
         value={value}
         onChange={onChange}
         autoComplete="off"
-        className={`form-control ${className}`.trim()}
+        className={`form-control preserve-case booking-search-input ${className}`.trim()}
         onFocus={() => { if (String(value || "").trim()) fetchSuggestions(String(value)); }}
         onKeyDown={(e) => {
           if (open && items.length) {

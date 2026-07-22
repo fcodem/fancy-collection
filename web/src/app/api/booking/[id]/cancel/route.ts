@@ -1,9 +1,10 @@
-import { NextRequest } from "next/server";
+import { NextRequest, after } from "next/server";
 import prisma from "@/lib/prisma";
 import { cancelBooking } from "@/lib/services/operations";
 import { bookingLockedMessage, isBookingLocked } from "@/lib/bookingLock";
 import { jsonError, jsonOk, requireUser, isResponse, requireJsonContentType } from "@/lib/api";
 import { isOwner } from "@/lib/auth";
+import { triggerCancellationWhatsApp } from "@/lib/services/whatsapp/cancellationWhatsApp";
 
 export async function POST(req: NextRequest, { params }: { params: Promise<{ id: string }> }) {
   const _ct = requireJsonContentType(req);
@@ -22,6 +23,12 @@ export async function POST(req: NextRequest, { params }: { params: Promise<{ id:
     const body = await req.json().catch(() => ({}));
     const refundAmount = Number(body.refund_amount) || 0;
     await cancelBooking(bookingId, refundAmount, user.username);
+    after(async () => {
+      await triggerCancellationWhatsApp(bookingId, {
+        refundAmount,
+        createdBy: user.username,
+      });
+    });
     return jsonOk({ ok: true });
   } catch (e) {
     return jsonError(e instanceof Error ? e.message : "Failed to cancel booking");

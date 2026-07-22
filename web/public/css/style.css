@@ -797,7 +797,7 @@ table.data-table {
   border: 1.5px solid var(--border);
   border-radius: var(--radius-sm);
   font-size: 14px;
-  color: var(--text-primary);
+  color: var(--text-dark);
   transition: border-color 0.2s, box-shadow 0.2s;
   outline: none;
   font-family: inherit;

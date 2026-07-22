@@ -5,6 +5,7 @@ import {
   sendBookingBillWhatsApp,
   sendPostponementNoticeWhatsApp,
   sendPostponementHeldWhatsApp,
+  sendCancellationNoticeWhatsApp,
   sendReturnReceiptWhatsApp,
   sendDeliverySlipWhatsApp,
   sendPartialReturnSlipWhatsApp,
@@ -48,6 +49,7 @@ import {
 export type WhatsAppJobType =
   | "postponement_notice"
   | "postponement_held"
+  | "cancellation_notice"
   | "booking_bill"
   | "booking_reminder"
   | "delivery_slip"
@@ -307,6 +309,38 @@ export async function schedulePostponementNotice(
         newDeliveryDate,
         newReturnDate,
         reason: reason ?? null,
+      },
+    },
+  });
+}
+
+const PENDING_CANCEL_JOB_TYPES: WhatsAppJobType[] = [
+  "booking_bill",
+  "booking_reminder",
+  "delivery_slip",
+  "return_slip",
+  "return_receipt",
+  "incomplete_slip",
+];
+
+export async function scheduleCancellationNotice(
+  bookingId: number,
+  payload: { refundAmount?: number },
+  createdBy?: string,
+) {
+  if (isWhatsAppReceiptsDisabled()) return null;
+  for (const jobType of PENDING_CANCEL_JOB_TYPES) {
+    await cancelPendingJobs(bookingId, jobType);
+  }
+  await cancelPendingJobs(bookingId, "cancellation_notice");
+  return prisma.whatsAppJob.create({
+    data: {
+      jobType: "cancellation_notice",
+      bookingId,
+      scheduledAt: new Date(),
+      createdBy: createdBy ?? null,
+      payload: {
+        refundAmount: payload.refundAmount ?? null,
       },
     },
   });
@@ -698,6 +732,17 @@ async function executeJob(
         reason: typeof payload.reason === "string" ? payload.reason : undefined,
       }, sendContext);
       return outcomeFromSend(result, "Postponement notice failed");
+    }
+    case "cancellation_notice": {
+      const result = await sendCancellationNoticeWhatsApp(
+        job.bookingId,
+        {
+          refundAmount:
+            typeof payload.refundAmount === "number" ? payload.refundAmount : undefined,
+        },
+        sendContext,
+      );
+      return outcomeFromSend(result, "Cancellation notice failed");
     }
     case "return_receipt": {
       const result = await sendReturnReceiptWhatsApp(

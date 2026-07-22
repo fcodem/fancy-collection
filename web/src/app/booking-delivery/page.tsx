@@ -18,7 +18,7 @@ export default async function DeliveryPage() {
       actionLabel="Deliver"
       actionIcon="fa-truck-fast"
       todayIso={todayIso()}
-      hint="All booked deliveries, grouped by month, oldest date first. Use Search or Category to filter."
+      hint="Deliveries scheduled on the selected date only (defaults to today), grouped by month, earliest first. Use Search or Category to filter within that day."
     />
   );
 }
