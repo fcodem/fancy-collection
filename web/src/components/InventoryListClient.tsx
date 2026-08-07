@@ -299,10 +299,6 @@ export default function InventoryListClient({
       });
       return;
     }
-    if (g.sizes?.length) {
-      setMensSizes((prev) => ({ ...prev, [key]: g.sizes || [] }));
-      return;
-    }
     setMensSizes((prev) => ({ ...prev, [key]: "loading" }));
     try {
       const res = await fetch(`/api/inventory/${g.primaryId}/mens-sizes`, {
@@ -310,8 +306,34 @@ export default function InventoryListClient({
       });
       if (!res.ok) throw new Error("sizes failed");
       const data = (await res.json()) as { sizes: MensSizeSummary[] };
-      setMensSizes((prev) => ({ ...prev, [key]: data.sizes || [] }));
+      const nextSizes = data.sizes?.length ? data.sizes : g.sizes || [];
+      setMensSizes((prev) => ({ ...prev, [key]: nextSizes }));
+      if (nextSizes.length) {
+        setGroups((prev) =>
+          prev.map((row) =>
+            row.groupKey === key
+              ? {
+                  ...row,
+                  sizes: nextSizes,
+                  size: nextSizes.map((s) => s.size).join(", "),
+                  totalQuantity: nextSizes.reduce((n, s) => n + s.totalQuantity, 0),
+                  availableQuantity: nextSizes.reduce((n, s) => n + s.availableQuantity, 0),
+                  rentedQuantity: nextSizes.reduce((n, s) => n + s.rentedQuantity, 0),
+                  maintenanceQuantity: nextSizes.reduce(
+                    (n, s) => n + s.maintenanceQuantity,
+                    0,
+                  ),
+                }
+              : row,
+          ),
+        );
+      }
     } catch {
+      // Fall back to any sizes already on the card so the panel still opens.
+      if (g.sizes?.length) {
+        setMensSizes((prev) => ({ ...prev, [key]: g.sizes || [] }));
+        return;
+      }
       setMensSizes((prev) => {
         const next = { ...prev };
         delete next[key];
@@ -567,14 +589,17 @@ export default function InventoryListClient({
             : dressDisplayName(g.baseName, g.category, g.size);
           const units = expanded[g.groupKey];
           const sizePanel = mensSizes[g.groupKey];
-          const presentSizes = new Set(
-            (Array.isArray(sizePanel) ? sizePanel : g.sizes || []).map((s) =>
-              s.size.toLowerCase(),
-            ),
-          );
+          const sizesOpen = sizePanel === "loading" || Array.isArray(sizePanel);
+          const displaySizes = Array.isArray(sizePanel)
+            ? sizePanel
+            : g.sizes || [];
+          const presentSizes = new Set(displaySizes.map((s) => s.size.toLowerCase()));
           const addableSizes = SIZES.filter((s) => !presentSizes.has(s.toLowerCase()));
           return (
-            <article key={g.groupKey} className="inv-card">
+            <article
+              key={g.groupKey}
+              className={`inv-card${sizesOpen ? " inv-card-expanded" : ""}`}
+            >
               <button
                 type="button"
                 className="inv-card-main"
@@ -600,9 +625,11 @@ export default function InventoryListClient({
                   <div className="inv-card-meta">
                     {isMens ? (
                       <>
-                        {(g.sizes || []).length
-                          ? `${g.sizes!.length} size${g.sizes!.length === 1 ? "" : "s"} (${g.size})`
-                          : "Sizes…"}
+                        {displaySizes.length
+                          ? `${displaySizes.length} size${displaySizes.length === 1 ? "" : "s"}: ${displaySizes.map((s) => s.size).join(", ")}`
+                          : g.size
+                            ? `Sizes: ${g.size}`
+                            : "Tap to view sizes"}
                         {` · ${g.totalQuantity} unit${g.totalQuantity === 1 ? "" : "s"}`}
                       </>
                     ) : (
@@ -622,7 +649,7 @@ export default function InventoryListClient({
                     <span>₹{g.dailyRate.toLocaleString()}</span>
                     {isMens ? (
                       <span style={{ color: "var(--primary, #1d4ed8)", fontWeight: 600 }}>
-                        {sizePanel ? "Hide sizes ▲" : "Sizes ▼"}
+                        {sizesOpen ? "Hide sizes ▲" : "View sizes ▼"}
                       </span>
                     ) : null}
                   </div>
@@ -636,15 +663,7 @@ export default function InventoryListClient({
                   >
                     Details
                   </PrefetchOnIntentLink>
-                ) : (
-                  <button
-                    type="button"
-                    className="btn btn-sm btn-outline inv-touch"
-                    onClick={() => void toggleMensSizes(g)}
-                  >
-                    {sizePanel ? "Hide sizes" : "Manage sizes"}
-                  </button>
-                )}
+                ) : null}
                 <button
                   type="button"
                   className="btn btn-sm btn-outline inv-touch"
@@ -673,8 +692,8 @@ export default function InventoryListClient({
                     </button>
                   )}
                   {isMens && (
-                    <button type="button" onClick={() => openRow(g)}>
-                      Quick view
+                    <button type="button" onClick={() => void toggleMensSizes(g)}>
+                      {sizesOpen ? "Hide sizes" : "View sizes"}
                     </button>
                   )}
                 </div>
@@ -683,7 +702,13 @@ export default function InventoryListClient({
                 <div className="inv-unit-list" style={{ padding: 12 }}>Loading sizes…</div>
               )}
               {isMens && Array.isArray(sizePanel) && (
-                <div className="inv-unit-list" style={{ padding: 12, borderTop: "1px solid var(--border)" }}>
+                <div
+                  className="inv-mens-sizes"
+                  style={{ padding: "12px", borderTop: "1px solid var(--border)" }}
+                >
+                  <div style={{ fontWeight: 600, marginBottom: 8, fontSize: 13 }}>
+                    Available sizes
+                  </div>
                   <div style={{ display: "grid", gap: 8 }}>
                     {sizePanel.map((sz) => (
                       <div
@@ -694,33 +719,34 @@ export default function InventoryListClient({
                           alignItems: "center",
                           justifyContent: "space-between",
                           gap: 8,
-                          padding: "8px 10px",
+                          padding: "10px 12px",
                           borderRadius: 8,
                           background: "var(--bg, #f8fafc)",
                           border: "1px solid var(--border)",
                         }}
                       >
                         <div>
-                          <strong>SIZE {sz.size}</strong>
+                          <strong>Size {sz.size}</strong>
                           <div style={{ fontSize: 12, color: "var(--text-muted)" }}>
                             {sz.primarySku} · {sz.availableQuantity}/{sz.totalQuantity} avail
                           </div>
                         </div>
                         <div style={{ display: "flex", flexWrap: "wrap", gap: 6 }}>
-                          <PrefetchOnIntentLink
-                            href={`/inventory/${sz.primaryId}`}
-                            className="btn btn-sm btn-outline"
-                          >
-                            Open
-                          </PrefetchOnIntentLink>
                           {isOwner ? (
                             <PrefetchOnIntentLink
                               href={`/inventory/${sz.primaryId}/edit`}
-                              className="btn btn-sm btn-outline"
+                              className="btn btn-sm btn-primary"
                             >
                               Edit
                             </PrefetchOnIntentLink>
-                          ) : null}
+                          ) : (
+                            <PrefetchOnIntentLink
+                              href={`/inventory/${sz.primaryId}`}
+                              className="btn btn-sm btn-outline"
+                            >
+                              Open
+                            </PrefetchOnIntentLink>
+                          )}
                           {isOwner ? (
                             <button
                               type="button"
@@ -731,12 +757,17 @@ export default function InventoryListClient({
                             >
                               {mensBusy === `${g.groupKey}:rm:${sz.size}`
                                 ? "Removing…"
-                                : "Remove size"}
+                                : "Remove"}
                             </button>
                           ) : null}
                         </div>
                       </div>
                     ))}
+                    {!sizePanel.length ? (
+                      <p style={{ margin: 0, fontSize: 13, color: "var(--text-muted)" }}>
+                        No sizes found for this product.
+                      </p>
+                    ) : null}
                   </div>
                   {isOwner ? (
                     <div

@@ -161,4 +161,55 @@ describe("inventory group summaries", () => {
     assert.equal(collapsed[1]!.baseName, "Sparkle");
     assert.equal(collapsed[1]!.isMensProduct, undefined);
   });
+
+  it("collapseMensProductGroups is idempotent for already-collapsed products", () => {
+    const product: InventoryGroupSummary = {
+      groupKey: "mens:royal|sherwani",
+      inventoryGroupId: null,
+      primaryId: 2,
+      primarySku: "SKU-2",
+      baseName: "Royal",
+      category: "Sherwani",
+      subCategory: "Normal",
+      size: "L, M",
+      color: "",
+      totalQuantity: 2,
+      availableQuantity: 2,
+      rentedQuantity: 0,
+      maintenanceQuantity: 0,
+      dailyRate: 1000,
+      thumbnailUrl: null,
+      photoUrl: null,
+      newestCreatedAt: "2026-02-01T00:00:00.000Z",
+      isMensProduct: true,
+      sizes: [
+        {
+          size: "L",
+          groupKey: "g-l",
+          primaryId: 2,
+          primarySku: "SKU-2",
+          totalQuantity: 1,
+          availableQuantity: 1,
+          rentedQuantity: 0,
+          maintenanceQuantity: 0,
+          inventoryGroupId: "g-l",
+        },
+        {
+          size: "M",
+          groupKey: "g-m",
+          primaryId: 1,
+          primarySku: "SKU-1",
+          totalQuantity: 1,
+          availableQuantity: 1,
+          rentedQuantity: 0,
+          maintenanceQuantity: 0,
+          inventoryGroupId: "g-m",
+        },
+      ],
+    };
+    const again = collapseMensProductGroups([product]);
+    assert.equal(again.length, 1);
+    assert.equal(again[0]!.sizes?.length, 2);
+    assert.equal(again[0]!.size, "L, M");
+  });
 });

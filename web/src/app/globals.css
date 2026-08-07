@@ -1303,8 +1303,7 @@ a.stat-card:hover {
   }
 }
 
-.inv-row,
-.inv-card {
+.inv-row {
   content-visibility: auto;
   contain-intrinsic-size: auto 72px;
 }
@@ -1314,6 +1313,11 @@ a.stat-card:hover {
   border-radius: var(--radius, 12px);
   margin-bottom: 10px;
   background: var(--white, #fff);
+}
+
+.inv-card.inv-card-expanded {
+  /* Keep expanded size panels fully visible (avoid content-visibility clipping). */
+  content-visibility: visible;
 }
 
 .inv-card-main {

@@ -44,7 +44,8 @@ export type InventoryGroupSummary = {
 };
 
 export function isMensInventoryCategory(category: string | null | undefined): boolean {
-  return MENS_CATEGORIES.includes(String(category || "").trim());
+  const c = String(category || "").trim().toLowerCase();
+  return MENS_CATEGORIES.some((m) => m.toLowerCase() === c);
 }
 
 /** Stable product key for men's multi-size dresses (one card in Manage Inventory). */
@@ -69,25 +70,37 @@ export function parseMensProductGroupKey(
  * Collapse per-size men's groups into one product card with nested sizes.
  * Women's / jewellery / accessories stay unchanged.
  * Preserves the input list order (first occurrence of each product).
+ * Idempotent for rows already marked isMensProduct with sizes.
  */
 export function collapseMensProductGroups(
   groups: InventoryGroupSummary[],
 ): InventoryGroupSummary[] {
   const byProduct = new Map<string, InventoryGroupSummary[]>();
   const productOrder: string[] = [];
+  const alreadyCollapsed = new Map<string, InventoryGroupSummary>();
 
   for (const g of groups) {
     if (!isMensInventoryCategory(g.category)) continue;
-    const key = mensProductGroupKey(g.baseName, g.category);
-    if (!byProduct.has(key)) productOrder.push(key);
+    const key =
+      g.groupKey.startsWith("mens:") ? g.groupKey : mensProductGroupKey(g.baseName, g.category);
+    if (g.isMensProduct && Array.isArray(g.sizes)) {
+      if (!alreadyCollapsed.has(key)) {
+        alreadyCollapsed.set(key, { ...g, groupKey: key, isMensProduct: true });
+        productOrder.push(key);
+      }
+      continue;
+    }
+    if (!byProduct.has(key) && !alreadyCollapsed.has(key)) productOrder.push(key);
     const list = byProduct.get(key) || [];
     list.push(g);
     byProduct.set(key, list);
   }
 
-  const mensByKey = new Map<string, InventoryGroupSummary>();
+  const mensByKey = new Map<string, InventoryGroupSummary>(alreadyCollapsed);
   for (const productKey of productOrder) {
-    const sizeGroups = byProduct.get(productKey)!;
+    if (mensByKey.has(productKey)) continue;
+    const sizeGroups = byProduct.get(productKey);
+    if (!sizeGroups?.length) continue;
     const sorted = [...sizeGroups].sort((a, b) =>
       String(a.size || "").localeCompare(String(b.size || ""), undefined, { numeric: true }),
     );
@@ -127,7 +140,8 @@ export function collapseMensProductGroups(
       merged.push(g);
       continue;
     }
-    const key = mensProductGroupKey(g.baseName, g.category);
+    const key =
+      g.groupKey.startsWith("mens:") ? g.groupKey : mensProductGroupKey(g.baseName, g.category);
     if (seenMens.has(key)) continue;
     seenMens.add(key);
     const product = mensByKey.get(key);
@@ -219,13 +233,10 @@ export async function listInventoryGroups(
   const sortNewest = params.sort === "newest";
   const cursor = decodeCursor(params.cursor);
 
-  // Fetch extra size-level rows for men's so product collapse stays complete.
-  const fetchLimit =
-    !category || isMensInventoryCategory(category) ? Math.min(MAX_LIMIT, limit * 3) : limit;
-
+  // Men's are grouped by product (all sizes) inside the list query — paginate products, not sizes.
   const raw = !isSqliteDb()
     ? await listInventoryGroupsPostgres({
-        limit: fetchLimit,
+        limit,
         q,
         category,
         subCategory,
@@ -234,7 +245,7 @@ export async function listInventoryGroups(
         cursor,
       })
     : await listInventoryGroupsPrismaFallback({
-        limit: fetchLimit,
+        limit,
         q,
         category,
         subCategory,
@@ -243,32 +254,8 @@ export async function listInventoryGroups(
         cursor,
       });
 
-  const collapsed = collapseMensProductGroups(raw.groups);
-  const page = collapsed.slice(0, limit);
-  const nextCursor =
-    collapsed.length > limit && page.length
-      ? sortNewest
-        ? encodeCursor({
-            sort: "newest",
-            v1: page[page.length - 1]!.newestCreatedAt,
-            v2: page[page.length - 1]!.baseName,
-            v3: page[page.length - 1]!.groupKey,
-          })
-        : encodeNameSortCursor(page[page.length - 1]!)
-      : raw.nextCursor && collapsed.length <= limit
-        ? raw.nextCursor
-        : collapsed.length > limit
-          ? sortNewest
-            ? encodeCursor({
-                sort: "newest",
-                v1: page[page.length - 1]!.newestCreatedAt,
-                v2: page[page.length - 1]!.baseName,
-                v3: page[page.length - 1]!.groupKey,
-              })
-            : encodeNameSortCursor(page[page.length - 1]!)
-          : null;
-
-  return { groups: page, nextCursor, rowCount: page.length };
+  const groups = collapseMensProductGroups(raw.groups);
+  return { groups, nextCursor: raw.nextCursor, rowCount: groups.length };
 }
 
 function summarizeGroup(
@@ -377,6 +364,36 @@ async function listInventoryGroupsPostgres(opts: {
       select: ITEM_SELECT,
     });
     if (exact) {
+      if (isMensInventoryCategory(exact.category)) {
+        const matched = (
+          await prisma.clothingItem.findMany({
+            where: { category: exact.category },
+            select: ITEM_SELECT,
+            take: 300,
+          })
+        ).filter(
+          (i) =>
+            stripUnitSuffix(i.name).toLowerCase() ===
+            stripUnitSuffix(exact.name).toLowerCase(),
+        );
+        const productKey = mensProductGroupKey(exact.name, exact.category);
+        const collapsed = collapseMensProductGroups([
+          ...Array.from(
+            matched.reduce((map, item) => {
+              const key = item.inventoryGroupId || inventoryFallbackGroupKey(item);
+              const arr = map.get(key) || [];
+              arr.push(item);
+              map.set(key, arr);
+              return map;
+            }, new Map<string, typeof matched>()),
+          ).map(([key, rows]) => summarizeGroup(key, rows)),
+        ]);
+        return {
+          groups: collapsed,
+          nextCursor: null,
+          rowCount: collapsed.length,
+        };
+      }
       const groupKey = exact.inventoryGroupId || inventoryFallbackGroupKey(exact);
       const siblings = exact.inventoryGroupId
         ? await prisma.clothingItem.findMany({
@@ -403,6 +420,7 @@ async function listInventoryGroupsPostgres(opts: {
   const hasCursor = Boolean(cursor);
   const useNewest = sortNewest;
 
+  const mensCategories = MENS_CATEGORIES.map((c) => c.toLowerCase());
   const rows = await prisma.$queryRaw<
     Array<{
       group_key: string;
@@ -422,6 +440,8 @@ async function listInventoryGroupsPostgres(opts: {
       thumb_ref: string | null;
       photo_ref: string | null;
       newest_created_at: Date;
+      is_mens: boolean;
+      sizes_json: MensSizeSummary[] | null;
     }>
   >`
     WITH base AS (
@@ -439,11 +459,19 @@ async function listInventoryGroupsPostgres(opts: {
         thumbnail_photo,
         inventory_group_id,
         created_at,
+        regexp_replace(name, '\\s+#\\d+$', '') AS base_name,
         COALESCE(
           inventory_group_id,
           'legacy:' || regexp_replace(name, '\\s+#\\d+$', '') || '|' || category || '|' || COALESCE(size, '') || '|' || COALESCE(color, '')
-        ) AS group_key,
-        regexp_replace(name, '\\s+#\\d+$', '') AS base_name
+        ) AS size_group_key,
+        CASE
+          WHEN lower(category) = ANY(${mensCategories}::text[])
+          THEN 'mens:' || lower(regexp_replace(name, '\\s+#\\d+$', '')) || '|' || lower(category)
+          ELSE COALESCE(
+            inventory_group_id,
+            'legacy:' || regexp_replace(name, '\\s+#\\d+$', '') || '|' || category || '|' || COALESCE(size, '') || '|' || COALESCE(color, '')
+          )
+        END AS list_group_key
       FROM clothing_items
       WHERE
         (${category} = '' OR category = ${category})
@@ -458,14 +486,18 @@ async function listInventoryGroupsPostgres(opts: {
           OR lower(COALESCE(condition_notes, '')) LIKE '%' || lower(${q}) || '%'
         )
     ),
-    agg AS (
+    size_agg AS (
       SELECT
-        group_key,
+        list_group_key,
+        size,
+        COALESCE(
+          MAX(inventory_group_id),
+          MAX(size_group_key)
+        ) AS size_group_key,
         MAX(inventory_group_id) AS inventory_group_id,
         MAX(base_name) AS base_name,
         MAX(category) AS category,
         MAX(sub_category) AS sub_category,
-        MAX(size) AS size,
         MAX(color) AS color,
         COUNT(*)::int AS total_qty,
         COUNT(*) FILTER (WHERE status = 'available')::int AS available_qty,
@@ -479,10 +511,59 @@ async function listInventoryGroupsPostgres(opts: {
         (ARRAY_AGG(COALESCE(thumbnail_photo, photo) ORDER BY created_at DESC, id DESC))[1] AS thumb_ref,
         (ARRAY_AGG(COALESCE(photo, thumbnail_photo) ORDER BY created_at DESC, id DESC))[1] AS photo_ref
       FROM base
-      GROUP BY group_key
+      GROUP BY list_group_key, size
+    ),
+    list_agg AS (
+      SELECT
+        list_group_key AS group_key,
+        BOOL_OR(list_group_key LIKE 'mens:%') AS is_mens,
+        CASE
+          WHEN BOOL_OR(list_group_key LIKE 'mens:%') THEN NULL
+          ELSE MAX(inventory_group_id)
+        END AS inventory_group_id,
+        MAX(base_name) AS base_name,
+        MAX(category) AS category,
+        MAX(sub_category) AS sub_category,
+        CASE
+          WHEN BOOL_OR(list_group_key LIKE 'mens:%')
+          THEN string_agg(NULLIF(size, ''), ', ' ORDER BY size)
+          ELSE MAX(size)
+        END AS size,
+        MAX(color) AS color,
+        SUM(total_qty)::int AS total_qty,
+        SUM(available_qty)::int AS available_qty,
+        SUM(rented_qty)::int AS rented_qty,
+        SUM(maintenance_qty)::int AS maintenance_qty,
+        MAX(daily_rate)::float AS daily_rate,
+        MAX(newest_created_at) AS newest_created_at,
+        BOOL_OR(status_match) AS status_match,
+        (ARRAY_AGG(primary_id ORDER BY newest_created_at DESC, primary_id DESC))[1]::int AS primary_id,
+        (ARRAY_AGG(primary_sku ORDER BY newest_created_at DESC, primary_id DESC))[1] AS primary_sku,
+        (ARRAY_AGG(thumb_ref ORDER BY newest_created_at DESC, primary_id DESC))[1] AS thumb_ref,
+        (ARRAY_AGG(photo_ref ORDER BY newest_created_at DESC, primary_id DESC))[1] AS photo_ref,
+        CASE
+          WHEN BOOL_OR(list_group_key LIKE 'mens:%') THEN
+            json_agg(
+              json_build_object(
+                'size', size,
+                'groupKey', size_group_key,
+                'primaryId', primary_id,
+                'primarySku', primary_sku,
+                'totalQuantity', total_qty,
+                'availableQuantity', available_qty,
+                'rentedQuantity', rented_qty,
+                'maintenanceQuantity', maintenance_qty,
+                'inventoryGroupId', inventory_group_id
+              )
+              ORDER BY size
+            )
+          ELSE NULL
+        END AS sizes_json
+      FROM size_agg
+      GROUP BY list_group_key
     )
     SELECT *
-    FROM agg
+    FROM list_agg
     WHERE (${status} = '' OR status_match)
       AND (
         NOT ${hasCursor}
@@ -531,25 +612,46 @@ async function listInventoryGroupsPostgres(opts: {
   `;
 
   const page = rows.slice(0, limit);
-  const groups: InventoryGroupSummary[] = page.map((r) => ({
-    groupKey: r.group_key,
-    inventoryGroupId: r.inventory_group_id,
-    primaryId: r.primary_id,
-    primarySku: r.primary_sku,
-    baseName: r.base_name,
-    category: r.category,
-    subCategory: r.sub_category || "Normal",
-    size: r.size,
-    color: r.color,
-    totalQuantity: r.total_qty,
-    availableQuantity: r.available_qty,
-    rentedQuantity: r.rented_qty,
-    maintenanceQuantity: r.maintenance_qty,
-    dailyRate: Number(r.daily_rate) || 0,
-    thumbnailUrl: r.thumb_ref ? photoUrl(r.thumb_ref) : null,
-    photoUrl: r.photo_ref ? photoUrl(r.photo_ref) : null,
-    newestCreatedAt: new Date(r.newest_created_at).toISOString(),
-  }));
+  const groups: InventoryGroupSummary[] = page.map((r) => {
+    const sizes = Array.isArray(r.sizes_json)
+      ? (r.sizes_json as MensSizeSummary[]).map((s) => ({
+          size: String(s.size || "—"),
+          groupKey: String(s.groupKey || ""),
+          primaryId: Number(s.primaryId) || 0,
+          primarySku: String(s.primarySku || ""),
+          totalQuantity: Number(s.totalQuantity) || 0,
+          availableQuantity: Number(s.availableQuantity) || 0,
+          rentedQuantity: Number(s.rentedQuantity) || 0,
+          maintenanceQuantity: Number(s.maintenanceQuantity) || 0,
+          inventoryGroupId: s.inventoryGroupId ? String(s.inventoryGroupId) : null,
+        }))
+      : undefined;
+    return {
+      groupKey: r.group_key,
+      inventoryGroupId: r.inventory_group_id,
+      primaryId: r.primary_id,
+      primarySku: r.primary_sku,
+      baseName: r.base_name,
+      category: r.category,
+      subCategory: r.sub_category || "Normal",
+      size: r.size || "",
+      color: r.color,
+      totalQuantity: r.total_qty,
+      availableQuantity: r.available_qty,
+      rentedQuantity: r.rented_qty,
+      maintenanceQuantity: r.maintenance_qty,
+      dailyRate: Number(r.daily_rate) || 0,
+      thumbnailUrl: r.thumb_ref ? photoUrl(r.thumb_ref) : null,
+      photoUrl: r.photo_ref ? photoUrl(r.photo_ref) : null,
+      newestCreatedAt: new Date(r.newest_created_at).toISOString(),
+      ...(r.is_mens
+        ? {
+            isMensProduct: true,
+            sizes: sizes || [],
+          }
+        : {}),
+    };
+  });
 
   let nextCursor: string | null = null;
   if (rows.length > limit && groups.length) {
@@ -604,7 +706,9 @@ async function listInventoryGroupsPrismaFallback(opts: {
 
   const map = new Map<string, typeof items>();
   for (const item of items) {
-    const key = item.inventoryGroupId || inventoryFallbackGroupKey(item);
+    const key = isMensInventoryCategory(item.category)
+      ? mensProductGroupKey(item.name, item.category)
+      : item.inventoryGroupId || inventoryFallbackGroupKey(item);
     const arr = map.get(key) || [];
     arr.push(item);
     map.set(key, arr);
@@ -616,7 +720,41 @@ async function listInventoryGroupsPrismaFallback(opts: {
       if (!opts.subCategory) return true;
       return rows.some((row) => (row.subCategory || "Normal") === opts.subCategory);
     })
-    .map(([key, rows]) => summarizeGroup(key, rows));
+    .map(([key, rows]) => {
+      const summary = summarizeGroup(key, rows);
+      if (!isMensInventoryCategory(summary.category)) return summary;
+      const bySize = new Map<string, typeof rows>();
+      for (const row of rows) {
+        const size = String(row.size || "").trim() || "—";
+        const list = bySize.get(size) || [];
+        list.push(row);
+        bySize.set(size, list);
+      }
+      const sizes: MensSizeSummary[] = Array.from(bySize.entries())
+        .map(([size, sizeRows]) => {
+          const primary = [...sizeRows].sort((a, b) => b.id - a.id)[0]!;
+          return {
+            size,
+            groupKey: primary.inventoryGroupId || inventoryFallbackGroupKey(primary),
+            primaryId: primary.id,
+            primarySku: primary.sku,
+            totalQuantity: sizeRows.length,
+            availableQuantity: sizeRows.filter((r) => r.status === "available").length,
+            rentedQuantity: sizeRows.filter((r) => r.status === "rented").length,
+            maintenanceQuantity: sizeRows.filter((r) => r.status === "maintenance").length,
+            inventoryGroupId: primary.inventoryGroupId,
+          };
+        })
+        .sort((a, b) => a.size.localeCompare(b.size, undefined, { numeric: true }));
+      return {
+        ...summary,
+        groupKey: key,
+        inventoryGroupId: null,
+        size: sizes.map((s) => s.size).filter((s) => s !== "—").join(", "),
+        isMensProduct: true,
+        sizes,
+      };
+    });
   groups.sort((a, b) => {
     if (opts.sortNewest) {
       const t = b.newestCreatedAt.localeCompare(a.newestCreatedAt);
