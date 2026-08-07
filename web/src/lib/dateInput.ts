@@ -4,8 +4,8 @@ const DMY_RE = /^(\d{1,2})[/-](\d{1,2})[/-](\d{4})$/;
 export function formatPartialDateInput(raw: string): string {
   const digits = raw.replace(/\D/g, "").slice(0, 8);
   if (digits.length <= 2) return digits;
-  if (digits.length <= 4) return `${digits.slice(0, 2)}-${digits.slice(2)}`;
-  return `${digits.slice(0, 2)}-${digits.slice(2, 4)}-${digits.slice(4)}`;
+  if (digits.length <= 4) return `${digits.slice(0, 2)}/${digits.slice(2)}`;
+  return `${digits.slice(0, 2)}/${digits.slice(2, 4)}/${digits.slice(4)}`;
 }
 
 export function isIsoDate(s: string): boolean {
@@ -15,7 +15,7 @@ export function isIsoDate(s: string): boolean {
 export function isoToDisplay(iso: string): string {
   if (!iso || !ISO_RE.test(iso)) return iso;
   const [y, m, d] = iso.split("-");
-  return `${d}-${m}-${y}`;
+  return `${d}/${m}/${y}`;
 }
 
 export function parseTypedDateToIso(raw: string): string | null {

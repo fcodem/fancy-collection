@@ -33,11 +33,11 @@ function partsToDisplay(p: Parts): string {
   const dd = p.day.padStart(2, "0").slice(0, 2);
   const mm = p.month.padStart(2, "0").slice(0, 2);
   const yy = p.year.padStart(4, "0").slice(0, 4);
-  return `${dd}-${mm}-${yy}`;
+  return `${dd}/${mm}/${yy}`;
 }
 
 function partsFromDisplay(text: string): Parts | null {
-  const m = text.match(/^(\d{1,2})-(\d{1,2})-(\d{1,4})$/);
+  const m = text.match(/^(\d{1,2})[/-](\d{1,2})[/-](\d{1,4})$/);
   if (!m) return null;
   return { day: m[1], month: m[2], year: m[3] };
 }
@@ -199,7 +199,7 @@ export default function TypeableDateInput({
         id={id}
         className={`${className} preserve-case`.trim()}
         inputMode="numeric"
-        placeholder="DD-MM-YYYY"
+        placeholder="DD/MM/YYYY"
         autoComplete="off"
         autoCapitalize="off"
         autoCorrect="off"
@@ -229,16 +229,39 @@ export default function TypeableDateInput({
           selectSegment(el, activeSegment.current);
         }}
         onBeforeInput={(e) => {
+          if (typeof window !== "undefined" && window.matchMedia("(pointer: coarse)").matches) {
+            return; /* allow native soft-keyboard insert + onChange */
+          }
           const ne = e.nativeEvent as InputEvent;
           if (ne.inputType === "insertText" && ne.data && /^\d$/.test(ne.data)) {
             e.preventDefault();
             applyDigit(ne.data);
           }
         }}
-        onChange={() => {
-          /* digits handled via onKeyDown / onBeforeInput */
+        onChange={(e) => {
+          // Soft keyboards often skip keydown/beforeinput — accept free typing.
+          const raw = e.target.value;
+          setText(raw);
+          const digits = raw.replace(/\D/g, "").slice(0, 8);
+          if (digits.length >= 1) {
+            const day = digits.slice(0, 2);
+            const month = digits.slice(2, 4);
+            const year = digits.slice(4, 8);
+            partsRef.current = { day, month, year };
+          }
+          if (/^\d{2}-\d{2}-\d{4}$/.test(raw) || digits.length === 8) {
+            commit(raw, false);
+          }
         }}
         onKeyDown={(e) => {
+          // Prefer free typing on touch; segment mode still for physical keyboards.
+          if (typeof window !== "undefined" && window.matchMedia("(pointer: coarse)").matches) {
+            if (e.key === "Enter") {
+              e.preventDefault();
+              e.currentTarget.blur();
+            }
+            return;
+          }
           if (e.key >= "0" && e.key <= "9") {
             e.preventDefault();
             applyDigit(e.key);
@@ -305,12 +328,7 @@ export default function TypeableDateInput({
         className="typeable-date-input__picker-btn"
         disabled={disabled}
         tabIndex={-1}
-        aria-label="Open calendar"
-        onClick={() => {
-          const el = pickerRef.current;
-          if (el && typeof el.showPicker === "function") el.showPicker();
-          else el?.focus();
-        }}
+        aria-hidden
       >
         <i className="fa-regular fa-calendar" aria-hidden />
       </button>
@@ -318,12 +336,20 @@ export default function TypeableDateInput({
         ref={pickerRef}
         type="date"
         className="typeable-date-input__native"
-        tabIndex={-1}
-        aria-hidden
+        aria-label="Open calendar"
         value={isIsoDate(value) ? value : ""}
         min={min}
         disabled={disabled}
         onChange={(e) => applyPickerValue(e.target.value)}
+        onClick={(e) => {
+          // Ensure calendar opens on touch browsers that ignore opacity-0 controls.
+          const el = e.currentTarget;
+          try {
+            if (typeof el.showPicker === "function") el.showPicker();
+          } catch {
+            /* ignore NotAllowedError — click still opens on most WebViews */
+          }
+        }}
       />
     </div>
   );

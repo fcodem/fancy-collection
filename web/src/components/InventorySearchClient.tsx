@@ -5,6 +5,7 @@ import dynamic from "next/dynamic";
 import { useCallback, useEffect, useRef, useState, type DragEvent, type ReactNode } from "react";
 import DressNameSuggestInput from "@/components/DressNameSuggestInput";
 import CategorySelect from "./CategorySelect";
+import ZoomableImage from "@/components/ZoomableImage";
 import { photoUrl } from "@/lib/photoUrl";
 import { useRealtimeRefresh } from "@/hooks/useRealtimeRefresh";
 import { INVENTORY_EVENTS } from "@/lib/realtime/types";
@@ -47,6 +48,8 @@ type SearchItem = {
   color?: string;
   status?: string;
   photo?: string;
+  thumbnail_url?: string | null;
+  photo_url?: string | null;
   sub_category?: string;
   daily_rate?: number;
   deposit?: number;
@@ -245,12 +248,22 @@ function SectionHeader({ label, bg, color }: { label: string; bg: string; color:
   );
 }
 
-function DressPhoto({ photo, size = 72 }: { photo?: string; size?: number }) {
+function DressPhoto({
+  photo,
+  fullPhoto,
+  size = 72,
+}: {
+  photo?: string;
+  fullPhoto?: string | null;
+  size?: number;
+}) {
   const thumb = photoUrl(photo);
+  const full = photoUrl(fullPhoto) || thumb;
   if (thumb) {
     return (
-      <img
+      <ZoomableImage
         src={thumb}
+        fullSrc={full}
         alt=""
         style={{
           width: size,
@@ -302,7 +315,7 @@ function TextResultRow({ item }: { item: SearchItem }) {
       }}
       className="dress-search-result-link"
     >
-      <DressPhoto photo={item.photo} size={80} />
+      <DressPhoto photo={item.thumbnail_url || item.photo} fullPhoto={item.photo_url} size={80} />
       <div style={{ flex: 1, minWidth: 0 }}>
         <div style={{ fontWeight: 700, fontSize: 15, marginBottom: 4 }}>{label}</div>
         <div style={{ fontSize: 12, color: "var(--text-muted)", lineHeight: 1.5 }}>
@@ -382,7 +395,7 @@ function PhotoResultRow({ item, debugMode }: { item: SearchItem; debugMode?: boo
       }}
       className="dress-search-result-link"
     >
-      <DressPhoto photo={item.photo} size={64} />
+      <DressPhoto photo={item.thumbnail_url || item.photo} fullPhoto={item.photo_url} size={64} />
       <div style={{ flex: 1, minWidth: 0 }}>
         <div style={{ fontWeight: 700, fontSize: 14 }}>{label}</div>
         <div style={{ fontSize: 12, color: "var(--text-muted)", marginTop: 3 }}>
@@ -1077,9 +1090,10 @@ export default function InventorySearchClient() {
                   marginBottom: 14,
                 }}
               >
-                <img
+                <ZoomableImage
                   src={photoPreview}
                   alt="Query"
+                  overlayCaption="Search photo"
                   style={{ width: 72, height: 72, objectFit: "cover", borderRadius: 8, border: "1px solid var(--border)" }}
                 />
                 <div style={{ flex: 1 }}>

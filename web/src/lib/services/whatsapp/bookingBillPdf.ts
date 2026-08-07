@@ -3,6 +3,7 @@ import { readFile } from "fs/promises";
 import path from "path";
 import { loadSlipLogoDataUrl } from "./slipLogoData.server";
 import { SLIP_TAGLINE, SLIP_MOTTO } from "@/lib/slipConstants";
+import { BRAND_NAME, BRAND_OWNER } from "@/lib/branding";
 
 export type BookingBillPdfInput = {
   booking: {
@@ -703,6 +704,21 @@ export async function generateBookingBillPdf(input: BookingBillPdfInput): Promis
       try {
         doc.addImage(loaded.base64, loaded.fmt, 40, 24, 130, 160);
         imageAdded = true;
+        // Large diagonal brand watermark over customer dress photo
+        const gState = (doc as unknown as { GState?: new (o: { opacity: number }) => unknown }).GState;
+        if (gState && typeof (doc as unknown as { setGState?: (s: unknown) => void }).setGState === "function") {
+          (doc as unknown as { setGState: (s: unknown) => void }).setGState(new gState({ opacity: 0.38 }));
+        }
+        doc.setTextColor(255, 255, 255);
+        doc.setFont("helvetica", "bold");
+        doc.setFontSize(28);
+        doc.text(BRAND_NAME, PAGE_W / 2, 95, { align: "center", angle: 28 });
+        doc.setFontSize(16);
+        doc.text(`by ${BRAND_OWNER}`, PAGE_W / 2, 108, { align: "center", angle: 28 });
+        if (gState && typeof (doc as unknown as { setGState?: (s: unknown) => void }).setGState === "function") {
+          (doc as unknown as { setGState: (s: unknown) => void }).setGState(new gState({ opacity: 1 }));
+        }
+        doc.setTextColor(0, 0, 0);
       } catch {
         // skip bad image data
       }

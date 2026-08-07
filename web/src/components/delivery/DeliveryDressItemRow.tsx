@@ -6,6 +6,7 @@ import BookingItemWarningsBlock, {
   findItemWarnings,
 } from "@/components/BookingItemWarningsSection";
 import type { ItemWarningSource } from "@/lib/bookingWarningPdf";
+import ZoomableImage from "@/components/ZoomableImage";
 import { formatInr } from "@/lib/format";
 import { photoUrl } from "@/lib/photoUrl";
 
@@ -123,9 +124,10 @@ function DeliveryDressItemRow({
           </label>
         )}
         {it.photo && (
-          <img
+          <ZoomableImage
             src={photoUrl(it.photo)}
-            alt=""
+            alt={it.dressName}
+            overlayCaption={it.dressName}
             style={{
               width: 48,
               height: 48,

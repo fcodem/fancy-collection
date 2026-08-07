@@ -115,7 +115,7 @@ export async function runQueueWatchdog(opts: { drainLimit?: number } = {}): Prom
   failedRequeued: number;
   warning?: string;
 }> {
-  const drainLimit = opts.drainLimit ?? 2;
+  const drainLimit = opts.drainLimit ?? Number(process.env.AI_WATCHDOG_DRAIN_LIMIT || 3);
   let stuckRecovered = 0;
   try {
     const stuck = await recoverStuckAiJobs();

@@ -13,7 +13,7 @@ import { useRealtimeRefresh } from "@/hooks/useRealtimeRefresh";
 import { BOOKING_EVENTS } from "@/lib/realtime/types";
 import DownloadPdfButton from "@/components/DownloadPdfButton";
 import StarBookingBadge from "@/components/StarBookingBadge";
-import { addDaysIso } from "@/lib/dateInput";
+import { addDaysIso, isoToDisplay } from "@/lib/dateInput";
 import { warningPanelsFromItems } from "@/lib/bookingWarningPdf";
 import {
   STANDARD_BOOKING_HEADERS,
@@ -280,13 +280,14 @@ export default function BookingListClient({
   );
 
   const load = useCallback(
-    async (pageNum = page) => {
+    async (pageNum = page, opts?: { soft?: boolean }) => {
       if (!from) return;
       abortRef.current?.abort();
       const controller = new AbortController();
       abortRef.current = controller;
 
-      setLoading(true);
+      // Soft refresh keeps existing rows on screen (SSR hydrate / page-open / realtime).
+      if (!opts?.soft) setLoading(true);
       try {
         const params = buildParams(pageNum);
         const key = buildListQueryKey(params);
@@ -308,7 +309,7 @@ export default function BookingListClient({
         }
       } catch (e) {
         if (e instanceof DOMException && e.name === "AbortError") return;
-        if (!controller.signal.aborted) {
+        if (!opts?.soft && !controller.signal.aborted) {
           setData((prev) => ({
             ...prev,
             bookings: [],
@@ -329,7 +330,7 @@ export default function BookingListClient({
       if (debounceRef.current) clearTimeout(debounceRef.current);
       debounceRef.current = setTimeout(() => {
         setPage(pageNum);
-        load(pageNum);
+        void load(pageNum);
       }, 300);
     },
     [load],
@@ -337,7 +338,7 @@ export default function BookingListClient({
 
   useRealtimeRefresh(BOOKING_EVENTS, () => {
     invalidateClientCache("booking-list:");
-    load(page);
+    void load(page, { soft: true });
   });
 
   useEffect(() => {
@@ -403,7 +404,7 @@ export default function BookingListClient({
           <DownloadPdfButton
             title="Booked Items"
             filename={`booked-items-${data.from_date}-to-${data.to_date}`}
-            subtitle={`Period: ${data.from_date} to ${data.to_date}`}
+            subtitle={`Period: ${isoToDisplay(data.from_date)} to ${isoToDisplay(data.to_date)}`}
             headers={pdfHeaders}
             rows={[]}
             dataFactory={exportPdfData}
@@ -511,14 +512,17 @@ export default function BookingListClient({
             </div>
           )}
           <div style={{ fontSize: 12, color: "var(--text-muted)", padding: "10px 0" }}>
-            Period: <strong>{data.from_date}</strong> to <strong>{data.to_date}</strong>
+            Period: <strong>{isoToDisplay(data.from_date)}</strong> to{" "}
+            <strong>{isoToDisplay(data.to_date)}</strong>
           </div>
         </div>
       )}
 
       {empty ? (
         <div style={{ textAlign: "center", padding: 40, color: "var(--text-muted)" }}>
-          <p>No bookings found for {data.from_date} to {data.to_date}.</p>
+          <p>
+            No bookings found for {isoToDisplay(data.from_date)} to {isoToDisplay(data.to_date)}.
+          </p>
         </div>
       ) : (
         <>
@@ -581,13 +585,15 @@ export default function BookingListClient({
                   <i className="fa-solid fa-ban" style={{ marginRight: 8 }} />
                   Not Available During Period
                   <span style={{ fontSize: 11, fontWeight: 400, color: "var(--text-muted)", marginLeft: 8 }}>
-                    Delivered before {data.from_date}, return before {data.to_date}
+                    Delivered before {isoToDisplay(data.from_date)}, return before{" "}
+                    {isoToDisplay(data.to_date)}
                   </span>
                 </h3>
               </div>
               <div style={{ padding: "12px 20px", fontSize: 12, color: "#feb2b2", background: "#7b2d2d11", borderBottom: "1px solid #e53e3e44" }}>
-                These dresses were delivered before <strong>{data.from_date}</strong> and return before{" "}
-                <strong>{data.to_date}</strong>. They are <strong>not available</strong> during this period.
+                These dresses were delivered before <strong>{isoToDisplay(data.from_date)}</strong> and
+                return before <strong>{isoToDisplay(data.to_date)}</strong>. They are{" "}
+                <strong>not available</strong> during this period.
               </div>
               {unavailable.map((b, idx) => (
                 <BookingCard key={b.id} booking={b} idx={idx} isUnavailable />

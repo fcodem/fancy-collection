@@ -217,6 +217,73 @@ export async function enqueueRepairJobs(limit = 200): Promise<number> {
   return n;
 }
 
+/**
+ * Lightweight bulk enqueue for Admin "Index Pending" / Rebuild.
+ * Safe for HTTP routes — does not import SigLIP / processInventory.
+ * Skips items that already have an open queue job (avoids long timeouts).
+ */
+export async function enqueueBulkAiRebuild(force = false): Promise<{
+  processed: number;
+  failed: number;
+  newlyQueued: number;
+  alreadyQueued: number;
+}> {
+  const engine = CURRENT_MATCHING_VERSION;
+  const items = await prisma.clothingItem.findMany({
+    where: force
+      ? { photo: { not: null }, NOT: { photo: "" } }
+      : {
+          photo: { not: null },
+          NOT: { photo: "" },
+          OR: [
+            { identificationIndexedAt: null },
+            { aiProfile: { is: { matchingVersion: { lt: engine } } } },
+            { aiProfile: { is: { aiStatus: { not: AI_STATUS.READY } } } },
+            { aiProfile: { is: { needsReindex: true } } },
+            { aiProfile: { is: null } },
+          ],
+        },
+    select: { id: true },
+    orderBy: { id: "asc" },
+  });
+
+  const ids = items.map((i) => i.id);
+  if (!ids.length) {
+    return { processed: 0, failed: 0, newlyQueued: 0, alreadyQueued: 0 };
+  }
+
+  const openJobs = await prisma.inventoryAiJob.findMany({
+    where: {
+      itemId: { in: ids },
+      status: {
+        in: [AI_JOB_STATUS.PENDING, AI_JOB_STATUS.PROCESSING, AI_JOB_STATUS.RETRYING],
+      },
+    },
+    select: { itemId: true },
+  });
+  const openSet = new Set(openJobs.map((j) => j.itemId));
+
+  // Non-force: only create jobs for items not already in the queue.
+  const toEnqueue = force ? ids : ids.filter((id) => !openSet.has(id));
+  let newlyQueued = 0;
+  for (const itemId of toEnqueue) {
+    await enqueueInventoryAiJob({
+      itemId,
+      reason: force ? "bulk_rebuild_full" : "bulk_rebuild",
+      priority: 80,
+      staleExisting: true,
+    });
+    newlyQueued++;
+  }
+
+  return {
+    processed: ids.length,
+    failed: 0,
+    newlyQueued,
+    alreadyQueued: openSet.size,
+  };
+}
+
 /** Mark all profiles below current engine version as STALE and enqueue reindex. */
 export async function markOutdatedProfilesStaleAndEnqueue(): Promise<number> {
   const outdated = await prisma.inventoryAiProfile.findMany({

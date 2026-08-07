@@ -18,6 +18,8 @@ export type InventorySearchRow = {
   color: string;
   status: string;
   photo: string;
+  /** Full catalog photo URL for sharp zoom. */
+  photo_url?: string | null;
   thumbnail_url: string | null;
   sub_category: string;
   daily_rate: number;
@@ -79,6 +81,7 @@ function thumbRef(item: { thumbnailPhoto: string | null; photo: string | null })
 
 function serializeRow(item: RawItem): InventorySearchRow {
   const thumb = thumbRef(item);
+  const full = item.photo || item.thumbnailPhoto || "";
   return {
     id: item.id,
     name: item.name,
@@ -89,6 +92,7 @@ function serializeRow(item: RawItem): InventorySearchRow {
     color: item.color || "",
     status: item.status,
     photo: thumb,
+    photo_url: full ? photoUrl(full) : null,
     thumbnail_url: thumb ? photoUrl(thumb) : null,
     sub_category: item.subCategory || "",
     daily_rate: item.dailyRate,

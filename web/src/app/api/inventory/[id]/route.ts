@@ -118,6 +118,12 @@ export async function PUT(req: NextRequest, { params }: { params: Promise<{ id: 
       has_earrings: form.get("has_earrings") === "1",
       has_teeka: form.get("has_teeka") === "1",
       has_pasa: form.get("has_pasa") === "1",
+      has_sheeshpatti: form.get("has_sheeshpatti") === "1",
+      has_nath: form.get("has_nath") === "1",
+      has_hathfool: form.get("has_hathfool") === "1",
+      has_kamarband: form.get("has_kamarband") === "1",
+      has_rings: form.get("has_rings") === "1",
+      has_long_har: form.get("has_long_har") === "1",
       photo_content_hash: photoHash,
       photo_path: directPhotoPath,
       thumbnail_path: directThumbnailPath,
@@ -180,6 +186,12 @@ export async function PUT(req: NextRequest, { params }: { params: Promise<{ id: 
       has_earrings: form.get("has_earrings") === "1",
       has_teeka: form.get("has_teeka") === "1",
       has_pasa: form.get("has_pasa") === "1",
+      has_sheeshpatti: form.get("has_sheeshpatti") === "1",
+      has_nath: form.get("has_nath") === "1",
+      has_hathfool: form.get("has_hathfool") === "1",
+      has_kamarband: form.get("has_kamarband") === "1",
+      has_rings: form.get("has_rings") === "1",
+      has_long_har: form.get("has_long_har") === "1",
     };
 
     const result = await prisma.$transaction(async (tx) => {

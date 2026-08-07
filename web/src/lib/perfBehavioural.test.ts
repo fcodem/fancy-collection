@@ -403,6 +403,11 @@ describe("SessionHeartbeat skip routing", () => {
     assert.equal(a, b);
     assert.notEqual(a, c);
   });
+
+  it("builds login redirect for superseded single-device sessions", async () => {
+    const { sessionSupersededLoginPath } = await import("@/lib/sessionHeartbeat");
+    assert.equal(sessionSupersededLoginPath(), "/login?error=elsewhere");
+  });
 });
 
 describe("inventory durable queue helpers", () => {

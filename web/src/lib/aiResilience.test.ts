@@ -21,8 +21,17 @@ describe("AI worker resilience contracts", () => {
     assert.match(read("src/lib/dressChecker/aiJobQueue.ts"), /lockedBy/);
   });
 
-  it("one heavy job per cron invocation", () => {
-    assert.match(read("src/app/api/cron/ai-job-worker/route.ts"), /drainAiJobQueue\(1/);
+  it("cron drains a bounded AI job batch", () => {
+    const cron = read("src/app/api/cron/ai-job-worker/route.ts");
+    assert.match(cron, /resolveAiCronDrainLimit/);
+    assert.match(cron, /drainAiJobQueue\(drainLimit/);
+  });
+
+  it("index-dress-photos enqueues without loading SigLIP", () => {
+    const route = read("src/app/api/admin/index-dress-photos/route.ts");
+    assert.match(route, /enqueueBulkAiRebuild/);
+    assert.doesNotMatch(route, /processInventory/);
+    assert.match(route, /drainAiJobQueue/);
   });
 
   it("enforces timeout and /tmp probes", () => {

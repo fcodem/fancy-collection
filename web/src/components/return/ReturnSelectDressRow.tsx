@@ -2,6 +2,7 @@
 
 import { memo } from "react";
 import BookingItemWarningsBlock from "@/components/BookingItemWarningsSection";
+import ZoomableImage from "@/components/ZoomableImage";
 import type { ItemWarningSource } from "@/lib/bookingWarningPdf";
 import { bookingPhotoUrl } from "@/lib/photoUrl";
 
@@ -56,9 +57,10 @@ function ReturnSelectDressRow({
           <span style={{ fontSize: 12, fontWeight: 700, color: "var(--text-muted)" }}>Return</span>
         </label>
         {row.photo && (
-          <img
+          <ZoomableImage
             src={bookingPhotoUrl(row.photo)}
-            alt=""
+            alt={row.dressName}
+            overlayCaption={row.dressName}
             style={{ width: 48, height: 48, borderRadius: 8, objectFit: "cover" }}
           />
         )}

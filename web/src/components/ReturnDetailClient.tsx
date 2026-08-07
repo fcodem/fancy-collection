@@ -792,9 +792,10 @@ export default function ReturnDetailClient({
                       >
                         <div style={{ display: "flex", alignItems: "center", gap: 12, flexWrap: "wrap" }}>
                           {d.photo && (
-                            <img
+                            <ZoomableImage
                               src={photoUrl(d.photo)}
-                              alt=""
+                              alt={d.dressName}
+                              overlayCaption={d.dressName}
                               style={{ width: 44, height: 44, borderRadius: 8, objectFit: "cover" }}
                             />
                           )}
@@ -878,7 +879,7 @@ export default function ReturnDetailClient({
                     {cancelledItems.map((d) => (
                       <div key={d.id} style={{ display: "flex", alignItems: "center", gap: 10, fontSize: 13 }}>
                         {d.photo && (
-                          <img src={photoUrl(d.photo)} alt="" style={{ width: 36, height: 36, borderRadius: 6, objectFit: "cover", opacity: 0.6 }} />
+                          <ZoomableImage src={photoUrl(d.photo)} alt={d.dressName} overlayCaption={d.dressName} style={{ width: 36, height: 36, borderRadius: 6, objectFit: "cover", opacity: 0.6 }} />
                         )}
                         <strong style={{ flex: 1 }}>{d.dressName}</strong>
                         <span className="badge" style={{ background: "rgba(192,57,43,0.12)", color: "var(--danger)" }}>
@@ -1080,7 +1081,7 @@ export default function ReturnDetailClient({
                   >
                     <div style={{ display: "flex", alignItems: "center", gap: 10, marginBottom: 8 }}>
                       {d.photo && (
-                        <img src={photoUrl(d.photo)} alt="" style={{ width: 44, height: 44, borderRadius: 8, objectFit: "cover" }} />
+                        <ZoomableImage src={photoUrl(d.photo)} alt={d.dressName} overlayCaption={d.dressName} style={{ width: 44, height: 44, borderRadius: 8, objectFit: "cover" }} />
                       )}
                       <div>
                         <strong>{d.dressName}</strong>
@@ -1394,9 +1395,10 @@ export default function ReturnDetailClient({
                           style={{ width: 18, height: 18, accentColor: "#f39c12" }}
                         />
                         {row.photo && (
-                          <img
+                          <ZoomableImage
                             src={bookingPhotoUrl(row.photo)}
-                            alt=""
+                            alt={row.dressName}
+                            overlayCaption={row.dressName}
                             style={{ width: 48, height: 48, borderRadius: 8, objectFit: "cover" }}
                           />
                         )}
@@ -1511,7 +1513,7 @@ export default function ReturnDetailClient({
                   >
                     <div style={{ display: "flex", alignItems: "center", gap: 10, marginBottom: 8, flexWrap: "wrap" }}>
                       {d.photo && (
-                        <img src={photoUrl(d.photo)} alt="" style={{ width: 44, height: 44, borderRadius: 8, objectFit: "cover" }} />
+                        <ZoomableImage src={photoUrl(d.photo)} alt={d.dressName} overlayCaption={d.dressName} style={{ width: 44, height: 44, borderRadius: 8, objectFit: "cover" }} />
                       )}
                       <strong>{d.dressName}</strong>
                       <span className="badge badge-incomplete_return" style={{ marginLeft: "auto" }}>Incomplete</span>
@@ -1531,13 +1533,12 @@ export default function ReturnDetailClient({
                       </p>
                     )}
                     {d.itemIncompletePhoto && (
-                      <a href={privateMediaUrl(d.itemIncompletePhoto)} target="_blank" rel="noreferrer">
-                        <img
-                          src={privateMediaUrl(d.itemIncompletePhoto)}
-                          alt="Incomplete"
-                          style={{ marginTop: 8, maxWidth: 200, maxHeight: 200, borderRadius: 8, border: "1px solid var(--border)" }}
-                        />
-                      </a>
+                      <ZoomableImage
+                        src={privateMediaUrl(d.itemIncompletePhoto)}
+                        alt="Incomplete"
+                        overlayCaption={`${d.dressName} — incomplete`}
+                        style={{ marginTop: 8, maxWidth: 200, maxHeight: 200, borderRadius: 8, border: "1px solid var(--border)" }}
+                      />
                     )}
                     {d.id > 0 && (
                       <div style={{ marginTop: 12 }}>
@@ -1560,13 +1561,12 @@ export default function ReturnDetailClient({
             {booking.incompletePhoto && (
               <div style={{ marginTop: 16 }}>
                 <p style={{ fontWeight: 600, marginBottom: 8 }}>Photo</p>
-                <a href={privateMediaUrl(booking.incompletePhoto)} target="_blank" rel="noreferrer">
-                  <img
-                    src={privateMediaUrl(booking.incompletePhoto)}
-                    alt="Incomplete item"
-                    style={{ maxWidth: "100%", maxHeight: 320, borderRadius: 8, border: "1px solid var(--border)" }}
-                  />
-                </a>
+                <ZoomableImage
+                  src={privateMediaUrl(booking.incompletePhoto)}
+                  alt="Incomplete item"
+                  overlayCaption="Incomplete return"
+                  style={{ maxWidth: "100%", maxHeight: 320, borderRadius: 8, border: "1px solid var(--border)" }}
+                />
               </div>
             )}
                 <div style={{ marginTop: 12 }}>

@@ -1,8 +1,11 @@
+import { randomBytes } from "crypto";
+import { revalidateTag } from "next/cache";
 import prisma, { dateQ, parseDateQ } from "../prisma";
 import { activeBookingWhere } from "@/lib/bookingActiveStatus";
 import { hashPassword } from "../auth";
 import { parseDate } from "../constants";
 import { logActivity } from "../activityLog";
+import { ACTIVE_STAFF_NAMES_TAG } from "../staffList";
 
 export async function getStaffWork(fromStr: string, toStr: string) {
   const fromDate = parseDate(fromStr);
@@ -86,32 +89,81 @@ export async function addStaff(data: {
   password?: string;
   role?: string;
 }) {
-  const existing = data.username
-    ? await prisma.user.findUnique({ where: { username: data.username } })
-    : null;
-  if (existing) throw new Error(`Username '${data.username}' is already taken.`);
+  const name = data.name.trim();
+  if (!name) throw new Error("Staff name is required.");
 
-  return prisma.$transaction(async (tx) => {
+  const usernameRaw = (data.username || "").trim();
+  const password = data.password || "";
+  const username = usernameRaw.toLowerCase();
+  const wantsLogin = Boolean(usernameRaw || password);
+
+  if (wantsLogin && (!username || !password)) {
+    throw new Error("Provide both username and password for a login account, or leave both blank.");
+  }
+
+  if (username) {
+    const taken = await prisma.$queryRaw<{ id: number }[]>`
+      SELECT id FROM users WHERE lower(username) = ${username} LIMIT 1
+    `;
+    if (taken.length) throw new Error(`Username '${username}' is already taken.`);
+  }
+
+  const role = data.role === "owner" ? "owner" : "staff";
+
+  const created = await prisma.$transaction(async (tx) => {
     const s = await tx.staff.create({
       data: {
-        name: data.name.trim(),
+        name,
         phone: data.phone?.trim() || null,
         monthlySalary: data.monthlySalary ?? null,
         salaryDate: data.salaryDate ?? null,
       },
     });
-    if (data.username && data.password) {
-      await tx.user.create({
+
+    let loginUsername: string | null = null;
+    if (username && password) {
+      const user = await tx.user.create({
         data: {
-          username: data.username.trim(),
-          passwordHash: await hashPassword(data.password),
-          role: data.role || "staff",
+          username,
+          passwordHash: await hashPassword(password),
+          role,
           staffId: s.id,
         },
       });
+      loginUsername = user.username;
+
+      // Pre-approve so the new staff can sign in immediately (within login TTL).
+      // Later logins still require owner Allow on the dashboard.
+      if (role === "staff") {
+        await tx.staffLoginRequest.create({
+          data: {
+            userId: user.id,
+            token: randomBytes(24).toString("base64url"),
+            status: "approved",
+            resolvedAt: new Date(),
+          },
+        });
+      }
     }
-    return s;
+
+    return {
+      id: s.id,
+      name: s.name,
+      phone: s.phone,
+      monthlySalary: s.monthlySalary,
+      salaryDate: s.salaryDate,
+      loginUsername,
+      role: loginUsername ? role : null,
+    };
   });
+
+  try {
+    revalidateTag(ACTIVE_STAFF_NAMES_TAG);
+  } catch {
+    /* cache API unavailable in some runtimes */
+  }
+
+  return created;
 }
 
 export async function updateStaffSalaryInfo(
@@ -137,10 +189,28 @@ export async function updateStaffSalaryInfo(
 }
 
 export async function removeStaff(staffId: number) {
-  return prisma.$transaction(async (tx) => {
+  const result = await prisma.$transaction(async (tx) => {
+    const linkedUsers = await tx.user.findMany({
+      where: { staffId },
+      select: { id: true },
+    });
+    const userIds = linkedUsers.map((u) => u.id);
+    if (userIds.length) {
+      await tx.staffLoginRequest.deleteMany({
+        where: { OR: [{ userId: { in: userIds } }, { resolvedById: { in: userIds } }] },
+      });
+      await tx.userSession.deleteMany({ where: { userId: { in: userIds } } });
+      // Hard-delete login so the username can be reused.
+      await tx.user.deleteMany({ where: { id: { in: userIds } } });
+    }
     await tx.staff.update({ where: { id: staffId }, data: { active: false } });
-    await tx.user.updateMany({ where: { staffId }, data: { active: false } });
   });
+  try {
+    revalidateTag(ACTIVE_STAFF_NAMES_TAG);
+  } catch {
+    /* ignore */
+  }
+  return result;
 }
 
 export async function saveAttendance(dateStr: string, statuses: Record<number, string>, by?: string) {

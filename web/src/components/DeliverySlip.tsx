@@ -5,6 +5,8 @@ import SlipLogo from "@/components/SlipLogo";
 import SlipMottoBanner from "@/components/SlipMottoBanner";
 import Emoji from "@/components/Emoji";
 import PremiumSlipMarker from "@/components/PremiumSlipMarker";
+import ZoomableImage from "@/components/ZoomableImage";
+import SlipOutfitPhoto from "@/components/SlipOutfitPhoto";
 import { WHATSAPP_CONTACT_LINE, WHATSAPP_TEAM_LINE, SLIP_TERMS } from "@/lib/slipConstants";
 
 export type DeliverySlipProps = {
@@ -285,10 +287,10 @@ export default function DeliverySlip(props: DeliverySlipProps) {
                 }}>{i + 1}</div>
                 <div>
                   {item.photoUrl ? (
-                    /* eslint-disable-next-line @next/next/no-img-element */
-                    <img
+                    <ZoomableImage
                       src={item.photoUrl}
                       alt={item.dressName}
+                      overlayCaption={item.dressName}
                       style={{ width: 36, height: 36, objectFit: "cover", borderRadius: 6, border: `1px solid ${BORDER}` }}
                     />
                   ) : (
@@ -522,11 +524,11 @@ export default function DeliverySlip(props: DeliverySlipProps) {
           </div>
 
           <div style={{ display: "flex", alignItems: "center", justifyContent: "center", padding: "10px 16px 8px", background: "#fafafa" }}>
-            {/* eslint-disable-next-line @next/next/no-img-element */}
-            <img
+            <SlipOutfitPhoto
               src={it.photoUrl!}
               alt={it.dressName}
-              style={{
+              caption={it.dressName}
+              imgStyle={{
                 width: "100%",
                 maxWidth: "178mm",
                 maxHeight: "220mm",

@@ -202,6 +202,7 @@ export async function getPackingListPage(opts: {
             checked_by: item.checkedBy || "",
             is_packed_ready: item.isPackedReady,
             packing_note: item.packingNote || "",
+            dress_note: (item.notes || "").trim(),
             returning_warning: warning
               ? {
                   id: warning.id,
@@ -241,6 +242,7 @@ export async function getPackingListPage(opts: {
             checked_by: "",
             is_packed_ready: false,
             packing_note: "",
+            dress_note: (booking.notes || "").trim(),
             returning_warning: null,
           }]
         : [];

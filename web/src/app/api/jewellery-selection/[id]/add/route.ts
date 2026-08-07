@@ -26,6 +26,12 @@ export async function POST(req: NextRequest, { params }: { params: Promise<{ id:
         pickEarrings: body.pick_earrings === true || body.pick_earrings === "1",
         pickTeeka: body.pick_teeka === true || body.pick_teeka === "1",
         pickPasa: body.pick_pasa === true || body.pick_pasa === "1",
+        pickSheeshpatti: body.pick_sheeshpatti === true || body.pick_sheeshpatti === "1",
+        pickNath: body.pick_nath === true || body.pick_nath === "1",
+        pickHathfool: body.pick_hathfool === true || body.pick_hathfool === "1",
+        pickKamarband: body.pick_kamarband === true || body.pick_kamarband === "1",
+        pickRings: body.pick_rings === true || body.pick_rings === "1",
+        pickLongHar: body.pick_long_har === true || body.pick_long_har === "1",
       },
       user.username,
     );

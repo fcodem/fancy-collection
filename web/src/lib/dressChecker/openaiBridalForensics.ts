@@ -42,20 +42,20 @@ export function isDressCheckerOpenAiEnabled(): boolean {
 export const OPENAI_USAGE_POLICY = {
   /** Auto-accept — never call GPT */
   autoAcceptMin: 92,
-  /** Ambiguous band — call GPT */
-  gptMin: envNumber("DRESS_CHECKER_OPENAI_VERIFY_MIN_SCORE", 70),
+  /** Ambiguous / angle-mismatch band — call GPT */
+  gptMin: envNumber("DRESS_CHECKER_OPENAI_VERIFY_MIN_SCORE", 55),
   gptMax: envNumber("DRESS_CHECKER_OPENAI_VERIFY_MAX_SCORE", 92),
   /** Below — reject without GPT */
-  rejectBelow: 70,
+  rejectBelow: envNumber("DRESS_CHECKER_OPENAI_REJECT_BELOW", 55),
   /** GPT only on top N after region rerank */
-  verifyTopN: 3,
+  verifyTopN: 5,
   /** ANN recall */
   annLimit: envNumber("DRESS_CHECKER_ANN_RECALL_K", 100),
   /** After fingerprint filter */
   fingerprintTopN: 20,
   /** After region rerank */
   regionTopN: 10,
-  maxOpenAiCallsPerSearch: envNumber("DRESS_CHECKER_MAX_OPENAI_CALLS_PER_SEARCH", 1),
+  maxOpenAiCallsPerSearch: envNumber("DRESS_CHECKER_MAX_OPENAI_CALLS_PER_SEARCH", 3),
   maxOpenAiCallsPerRun: envNumber("DRESS_CHECKER_MAX_OPENAI_CALLS_PER_RUN", 0),
 } as const;
 

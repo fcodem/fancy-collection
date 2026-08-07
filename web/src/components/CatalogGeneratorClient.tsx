@@ -3,6 +3,7 @@
 import { useRef, useState } from "react";
 import { fetchJson } from "@/lib/fetchJson";
 import type { MarketingStyle } from "@/lib/ai/enhancementPrompts";
+import ZoomableImage from "@/components/ZoomableImage";
 
 const CATEGORIES = [
   "── Women's Wear ──",
@@ -313,10 +314,10 @@ export default function CatalogGeneratorClient() {
               >
                 Original Inventory Photo
               </div>
-              {/* eslint-disable-next-line @next/next/no-img-element */}
-              <img
+              <ZoomableImage
                 src={originalUrl}
                 alt="Original"
+                overlayCaption="Original inventory photo"
                 style={{ width: "100%", borderRadius: 8, border: "1px solid #e5e5e5" }}
               />
             </div>
@@ -330,10 +331,10 @@ export default function CatalogGeneratorClient() {
                 {marketingUrl ? "Marketing Image Generated" : "Marketing Image (pending)"}
               </div>
               {marketingUrl ? (
-                /* eslint-disable-next-line @next/next/no-img-element */
-                <img
+                <ZoomableImage
                   src={marketingUrl}
                   alt="Marketing"
+                  overlayCaption="Marketing image"
                   style={{
                     width: "100%", borderRadius: 8,
                     border: "2px solid #7c3aed",

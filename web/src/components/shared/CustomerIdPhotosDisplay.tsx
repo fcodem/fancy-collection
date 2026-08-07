@@ -1,5 +1,6 @@
 "use client";
 
+import ZoomableImage from "@/components/ZoomableImage";
 import { privateMediaUrl } from "@/lib/photoUrl";
 
 type CustomerIdPhotosDisplayProps = {
@@ -26,34 +27,32 @@ function IdPhotoThumbs({
   return (
     <div style={{ display: "flex", gap: 12, flexWrap: "wrap" }}>
       {idPhoto1 && (
-        <a href={privateMediaUrl(idPhoto1)} target="_blank" rel="noreferrer">
-          <img
-            src={privateMediaUrl(idPhoto1)}
-            alt="Customer ID 1"
-            style={{
-              width,
-              height,
-              objectFit: "cover",
-              borderRadius: 8,
-              border: "1px solid var(--border)",
-            }}
-          />
-        </a>
+        <ZoomableImage
+          src={privateMediaUrl(idPhoto1)}
+          alt="Customer ID 1"
+          overlayCaption="Customer ID 1"
+          style={{
+            width,
+            height,
+            objectFit: "cover",
+            borderRadius: 8,
+            border: "1px solid var(--border)",
+          }}
+        />
       )}
       {idPhoto2 && (
-        <a href={privateMediaUrl(idPhoto2)} target="_blank" rel="noreferrer">
-          <img
-            src={privateMediaUrl(idPhoto2)}
-            alt="Customer ID 2"
-            style={{
-              width,
-              height,
-              objectFit: "cover",
-              borderRadius: 8,
-              border: "1px solid var(--border)",
-            }}
-          />
-        </a>
+        <ZoomableImage
+          src={privateMediaUrl(idPhoto2)}
+          alt="Customer ID 2"
+          overlayCaption="Customer ID 2"
+          style={{
+            width,
+            height,
+            objectFit: "cover",
+            borderRadius: 8,
+            border: "1px solid var(--border)",
+          }}
+        />
       )}
     </div>
   );

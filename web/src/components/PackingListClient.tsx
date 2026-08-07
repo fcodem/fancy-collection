@@ -16,6 +16,7 @@ import { CustomOrdersSection, type SlipOrderDisplay } from "@/components/Booking
 import { panelsForItemWarnings } from "@/lib/bookingWarningPdf";
 import { STANDARD_BOOKING_HEADERS, flattenBookingPdfRows, standardBookingPdfRow } from "@/lib/standardBookingPdfRows";
 import StarBookingBadge from "@/components/StarBookingBadge";
+import { addDaysIso } from "@/lib/dateInput";
 
 type PackingItem = {
   bi_id: number | null;
@@ -25,6 +26,8 @@ type PackingItem = {
   prepared_by: string;
   checked_by: string;
   packing_note: string;
+  /** Per-dress note entered on the booking (shown highlighted for staff). */
+  dress_note?: string;
   returning_warning?: PackingReturningWarning | null;
 };
 
@@ -56,7 +59,7 @@ export default function PackingListClient({
   initialHasMore?: boolean;
 }) {
   const [from, setFrom] = useState(today);
-  const [to, setTo] = useState(today);
+  const [to, setTo] = useState(() => addDaysIso(today, 1));
   const [category, setCategory] = useState("");
   const [rows, setRows] = useState<PackingBooking[]>(initialRows);
   const [loaded, setLoaded] = useState(initialLoaded || initialRows.length > 0);
@@ -217,6 +220,7 @@ export default function PackingListClient({
       ...STANDARD_BOOKING_HEADERS,
       "Prepared By",
       "Checked By",
+      "Dress Note",
       "Packing Note",
       "Ready",
     ];
@@ -231,6 +235,7 @@ export default function PackingListClient({
           [
             item.prepared_by || "—",
             item.checked_by || "—",
+            item.dress_note?.trim() || "—",
             item.packing_note || "—",
             item.is_packed_ready ? "Yes" : "No",
           ],
@@ -268,7 +273,16 @@ export default function PackingListClient({
           <div style={{ display: "grid", gridTemplateColumns: "repeat(auto-fit, minmax(160px, 1fr))", gap: 12, alignItems: "end" }}>
             <div>
               <label className="form-label">Delivery From</label>
-              <input type="date" className="form-control" value={from} onChange={(e) => setFrom(e.target.value)} />
+              <input
+                type="date"
+                className="form-control"
+                value={from}
+                onChange={(e) => {
+                  const next = e.target.value;
+                  setFrom(next);
+                  if (next) setTo(addDaysIso(next, 1));
+                }}
+              />
             </div>
             <div>
               <label className="form-label">Delivery To</label>
@@ -326,6 +340,20 @@ export default function PackingListClient({
                   <div className="packing-item-dress">
                     <span className="packing-item-dress-label">Dress</span>
                     <strong>{item.display_name || item.dress_name}</strong>
+                    {b.common_notes?.trim() ? (
+                      <span className="packing-dress-note packing-common-note" title="Common note from booking">
+                        <i className="fa-solid fa-note-sticky" aria-hidden />
+                        <span className="packing-dress-note-label">Common</span>
+                        <span className="packing-dress-note-text">{b.common_notes.trim()}</span>
+                      </span>
+                    ) : null}
+                    {item.dress_note?.trim() ? (
+                      <span className="packing-dress-note" title="Dress note from booking">
+                        <i className="fa-solid fa-sticky-note" aria-hidden />
+                        <span className="packing-dress-note-label">Note</span>
+                        <span className="packing-dress-note-text">{item.dress_note.trim()}</span>
+                      </span>
+                    ) : null}
                   </div>
                   {item.returning_warning && (
                     <PackingReturningWarningPanel w={item.returning_warning} />

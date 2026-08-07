@@ -2,7 +2,7 @@
 
 import { memo } from "react";
 import { formatInr } from "@/lib/format";
-import { photoUrl } from "@/lib/photoUrl";
+import BookingPhotoThumb from "@/components/BookingPhotoThumb";
 
 type DressWarning = {
   customer?: string;
@@ -75,36 +75,6 @@ function formatBookedWarning(w: DressWarning) {
   );
 }
 
-function PhotoThumb({ photo, size = 44 }: { photo?: string; size?: number }) {
-  const src = photoUrl(photo);
-  if (src) {
-    return (
-      <img
-        src={src}
-        alt=""
-        style={{ width: size, height: size, borderRadius: 8, objectFit: "cover", flexShrink: 0 }}
-      />
-    );
-  }
-  return (
-    <div
-      style={{
-        width: size,
-        height: size,
-        borderRadius: 8,
-        background: "linear-gradient(135deg, var(--cream-dark), var(--cream))",
-        display: "flex",
-        alignItems: "center",
-        justifyContent: "center",
-        fontSize: size * 0.45,
-        flexShrink: 0,
-      }}
-    >
-      👗
-    </div>
-  );
-}
-
 function BookingSelectedDressRow({
   dress: d,
   index: i,
@@ -133,7 +103,11 @@ function BookingSelectedDressRow({
           borderBottom: "1px solid var(--border)",
         }}
       >
-        <PhotoThumb photo={d.photo} size={56} />
+        <BookingPhotoThumb
+          photo={d.photo}
+          size={64}
+          alt={d.name}
+        />
 
         <div style={{ flex: 1 }}>
           <div style={{ fontSize: 15, fontWeight: 700, color: "var(--primary)" }}>{d.name}</div>

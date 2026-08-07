@@ -13,18 +13,50 @@ import {
   BASE_JEWELLERY,
   BASE_ACCESSORY,
   SIZES,
-  MENS_CATEGORIES,
-  JEWELLERY_CATEGORIES,
+  REMOVED_SUB_CATEGORIES,
 } from "@/lib/constants";
-import { formatJewelleryPartsLabel, partsPresentOnItem } from "@/lib/jewelleryParts";
+import { formatJewelleryPartsLabel, partsPresentOnItem, JEWELLERY_PART_DEFS, type JewelleryPartFlags } from "@/lib/jewelleryParts";
 import { useToast } from "@/components/ui/Toast";
 import { SaveConfirmedBanner } from "@/components/SaveConfirmedBanner";
 import InventoryScanCodeManager from "@/components/InventoryScanCodeManager";
+import ZoomableImage from "@/components/ZoomableImage";
 import {
   fetchWithOperationInProgressRetry,
   useMutationOperationId,
   type MutationApiError,
 } from "@/lib/useMutationOperationId";
+import { cachedFetchJson } from "@/lib/clientRequestCache";
+import type { CategoryLists } from "@/components/CategorySelect";
+
+const CATEGORY_FALLBACK: CategoryLists = {
+  mens_categories: BASE_MENS,
+  womens_categories: BASE_WOMENS,
+  jewellery_categories: BASE_JEWELLERY,
+  accessory_categories: BASE_ACCESSORY,
+  other_categories: ["Other"],
+};
+
+const REMOVED_SUB_SET = new Set(
+  REMOVED_SUB_CATEGORIES.map((s) => s.toLowerCase()),
+);
+
+function mergeSubCategoryOptions(names: string[], current?: string | null): string[] {
+  const out: string[] = [];
+  const seen = new Set<string>();
+  const currentTrimmed = String(current || "").trim();
+  for (const name of names) {
+    const trimmed = String(name || "").trim();
+    if (!trimmed || seen.has(trimmed)) continue;
+    if (REMOVED_SUB_SET.has(trimmed.toLowerCase())) continue;
+    seen.add(trimmed);
+    out.push(trimmed);
+  }
+  // Keep the saved value visible when editing a legacy Premium/Normal/Cheap row.
+  if (currentTrimmed && !seen.has(currentTrimmed)) {
+    out.unshift(currentTrimmed);
+  }
+  return out;
+}
 
 type InventoryFormItem = CatalogPhotoItem & {
   id?: number;
@@ -42,6 +74,12 @@ type InventoryFormItem = CatalogPhotoItem & {
   hasEarrings?: boolean;
   hasTeeka?: boolean;
   hasPasa?: boolean;
+  hasSheeshpatti?: boolean;
+  hasNath?: boolean;
+  hasHathfool?: boolean;
+  hasKamarband?: boolean;
+  hasRings?: boolean;
+  hasLongHar?: boolean;
 };
 
 type SaveConfirmed = {
@@ -66,12 +104,18 @@ function buildPayloadKey(form: FormData, photoHash: string | null): string {
     quantity: String(form.get("quantity") || "1"),
     daily_rate: String(form.get("daily_rate") || "0"),
     deposit: String(form.get("deposit") || "0"),
-    sub_category: String(form.get("sub_category") || "Normal"),
+    sub_category: String(form.get("sub_category") || ""),
     condition_notes: String(form.get("condition_notes") || ""),
     has_necklace: form.get("has_necklace") === "1",
     has_earrings: form.get("has_earrings") === "1",
     has_teeka: form.get("has_teeka") === "1",
     has_pasa: form.get("has_pasa") === "1",
+    has_sheeshpatti: form.get("has_sheeshpatti") === "1",
+    has_nath: form.get("has_nath") === "1",
+    has_hathfool: form.get("has_hathfool") === "1",
+    has_kamarband: form.get("has_kamarband") === "1",
+    has_rings: form.get("has_rings") === "1",
+    has_long_har: form.get("has_long_har") === "1",
     status: String(form.get("status") || ""),
     remove_photo: form.get("remove_photo") === "1",
     photo_content_hash: photoHash,
@@ -99,21 +143,31 @@ export default function InventoryFormClient({
   item,
   initialPhotoUrl = "",
   saveConfirmed,
+  categories: categoriesProp,
+  subCategories: subCategoriesProp,
 }: {
   item?: InventoryFormItem;
   initialPhotoUrl?: string;
   saveConfirmed?: SaveConfirmed;
+  categories?: CategoryLists;
+  subCategories?: string[];
 }) {
   const router = useRouter();
   const toast = useToast();
   const op = useMutationOperationId();
-  const [category, setCategory] = useState(item?.category || "");
+  const initialCategory = (item?.category || "").trim();
+  const initialSubCategory = (item?.subCategory || "").trim();
+  const [category, setCategory] = useState(initialCategory);
+  const [subCategory, setSubCategory] = useState(initialSubCategory);
   const [name, setName] = useState(item?.name || "");
   const [selectedSizes, setSelectedSizes] = useState<string[]>([]);
-  const [hasNecklace, setHasNecklace] = useState(Boolean(item?.hasNecklace));
-  const [hasEarrings, setHasEarrings] = useState(Boolean(item?.hasEarrings));
-  const [hasTeeka, setHasTeeka] = useState(Boolean(item?.hasTeeka));
-  const [hasPasa, setHasPasa] = useState(Boolean(item?.hasPasa));
+  const [partFlags, setPartFlags] = useState<JewelleryPartFlags>(() => {
+    const flags: JewelleryPartFlags = {};
+    for (const d of JEWELLERY_PART_DEFS) {
+      flags[d.hasField] = Boolean(item?.[d.hasField]);
+    }
+    return flags;
+  });
   const [saving, setSaving] = useState(false);
   const [statusMessage, setStatusMessage] = useState("");
   const [duplicateWarning, setDuplicateWarning] = useState<{
@@ -137,22 +191,92 @@ export default function InventoryFormClient({
   const [localPreview, setLocalPreview] = useState("");
   const [photoUrl, setPhotoUrl] = useState(initialPhotoUrl || "");
   const [removePhoto, setRemovePhoto] = useState(false);
-  const [subCategories, setSubCategories] = useState<string[]>(["Normal"]);
+  const [subCategories, setSubCategories] = useState<string[]>(() =>
+    mergeSubCategoryOptions(subCategoriesProp || [], initialSubCategory),
+  );
+  const [categories, setCategories] = useState<CategoryLists>(categoriesProp ?? CATEGORY_FALLBACK);
   const isEdit = Boolean(item?.id);
-  const isMens = MENS_CATEGORIES.includes(category);
-  const isJewellery = JEWELLERY_CATEGORIES.includes(category);
+  const isMens = categories.mens_categories.includes(category);
+  const isJewellery = categories.jewellery_categories.includes(category);
+  const otherCategories = categories.other_categories || [];
+  const allListed = new Set([
+    ...categories.mens_categories,
+    ...categories.womens_categories,
+    ...categories.jewellery_categories,
+    ...categories.accessory_categories,
+    ...otherCategories,
+  ]);
 
   const displayPhoto = localPreview || photoUrl;
 
   useEffect(() => {
-    fetch("/api/sub-categories")
+    if (categoriesProp) {
+      setCategories(categoriesProp);
+      return;
+    }
+    let cancelled = false;
+    cachedFetchJson(
+      "categories:all",
+      async (signal) => {
+        const res = await fetch("/api/categories", { credentials: "same-origin", signal });
+        if (!res.ok) throw new Error("Failed to load categories");
+        return res.json() as Promise<CategoryLists>;
+      },
+      { ttlMs: 25_000 },
+    )
+      .then((data) => {
+        if (!cancelled) setCategories(data);
+      })
+      .catch(() => {
+        if (!cancelled) setCategories(CATEGORY_FALLBACK);
+      });
+    return () => {
+      cancelled = true;
+    };
+  }, [categoriesProp]);
+
+  useEffect(() => {
+    if (subCategoriesProp?.length) {
+      setSubCategories(mergeSubCategoryOptions(subCategoriesProp, subCategory));
+      return;
+    }
+    let cancelled = false;
+    fetch("/api/sub-categories", { credentials: "same-origin" })
       .then((r) => (r.ok ? r.json() : null))
       .then((data) => {
-        if (data?.sub_categories?.length) {
-          setSubCategories(data.sub_categories.map((s: { name: string }) => s.name));
-        }
+        if (cancelled) return;
+        const names = Array.isArray(data?.sub_categories)
+          ? data.sub_categories.map((s: { name: string }) => s.name)
+          : [];
+        setSubCategories(mergeSubCategoryOptions(names, subCategory));
       })
       .catch(() => {});
+    return () => {
+      cancelled = true;
+    };
+    // Only seed options once from props / API — do not re-fetch when selection changes.
+    // eslint-disable-next-line react-hooks/exhaustive-deps
+  }, [subCategoriesProp]);
+
+  const resetFormForNewItem = useCallback(() => {
+    setCategory("");
+    setSubCategory("");
+    setName("");
+    setSelectedSizes([]);
+    setPartFlags(() => {
+      const flags: JewelleryPartFlags = {};
+      for (const d of JEWELLERY_PART_DEFS) flags[d.hasField] = false;
+      return flags;
+    });
+    setLocalPreview("");
+    setPhotoUrl("");
+    setRemovePhoto(false);
+    setPreparedPhoto(null);
+    setDupCheckResult(null);
+    setPhotoPrepPending(false);
+    setDuplicateWarning(null);
+    setPendingForm(null);
+    setStatusMessage("");
   }, []);
 
   function handlePhotoChange(e: React.ChangeEvent<HTMLInputElement>) {
@@ -258,25 +382,6 @@ export default function InventoryFormClient({
       dupAbortRef.current?.abort();
     };
   }, [category, preparedPhoto, isEdit, startDuplicateCheck]);
-
-  const resetFormForNewItem = useCallback(() => {
-    setCategory("");
-    setName("");
-    setSelectedSizes([]);
-    setHasNecklace(false);
-    setHasEarrings(false);
-    setHasTeeka(false);
-    setHasPasa(false);
-    setLocalPreview("");
-    setPhotoUrl("");
-    setRemovePhoto(false);
-    setPreparedPhoto(null);
-    setDupCheckResult(null);
-    setPhotoPrepPending(false);
-    setDuplicateWarning(null);
-    setPendingForm(null);
-    setStatusMessage("");
-  }, []);
 
   async function applyPreparedPhoto(form: FormData): Promise<{ form: FormData; photoHash: string | null }> {
     const photo = form.get("photo");
@@ -420,10 +525,9 @@ export default function InventoryFormClient({
     const form = new FormData(e.currentTarget);
     if (!isEdit && isMens) selectedSizes.forEach((s) => form.append("sizes[]", s));
     if (isJewellery) {
-      if (hasNecklace) form.set("has_necklace", "1");
-      if (hasEarrings) form.set("has_earrings", "1");
-      if (hasTeeka) form.set("has_teeka", "1");
-      if (hasPasa) form.set("has_pasa", "1");
+      for (const d of JEWELLERY_PART_DEFS) {
+        if (partFlags[d.hasField]) form.set(d.formHasKey, "1");
+      }
     }
 
     const url = isEdit ? `/api/inventory/${item!.id}` : "/api/inventory";
@@ -478,73 +582,70 @@ export default function InventoryFormClient({
             onChange={(e) => setCategory(e.target.value)}
           >
             <option value="">Select…</option>
+            {category && !allListed.has(category) ? (
+              <option value={category}>{category}</option>
+            ) : null}
             <optgroup label="Men's">
-              {BASE_MENS.map((c) => (
+              {categories.mens_categories.map((c) => (
                 <option key={c} value={c}>
                   {c}
                 </option>
               ))}
             </optgroup>
             <optgroup label="Women's">
-              {BASE_WOMENS.map((c) => (
+              {categories.womens_categories.map((c) => (
                 <option key={c} value={c}>
                   {c}
                 </option>
               ))}
             </optgroup>
             <optgroup label="Jewellery">
-              {BASE_JEWELLERY.map((c) => (
+              {categories.jewellery_categories.map((c) => (
                 <option key={c} value={c}>
                   {c}
                 </option>
               ))}
             </optgroup>
             <optgroup label="Accessories">
-              {BASE_ACCESSORY.map((c) => (
+              {categories.accessory_categories.map((c) => (
                 <option key={c} value={c}>
                   {c}
                 </option>
               ))}
             </optgroup>
+            {otherCategories.length > 0 ? (
+              <optgroup label="Other">
+                {otherCategories.map((c) => (
+                  <option key={c} value={c}>
+                    {c}
+                  </option>
+                ))}
+              </optgroup>
+            ) : null}
           </select>
         </div>
         {isJewellery && (
           <div>
             <label className="form-label">Set includes (tick what is present in this jewellery)</label>
             <div style={{ display: "flex", flexWrap: "wrap", gap: 16, marginTop: 8 }}>
-              <label style={{ display: "flex", gap: 6, alignItems: "center" }}>
-                <input
-                  type="checkbox"
-                  checked={hasNecklace}
-                  onChange={(e) => setHasNecklace(e.target.checked)}
-                />
-                Necklace present
-              </label>
-              <label style={{ display: "flex", gap: 6, alignItems: "center" }}>
-                <input
-                  type="checkbox"
-                  checked={hasEarrings}
-                  onChange={(e) => setHasEarrings(e.target.checked)}
-                />
-                Earrings present
-              </label>
-              <label style={{ display: "flex", gap: 6, alignItems: "center" }}>
-                <input type="checkbox" checked={hasTeeka} onChange={(e) => setHasTeeka(e.target.checked)} />
-                Teeka present
-              </label>
-              <label style={{ display: "flex", gap: 6, alignItems: "center" }}>
-                <input type="checkbox" checked={hasPasa} onChange={(e) => setHasPasa(e.target.checked)} />
-                Pasa present
-              </label>
+              {JEWELLERY_PART_DEFS.map((d) => (
+                <label key={d.key} style={{ display: "flex", gap: 6, alignItems: "center" }}>
+                  <input
+                    type="checkbox"
+                    checked={Boolean(partFlags[d.hasField])}
+                    onChange={(e) =>
+                      setPartFlags((prev) => ({ ...prev, [d.hasField]: e.target.checked }))
+                    }
+                  />
+                  {d.presentLabel}
+                </label>
+              ))}
             </div>
             <small className="text-muted" style={{ display: "block", marginTop: 8 }}>
               Parts can be booked separately to different customers.{" "}
-              {partsPresentOnItem({ hasNecklace, hasEarrings, hasTeeka, hasPasa }).length > 0 && (
+              {partsPresentOnItem(partFlags).length > 0 && (
                 <span>
-                  Set:{" "}
-                  {formatJewelleryPartsLabel(
-                    partsPresentOnItem({ hasNecklace, hasEarrings, hasTeeka, hasPasa }),
-                  )}
+                  Set: {formatJewelleryPartsLabel(partsPresentOnItem(partFlags))}
                 </span>
               )}
             </small>
@@ -601,7 +702,14 @@ export default function InventoryFormClient({
         </div>
         <div>
           <label className="form-label">Sub-Category</label>
-          <select name="sub_category" className="form-control" defaultValue={item?.subCategory ?? "Normal"}>
+          <select
+            name="sub_category"
+            className="form-control"
+            required
+            value={subCategory}
+            onChange={(e) => setSubCategory(e.target.value)}
+          >
+            <option value="">Select…</option>
             {subCategories.map((s) => (
               <option key={s} value={s}>
                 {s}
@@ -629,8 +737,14 @@ export default function InventoryFormClient({
           <input name="photo" type="file" accept="image/*" className="form-control" onChange={handlePhotoChange} />
           {displayPhoto ? (
             <div className="inv-form-photo-preview">
-              <img key={displayPhoto} src={displayPhoto} alt="Stock preview" className="inv-form-photo-img" />
-              <span className="inv-form-photo-label">Uploaded image</span>
+              <ZoomableImage
+                key={displayPhoto}
+                src={displayPhoto}
+                alt="Stock preview"
+                overlayCaption="Stock photo"
+                className="inv-form-photo-img"
+              />
+              <span className="inv-form-photo-label">Uploaded image · click to enlarge</span>
             </div>
           ) : (
             <p style={{ fontSize: 12, color: "var(--text-muted)", marginTop: 8 }}>

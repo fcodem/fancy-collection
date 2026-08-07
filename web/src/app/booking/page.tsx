@@ -37,7 +37,7 @@ export default async function BookingPanelPage({
   const { from: panelFrom, to: panelTo, label: panelLabel } = bookingPanelDateRange(year, month);
   const page = Math.max(1, Number(sp.page || "1") || 1);
 
-  const { yearBounds, bookings, statusCounts, totalCount, pageSize, totalPages } =
+  const { yearBounds, bookings, returnedBookings, statusCounts, totalCount, pageSize, totalPages } =
     await loadBookingPanelPage({
       year,
       month,
@@ -108,13 +108,13 @@ export default async function BookingPanelPage({
         <div className="card-header" style={{ flexWrap: "wrap", gap: 12 }}>
           <h3 className="card-title">
             <i className="fa-solid fa-list" style={{ marginRight: 8 }} />
-            All Bookings
+            Active Bookings
             <span style={{ fontWeight: 500, fontSize: 13, color: "var(--text-muted)", marginLeft: 8 }}>
-              — {panelLabel}
+              — {panelLabel} (booked &amp; delivered)
             </span>
           </h3>
           <span style={{ fontSize: 13, color: "var(--text-muted)" }}>
-            Page {page} of {totalPages} ({totalCount} total)
+            Page {page} of {totalPages} ({totalCount} active)
           </span>
         </div>
         <div className="card-body" style={{ paddingBottom: 0 }}>
@@ -227,7 +227,7 @@ export default async function BookingPanelPage({
             <span />
           )}
           <span style={{ fontSize: 13, color: "var(--text-muted)" }}>
-            Showing {bookings.length} of {totalCount} (max {pageSize}/page)
+            Showing {bookings.length} of {totalCount} active (max {pageSize}/page)
           </span>
           {nextHref ? (
             <Link href={nextHref} className="btn btn-outline btn-sm" prefetch>
@@ -238,6 +238,65 @@ export default async function BookingPanelPage({
           )}
         </div>
       </div>
+
+      {returnedBookings.length > 0 && (
+        <div className="card" style={{ marginTop: 24, border: "2px solid rgba(46,125,50,0.35)" }}>
+          <div className="card-header" style={{ flexWrap: "wrap", gap: 12, background: "rgba(46,125,50,0.06)" }}>
+            <h3 className="card-title" style={{ color: "var(--success, #2e7d32)" }}>
+              <i className="fa-solid fa-circle-check" style={{ marginRight: 8 }} />
+              Returned Bookings
+              <span style={{ fontWeight: 500, fontSize: 13, color: "var(--text-muted)", marginLeft: 8 }}>
+                — {panelLabel} ({returnedBookings.length} shown)
+              </span>
+            </h3>
+          </div>
+          <div className="table-wrapper">
+            <table className="data-table data-table--booking">
+              <thead>
+                <tr>
+                  <th className="booking-col-serial">S.No</th>
+                  <StandardBookingTableHead />
+                  <th className="booking-col-money">Advance</th>
+                  <th className="booking-col-money">Remaining</th>
+                  <th className="booking-col-date">Status</th>
+                  <th className="booking-col-actions">Action</th>
+                </tr>
+              </thead>
+              <tbody>
+                {returnedBookings.map((b) => {
+                  const rem = b.totalRemaining ?? b.remaining;
+                  return (
+                    <tr key={`returned-${b.id}`}>
+                      <td className="booking-col-serial">
+                        <span style={{ display: "inline-flex", alignItems: "center", justifyContent: "center", width: 28, height: 28, borderRadius: "50%", background: "linear-gradient(135deg, #2e7d32, #66bb6a)", color: "white", fontWeight: 700, fontSize: 12 }}>
+                          {String(b.monthlySerial).padStart(2, "0")}
+                        </span>
+                      </td>
+                      <StandardBookingTableCells d={serializeStandardBookingDetails(b)} />
+                      <td className="booking-col-money" style={{ color: "var(--success)", fontWeight: 600 }}>₹{formatInr(b.totalAdvance || b.advance)}</td>
+                      <td className="booking-col-money">
+                        {rem > 0 ? (
+                          <span style={{ fontWeight: 800, color: "var(--danger)" }}>₹{formatInr(rem)}</span>
+                        ) : (
+                          <span style={{ color: "var(--success)", fontWeight: 600 }}>Paid ✓</span>
+                        )}
+                      </td>
+                      <td className="booking-col-date">
+                        <span className="badge badge-returned">returned</span>
+                      </td>
+                      <td className="booking-col-actions">
+                        <div className="booking-col-actions-inner">
+                          <PrefetchOnIntentLink href={`/booking/${b.id}`} className="btn btn-outline btn-sm"><i className="fa-solid fa-eye" /></PrefetchOnIntentLink>
+                        </div>
+                      </td>
+                    </tr>
+                  );
+                })}
+              </tbody>
+            </table>
+          </div>
+        </div>
+      )}
     </>
   );
 }

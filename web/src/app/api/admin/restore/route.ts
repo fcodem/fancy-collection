@@ -3,6 +3,7 @@ import prisma from "@/lib/prisma";
 import { requireOwner, isResponse, jsonOk, jsonError, requireJsonContentType } from "@/lib/api";
 import { establishUserLogin } from "@/lib/auth";
 import { boolParam, ph, resetAutoincrement, dateParam, dateParamReq } from "@/lib/restoreSql";
+import { restoreInventoryWithAi } from "@/lib/restoreInventoryAi";
 
 export const dynamic = "force-dynamic";
 export const maxDuration = 120;
@@ -17,6 +18,7 @@ interface BackupData {
   };
   bookings?: Array<Record<string, unknown>>;
   inventory?: Array<Record<string, unknown>>;
+  inventory_ai_profiles?: Array<Record<string, unknown>>;
   customers?: Array<Record<string, unknown>>;
   staff?: Array<Record<string, unknown>>;
   users?: Array<Record<string, unknown>>;
@@ -58,6 +60,15 @@ export async function POST(req: NextRequest) {
   try {
     await prisma.$transaction(async (tx) => {
       log.push("Clearing existing data...");
+
+      // WhatsApp history must be cleared before bookings are re-inserted with the same ids;
+      // otherwise send ledger / message rows make new slips look "delivered" without sending.
+      await tx.$executeRawUnsafe(`DELETE FROM "whatsapp_webhook_queue"`);
+      await tx.$executeRawUnsafe(`DELETE FROM "whatsapp_send_ledger"`);
+      await tx.$executeRawUnsafe(`DELETE FROM "whatsapp_messages"`);
+      await tx.$executeRawUnsafe(`DELETE FROM "whatsapp_conversations"`);
+      await tx.$executeRawUnsafe(`DELETE FROM "whatsapp_jobs"`);
+      await tx.$executeRawUnsafe(`DELETE FROM "whatsapp_broadcasts"`);
 
       await tx.$executeRawUnsafe(`DELETE FROM "activity_logs"`);
       await tx.$executeRawUnsafe(`DELETE FROM "login_attempts"`);
@@ -136,19 +147,21 @@ export async function POST(req: NextRequest) {
       }
 
       if (backup.inventory?.length) {
-        for (const i of backup.inventory) {
-          await tx.$executeRawUnsafe(
-            `INSERT INTO "clothing_items" ("id","name","sku","category","size","color","daily_rate","deposit","status","item_type","photo","condition_notes","created_at","sub_category") VALUES (${ph(14)})`,
-            i.id, i.name, i.sku, i.category, i.size ?? null, i.color ?? null,
-            i.dailyRate ?? i.daily_rate ?? 0, i.deposit ?? 0,
-            i.status ?? "available", i.itemType ?? i.item_type ?? "clothing",
-            i.photo ?? null, i.conditionNotes ?? i.condition_notes ?? null,
-            dateParamReq(i.createdAt as string),
-            i.subCategory ?? i.sub_category ?? null,
+        const { inventoryCount, aiProfileCount } = await restoreInventoryWithAi(
+          tx,
+          backup.inventory,
+          backup.inventory_ai_profiles,
+        );
+        counts.inventory = inventoryCount;
+        counts.inventory_ai_profiles = aiProfileCount;
+        log.push(`Restored ${inventoryCount} inventory items`);
+        if (aiProfileCount > 0) {
+          log.push(`Restored ${aiProfileCount} AI profiles`);
+        } else if (inventoryCount > 0) {
+          log.push(
+            "No AI profiles in backup — run Bulk Image Sync → Index Pending Items if dress search is needed.",
           );
         }
-        counts.inventory = backup.inventory.length;
-        log.push(`Restored ${backup.inventory.length} inventory items`);
       }
 
       if (backup.suppliers?.length) {

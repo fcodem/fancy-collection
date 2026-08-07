@@ -1,5 +1,5 @@
 import prisma from "./prisma";
-import { SUB_CATEGORIES } from "./constants";
+import { REMOVED_SUB_CATEGORIES, SUB_CATEGORIES } from "./constants";
 
 export type SubCategoryRow = {
   id: number;
@@ -7,6 +7,12 @@ export type SubCategoryRow = {
   active: boolean;
   createdAt: Date;
 };
+
+const REMOVED_SUB_SET = new Set(REMOVED_SUB_CATEGORIES.map((s) => s.toLowerCase()));
+
+function isRemovedSubCategory(name: string): boolean {
+  return REMOVED_SUB_SET.has(name.trim().toLowerCase());
+}
 
 type PrismaDelegate = {
   findMany?: (args: unknown) => Promise<unknown>;
@@ -27,14 +33,16 @@ export async function findActiveSubCategoryNames(): Promise<string[]> {
       where: { active: true },
       orderBy: { name: "asc" },
     })) as { name: string }[];
-    if (rows.length) return rows.map((r) => r.name);
+    const names = rows.map((r) => r.name).filter((n) => !isRemovedSubCategory(n));
+    if (names.length) return names;
     return [...SUB_CATEGORIES];
   }
   try {
     const rows = await prisma.$queryRaw<{ name: string }[]>`
       SELECT name FROM custom_sub_categories WHERE active = true ORDER BY name ASC
     `;
-    if (rows.length) return rows.map((r) => r.name);
+    const names = rows.map((r) => r.name).filter((n) => !isRemovedSubCategory(n));
+    if (names.length) return names;
   } catch {
     /* table missing or stale client */
   }
@@ -44,18 +52,20 @@ export async function findActiveSubCategoryNames(): Promise<string[]> {
 export async function findActiveSubCategories(): Promise<SubCategoryRow[]> {
   const model = delegate("customSubCategory");
   if (model?.findMany) {
-    return (await model.findMany({
+    const rows = (await model.findMany({
       where: { active: true },
       orderBy: { name: "asc" },
     })) as SubCategoryRow[];
+    return rows.filter((r) => !isRemovedSubCategory(r.name));
   }
   try {
-    return await prisma.$queryRaw<SubCategoryRow[]>`
+    const rows = await prisma.$queryRaw<SubCategoryRow[]>`
       SELECT id, name, active, created_at AS "createdAt"
       FROM custom_sub_categories
       WHERE active = true
       ORDER BY name ASC
     `;
+    return rows.filter((r) => !isRemovedSubCategory(r.name));
   } catch {
     return SUB_CATEGORIES.map((name, i) => ({
       id: i + 1,

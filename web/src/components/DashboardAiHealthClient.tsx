@@ -3,7 +3,7 @@
 import Link from "next/link";
 import { useEffect, useState } from "react";
 
-type AiHealth = { queued: number; failed: number };
+type AiHealth = { queued: number; failed: number; ready: number; unindexed: number };
 
 export default function DashboardAiHealthClient() {
   const [data, setData] = useState<AiHealth | null>(null);
@@ -36,11 +36,21 @@ export default function DashboardAiHealthClient() {
         ) : data ? (
           <>
             <span>
-              <strong>{data.queued}</strong> queued/processing
+              <strong>{data.ready}</strong> indexed
             </span>
             <span>
-              <strong>{data.failed}</strong> failed
+              <strong>{data.queued}</strong> queued/processing
             </span>
+            {data.unindexed > 0 && (
+              <span style={{ color: "#1e40af" }}>
+                <strong>{data.unindexed}</strong> need indexing
+              </span>
+            )}
+            {data.failed > 0 && (
+              <span style={{ color: "var(--danger, #c62828)" }}>
+                <strong>{data.failed}</strong> failed
+              </span>
+            )}
           </>
         ) : (
           <span style={{ color: "var(--text-muted)" }}>Loading AI queue…</span>

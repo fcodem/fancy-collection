@@ -16,12 +16,21 @@ export async function GET(req: NextRequest) {
   const limit = Number(sp.get("limit") || 0) || undefined;
   const q = sp.get("q") || "";
   const category = sp.get("category") || "";
+  const subCategory = sp.get("sub_category") || sp.get("subcategory") || "";
   const status = sp.get("status") || "";
   const sort = sp.get("sort") === "newest" ? "newest" : "name";
   perf.endStage("parseMs", "parse");
 
   perf.mark("query");
-  const result = await listInventoryGroups({ cursor, limit, q, category, status, sort });
+  const result = await listInventoryGroups({
+    cursor,
+    limit,
+    q,
+    category,
+    subCategory,
+    status,
+    sort,
+  });
   perf.endStage("queryMs", "query");
   perf.setItemCount(result.rowCount);
   perf.addQueries(1);

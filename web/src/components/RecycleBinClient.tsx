@@ -6,6 +6,7 @@ import { StandardBookingTableCells, StandardBookingTableHead } from "@/component
 import BookingConflictSummary, { type BookingDateCheckRow } from "@/components/BookingConflictSummary";
 import { fetchJson } from "@/lib/fetchJson";
 import type { StandardBookingDetails } from "@/lib/bookingDetails";
+import { useToast } from "@/components/ui/Toast";
 
 type RecycleRow = StandardBookingDetails & {
   id: number;
@@ -28,6 +29,7 @@ type RestoreCheck = {
 
 export default function RecycleBinClient() {
   const router = useRouter();
+  const toast = useToast();
   const [rows, setRows] = useState<RecycleRow[]>([]);
   const [restoringId, setRestoringId] = useState<number | null>(null);
   const [restoreModal, setRestoreModal] = useState<{
@@ -134,9 +136,19 @@ export default function RecycleBinClient() {
   }
 
   async function del(id: number) {
-    if (!confirm("Permanently delete this booking?")) return;
-    await fetch(`/api/recycle-bin/${id}`, { method: "DELETE" });
-    setRows((prev) => prev.filter((r) => r.id !== id));
+    if (!confirm("Permanently delete this booking from the database? This cannot be undone.")) return;
+    try {
+      const res = await fetch(`/api/recycle-bin/${id}`, { method: "DELETE" });
+      const data = await res.json().catch(() => ({}));
+      if (!res.ok) {
+        toast(data.error || "Failed to delete booking from database", "error");
+        return;
+      }
+      setRows((prev) => prev.filter((r) => r.id !== id));
+      toast("Booking permanently deleted from database", "success");
+    } catch (e) {
+      toast(e instanceof Error ? e.message : "Failed to delete booking", "error");
+    }
   }
 
   const modal = restoreModal;

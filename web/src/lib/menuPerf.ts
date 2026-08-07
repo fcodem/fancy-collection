@@ -29,5 +29,5 @@ export function logMenuPerf(report: MenuPerfReport): void {
   });
 }
 
-export const BOOKING_LIST_PAGE_SIZE = 50;
+export const BOOKING_LIST_PAGE_SIZE = 25;
 export const LATE_RETURN_PAGE_SIZE = 50;

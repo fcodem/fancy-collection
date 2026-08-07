@@ -18,7 +18,10 @@ export const BASE_JEWELLERY = [
 ];
 export const BASE_ACCESSORY = ["Accessory", "Dupatta", "Belt", "Clutch", "Crown/Tiara"];
 export const SIZES = [...Array.from({ length: 14 }, (_, i) => String(32 + i * 2)), "Free Size", "Custom"];
-export const SUB_CATEGORIES = ["Premium", "Normal", "Cheap"];
+/** Built-in sub-categories (empty — shop uses Manage Categories customs only). */
+export const SUB_CATEGORIES: string[] = [];
+/** Legacy labels removed from pickers; kept only for existing inventory rows. */
+export const REMOVED_SUB_CATEGORIES = ["Premium", "Normal", "Cheap"] as const;
 export const PAYMENT_METHODS = ["cash", "card", "upi", "bank"];
 export const LOGIN_REQUEST_TTL_MINUTES = 30;
 export const ALLOWED_EXTENSIONS = ["png", "jpg", "jpeg", "webp", "gif"];
@@ -36,12 +39,11 @@ export function formatDate(d: Date | string, style: "iso" | "display" = "iso"): 
     const day = String(date.getUTCDate()).padStart(2, "0");
     return `${y}-${m}-${day}`;
   }
-  return date.toLocaleDateString("en-GB", {
-    day: "2-digit",
-    month: "short",
-    year: "numeric",
-    timeZone: "UTC",
-  });
+  // Canonical UI date: DD/MM/YYYY (Asia/Kolkata calendar day via UTC date fields).
+  const y = date.getUTCFullYear();
+  const m = String(date.getUTCMonth() + 1).padStart(2, "0");
+  const day = String(date.getUTCDate()).padStart(2, "0");
+  return `${day}/${m}/${y}`;
 }
 
 export const BUSINESS_TIMEZONE = "Asia/Kolkata";
@@ -52,7 +54,7 @@ export function formatBookingDateTime(d: Date | string): { date: string; time: s
   return {
     date: dt.toLocaleDateString("en-GB", {
       day: "2-digit",
-      month: "short",
+      month: "2-digit",
       year: "numeric",
       timeZone: BUSINESS_TIMEZONE,
     }),

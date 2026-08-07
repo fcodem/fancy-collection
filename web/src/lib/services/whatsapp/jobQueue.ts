@@ -14,6 +14,10 @@ import {
 import { isWhatsAppReceiptJobType, isWhatsAppReceiptsDisabled } from "./metaApi";
 import { mergeSendMetaIntoPayload } from "./jobSendMeta";
 import {
+  canReuseWhatsAppSendLedger,
+  markWhatsAppProviderSendConfirmed,
+} from "./whatsappSendLedger";
+import {
   formatJobFailedReason,
   isPremiumSlipRenderFailureMessage,
   isProviderOutcomeUnknownReason,
@@ -28,9 +32,6 @@ import {
   type SafeRenderRetrySummary,
 } from "./whatsappJobClassification";
 import { PREMIUM_SLIP_RENDER_FAILED } from "@/lib/premiumSlip";
-import {
-  markWhatsAppProviderSendConfirmed,
-} from "./whatsappSendLedger";
 import type { WhatsAppJobSendContext } from "./whatsappJobSendContext";
 import {
   WHATSAPP_CRON_SAFE_BUDGET_MS,
@@ -834,7 +835,7 @@ async function processClaimedWhatsAppJob(
         const ledger = await prisma.whatsAppSendLedger.findUnique({
           where: { idempotencyKey },
         });
-        if (ledger?.sendConfirmedAt && ledger.providerMessageId) {
+        if (canReuseWhatsAppSendLedger(ledger, job) && ledger?.providerMessageId) {
           await prisma.whatsAppJob.update({
             where: { id: job.id },
             data: {
@@ -895,18 +896,16 @@ async function processClaimedWhatsAppJob(
     results.push({ jobId: job.id, jobType: job.jobType, ok: true });
   } catch (e) {
     const error = e instanceof Error ? e.message : "Job failed";
-    let ledger: {
-      sendStartedAt?: Date | null;
-      sendConfirmedAt?: Date | null;
-      providerMessageId?: string | null;
-    } | null = null;
+    let ledger: Awaited<
+      ReturnType<typeof prisma.whatsAppSendLedger.findUnique>
+    > = null;
 
     if (idempotencyKey) {
       try {
         ledger = await prisma.whatsAppSendLedger.findUnique({
           where: { idempotencyKey },
         });
-        if (ledger?.sendConfirmedAt && ledger.providerMessageId) {
+        if (canReuseWhatsAppSendLedger(ledger, job) && ledger?.providerMessageId) {
           await prisma.whatsAppJob.update({
             where: { id: job.id },
             data: {

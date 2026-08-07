@@ -82,6 +82,12 @@ type UnitBase = {
   hasEarrings?: boolean;
   hasTeeka?: boolean;
   hasPasa?: boolean;
+  hasSheeshpatti?: boolean;
+  hasNath?: boolean;
+  hasHathfool?: boolean;
+  hasKamarband?: boolean;
+  hasRings?: boolean;
+  hasLongHar?: boolean;
 };
 
 function buildUnitRows(base: UnitBase, quantity: number, skus: string[]) {
@@ -108,6 +114,12 @@ function buildUnitRows(base: UnitBase, quantity: number, skus: string[]) {
       hasEarrings: base.hasEarrings ?? false,
       hasTeeka: base.hasTeeka ?? false,
       hasPasa: base.hasPasa ?? false,
+      hasSheeshpatti: base.hasSheeshpatti ?? false,
+      hasNath: base.hasNath ?? false,
+      hasHathfool: base.hasHathfool ?? false,
+      hasKamarband: base.hasKamarband ?? false,
+      hasRings: base.hasRings ?? false,
+      hasLongHar: base.hasLongHar ?? false,
       inventoryGroupId: base.inventoryGroupId,
     };
   });
@@ -143,6 +155,12 @@ export type CreateInventoryForm = {
   has_earrings?: boolean;
   has_teeka?: boolean;
   has_pasa?: boolean;
+  has_sheeshpatti?: boolean;
+  has_nath?: boolean;
+  has_hathfool?: boolean;
+  has_kamarband?: boolean;
+  has_rings?: boolean;
+  has_long_har?: boolean;
 };
 
 /**
@@ -164,6 +182,12 @@ export async function createInventoryItemInTx(
     hasEarrings: !!form.has_earrings,
     hasTeeka: !!form.has_teeka,
     hasPasa: !!form.has_pasa,
+    hasSheeshpatti: !!form.has_sheeshpatti,
+    hasNath: !!form.has_nath,
+    hasHathfool: !!form.has_hathfool,
+    hasKamarband: !!form.has_kamarband,
+    hasRings: !!form.has_rings,
+    hasLongHar: !!form.has_long_har,
   };
 
   if (MENS_CATEGORIES.includes(form.category)) {
@@ -174,6 +198,8 @@ export async function createInventoryItemInTx(
     const rows: ReturnType<typeof buildUnitRows> = [];
     let skuOffset = 0;
     for (const sz of sizes) {
+      // Each size is its own dress group → separate QR / availability per size.
+      const sizeGroupId = generateUuidV4();
       const sizeSkus = skus.slice(skuOffset, skuOffset + quantity);
       skuOffset += quantity;
       rows.push(
@@ -190,7 +216,7 @@ export async function createInventoryItemInTx(
             photo: photoFilename,
             thumbnailPhoto: thumbnailFilename,
             subCategory,
-            inventoryGroupId,
+            inventoryGroupId: sizeGroupId,
             ...partFlags,
           },
           quantity,
@@ -201,7 +227,8 @@ export async function createInventoryItemInTx(
     const created = await tx.clothingItem.createManyAndReturn({ data: rows });
     return {
       items: created.sort((a, b) => a.sku.localeCompare(b.sku)),
-      inventoryGroupId,
+      // Legacy return field — first size group (callers that need all groups use items).
+      inventoryGroupId: created[0]?.inventoryGroupId || inventoryGroupId,
     };
   }
 
@@ -307,6 +334,12 @@ export type UpdateInventoryForm = {
   has_earrings?: boolean;
   has_teeka?: boolean;
   has_pasa?: boolean;
+  has_sheeshpatti?: boolean;
+  has_nath?: boolean;
+  has_hathfool?: boolean;
+  has_kamarband?: boolean;
+  has_rings?: boolean;
+  has_long_har?: boolean;
 };
 
 /**
@@ -393,6 +426,12 @@ export async function updateInventoryItemInTx(
       hasEarrings: form.has_earrings ?? existing.hasEarrings,
       hasTeeka: form.has_teeka ?? existing.hasTeeka,
       hasPasa: form.has_pasa ?? existing.hasPasa,
+      hasSheeshpatti: form.has_sheeshpatti ?? existing.hasSheeshpatti,
+      hasNath: form.has_nath ?? existing.hasNath,
+      hasHathfool: form.has_hathfool ?? existing.hasHathfool,
+      hasKamarband: form.has_kamarband ?? existing.hasKamarband,
+      hasRings: form.has_rings ?? existing.hasRings,
+      hasLongHar: form.has_long_har ?? existing.hasLongHar,
       ...(photoRemoved
         ? {
             originalPhoto: null,
@@ -516,5 +555,144 @@ export async function deleteInventoryItem(id: number, by?: string) {
     label: `Deleted ${existing.name} (${existing.category})`,
     before: snapshotInventory(existing as unknown as Record<string, unknown>),
   });
+}
+
+/**
+ * Add a new size to an existing men's product (copies photo/rates from a sibling unit).
+ */
+export async function addMensProductSize(opts: {
+  seedItemId: number;
+  size: string;
+  quantity?: number;
+  by?: string;
+}) {
+  const size = String(opts.size || "").trim();
+  if (!size) throw new Error("Size is required.");
+  const quantity = Math.max(1, Math.min(Number(opts.quantity) || 1, 50));
+
+  const seed = await prisma.clothingItem.findUnique({ where: { id: opts.seedItemId } });
+  if (!seed) throw new Error("Product not found.");
+  if (!MENS_CATEGORIES.includes(seed.category)) {
+    throw new Error("Add size is only supported for men's categories.");
+  }
+
+  const baseName = seed.name.replace(/\s+#\d+$/, "").trim();
+  const siblings = await prisma.clothingItem.findMany({
+    where: { category: seed.category },
+    select: { id: true, name: true, size: true },
+    take: 400,
+  });
+  const productRows = siblings.filter(
+    (r) => r.name.replace(/\s+#\d+$/, "").trim().toLowerCase() === baseName.toLowerCase(),
+  );
+  if (productRows.some((r) => String(r.size || "").trim().toLowerCase() === size.toLowerCase())) {
+    throw new Error(`Size ${size} already exists on this product.`);
+  }
+
+  const sizeGroupId = generateUuidV4();
+  const created = await prisma.$transaction(async (tx) => {
+    const skus = await allocateInventorySkus(quantity, tx);
+    const rows = buildUnitRows(
+      {
+        name: baseName,
+        category: seed.category,
+        size,
+        color: "",
+        daily_rate: seed.dailyRate,
+        deposit: seed.deposit,
+        condition_notes: seed.conditionNotes || "",
+        itemType: seed.itemType || "clothing",
+        photo: seed.photo || "",
+        thumbnailPhoto: seed.thumbnailPhoto,
+        subCategory: seed.subCategory || "Normal",
+        inventoryGroupId: sizeGroupId,
+        hasNecklace: seed.hasNecklace,
+        hasEarrings: seed.hasEarrings,
+        hasTeeka: seed.hasTeeka,
+        hasPasa: seed.hasPasa,
+        hasSheeshpatti: seed.hasSheeshpatti,
+        hasNath: seed.hasNath,
+        hasHathfool: seed.hasHathfool,
+        hasKamarband: seed.hasKamarband,
+        hasRings: seed.hasRings,
+        hasLongHar: seed.hasLongHar,
+      },
+      quantity,
+      skus,
+    );
+    return tx.clothingItem.createManyAndReturn({ data: rows });
+  });
+
+  const ids = created.map((c) => c.id);
+  broadcastShopEvent({ type: "inventory.changed", itemIds: ids, by: opts.by });
+  for (const item of created) {
+    void logActivity({
+      username: opts.by || "system",
+      action: "created",
+      entity: "inventory",
+      entityId: item.id,
+      label: `Added size ${size} to ${baseName} (${seed.category})`,
+      after: snapshotInventory(item as unknown as Record<string, unknown>),
+    });
+  }
+
+  return {
+    items: created.sort((a, b) => a.sku.localeCompare(b.sku)),
+    inventoryGroupId: sizeGroupId,
+    size,
+  };
+}
+
+/**
+ * Remove one size from a men's product (all units of that size).
+ */
+export async function removeMensProductSize(opts: {
+  seedItemId: number;
+  size: string;
+  by?: string;
+}) {
+  const size = String(opts.size || "").trim();
+  if (!size) throw new Error("Size is required.");
+
+  const seed = await prisma.clothingItem.findUnique({ where: { id: opts.seedItemId } });
+  if (!seed) throw new Error("Product not found.");
+  if (!MENS_CATEGORIES.includes(seed.category)) {
+    throw new Error("Remove size is only supported for men's categories.");
+  }
+
+  const baseName = seed.name.replace(/\s+#\d+$/, "").trim();
+  const candidates = await prisma.clothingItem.findMany({
+    where: { category: seed.category, size },
+    take: 200,
+  });
+  const toDelete = candidates.filter(
+    (r) => r.name.replace(/\s+#\d+$/, "").trim().toLowerCase() === baseName.toLowerCase(),
+  );
+  if (!toDelete.length) throw new Error(`Size ${size} was not found on this product.`);
+
+  const remainingSizes = await prisma.clothingItem.findMany({
+    where: { category: seed.category },
+    select: { name: true, size: true },
+    take: 400,
+  });
+  const otherSizes = new Set(
+    remainingSizes
+      .filter(
+        (r) =>
+          r.name.replace(/\s+#\d+$/, "").trim().toLowerCase() === baseName.toLowerCase() &&
+          String(r.size || "").trim().toLowerCase() !== size.toLowerCase(),
+      )
+      .map((r) => String(r.size || "").trim()),
+  );
+  if (otherSizes.size === 0) {
+    throw new Error("Cannot remove the last size. Delete the product instead.");
+  }
+
+  const deletedIds: number[] = [];
+  for (const item of toDelete) {
+    await deleteInventoryItem(item.id, opts.by);
+    deletedIds.push(item.id);
+  }
+  return { deletedIds, size };
 }
 

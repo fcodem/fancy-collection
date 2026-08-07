@@ -290,14 +290,43 @@ export async function getDashboardAiHealth() {
         ["dashboard-ai-health-mem"],
         async () => {
           const rows = await runDashboardRead(() =>
-            prisma.$queryRaw<Array<{ queued: number; failed: number }>>`
+            prisma.$queryRaw<
+              Array<{
+                queued: number;
+                failed: number;
+                ready_profiles: number;
+                unindexed: number;
+              }>
+            >`
             SELECT
-              COUNT(*) FILTER (WHERE status IN ('pending', 'processing'))::int AS queued,
-              COUNT(*) FILTER (WHERE status = 'failed')::int AS failed
-            FROM inventory_ai_jobs
+              (SELECT COUNT(*)::int FROM inventory_ai_jobs
+               WHERE status IN ('PENDING', 'PROCESSING', 'RETRYING')) AS queued,
+              (SELECT COUNT(*)::int FROM inventory_ai_jobs
+               WHERE status IN ('FAILED', 'DEAD_LETTER')) AS failed,
+              (SELECT COUNT(*)::int FROM inventory_ai_profiles
+               WHERE COALESCE(NULLIF(ai_status, ''), UPPER(status), 'PENDING') = 'READY') AS ready_profiles,
+              (SELECT COUNT(*)::int FROM clothing_items c
+               LEFT JOIN inventory_ai_profiles p ON p.item_id = c.id
+               WHERE c.photo IS NOT NULL AND TRIM(c.photo) <> ''
+                 AND (
+                   p.item_id IS NULL
+                   OR COALESCE(NULLIF(p.ai_status, ''), UPPER(p.status), 'PENDING') <> 'READY'
+                   OR COALESCE(p.needs_reindex, false) = true
+                 )) AS unindexed
           `,
           );
-          return rows[0] ?? { queued: 0, failed: 0 };
+          const row = rows[0] ?? {
+            queued: 0,
+            failed: 0,
+            ready_profiles: 0,
+            unindexed: 0,
+          };
+          return {
+            queued: row.queued,
+            failed: row.failed,
+            ready: row.ready_profiles,
+            unindexed: row.unindexed,
+          };
         },
         45,
       ),

@@ -114,8 +114,8 @@ export function serializeBookingRecordForView(
 ) {
   return {
     ...core,
-    deliveryDate: formatDate(core.deliveryDate),
-    returnDate: formatDate(core.returnDate),
+    deliveryDate: formatDate(core.deliveryDate, "display"),
+    returnDate: formatDate(core.returnDate, "display"),
   };
 }
 

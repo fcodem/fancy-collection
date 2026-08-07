@@ -1,6 +1,7 @@
 import type { ReactNode } from "react";
 import { privateMediaUrl } from "@/lib/photoUrl";
 import ZoomableImage from "@/components/ZoomableImage";
+import SlipOutfitPhoto from "@/components/SlipOutfitPhoto";
 import SlipBrandTitle from "@/components/SlipBrandTitle";
 import SlipLogo from "@/components/SlipLogo";
 import SlipMottoBanner from "@/components/SlipMottoBanner";
@@ -657,11 +658,11 @@ export default function BookingSlip(props: BookingSlipProps) {
           </div>
 
           <div style={{ display: "flex", alignItems: "center", justifyContent: "center", padding: "10px 16px 8px", background: "#fafafa" }}>
-            {/* eslint-disable-next-line @next/next/no-img-element */}
-            <img
+            <SlipOutfitPhoto
               src={it.photoUrl!}
               alt={it.dressName}
-              style={{
+              caption={it.dressName}
+              imgStyle={{
                 width: "100%",
                 maxWidth: "178mm",
                 maxHeight: props.printMode ? "220mm" : "70vh",

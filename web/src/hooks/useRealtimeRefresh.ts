@@ -2,6 +2,7 @@
 
 import { useEffect, useRef } from "react";
 import type { ShopEvent, ShopEventType } from "@/lib/realtime/types";
+import { PAGE_OPEN_REFRESH_EVENT } from "@/lib/pageOpenRefresh";
 
 function safeRefresh(refresh: () => void) {
   try {
@@ -15,12 +16,13 @@ function safeRefresh(refresh: () => void) {
 }
 
 /**
- * Re-fetch list/search data when RealtimeProvider receives shop events.
- * Uses a single poll from useShopRealtime — no duplicate setInterval per page.
+ * Re-fetch list/search data when:
+ * - RealtimeProvider receives matching shop events, or
+ * - the user opens a menu / returns to the tab (PAGE_OPEN_REFRESH_EVENT).
  *
  * `nav.refresh` is intentionally ignored here — it is reserved for the shell
- * nav-badge path. List refreshes only happen on matching domain events or on
- * polling-mode `shop.changed` (revision advanced).
+ * nav-badge path. List refreshes only happen on matching domain events,
+ * polling-mode `shop.changed`, or explicit page-open refresh.
  */
 export function useRealtimeRefresh(types: ShopEventType[], refresh: () => void) {
   const refreshRef = useRef(refresh);
@@ -29,7 +31,7 @@ export function useRealtimeRefresh(types: ShopEventType[], refresh: () => void) 
   typesRef.current = types;
 
   useEffect(() => {
-    const handler = (e: Event) => {
+    const onShopEvent = (e: Event) => {
       if (typeof document !== "undefined" && document.hidden) return;
       const event = (e as CustomEvent<ShopEvent>).detail;
       if (!event) return;
@@ -39,7 +41,16 @@ export function useRealtimeRefresh(types: ShopEventType[], refresh: () => void) 
       }
     };
 
-    window.addEventListener("shop-realtime", handler);
-    return () => window.removeEventListener("shop-realtime", handler);
+    const onPageOpen = () => {
+      if (typeof document !== "undefined" && document.hidden) return;
+      safeRefresh(() => refreshRef.current());
+    };
+
+    window.addEventListener("shop-realtime", onShopEvent);
+    window.addEventListener(PAGE_OPEN_REFRESH_EVENT, onPageOpen);
+    return () => {
+      window.removeEventListener("shop-realtime", onShopEvent);
+      window.removeEventListener(PAGE_OPEN_REFRESH_EVENT, onPageOpen);
+    };
   }, []);
 }

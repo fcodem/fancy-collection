@@ -15,6 +15,7 @@ import SlipLogo from "@/components/SlipLogo";
 import SlipMottoBanner from "@/components/SlipMottoBanner";
 import Emoji from "@/components/Emoji";
 import PremiumSlipMarker from "@/components/PremiumSlipMarker";
+import ZoomableImage from "@/components/ZoomableImage";
 
 export type IncompleteReturnSlipProps = {
   booking: {
@@ -329,9 +330,10 @@ export default function IncompleteReturnSlip(props: IncompleteReturnSlipProps) {
                       <div style={{ fontWeight: 700 }}>{item.dressName}</div>
                       {item.color && <div style={{ fontSize: 12, color: SLIP_GREY }}>Color: {item.color}</div>}
                       {item.catalogPhotoUrl && (
-                        <img
+                        <ZoomableImage
                           src={item.catalogPhotoUrl}
                           alt={`${item.dressName} reference`}
+                          overlayCaption={item.dressName}
                           style={{ width: 56, height: 56, objectFit: "cover", borderRadius: 6, marginTop: 6, border: `1px solid ${SLIP_BORDER}` }}
                         />
                       )}

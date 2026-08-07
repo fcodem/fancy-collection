@@ -1,7 +1,16 @@
 /** Pure helpers for SessionHeartbeat (testable without React). */
 
-export const SESSION_HEARTBEAT_INTERVAL_MS = 8 * 60_000;
-export const SESSION_HEARTBEAT_INITIAL_DELAY_MS = 30_000;
+/** How often the client verifies the DB session is still active (single-device login). */
+export const SESSION_HEARTBEAT_INTERVAL_MS = 15_000;
+/** First check shortly after entering the protected app. */
+export const SESSION_HEARTBEAT_INITIAL_DELAY_MS = 5_000;
+
+/** Login page query when this device was signed out because the same ID logged in elsewhere. */
+export const SESSION_SUPERSEDED_LOGIN_PARAM = "elsewhere";
+
+export function sessionSupersededLoginPath(): string {
+  return `/login?error=${SESSION_SUPERSEDED_LOGIN_PARAM}`;
+}
 
 export function skipHeartbeat(pathname: string | null): boolean {
   if (!pathname) return true;
@@ -12,16 +21,10 @@ export function skipHeartbeat(pathname: string | null): boolean {
   return false;
 }
 
-/** End staff session when the app/tab is closed so the next open shows login. */
+/**
+ * Never call logout on pagehide — refresh also fires pagehide and would log users out.
+ * Kept as a no-op for backwards-compatible imports; use the Logout button instead.
+ */
 export function logoutOnAppClose(): void {
-  if (typeof window === "undefined") return;
-  try {
-    void fetch("/api/logout", {
-      method: "POST",
-      credentials: "same-origin",
-      keepalive: true,
-    });
-  } catch {
-    /* tab may already be unloading */
-  }
+  /* intentionally empty — see SessionHeartbeat */
 }

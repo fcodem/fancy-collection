@@ -1,7 +1,7 @@
 import prisma from "./prisma";
 import { BRAND_FULL_NAME } from "./branding";
 
-export const BACKUP_VERSION = "2.1";
+export const BACKUP_VERSION = "2.2";
 
 export type BackupMeta = {
   app: string;
@@ -17,6 +17,7 @@ export type BackupPayload = {
   meta: BackupMeta;
   bookings: Awaited<ReturnType<typeof fetchBookings>>;
   inventory: Awaited<ReturnType<typeof fetchInventory>>;
+  inventory_ai_profiles: Awaited<ReturnType<typeof fetchInventoryAiProfiles>>;
   customers: Awaited<ReturnType<typeof fetchCustomers>>;
   staff: Awaited<ReturnType<typeof fetchStaff>>;
   users: Awaited<ReturnType<typeof fetchUsers>>;
@@ -83,6 +84,21 @@ async function fetchBookings() {
 async function fetchInventory() {
   return prisma.clothingItem.findMany({ orderBy: { id: "asc" } }).then((rows) =>
     rows.map((i) => ({ ...i, createdAt: dateStr(i.createdAt) })),
+  );
+}
+
+async function fetchInventoryAiProfiles() {
+  return prisma.inventoryAiProfile.findMany({ orderBy: { itemId: "asc" } }).then((rows) =>
+    rows.map((p) => ({
+      ...p,
+      indexedAt: dateStr(p.indexedAt),
+      updatedAt: dateStr(p.updatedAt)!,
+      lastIndexAttemptAt: dateStr(p.lastIndexAttemptAt),
+      lastSuccessfulIndexAt: dateStr(p.lastSuccessfulIndexAt),
+      lastProcessed: dateStr(p.lastProcessed),
+      reindexedAt: dateStr(p.reindexedAt),
+      lastIndexedAt: dateStr(p.lastIndexedAt),
+    })),
   );
 }
 
@@ -195,6 +211,7 @@ export async function buildFullBackup(exportedBy: string): Promise<BackupPayload
   const [
     bookings,
     inventory,
+    inventoryAiProfiles,
     customers,
     staff,
     users,
@@ -210,6 +227,7 @@ export async function buildFullBackup(exportedBy: string): Promise<BackupPayload
   ] = await Promise.all([
     fetchBookings(),
     fetchInventory(),
+    fetchInventoryAiProfiles(),
     fetchCustomers(),
     fetchStaff(),
     fetchUsers(),
@@ -241,6 +259,7 @@ export async function buildFullBackup(exportedBy: string): Promise<BackupPayload
         bookings: bookings.length,
         booking_items: bookingItemCount,
         inventory: inventory.length,
+        inventory_ai_profiles: inventoryAiProfiles.length,
         customers: customers.length,
         staff: staff.length,
         users: users.length,
@@ -261,11 +280,13 @@ export async function buildFullBackup(exportedBy: string): Promise<BackupPayload
       photo_manifest: photoManifest,
       notes: [
         "JSON backup contains all database records.",
-        "Photo/image files are referenced by path only — copy public/uploads/ (or use Vercel Blob URLs) separately to preserve images.",
+        "Photo/image files are referenced by path only - copy public/uploads/ (or use Vercel Blob URLs) separately to preserve images.",
+        "AI dress-search profiles (inventory_ai_profiles) are included from backup v2.2 onward.",
       ],
     },
     bookings,
     inventory,
+    inventory_ai_profiles: inventoryAiProfiles,
     customers,
     staff,
     users,

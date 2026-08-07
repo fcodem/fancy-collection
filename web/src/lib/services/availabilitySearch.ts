@@ -1,12 +1,24 @@
 import { Prisma } from "@prisma/client";
 import prisma, { parseDateQ } from "@/lib/prisma";
-import { dressDisplayName } from "@/lib/dress";
+import { dressDisplayName, stripUnitSuffix } from "@/lib/dress";
 import {
   decodeAvailabilityCursor,
   encodeAvailabilityCursor,
 } from "@/lib/availabilityCursor";
 import type { JewelleryPartKey } from "@/lib/jewelleryParts";
 import { BASE_JEWELLERY, BASE_MENS, BASE_WOMENS } from "@/lib/constants";
+import { photoUrl } from "@/lib/photoUrl";
+
+function freeItemGroupKey(item: {
+  inventoryGroupId?: string | null;
+  name: string;
+  category: string;
+  size?: string | null;
+  color?: string | null;
+}): string {
+  if (item.inventoryGroupId) return `g:${item.inventoryGroupId}`;
+  return `legacy:${stripUnitSuffix(item.name)}|${item.category}|${item.size || ""}|${item.color || ""}`;
+}
 
 export const DEFAULT_LIMIT = 30;
 export const MAX_LIMIT = 50;
@@ -49,6 +61,9 @@ export type AvailabilitySearchResult = {
     item_type: string;
     thumbnail: string | null;
     photo: string | null;
+    inventory_group_id: string | null;
+    free_quantity: number;
+    total_quantity: number;
     has_necklace: boolean;
     has_earrings: boolean;
     has_teeka: boolean;
@@ -77,14 +92,27 @@ type AvailabilityRow = {
   status: string;
   itemType: string;
   thumbnail: string | null;
+  inventoryGroupId: string | null;
   hasNecklace: boolean;
   hasEarrings: boolean;
   hasTeeka: boolean;
   hasPasa: boolean;
+  hasSheeshpatti: boolean;
+  hasNath: boolean;
+  hasHathfool: boolean;
+  hasKamarband: boolean;
+  hasRings: boolean;
+  hasLongHar: boolean;
   necklaceBusy: boolean;
   earringsBusy: boolean;
   teekaBusy: boolean;
   pasaBusy: boolean;
+  sheeshpattiBusy: boolean;
+  nathBusy: boolean;
+  hathfoolBusy: boolean;
+  kamarbandBusy: boolean;
+  ringsBusy: boolean;
+  longHarBusy: boolean;
   wholeJewelleryBusy: boolean;
   returningWarning: Record<string, unknown> | null;
   bookedWarning: Record<string, unknown> | null;
@@ -175,6 +203,12 @@ function partsFor(row: AvailabilityRow, busy: boolean): JewelleryPartKey[] {
   if (row.hasEarrings && row.earringsBusy === busy) parts.push("earrings");
   if (row.hasTeeka && row.teekaBusy === busy) parts.push("teeka");
   if (row.hasPasa && row.pasaBusy === busy) parts.push("pasa");
+  if (row.hasSheeshpatti && row.sheeshpattiBusy === busy) parts.push("sheeshpatti");
+  if (row.hasNath && row.nathBusy === busy) parts.push("nath");
+  if (row.hasHathfool && row.hathfoolBusy === busy) parts.push("hathfool");
+  if (row.hasKamarband && row.kamarbandBusy === busy) parts.push("kamarband");
+  if (row.hasRings && row.ringsBusy === busy) parts.push("rings");
+  if (row.hasLongHar && row.longHarBusy === busy) parts.push("longhar");
   return parts;
 }
 
@@ -265,9 +299,36 @@ function buildAvailabilityQuery(opts: {
               WHERE (b.return_date AT TIME ZONE 'UTC')::date <> (${deliveryStart}::timestamptz AT TIME ZONE 'UTC')::date
                 AND (b.delivery_date AT TIME ZONE 'UTC')::date <> (${returnStart}::timestamptz AT TIME ZONE 'UTC')::date
             ) AS pasa_busy,
+            BOOL_OR(bj.pick_sheeshpatti) FILTER (
+              WHERE (b.return_date AT TIME ZONE 'UTC')::date <> (${deliveryStart}::timestamptz AT TIME ZONE 'UTC')::date
+                AND (b.delivery_date AT TIME ZONE 'UTC')::date <> (${returnStart}::timestamptz AT TIME ZONE 'UTC')::date
+            ) AS sheeshpatti_busy,
+            BOOL_OR(bj.pick_nath) FILTER (
+              WHERE (b.return_date AT TIME ZONE 'UTC')::date <> (${deliveryStart}::timestamptz AT TIME ZONE 'UTC')::date
+                AND (b.delivery_date AT TIME ZONE 'UTC')::date <> (${returnStart}::timestamptz AT TIME ZONE 'UTC')::date
+            ) AS nath_busy,
+            BOOL_OR(bj.pick_hathfool) FILTER (
+              WHERE (b.return_date AT TIME ZONE 'UTC')::date <> (${deliveryStart}::timestamptz AT TIME ZONE 'UTC')::date
+                AND (b.delivery_date AT TIME ZONE 'UTC')::date <> (${returnStart}::timestamptz AT TIME ZONE 'UTC')::date
+            ) AS hathfool_busy,
+            BOOL_OR(bj.pick_kamarband) FILTER (
+              WHERE (b.return_date AT TIME ZONE 'UTC')::date <> (${deliveryStart}::timestamptz AT TIME ZONE 'UTC')::date
+                AND (b.delivery_date AT TIME ZONE 'UTC')::date <> (${returnStart}::timestamptz AT TIME ZONE 'UTC')::date
+            ) AS kamarband_busy,
+            BOOL_OR(bj.pick_rings) FILTER (
+              WHERE (b.return_date AT TIME ZONE 'UTC')::date <> (${deliveryStart}::timestamptz AT TIME ZONE 'UTC')::date
+                AND (b.delivery_date AT TIME ZONE 'UTC')::date <> (${returnStart}::timestamptz AT TIME ZONE 'UTC')::date
+            ) AS rings_busy,
+            BOOL_OR(bj.pick_long_har) FILTER (
+              WHERE (b.return_date AT TIME ZONE 'UTC')::date <> (${deliveryStart}::timestamptz AT TIME ZONE 'UTC')::date
+                AND (b.delivery_date AT TIME ZONE 'UTC')::date <> (${returnStart}::timestamptz AT TIME ZONE 'UTC')::date
+            ) AS long_har_busy,
             BOOL_OR(
               NOT bj.pick_necklace AND NOT bj.pick_earrings
               AND NOT bj.pick_teeka AND NOT bj.pick_pasa
+              AND NOT bj.pick_sheeshpatti AND NOT bj.pick_nath
+              AND NOT bj.pick_hathfool AND NOT bj.pick_kamarband
+              AND NOT bj.pick_rings AND NOT bj.pick_long_har
             ) FILTER (
               WHERE (b.return_date AT TIME ZONE 'UTC')::date <> (${deliveryStart}::timestamptz AT TIME ZONE 'UTC')::date
                 AND (b.delivery_date AT TIME ZONE 'UTC')::date <> (${returnStart}::timestamptz AT TIME ZONE 'UTC')::date
@@ -290,6 +351,12 @@ function buildAvailabilityQuery(opts: {
             false AS earrings_busy,
             false AS teeka_busy,
             false AS pasa_busy,
+            false AS sheeshpatti_busy,
+            false AS nath_busy,
+            false AS hathfool_busy,
+            false AS kamarband_busy,
+            false AS rings_busy,
+            false AS long_har_busy,
             false AS whole_busy
           WHERE false
         ),`;
@@ -306,10 +373,17 @@ function buildAvailabilityQuery(opts: {
         ci.status,
         ci.item_type AS "itemType",
         COALESCE(ci.thumbnail_photo, ci.photo) AS thumbnail,
+        ci.inventory_group_id AS "inventoryGroupId",
         ci.has_necklace AS "hasNecklace",
         ci.has_earrings AS "hasEarrings",
         ci.has_teeka AS "hasTeeka",
-        ci.has_pasa AS "hasPasa"
+        ci.has_pasa AS "hasPasa",
+        ci.has_sheeshpatti AS "hasSheeshpatti",
+        ci.has_nath AS "hasNath",
+        ci.has_hathfool AS "hasHathfool",
+        ci.has_kamarband AS "hasKamarband",
+        ci.has_rings AS "hasRings",
+        ci.has_long_har AS "hasLongHar"
       FROM clothing_items ci
       WHERE ci.status NOT IN ('maintenance', 'repair', 'cleaning')
         AND (${category} = '' OR ci.category = ${category})
@@ -435,6 +509,12 @@ function buildAvailabilityQuery(opts: {
             AND (NOT ci."hasEarrings" OR COALESCE(jew.earrings_busy, false))
             AND (NOT ci."hasTeeka" OR COALESCE(jew.teeka_busy, false))
             AND (NOT ci."hasPasa" OR COALESCE(jew.pasa_busy, false))
+            AND (NOT ci."hasSheeshpatti" OR COALESCE(jew.sheeshpatti_busy, false))
+            AND (NOT ci."hasNath" OR COALESCE(jew.nath_busy, false))
+            AND (NOT ci."hasHathfool" OR COALESCE(jew.hathfool_busy, false))
+            AND (NOT ci."hasKamarband" OR COALESCE(jew.kamarband_busy, false))
+            AND (NOT ci."hasRings" OR COALESCE(jew.rings_busy, false))
+            AND (NOT ci."hasLongHar" OR COALESCE(jew.long_har_busy, false))
           )
         )
       ORDER BY ci.category, ci.name, ci.id
@@ -508,6 +588,12 @@ export async function searchAvailableItems(
       COALESCE(jew.earrings_busy, false) AS "earringsBusy",
       COALESCE(jew.teeka_busy, false) AS "teekaBusy",
       COALESCE(jew.pasa_busy, false) AS "pasaBusy",
+      COALESCE(jew.sheeshpatti_busy, false) AS "sheeshpattiBusy",
+      COALESCE(jew.nath_busy, false) AS "nathBusy",
+      COALESCE(jew.hathfool_busy, false) AS "hathfoolBusy",
+      COALESCE(jew.kamarband_busy, false) AS "kamarbandBusy",
+      COALESCE(jew.rings_busy, false) AS "ringsBusy",
+      COALESCE(jew.long_har_busy, false) AS "longHarBusy",
       COALESCE(jew.whole_busy, false) AS "wholeJewelleryBusy",
       ${availabilityBookingWarnJson("rb")} AS "returningWarning",
       ${availabilityBookingWarnJson("bb")} AS "bookedWarning"
@@ -533,8 +619,74 @@ export async function searchAvailableItems(
   const serializeStart = performance.now();
   const hasMore = rows.length > limit;
   const visible = rows.slice(0, limit);
+
+  const freeCountByGroup = new Map<string, number>();
+  for (const row of visible) {
+    const key = freeItemGroupKey(row);
+    freeCountByGroup.set(key, (freeCountByGroup.get(key) || 0) + 1);
+  }
+
+  const groupIds = [
+    ...new Set(visible.map((r) => r.inventoryGroupId).filter((id): id is string => Boolean(id))),
+  ];
+  const totalByGroupId = new Map<string, number>();
+  if (groupIds.length) {
+    const totals = await prisma.clothingItem.groupBy({
+      by: ["inventoryGroupId"],
+      where: {
+        inventoryGroupId: { in: groupIds },
+        status: { notIn: ["maintenance", "repair", "cleaning"] },
+      },
+      _count: { _all: true },
+    });
+    for (const row of totals) {
+      if (row.inventoryGroupId) totalByGroupId.set(row.inventoryGroupId, row._count._all);
+    }
+  }
+
+  // Legacy multi-unit rows (no inventory_group_id): count siblings by base name + attrs.
+  const legacyKeys = [
+    ...new Set(
+      visible
+        .filter((r) => !r.inventoryGroupId)
+        .map((r) => freeItemGroupKey(r)),
+    ),
+  ];
+  const totalByLegacyKey = new Map<string, number>();
+  if (legacyKeys.length) {
+    for (const key of legacyKeys) {
+      const freeInPage = freeCountByGroup.get(key) || 1;
+      const sample = visible.find((r) => freeItemGroupKey(r) === key);
+      if (!sample) {
+        totalByLegacyKey.set(key, freeInPage);
+        continue;
+      }
+      const base = stripUnitSuffix(sample.name);
+      const siblings = await prisma.clothingItem.findMany({
+        where: {
+          inventoryGroupId: null,
+          category: sample.category,
+          size: sample.size || "",
+          color: sample.color || "",
+          status: { notIn: ["maintenance", "repair", "cleaning"] },
+          OR: [{ name: base }, { name: { startsWith: `${base} #` } }],
+        },
+        select: { name: true },
+        take: 100,
+      });
+      const matched = siblings.filter((s) => stripUnitSuffix(s.name) === base).length;
+      totalByLegacyKey.set(key, Math.max(matched || freeInPage, freeInPage));
+    }
+  }
+
   const free_items = visible.map((row) => {
     const isJewellery = jewelleryChecks && row.itemType === "jewellery";
+    const thumb = row.thumbnail ? photoUrl(row.thumbnail) : null;
+    const key = freeItemGroupKey(row);
+    const freeQty = freeCountByGroup.get(key) || 1;
+    const totalQty = row.inventoryGroupId
+      ? totalByGroupId.get(row.inventoryGroupId) || freeQty
+      : totalByLegacyKey.get(key) || freeQty;
     return {
       id: row.id,
       name: row.name,
@@ -545,12 +697,21 @@ export async function searchAvailableItems(
       color: row.color || "",
       status: row.status,
       item_type: row.itemType,
-      thumbnail: row.thumbnail,
-      photo: row.thumbnail,
+      thumbnail: thumb,
+      photo: thumb,
+      inventory_group_id: row.inventoryGroupId,
+      free_quantity: freeQty,
+      total_quantity: totalQty,
       has_necklace: row.hasNecklace,
       has_earrings: row.hasEarrings,
       has_teeka: row.hasTeeka,
       has_pasa: row.hasPasa,
+      has_sheeshpatti: row.hasSheeshpatti,
+      has_nath: row.hasNath,
+      has_hathfool: row.hasHathfool,
+      has_kamarband: row.hasKamarband,
+      has_rings: row.hasRings,
+      has_long_har: row.hasLongHar,
       booked_parts: isJewellery ? partsFor(row, true) : [],
       available_parts: isJewellery ? partsFor(row, false) : [],
       returning_warning: warningShape(row.returningWarning),

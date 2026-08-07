@@ -58,6 +58,18 @@ type ItemParts = {
 
   hasPasa: boolean;
 
+  hasSheeshpatti: boolean;
+
+  hasNath: boolean;
+
+  hasHathfool: boolean;
+
+  hasKamarband: boolean;
+
+  hasRings: boolean;
+
+  hasLongHar: boolean;
+
 };
 
 
@@ -89,6 +101,18 @@ export type JewelleryAvailItem = {
   has_teeka?: boolean;
 
   has_pasa?: boolean;
+
+  has_sheeshpatti?: boolean;
+
+  has_nath?: boolean;
+
+  has_hathfool?: boolean;
+
+  has_kamarband?: boolean;
+
+  has_rings?: boolean;
+
+  has_long_har?: boolean;
 
   available_parts?: JewelleryPartKey[];
 
@@ -126,6 +150,18 @@ export type JewellerySelectionRow = {
 
   pickPasa: boolean;
 
+  pickSheeshpatti: boolean;
+
+  pickNath: boolean;
+
+  pickHathfool: boolean;
+
+  pickKamarband: boolean;
+
+  pickRings: boolean;
+
+  pickLongHar: boolean;
+
   partsLabel: string;
 
 };
@@ -158,6 +194,18 @@ export function serializeJewellerySelections(
 
     pickPasa?: boolean;
 
+    pickSheeshpatti?: boolean;
+
+    pickNath?: boolean;
+
+    pickHathfool?: boolean;
+
+    pickKamarband?: boolean;
+
+    pickRings?: boolean;
+
+    pickLongHar?: boolean;
+
   }>,
 
 ): JewellerySelectionRow[] {
@@ -173,6 +221,18 @@ export function serializeJewellerySelections(
       pickTeeka: !!r.pickTeeka,
 
       pickPasa: !!r.pickPasa,
+
+      pickSheeshpatti: !!r.pickSheeshpatti,
+
+      pickNath: !!r.pickNath,
+
+      pickHathfool: !!r.pickHathfool,
+
+      pickKamarband: !!r.pickKamarband,
+
+      pickRings: !!r.pickRings,
+
+      pickLongHar: !!r.pickLongHar,
 
     };
 
@@ -202,6 +262,18 @@ export function serializeJewellerySelections(
 
       pickPasa: picks.pickPasa,
 
+      pickSheeshpatti: picks.pickSheeshpatti,
+
+      pickNath: picks.pickNath,
+
+      pickHathfool: picks.pickHathfool,
+
+      pickKamarband: picks.pickKamarband,
+
+      pickRings: picks.pickRings,
+
+      pickLongHar: picks.pickLongHar,
+
       partsLabel,
 
     };
@@ -219,6 +291,12 @@ function classifyOtherSelections<
     pickEarrings: boolean;
     pickTeeka: boolean;
     pickPasa: boolean;
+    pickSheeshpatti: boolean;
+    pickNath: boolean;
+    pickHathfool: boolean;
+    pickKamarband: boolean;
+    pickRings: boolean;
+    pickLongHar: boolean;
     booking: { deliveryDate: Date; returnDate: Date };
   },
 >(
@@ -331,6 +409,18 @@ export async function getAvailableJewellery(
 
         pickPasa: true,
 
+        pickSheeshpatti: true,
+
+        pickNath: true,
+
+        pickHathfool: true,
+
+        pickKamarband: true,
+
+        pickRings: true,
+
+        pickLongHar: true,
+
         booking: { include: otherBookingSelect },
 
       },
@@ -341,7 +431,7 @@ export async function getAvailableJewellery(
 
       where: { itemType: "jewellery" },
 
-      select: { id: true, hasNecklace: true, hasEarrings: true, hasTeeka: true, hasPasa: true },
+      select: { id: true, hasNecklace: true, hasEarrings: true, hasTeeka: true, hasPasa: true, hasSheeshpatti: true, hasNath: true, hasHathfool: true, hasKamarband: true, hasRings: true, hasLongHar: true },
 
     }),
 
@@ -376,6 +466,18 @@ export async function getAvailableJewellery(
       has_teeka: p?.hasTeeka ?? false,
 
       has_pasa: p?.hasPasa ?? false,
+
+      has_sheeshpatti: p?.hasSheeshpatti ?? false,
+
+      has_nath: p?.hasNath ?? false,
+
+      has_hathfool: p?.hasHathfool ?? false,
+
+      has_kamarband: p?.hasKamarband ?? false,
+
+      has_rings: p?.hasRings ?? false,
+
+      has_long_har: p?.hasLongHar ?? false,
 
     };
 
@@ -424,6 +526,18 @@ export async function getAvailableJewellery(
         hasTeeka: !!i.has_teeka,
 
         hasPasa: !!i.has_pasa,
+
+        hasSheeshpatti: !!i.has_sheeshpatti,
+
+        hasNath: !!i.has_nath,
+
+        hasHathfool: !!i.has_hathfool,
+
+        hasKamarband: !!i.has_kamarband,
+
+        hasRings: !!i.has_rings,
+
+        hasLongHar: !!i.has_long_har,
 
       };
 
@@ -525,6 +639,18 @@ export async function addJewellerySelection(
 
     pickPasa?: boolean;
 
+    pickSheeshpatti?: boolean;
+
+    pickNath?: boolean;
+
+    pickHathfool?: boolean;
+
+    pickKamarband?: boolean;
+
+    pickRings?: boolean;
+
+    pickLongHar?: boolean;
+
   },
 
   by?: string,
@@ -553,6 +679,18 @@ export async function addJewellerySelection(
 
   let pickPasa = !!data.pickPasa;
 
+  let pickSheeshpatti = !!data.pickSheeshpatti;
+
+  let pickNath = !!data.pickNath;
+
+  let pickHathfool = !!data.pickHathfool;
+
+  let pickKamarband = !!data.pickKamarband;
+
+  let pickRings = !!data.pickRings;
+
+  let pickLongHar = !!data.pickLongHar;
+
 
 
   if (source === "inventory") {
@@ -579,6 +717,18 @@ export async function addJewellerySelection(
 
         hasPasa: true,
 
+        hasSheeshpatti: true,
+
+        hasNath: true,
+
+        hasHathfool: true,
+
+        hasKamarband: true,
+
+        hasRings: true,
+
+        hasLongHar: true,
+
       },
 
     });
@@ -595,7 +745,7 @@ export async function addJewellerySelection(
 
     const hasParts = itemHasJewelleryParts(item);
 
-    if (hasParts && !pickNecklace && !pickEarrings && !pickTeeka && !pickPasa) {
+    if (hasParts && !pickNecklace && !pickEarrings && !pickTeeka && !pickPasa && !pickSheeshpatti && !pickNath && !pickHathfool && !pickKamarband && !pickRings && !pickLongHar) {
 
       throw new Error("Select at least one part (Necklace, Earrings, Teeka, or Pasa) to book.");
 
@@ -603,7 +753,7 @@ export async function addJewellerySelection(
 
 
 
-    const partsLabel = formatJewelleryPartsLabel({ pickNecklace, pickEarrings, pickTeeka, pickPasa });
+    const partsLabel = formatJewelleryPartsLabel({ pickNecklace, pickEarrings, pickTeeka, pickPasa, pickSheeshpatti, pickNath, pickHathfool, pickKamarband, pickRings, pickLongHar });
 
     if (partsLabel) name = `${name} (${partsLabel})`;
 
@@ -641,6 +791,18 @@ export async function addJewellerySelection(
 
       pickPasa,
 
+      pickSheeshpatti,
+
+      pickNath,
+
+      pickHathfool,
+
+      pickKamarband,
+
+      pickRings,
+
+      pickLongHar,
+
     },
 
   });
@@ -669,7 +831,7 @@ export async function addJewellerySelection(
 
       item_id: data.itemId || null,
 
-      parts: formatJewelleryPartsLabel({ pickNecklace, pickEarrings, pickTeeka, pickPasa }),
+      parts: formatJewelleryPartsLabel({ pickNecklace, pickEarrings, pickTeeka, pickPasa, pickSheeshpatti, pickNath, pickHathfool, pickKamarband, pickRings, pickLongHar }),
 
     },
 

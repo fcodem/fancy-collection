@@ -1,6 +1,7 @@
 import { describe, it } from "node:test";
 import assert from "node:assert/strict";
 import {
+  collapseMensProductGroups,
   decodeCursor,
   encodeCursor,
   inventoryFallbackGroupKey,
@@ -48,7 +49,13 @@ function summarizeGroupLikeList(
 
 describe("inventoryList cursor helpers", () => {
   it("encode/decode round-trips name sort cursor", () => {
-    const payload = { sort: "name" as const, v1: "Blue Lehenga", v2: "grp-abc" };
+    const payload = {
+      sort: "name" as const,
+      v1: "Lehenga",
+      v2: "Premium",
+      v3: "Blue Lehenga",
+      v4: "grp-abc",
+    };
     const raw = encodeCursor(payload);
     assert.equal(decodeCursor(raw)?.sort, "name");
     assert.deepEqual(decodeCursor(raw), payload);
@@ -107,5 +114,51 @@ describe("inventory group summaries", () => {
       inventoryFallbackGroupKey({ name: "Royal #2", category: "Lehenga", size: "M", color: "Blue" }),
       "legacy:Royal|Lehenga|M|Blue",
     );
+  });
+
+  it("collapseMensProductGroups merges sizes into one product card", () => {
+    const mk = (
+      partial: Partial<InventoryGroupSummary> &
+        Pick<InventoryGroupSummary, "groupKey" | "primaryId" | "baseName" | "size">,
+    ): InventoryGroupSummary => ({
+      inventoryGroupId: partial.inventoryGroupId ?? partial.groupKey,
+      primarySku: `SKU-${partial.primaryId}`,
+      category: "Sherwani",
+      subCategory: "Normal",
+      color: "",
+      totalQuantity: 1,
+      availableQuantity: 1,
+      rentedQuantity: 0,
+      maintenanceQuantity: 0,
+      dailyRate: 1000,
+      thumbnailUrl: null,
+      photoUrl: null,
+      newestCreatedAt: "2026-01-01T00:00:00.000Z",
+      ...partial,
+    });
+    const collapsed = collapseMensProductGroups([
+      mk({ groupKey: "g-m", primaryId: 1, baseName: "Royal", size: "M" }),
+      mk({
+        groupKey: "g-l",
+        primaryId: 2,
+        baseName: "Royal",
+        size: "L",
+        newestCreatedAt: "2026-02-01T00:00:00.000Z",
+      }),
+      mk({
+        groupKey: "w1",
+        primaryId: 3,
+        baseName: "Sparkle",
+        size: "M",
+        category: "Lehenga",
+      }),
+    ]);
+    assert.equal(collapsed.length, 2);
+    assert.equal(collapsed[0]!.isMensProduct, true);
+    assert.equal(collapsed[0]!.baseName, "Royal");
+    assert.equal(collapsed[0]!.sizes?.length, 2);
+    assert.equal(collapsed[0]!.size, "L, M");
+    assert.equal(collapsed[1]!.baseName, "Sparkle");
+    assert.equal(collapsed[1]!.isMensProduct, undefined);
   });
 });

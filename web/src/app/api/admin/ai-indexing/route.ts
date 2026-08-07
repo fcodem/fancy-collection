@@ -2,6 +2,7 @@ import { NextRequest } from "next/server";
 import prisma from "@/lib/prisma";
 import { isResponse, jsonError, jsonOk, requireOwner } from "@/lib/api";
 import { runAiSystemHealthAudit } from "@/lib/dressChecker/aiSystemHealth";
+import { runAiIndexingSelfHealIfDue } from "@/lib/dressChecker/aiIndexingSelfHeal";
 import {
   enqueueInventoryAiJob,
   enqueueRepairJobs,
@@ -133,7 +134,8 @@ export async function GET(req: NextRequest) {
     const url = new URL(req.url);
     const includeRows = url.searchParams.get("rows") !== "0";
 
-    const health = await runAiSystemHealthAudit();
+    const health = await runAiSystemHealthAudit({ enqueueVersionBump: false });
+    await runAiIndexingSelfHealIfDue(true).catch(() => undefined);
     const rows = includeRows ? await loadNonReadyRows() : [];
     const { buildQueueForensicReport } = await import("@/lib/dressChecker/queueForensic");
     const forensic = await buildQueueForensicReport().catch(() => null);

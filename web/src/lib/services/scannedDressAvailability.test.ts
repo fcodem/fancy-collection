@@ -17,6 +17,18 @@ type Inventory = {
   status: string;
   thumbnailPhoto: string | null;
   photo: string | null;
+  inventoryGroupId?: string | null;
+  itemType?: string | null;
+  hasNecklace?: boolean;
+  hasEarrings?: boolean;
+  hasTeeka?: boolean;
+  hasPasa?: boolean;
+  hasSheeshpatti?: boolean;
+  hasNath?: boolean;
+  hasHathfool?: boolean;
+  hasKamarband?: boolean;
+  hasRings?: boolean;
+  hasLongHar?: boolean;
 };
 
 type BookingItemRow = {
@@ -114,26 +126,43 @@ function fakeDb(opts: {
     },
     clothingItem: {
       async findMany(args: {
-        where: { sku: { equals: string; mode: "insensitive" } };
+        where: Record<string, unknown>;
         select: Record<string, boolean>;
-        take: number;
+        take?: number;
+        orderBy?: { id: "asc" | "desc" };
       }) {
         queryLog.push("clothingItem.findMany");
-        const normalized = args.where.sku.equals.toUpperCase();
-        return opts.inventory
-          .filter((row) => row.sku.toUpperCase() === normalized)
-          .slice(0, args.take)
-          .map((row) => {
-            const selected: Partial<Inventory> = {};
-            for (const key of Object.keys(args.select)) {
-              if (args.select[key]) {
-                (selected as Record<string, unknown>)[key] = (
-                  row as Record<string, unknown>
-                )[key];
-              }
+        let rows = opts.inventory;
+        const skuWhere = args.where.sku as
+          | { equals: string; mode: string }
+          | undefined;
+        if (skuWhere) {
+          const normalized = skuWhere.equals.toUpperCase();
+          rows = rows.filter((row) => row.sku.toUpperCase() === normalized);
+        }
+        if (typeof args.where.inventoryGroupId === "string") {
+          rows = rows.filter(
+            (row) => row.inventoryGroupId === args.where.inventoryGroupId,
+          );
+        }
+        if (args.orderBy?.id === "asc") {
+          rows = [...rows].sort((a, b) => a.id - b.id);
+        } else if (args.orderBy?.id === "desc") {
+          rows = [...rows].sort((a, b) => b.id - a.id);
+        }
+        const limited =
+          typeof args.take === "number" ? rows.slice(0, args.take) : rows;
+        return limited.map((row) => {
+          const selected: Partial<Inventory> = {};
+          for (const key of Object.keys(args.select)) {
+            if (args.select[key]) {
+              (selected as Record<string, unknown>)[key] = (
+                row as Record<string, unknown>
+              )[key];
             }
-            return selected;
-          });
+          }
+          return selected;
+        });
       },
     },
     booking: {
@@ -151,10 +180,17 @@ function fakeDb(opts: {
         assert.ok(args.take <= 50, "conflict query must stay bounded");
         const itemBranch = args.where.OR[0] as {
           bookingItems: {
-            some: { itemId: number; isCancelled: boolean; isReturned: boolean };
+            some: {
+              itemId: number | { in: number[] };
+              isCancelled: boolean;
+              isReturned: boolean;
+            };
           };
         };
-        const itemId = itemBranch.bookingItems.some.itemId;
+        const rawItemId = itemBranch.bookingItems.some.itemId;
+        const itemIds = Array.isArray((rawItemId as { in?: number[] }).in)
+          ? (rawItemId as { in: number[] }).in
+          : [rawItemId as number];
         return opts.bookings
           .filter((b) => args.where.status.in.includes(b.status))
           .filter((b) => args.where.id?.not == null || b.id !== args.where.id.not)
@@ -165,14 +201,23 @@ function fakeDb(opts: {
           )
           .filter((b) => {
             const occupiesViaItems = b.bookingItems.some(
-              (row) => row.itemId === itemId && !row.isCancelled && !row.isReturned,
+              (row) =>
+                row.itemId != null &&
+                itemIds.includes(row.itemId) &&
+                !row.isCancelled &&
+                !row.isReturned,
             );
-            const occupiesLegacy = b.itemId === itemId && b.bookingItems.length === 0;
+            const occupiesLegacy =
+              b.itemId != null &&
+              itemIds.includes(b.itemId) &&
+              b.bookingItems.length === 0;
             return occupiesViaItems || occupiesLegacy;
           })
           .map((b) => ({
             ...b,
-            bookingItems: b.bookingItems.filter((row) => row.itemId === itemId),
+            bookingItems: b.bookingItems.filter(
+              (row) => row.itemId != null && itemIds.includes(row.itemId),
+            ),
           }));
       },
     },
@@ -283,6 +328,8 @@ describe("checkScannedDressAvailability", () => {
     ]);
     const result = await service.checkScannedDressAvailability(REQUEST);
     assert.equal(result.status, "AVAILABLE");
+    assert.equal(result.free_quantity, 1);
+    assert.equal(result.total_quantity, 1);
     assert.deepEqual(result.dress, {
       id: 42,
       name: "Red Bridal Lehenga",
@@ -292,6 +339,7 @@ describe("checkScannedDressAvailability", () => {
       color: "Red",
       status: "available",
       thumbnailUrl: "/thumbs/br-001.webp",
+      photoUrl: "/photos/br-001.jpg",
     });
     assert.deepEqual(result.blockingRecords, []);
     assert.deepEqual(result.warningRecords, []);
@@ -645,6 +693,7 @@ describe("LRG-001 legacy printed SKU fixture", () => {
       color: "Red",
       status: "available",
       thumbnailUrl: "/thumbs/lrg-001.webp",
+      photoUrl: "/photos/lrg-001.jpg",
     });
     assert.deepEqual(queryLog, [
       "scanCode.findFirst",
@@ -729,5 +778,170 @@ describe("LRG-001 legacy printed SKU fixture", () => {
     assert.equal(result.status, "AMBIGUOUS_LEGACY_CODE");
     assert.equal(result.dress, null);
     assert.deepEqual(queryLog, ["scanCode.findFirst", "clothingItem.findMany"]);
+  });
+
+  it("counts free units across a multi-unit dress group from one shared QR", async () => {
+    const groupId = "group-red-lehenga";
+    const unit1 = {
+      ...DRESS,
+      id: 101,
+      name: "Red Bridal Lehenga",
+      sku: "BR-101",
+      inventoryGroupId: groupId,
+    };
+    const unit2 = {
+      ...DRESS,
+      id: 102,
+      name: "Red Bridal Lehenga #2",
+      sku: "BR-102",
+      inventoryGroupId: groupId,
+    };
+    const unit3 = {
+      ...DRESS,
+      id: 103,
+      name: "Red Bridal Lehenga #3",
+      sku: "BR-103",
+      inventoryGroupId: groupId,
+    };
+    const { db } = fakeDb({
+      inventory: [unit1, unit2, unit3],
+      scanCodes: [
+        { inventoryId: unit1.id, normalizedCode: "FC-D-7K4P9X2M", active: true },
+      ],
+      bookings: [
+        booking({
+          deliveryDate: "2026-07-28",
+          returnDate: "2026-07-30",
+          bookingItems: [activeItem(unit1.id)],
+        }),
+      ],
+    });
+    const service = createScannedDressAvailabilityService(db as never);
+    const result = await service.checkScannedDressAvailability(REQUEST);
+    assert.equal(result.status, "AVAILABLE");
+    assert.equal(result.dress?.name, "Red Bridal Lehenga");
+    assert.equal(result.free_quantity, 2);
+    assert.equal(result.total_quantity, 3);
+    assert.equal(result.blockingRecords.length, 1);
+  });
+
+  it("marks the group BOOKED only when every unit is occupied", async () => {
+    const groupId = "group-all-booked";
+    const unit1 = {
+      ...DRESS,
+      id: 201,
+      name: "Red Bridal Lehenga",
+      sku: "BR-201",
+      inventoryGroupId: groupId,
+    };
+    const unit2 = {
+      ...DRESS,
+      id: 202,
+      name: "Red Bridal Lehenga #2",
+      sku: "BR-202",
+      inventoryGroupId: groupId,
+    };
+    const { db } = fakeDb({
+      inventory: [unit1, unit2],
+      scanCodes: [
+        { inventoryId: unit1.id, normalizedCode: "FC-D-7K4P9X2M", active: true },
+      ],
+      bookings: [
+        booking({
+          deliveryDate: "2026-07-28",
+          returnDate: "2026-07-30",
+          bookingItems: [activeItem(unit1.id)],
+        }),
+        booking({
+          deliveryDate: "2026-07-27",
+          returnDate: "2026-07-31",
+          bookingItems: [activeItem(unit2.id)],
+        }),
+      ],
+    });
+    const service = createScannedDressAvailabilityService(db as never);
+    const result = await service.checkScannedDressAvailability(REQUEST);
+    assert.equal(result.status, "BOOKED");
+    assert.equal(result.free_quantity, 0);
+    assert.equal(result.total_quantity, 2);
+  });
+
+  it("does not count other sizes in a legacy shared men's group", async () => {
+    const groupId = "legacy-mens-shared";
+    const size38a = {
+      ...DRESS,
+      id: 301,
+      name: "Indo Creme Block",
+      sku: "ITM-0301",
+      category: "Indowestern",
+      size: "38",
+      inventoryGroupId: groupId,
+    };
+    const size38b = {
+      ...DRESS,
+      id: 302,
+      name: "Indo Creme Block #2",
+      sku: "ITM-0302",
+      category: "Indowestern",
+      size: "38",
+      inventoryGroupId: groupId,
+    };
+    const size42 = {
+      ...DRESS,
+      id: 303,
+      name: "Indo Creme Block",
+      sku: "ITM-0303",
+      category: "Indowestern",
+      size: "42",
+      inventoryGroupId: groupId,
+    };
+    const { db } = fakeDb({
+      inventory: [size38a, size38b, size42],
+      scanCodes: [
+        { inventoryId: size38a.id, normalizedCode: "FC-D-7K4P9X2M", active: true },
+      ],
+      bookings: [],
+    });
+    const service = createScannedDressAvailabilityService(db as never);
+    const result = await service.checkScannedDressAvailability(REQUEST);
+    assert.equal(result.status, "AVAILABLE");
+    assert.equal(result.dress?.size, "38");
+    assert.equal(result.total_quantity, 2);
+    assert.equal(result.free_quantity, 2);
+  });
+
+  it("returns jewellery parts present on a bridal set", async () => {
+    const jewellery = {
+      ...DRESS,
+      id: 401,
+      name: "Bridal Gold Set",
+      sku: "JW-0401",
+      category: "Bridal Jewellery",
+      size: "",
+      itemType: "jewellery",
+      hasNecklace: true,
+      hasEarrings: true,
+      hasLongHar: true,
+      hasTeeka: false,
+      hasPasa: false,
+      hasSheeshpatti: false,
+      hasNath: false,
+      hasHathfool: false,
+      hasKamarband: false,
+      hasRings: false,
+    };
+    const { db } = fakeDb({
+      inventory: [jewellery],
+      scanCodes: [
+        { inventoryId: jewellery.id, normalizedCode: "FC-D-7K4P9X2M", active: true },
+      ],
+      bookings: [],
+    });
+    const service = createScannedDressAvailabilityService(db as never);
+    const result = await service.checkScannedDressAvailability(REQUEST);
+    assert.equal(result.status, "AVAILABLE");
+    assert.match(result.dress?.jewelleryPartsLabel || "", /Necklace/);
+    assert.match(result.dress?.jewelleryPartsLabel || "", /Long Har/);
+    assert.match(result.dress?.jewelleryPartsLabel || "", /Earrings/);
   });
 });

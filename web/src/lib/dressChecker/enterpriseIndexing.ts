@@ -5,7 +5,12 @@
  * 2. Dress-only crop
  * 3. Orientation normalization
  * 4. Persist embeddings + colour + signatures + matching_version
+ *
+ * Also indexes staff reference photos (hanger / mannequin / outdoor / etc.)
+ * and synthetic orientation variants from the primary photo so Dress Search
+ * works across angles even when only one catalog shot exists.
  */
+import sharp from "sharp";
 import prisma from "../prisma";
 import { buildIdentificationIndex } from "../dressIdentificationIndex";
 import { loadPhotoBuffer } from "../services/siglipSearch";
@@ -13,7 +18,10 @@ import { detectAndIsolateGarment } from "./imageProcessing";
 import { extractFeatureFingerprint } from "./featureExtraction";
 import { generateIndexEmbedding } from "./indexingService";
 import { buildInventorySignatures } from "./inventorySignatures";
-import { DRESS_CHECKER_ENGINE_VERSION } from "./constants";
+import {
+  DRESS_CHECKER_ENGINE_VERSION,
+  INDEX_SYNTHETIC_ROTATION_DEGREES,
+} from "./constants";
 import { upsertReferencePhotoEmbeddingVector } from "@/lib/ai/pgvector";
 import type { FeatureFingerprint } from "./types";
 import type { IdentificationIndex } from "../dressIdentificationTypes";
@@ -51,6 +59,32 @@ async function embedGarmentBuffer(buffer: Buffer, itemId: number, label: string)
   }
 }
 
+/** Build rotated variants of the primary garment for angle-robust indexing. */
+async function buildSyntheticOrientationBuffers(
+  primaryBuffer: Buffer,
+): Promise<ReferenceIndexBuffer[]> {
+  const out: ReferenceIndexBuffer[] = [];
+  for (const deg of INDEX_SYNTHETIC_ROTATION_DEGREES) {
+    try {
+      const rotated = await sharp(primaryBuffer)
+        .rotate(deg)
+        .jpeg({ quality: 92 })
+        .toBuffer();
+      out.push({
+        buffer: rotated,
+        refId: `primary_rot${deg}`,
+        label: `synthetic_rot${deg}`,
+      });
+    } catch (err) {
+      console.warn(
+        `[enterprise-index] synthetic rot${deg} skipped:`,
+        err instanceof Error ? err.message : err,
+      );
+    }
+  }
+  return out;
+}
+
 /** Run garment isolation + fingerprint + multi-view index for one inventory item. */
 export async function buildEnterpriseIndex(
   itemId: number,
@@ -76,13 +110,28 @@ export async function buildEnterpriseIndex(
   for (const ref of referencePhotos) {
     const refBuf = await loadPhotoBuffer(ref.photo);
     if (!refBuf) continue;
-    const refGarment = await detectAndIsolateGarment(refBuf);
-    indexBuffers.push({
-      buffer: refGarment.buffer,
-      refId: `ref_${ref.id}`,
-      label: ref.label || `reference_${ref.id}`,
-      refPhotoId: ref.id,
-    });
+    try {
+      const refGarment = await detectAndIsolateGarment(refBuf);
+      indexBuffers.push({
+        buffer: refGarment.buffer,
+        refId: `ref_${ref.id}`,
+        label: ref.label || `reference_${ref.id}`,
+        refPhotoId: ref.id,
+      });
+    } catch (err) {
+      console.warn(
+        `[enterprise-index] reference ${ref.id} skipped:`,
+        err instanceof Error ? err.message : err,
+      );
+    }
+  }
+
+  // When staff have not uploaded many angles yet, synthesize orientation views
+  // from the primary photo so hanger / side / inverted queries still match.
+  const realRefCount = referencePhotos.length;
+  if (realRefCount < 3) {
+    const synthetics = await buildSyntheticOrientationBuffers(garment.buffer);
+    indexBuffers.push(...synthetics);
   }
 
   const identificationIndex = await buildIdentificationIndex(
@@ -122,12 +171,15 @@ export async function buildEnterpriseIndex(
     });
   }
 
+  // Also embed primary into clothing item via identificationIndex (handled by caller).
+  const primaryEmbedding = await embedGarmentBuffer(garment.buffer, itemId, "primary");
+
   return {
     garmentBuffer: garment.buffer,
     fingerprint,
     identificationIndex,
     signatures: buildInventorySignatures(fingerprint),
-    primaryEmbedding: [],
+    primaryEmbedding,
     referenceEmbeddings,
     imageCount: indexBuffers.length,
   };

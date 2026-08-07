@@ -19,6 +19,7 @@ import {
   loginBlockedMessage,
   recordLoginAttempt,
 } from "@/lib/loginRateLimit";
+import { staffLoginNeedsOwnerApproval } from "@/lib/staffLoginWindow";
 
 async function loginActionImpl(
   _prevState: string | undefined,
@@ -27,10 +28,6 @@ async function loginActionImpl(
   const ip = await getClientIp();
   const username = String(formData.get("username") || "").trim();
   const password = String(formData.get("password") || "");
-  const blocked = await checkLoginBlocked(ip, username);
-  if (blocked.blocked) {
-    return loginBlockedMessage(blocked.retryAfterMinutes ?? 60);
-  }
 
   if (!username || !password) {
     return "Username and password are required.";
@@ -40,10 +37,14 @@ async function loginActionImpl(
     const user = await findUserForLogin(username);
     if (!user || !user.active) {
       await recordLoginAttempt(ip, false, username);
+      const blocked = await checkLoginBlocked(ip, username);
+      if (blocked.blocked) return loginBlockedMessage(blocked.retryAfterMinutes ?? 60);
       return "Invalid username or password.";
     }
     if (!(await verifyPassword(password, user.passwordHash))) {
       await recordLoginAttempt(ip, false, username);
+      const blocked = await checkLoginBlocked(ip, username);
+      if (blocked.blocked) return loginBlockedMessage(blocked.retryAfterMinutes ?? 60);
       return "Invalid username or password.";
     }
 
@@ -51,6 +52,11 @@ async function loginActionImpl(
     void upgradePasswordHashIfNeeded(user.id, password, user.passwordHash);
 
     if (user.role === "owner") {
+      await establishUserLogin(user.id);
+      redirect("/");
+    }
+
+    if (!staffLoginNeedsOwnerApproval()) {
       await establishUserLogin(user.id);
       redirect("/");
     }

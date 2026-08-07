@@ -17,6 +17,7 @@ import {
   loginBlockedMessage,
   recordLoginAttempt,
 } from "@/lib/loginRateLimit";
+import { staffLoginNeedsOwnerApproval } from "@/lib/staffLoginWindow";
 
 async function parseCredentials(req: NextRequest) {
   const contentType = req.headers.get("content-type") || "";
@@ -46,15 +47,6 @@ export async function POST(req: NextRequest) {
   try {
     const ip = getClientIpFromRequest(req);
     const { username, password } = await parseCredentials(req);
-    const blocked = await checkLoginBlocked(ip, username);
-    if (blocked.blocked) {
-      const msg = loginBlockedMessage(blocked.retryAfterMinutes ?? 60);
-      if (wantsHtmlRedirect(req)) {
-        return NextResponse.redirect(new URL(`/login?error=${encodeURIComponent("blocked")}`, req.url));
-      }
-      return jsonError(msg, 429);
-    }
-
     const htmlRedirect = wantsHtmlRedirect(req);
 
     if (!username || !password) {
@@ -67,13 +59,31 @@ export async function POST(req: NextRequest) {
     const user = await findUserForLogin(username);
     if (!user || !user.active) {
       await recordLoginAttempt(ip, false, username);
+      const blocked = await checkLoginBlocked(ip, username);
+      if (blocked.blocked) {
+        const msg = loginBlockedMessage(blocked.retryAfterMinutes ?? 60);
+        if (htmlRedirect) {
+          return NextResponse.redirect(new URL(`/login?error=${encodeURIComponent("blocked")}`, req.url));
+        }
+        return jsonError(msg, 429);
+      }
       if (htmlRedirect) {
         return NextResponse.redirect(new URL("/login?error=invalid", req.url));
       }
       return jsonError("Invalid username or password.");
     }
-    if (!(await verifyPassword(password, user.passwordHash))) {
+
+    const passwordOk = await verifyPassword(password, user.passwordHash);
+    if (!passwordOk) {
       await recordLoginAttempt(ip, false, username);
+      const blocked = await checkLoginBlocked(ip, username);
+      if (blocked.blocked) {
+        const msg = loginBlockedMessage(blocked.retryAfterMinutes ?? 60);
+        if (htmlRedirect) {
+          return NextResponse.redirect(new URL(`/login?error=${encodeURIComponent("blocked")}`, req.url));
+        }
+        return jsonError(msg, 429);
+      }
       if (htmlRedirect) {
         return NextResponse.redirect(new URL("/login?error=invalid", req.url));
       }
@@ -90,11 +100,25 @@ export async function POST(req: NextRequest) {
       void upgradePasswordHashIfNeeded(user.id, password, user.passwordHash).catch(() => {});
     }
 
+    // Owners always sign in immediately.
     if (user.role === "owner") {
       if (htmlRedirect) {
         return establishUserLoginWithRedirect(user.id, req, "/");
       }
       return establishUserLoginWithJson(user.id, req, { ok: true, role: "owner", redirect: "/" });
+    }
+
+    // Daytime (10 AM–9 PM IST): staff sign in without owner approval.
+    // After hours: require recent owner approval (or pending wait).
+    if (!staffLoginNeedsOwnerApproval()) {
+      if (htmlRedirect) {
+        return establishUserLoginWithRedirect(user.id, req, "/");
+      }
+      return establishUserLoginWithJson(user.id, req, {
+        ok: true,
+        role: user.role || "staff",
+        redirect: "/",
+      });
     }
 
     const approved = await findRecentApprovedStaffLogin(user.id);
@@ -106,7 +130,11 @@ export async function POST(req: NextRequest) {
       if (htmlRedirect) {
         return establishUserLoginWithRedirect(user.id, req, "/");
       }
-      return establishUserLoginWithJson(user.id, req, { ok: true, role: "staff", redirect: "/" });
+      return establishUserLoginWithJson(user.id, req, {
+        ok: true,
+        role: user.role || "staff",
+        redirect: "/",
+      });
     }
 
     const reqRow = await createStaffLoginRequest(user.id);
@@ -121,6 +149,7 @@ export async function POST(req: NextRequest) {
       role: "staff",
       pending: true,
       redirect: pendingUrl.pathname + pendingUrl.search,
+      message: "Outside shop hours (10 AM–9 PM IST). Waiting for owner approval.",
     });
     return establishPendingLoginToken(req, reqRow.token, response);
   } catch (e) {
@@ -144,7 +173,6 @@ export async function POST(req: NextRequest) {
         500,
       );
     }
-    // Surface a safe one-line reason so we don't need Vercel log access.
     const safe = message.replace(/postgresql:\/\/[^@\s]+@/gi, "postgresql://***@").slice(0, 180);
     return jsonError(`Login failed: ${safe || "unknown server error"}`, 500);
   }

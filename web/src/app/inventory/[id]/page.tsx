@@ -5,9 +5,14 @@ import { getCurrentUserReadOnly, isOwner } from "@/lib/auth";
 import InventoryDeleteButton from "@/components/InventoryDeleteButton";
 import InventoryDetailPhoto from "@/components/InventoryDetailPhoto";
 import InventoryScanCodeManager from "@/components/InventoryScanCodeManager";
+import InventoryReferencePhotosClient from "@/components/InventoryReferencePhotosClient";
 import { dressDisplayName } from "@/lib/dress";
 import { catalogPhotoUrl } from "@/lib/catalogPhotoUrl";
 import { formatDate } from "@/lib/constants";
+import {
+  formatStorageBytes,
+  measureInventoryRecordBytes,
+} from "@/lib/inventoryRecordSize";
 
 export const dynamic = "force-dynamic";
 
@@ -37,6 +42,7 @@ export default async function InventoryDetailPage({ params }: { params: Promise<
       conditionNotes: true,
       createdAt: true,
       photo: true,
+      thumbnailPhoto: true,
       originalPhoto: true,
       enhancedPhoto: true,
       marketingPhoto: true,
@@ -61,6 +67,11 @@ export default async function InventoryDetailPage({ params }: { params: Promise<
   const photoSrc = catalogPhotoUrl(item) || null;
   const aiStatus = item.aiProfile?.aiStatus || "PENDING";
   const aiIncomplete = aiStatus !== "READY" || item.aiProfile?.needsReindex;
+  const recordBytes = await measureInventoryRecordBytes({
+    photo: item.photo,
+    thumbnailPhoto: item.thumbnailPhoto,
+    originalPhoto: item.originalPhoto,
+  });
 
   const aiTone =
     aiStatus === "READY"
@@ -78,6 +89,10 @@ export default async function InventoryDetailPage({ params }: { params: Promise<
     { label: "Size", value: item.size || "—" },
     { label: "Color", value: item.color || "—" },
     { label: "Sub-Category", value: item.subCategory || "Normal" },
+    {
+      label: "Record size",
+      value: recordBytes != null ? formatStorageBytes(recordBytes) : photoSrc ? "Measuring unavailable" : "No photo",
+    },
     {
       label: "Status",
       value: <span className={`badge badge-${item.status}`}>{item.status}</span>,
@@ -163,6 +178,9 @@ export default async function InventoryDetailPage({ params }: { params: Promise<
           </div>
         </div>
       </div>
+      {owner && (
+        <InventoryReferencePhotosClient itemId={item.id} canEdit={owner} />
+      )}
       <InventoryScanCodeManager
         inventoryId={item.id}
         name={displayName}

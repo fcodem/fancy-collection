@@ -331,6 +331,31 @@ export async function toggleUserActive(userId: number, currentUserId: number) {
   return prisma.user.update({ where: { id: userId }, data: { active: true } });
 }
 
+export async function deleteUserAccount(userId: number, currentUserId: number) {
+  if (userId === currentUserId) throw new Error("Cannot delete your own account.");
+  const user = await prisma.user.findUnique({ where: { id: userId } });
+  if (!user) throw new Error("User not found");
+  if (user.role === "owner" && user.username.toLowerCase() === "owner") {
+    throw new Error("Cannot delete the primary owner account.");
+  }
+
+  await prisma.$transaction(async (tx) => {
+    await tx.staffLoginRequest.deleteMany({
+      where: { OR: [{ userId }, { resolvedById: userId }] },
+    });
+    await tx.userSession.deleteMany({ where: { userId } });
+    await tx.user.delete({ where: { id: userId } });
+    if (user.staffId) {
+      await tx.staff.updateMany({
+        where: { id: user.staffId },
+        data: { active: false },
+      });
+    }
+  });
+  await invalidateReadSessionCachesForUser(userId);
+  return { ok: true as const, username: user.username };
+}
+
 export async function changeOwnPassword(userId: number, currentPassword: string, newPassword: string) {
   const user = await prisma.user.findUnique({ where: { id: userId } });
   if (!user) throw new Error("User not found");
@@ -455,6 +480,10 @@ export async function listSubCategories() {
 export async function addSubCategory(name: string) {
   const trimmed = name.trim();
   if (!trimmed) throw new Error("Sub-category name is required.");
+  const { REMOVED_SUB_CATEGORIES } = await import("../constants");
+  if (REMOVED_SUB_CATEGORIES.some((s) => s.toLowerCase() === trimmed.toLowerCase())) {
+    throw new Error("Premium, Normal, and Cheap are no longer used. Choose or add another sub-category.");
+  }
   const { addSubCategoryRow } = await import("../categoryTables");
   return addSubCategoryRow(trimmed);
 }
@@ -462,6 +491,10 @@ export async function addSubCategory(name: string) {
 export async function updateSubCategory(id: number, name: string) {
   const trimmed = name.trim();
   if (!trimmed) throw new Error("Sub-category name is required.");
+  const { REMOVED_SUB_CATEGORIES } = await import("../constants");
+  if (REMOVED_SUB_CATEGORIES.some((s) => s.toLowerCase() === trimmed.toLowerCase())) {
+    throw new Error("Premium, Normal, and Cheap are no longer used. Choose or add another sub-category.");
+  }
   const { updateSubCategoryRow } = await import("../categoryTables");
   return updateSubCategoryRow(id, trimmed);
 }

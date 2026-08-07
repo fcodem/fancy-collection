@@ -17,6 +17,8 @@ import {
   canOpenReturn,
   scanRecordReasonLabel,
 } from "@/lib/scanRecordActions";
+import ZoomableImage from "@/components/ZoomableImage";
+import { addDaysIso } from "@/lib/dateInput";
 
 type ApiRecord = {
   bookingId: number;
@@ -53,7 +55,11 @@ type ApiResult = {
     colour: string | null;
     status: string;
     thumbnailUrl: string | null;
+    photoUrl?: string | null;
+    jewelleryPartsLabel?: string | null;
   } | null;
+  free_quantity?: number;
+  total_quantity?: number;
   blockingRecords: ApiRecord[];
   warningRecords: ApiRecord[];
   error?: string;
@@ -234,10 +240,9 @@ function todayIst(): string {
   return new Intl.DateTimeFormat("en-CA", { timeZone: "Asia/Kolkata" }).format(new Date());
 }
 
+/** Return date is always delivery + 1 calendar day (IST date string, no UTC shift). */
 function nextDayIst(dateStr: string): string {
-  const d = new Date(dateStr + "T00:00:00+05:30");
-  d.setDate(d.getDate() + 1);
-  return d.toISOString().slice(0, 10);
+  return addDaysIso(dateStr, 1);
 }
 
 function formatDateDmy(dateStr: string): string {
@@ -310,7 +315,12 @@ export default function DressAvailabilityScanner({
     if (!saved) return;
     setDeliveryDate(saved.deliveryDate);
     setDeliveryTime(saved.deliveryTime);
-    setReturnDate(saved.returnDate);
+    // Always keep return = delivery + 1 unless user already set a later return.
+    const fixedReturn =
+      saved.returnDate && saved.returnDate > saved.deliveryDate
+        ? saved.returnDate
+        : nextDayIst(saved.deliveryDate);
+    setReturnDate(fixedReturn);
     setReturnTime(saved.returnTime);
     setPhase(saved.phase);
     if (saved.phase === "scanning") {
@@ -318,7 +328,7 @@ export default function DressAvailabilityScanner({
         const window = validateScanWindow({
           deliveryDate: saved.deliveryDate,
           deliveryTime: saved.deliveryTime,
-          returnDate: saved.returnDate,
+          returnDate: fixedReturn,
           returnTime: saved.returnTime,
         });
         setActiveWindow(window);
@@ -428,15 +438,9 @@ export default function DressAvailabilityScanner({
       });
       highlight(id);
 
-      const session = sessionRef.current;
-      if (session) {
-        try { void session.stop(); } catch { /* already stopped */ }
-        sessionRef.current = null;
-      }
-      setCameraActive(false);
-      scanLockedRef.current = true;
+      setCameraPaused(false);
       setScanSuccess(true);
-      setFeedback("Scanned");
+      setFeedback("Scanned — ready for next dress");
     } catch (error) {
       if (
         !controller.signal.aborted &&
@@ -453,6 +457,20 @@ export default function DressAvailabilityScanner({
       if (isCurrentScanGeneration(requestGeneration, generationRef.current)) {
         requestActiveRef.current = false;
         abortRef.current = null;
+        if (!queueRef.current.length) {
+          const session = sessionRef.current;
+          if (session) {
+            window.setTimeout(() => {
+              if (sessionRef.current === session) {
+                try {
+                  session.resume();
+                } catch {
+                  /* stopped */
+                }
+              }
+            }, 200);
+          }
+        }
         window.setTimeout(() => void drainQueueInner(), 0);
       }
     }
@@ -472,6 +490,11 @@ export default function DressAvailabilityScanner({
       }
       setScanSuccess(false);
       setFeedback("Code scanned — checking availability…");
+      try {
+        sessionRef.current?.pause();
+      } catch {
+        /* ignore */
+      }
       if (
         !queueRef.current.some((queued) => queued.code === claim.code)
       ) {
@@ -680,15 +703,27 @@ export default function DressAvailabilityScanner({
                 />
               </label>
               <label className="form-group">
-                <span className="form-label">Return Date</span>
+                <span className="form-label">Return Date (auto delivery + 1)</span>
                 <input
                   aria-label="Return Date"
                   className="form-control"
                   type="date"
                   value={returnDate}
-                  onChange={(event) => setReturnDate(event.target.value)}
+                  min={deliveryDate ? nextDayIst(deliveryDate) : undefined}
+                  onChange={(event) => {
+                    const next = event.target.value;
+                    if (deliveryDate && next && next <= deliveryDate) {
+                      setReturnDate(nextDayIst(deliveryDate));
+                      return;
+                    }
+                    setReturnDate(next);
+                  }}
                 />
-                {returnDate && <span style={{ fontSize: 11, color: "var(--text-muted)" }}>{formatDateDmy(returnDate)}</span>}
+                {returnDate && (
+                  <span style={{ fontSize: 11, color: "var(--text-muted)" }}>
+                    {formatDateDmy(returnDate)} · defaults to day after delivery
+                  </span>
+                )}
               </label>
               <label className="form-group">
                 <span className="form-label">Return Time</span>
@@ -737,6 +772,10 @@ export default function DressAvailabilityScanner({
         #dress-availability-camera #qr-shaded-region {
           border-width: 0 !important;
           border-radius: 10px !important;
+        }
+        @keyframes scanSuccessPulse {
+          0%, 100% { opacity: 1; transform: scale(1); }
+          50% { opacity: 0.65; transform: scale(1.12); }
         }
       `}</style>
       <div
@@ -822,6 +861,63 @@ export default function DressAvailabilityScanner({
                 </p>
               </div>
             )}
+            {scanSuccess && (
+              <div
+                aria-hidden
+                data-testid="scan-success-light"
+                style={{
+                  position: "absolute",
+                  inset: 0,
+                  pointerEvents: "none",
+                  borderRadius: 12,
+                  overflow: "hidden",
+                }}
+              >
+                <div
+                  style={{
+                    position: "absolute",
+                    top: "50%",
+                    left: "50%",
+                    transform: "translate(-50%, -50%)",
+                    width: "min(78%, 280px)",
+                    aspectRatio: "1",
+                    boxShadow: "0 0 0 9999px rgba(0,0,0,0.35)",
+                    border: "3px solid #2e7d32",
+                    borderRadius: 12,
+                    background: "rgba(46,125,50,0.12)",
+                  }}
+                />
+                <div
+                  style={{
+                    position: "absolute",
+                    top: "50%",
+                    left: "50%",
+                    transform: "translate(-50%, -50%)",
+                    width: "min(78%, 280px)",
+                    aspectRatio: "1",
+                    borderRadius: 12,
+                  }}
+                >
+                  <span
+                    style={{
+                      position: "absolute",
+                      top: 10,
+                      right: 10,
+                      width: 18,
+                      height: 18,
+                      borderRadius: "50%",
+                      background: "#22c55e",
+                      boxShadow: "0 0 0 3px rgba(34,197,94,0.35), 0 0 16px rgba(34,197,94,0.9)",
+                      animation: "scanSuccessPulse 1.1s ease-in-out infinite",
+                    }}
+                  />
+                  <span style={{ position: "absolute", top: -2, left: -2, width: 22, height: 22, borderTop: "3px solid #2e7d32", borderLeft: "3px solid #2e7d32", borderRadius: "4px 0 0 0" }} />
+                  <span style={{ position: "absolute", top: -2, right: -2, width: 22, height: 22, borderTop: "3px solid #2e7d32", borderRight: "3px solid #2e7d32", borderRadius: "0 4px 0 0" }} />
+                  <span style={{ position: "absolute", bottom: -2, left: -2, width: 22, height: 22, borderBottom: "3px solid #2e7d32", borderLeft: "3px solid #2e7d32", borderRadius: "0 0 0 4px" }} />
+                  <span style={{ position: "absolute", bottom: -2, right: -2, width: 22, height: 22, borderBottom: "3px solid #2e7d32", borderRight: "3px solid #2e7d32", borderRadius: "0 0 4px 0" }} />
+                </div>
+              </div>
+            )}
           </div>
           <div
             role="status"
@@ -902,7 +998,7 @@ export default function DressAvailabilityScanner({
                   })();
                 }}
               >
-                Scan Next Dress
+                Restart Camera
               </button>
             )}
           </div>
@@ -987,12 +1083,12 @@ export default function DressAvailabilityScanner({
                         placeItems: "center",
                       }}
                     >
-                      {row.result.dress?.thumbnailUrl ? (
-                        // Only the dedicated thumbnail URL is returned by the API.
-                        // eslint-disable-next-line @next/next/no-img-element
-                        <img
-                          src={row.result.dress.thumbnailUrl}
-                          alt=""
+                      {row.result.dress?.thumbnailUrl || row.result.dress?.photoUrl ? (
+                        <ZoomableImage
+                          src={row.result.dress.thumbnailUrl || row.result.dress.photoUrl || ""}
+                          fullSrc={row.result.dress.photoUrl || row.result.dress.thumbnailUrl}
+                          alt={row.result.dress?.name || "Dress"}
+                          overlayCaption={row.result.dress?.name || undefined}
                           style={{ width: "100%", height: "100%", objectFit: "cover" }}
                         />
                       ) : (
@@ -1012,6 +1108,29 @@ export default function DressAvailabilityScanner({
                           <strong style={{ fontSize: 16 }}>
                             {row.result.dress?.name || "Unknown dress code"}
                           </strong>
+                          {row.result.dress &&
+                          typeof row.result.free_quantity === "number" &&
+                          row.result.status !== "CODE_NOT_FOUND" &&
+                          row.result.status !== "AMBIGUOUS_LEGACY_CODE" ? (
+                            <div
+                              style={{
+                                fontSize: 13,
+                                fontWeight: 600,
+                                color:
+                                  (row.result.free_quantity || 0) > 0
+                                    ? "#1f7a4d"
+                                    : "#b42318",
+                                marginTop: 2,
+                              }}
+                            >
+                              {row.result.free_quantity} free
+                              {typeof row.result.total_quantity === "number"
+                                ? ` / ${row.result.total_quantity} unit${
+                                    row.result.total_quantity === 1 ? "" : "s"
+                                  }`
+                                : ""}
+                            </div>
+                          ) : null}
                           <div style={{ fontSize: 12, color: "var(--text-muted)" }}>
                             {row.result.dress
                               ? `${row.result.dress.sku} · Size ${
@@ -1019,6 +1138,24 @@ export default function DressAvailabilityScanner({
                                 } · ${row.result.dress.colour || "No colour"}`
                               : row.scannedCode}
                           </div>
+                          {row.result.dress?.jewelleryPartsLabel ? (
+                            <div
+                              style={{
+                                marginTop: 6,
+                                padding: "6px 10px",
+                                borderRadius: 8,
+                                background: "rgba(184, 134, 11, 0.1)",
+                                border: "1px solid rgba(184, 134, 11, 0.35)",
+                                fontSize: 12,
+                                fontWeight: 700,
+                                color: "#8a6d00",
+                                lineHeight: 1.35,
+                              }}
+                            >
+                              <i className="fa-solid fa-gem" style={{ marginRight: 6 }} />
+                              Parts: {row.result.dress.jewelleryPartsLabel}
+                            </div>
+                          ) : null}
                         </div>
                         <strong style={{ color: copy.tone }}>{copy.label}</strong>
                       </div>

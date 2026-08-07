@@ -27,6 +27,10 @@ type Props = Omit<React.InputHTMLAttributes<HTMLInputElement>, "onSelect"> & {
   showPhotos?: boolean;
   /** Set false to disable inventory dress suggestions (e.g. mixed booking search fields) */
   suggestions?: boolean;
+  /** When true, clear the input after picking a suggestion (caller still receives the item). */
+  clearOnSelect?: boolean;
+  /** Open a larger preview when a suggestion photo is tapped. */
+  onPhotoZoom?: (src: string, caption?: string) => void;
 };
 
 export default function DressNameSuggestInput({
@@ -37,6 +41,8 @@ export default function DressNameSuggestInput({
   minChars = 1,
   showPhotos = false,
   suggestions = true,
+  clearOnSelect = false,
+  onPhotoZoom,
   className = "",
   autoComplete = "off",
   value,
@@ -50,7 +56,11 @@ export default function DressNameSuggestInput({
   const [items, setItems] = useState<SuggestItem[]>([]);
   const [open, setOpen] = useState(false);
   const [activeIdx, setActiveIdx] = useState(-1);
+  const [canScrollUp, setCanScrollUp] = useState(false);
+  const [canScrollDown, setCanScrollDown] = useState(false);
   const wrapRef = useRef<HTMLDivElement>(null);
+  const inputRef = useRef<HTMLInputElement>(null);
+  const listRef = useRef<HTMLDivElement>(null);
   const timerRef = useRef<ReturnType<typeof setTimeout> | null>(null);
   const suggestAbortRef = useRef<AbortController | null>(null);
   const suppressUntilRef = useRef(0);
@@ -66,10 +76,29 @@ export default function DressNameSuggestInput({
     setOpen(false);
     setItems([]);
     setActiveIdx(-1);
+    setCanScrollUp(false);
+    setCanScrollDown(false);
+  }, []);
+
+  const updateScrollButtons = useCallback(() => {
+    const el = listRef.current;
+    if (!el) {
+      setCanScrollUp(false);
+      setCanScrollDown(false);
+      return;
+    }
+    const max = el.scrollHeight - el.clientHeight;
+    setCanScrollUp(el.scrollTop > 4);
+    setCanScrollDown(max > 4 && el.scrollTop < max - 4);
   }, []);
 
   const fetchSuggestions = useCallback(async (q: string) => {
-    if (Date.now() < suppressUntilRef.current || q.length < minChars) {
+    // Digit-only queries are treated as SKU/serial filters — no dropdown remount needed.
+    if (
+      Date.now() < suppressUntilRef.current ||
+      q.length < minChars ||
+      /^\d+$/.test(q)
+    ) {
       closeSuggestions();
       return;
     }
@@ -79,7 +108,7 @@ export default function DressNameSuggestInput({
       (categorySelect ? (document.querySelector(categorySelect) as HTMLSelectElement | null)?.value : "") ||
       "";
 
-    const params = new URLSearchParams({ q, limit: "12" });
+    const params = new URLSearchParams({ q, limit: "24" });
     if (cat) params.set("category", cat);
     if (itemTypeRef.current) params.set("item_type", itemTypeRef.current);
 
@@ -102,23 +131,27 @@ export default function DressNameSuggestInput({
       setItems(list);
       setOpen(list.length > 0);
       setActiveIdx(-1);
+      requestAnimationFrame(() => updateScrollButtons());
     } catch (e) {
       if (isAbortError(e)) return;
       closeSuggestions();
     }
-  }, [categorySelect, closeSuggestions, minChars]);
+  }, [categorySelect, closeSuggestions, minChars, updateScrollButtons]);
 
   useEffect(() => () => suggestAbortRef.current?.abort(), []);
 
   useEffect(() => {
-    if (skip) return;
+    if (skip) {
+      closeSuggestions();
+      return;
+    }
     const q = String(value || "").trim();
     if (timerRef.current) clearTimeout(timerRef.current);
     timerRef.current = setTimeout(() => void fetchSuggestions(q), 280);
     return () => {
       if (timerRef.current) clearTimeout(timerRef.current);
     };
-  }, [value, fetchSuggestions, skip]);
+  }, [value, fetchSuggestions, skip, closeSuggestions]);
 
   useEffect(() => {
     if (skip) return;
@@ -135,29 +168,33 @@ export default function DressNameSuggestInput({
     return () => document.removeEventListener("click", onDocClick);
   }, [skip, closeSuggestions]);
 
+  useEffect(() => {
+    if (!open || !items.length) return;
+    const id = requestAnimationFrame(() => updateScrollButtons());
+    return () => cancelAnimationFrame(id);
+  }, [open, items, updateScrollButtons]);
+
   function selectItem(item: SuggestItem) {
     suppressUntilRef.current = Date.now() + 400;
     onChange?.({
-      target: { value: item.name, name: props.name },
+      target: { value: clearOnSelect ? "" : item.name, name: props.name },
     } as React.ChangeEvent<HTMLInputElement>);
     onSuggestSelect?.(item);
     closeSuggestions();
+    inputRef.current?.focus({ preventScroll: true });
+  }
+
+  function scrollList(dir: "up" | "down") {
+    const el = listRef.current;
+    if (!el) return;
+    el.scrollBy({ top: dir === "down" ? 180 : -180, behavior: "smooth" });
+    setTimeout(updateScrollButtons, 180);
   }
 
   const inputCls = `form-control ${className}`.trim();
 
-  if (skip) {
-    return (
-      <input
-        {...props}
-        value={value}
-        onChange={onChange}
-        autoComplete={autoComplete}
-        className={inputCls}
-      />
-    );
-  }
-
+  // Always keep the same DOM tree so enabling/disabling suggestions never remounts
+  // the <input> (that was stealing focus after the first typed character).
   return (
     <div
       ref={wrapRef}
@@ -166,13 +203,16 @@ export default function DressNameSuggestInput({
     >
       <input
         {...props}
+        ref={inputRef}
         value={value}
         onChange={onChange}
         autoComplete={autoComplete}
         className={inputCls}
         onFocus={(e) => {
-          const q = String(value || "").trim();
-          if (q.length >= minChars) void fetchSuggestions(q);
+          if (!skip) {
+            const q = String(value || "").trim();
+            if (q.length >= minChars) void fetchSuggestions(q);
+          }
           props.onFocus?.(e);
         }}
         onBlur={(e) => {
@@ -181,7 +221,7 @@ export default function DressNameSuggestInput({
           props.onBlur?.(e);
         }}
         onKeyDown={(e) => {
-          if (open && items.length) {
+          if (!skip && open && items.length) {
             if (e.key === "ArrowDown") {
               e.preventDefault();
               setActiveIdx((i) => Math.min(i + 1, items.length - 1));
@@ -206,67 +246,111 @@ export default function DressNameSuggestInput({
           props.onKeyDown?.(e);
         }}
       />
-      {open && items.length > 0 && (
-        <div
-          className="dress-suggest-dropdown"
-          style={{ display: "block", position: "absolute", zIndex: 9999 }}
-        >
-          {items.map((item, idx) => {
-            const meta = [item.category, item.size ? `Size ${item.size}` : "", item.sku]
-              .filter(Boolean)
-              .join(" · ");
-            const thumb = showPhotos ? catalogPhotoUrl(item) : "";
-            return (
-              <button
-                key={`${item.id ?? item.name}-${item.sku || idx}`}
-                type="button"
-                className={`dress-suggest-item${idx === activeIdx ? " active" : ""}`}
-                style={showPhotos ? { display: "flex", alignItems: "center", gap: 10, textAlign: "left" } : undefined}
-                onMouseDown={(e) => {
-                  e.preventDefault();
-                  selectItem(item);
-                }}
-              >
-                {showPhotos && (
-                  thumb ? (
-                    <img
-                      src={thumb}
-                      alt=""
-                      style={{
-                        width: 40,
-                        height: 40,
-                        objectFit: "cover",
-                        borderRadius: 8,
-                        border: "1px solid var(--border)",
-                        flexShrink: 0,
-                      }}
-                    />
-                  ) : (
-                    <span
-                      style={{
-                        width: 40,
-                        height: 40,
-                        borderRadius: 8,
-                        border: "1px solid var(--border)",
-                        background: "var(--bg)",
-                        display: "flex",
-                        alignItems: "center",
-                        justifyContent: "center",
-                        flexShrink: 0,
-                        fontSize: 18,
-                      }}
-                    >
-                      👔
-                    </span>
-                  )
-                )}
-                <span style={{ flex: 1, minWidth: 0 }}>
-                  <span className="dress-suggest-name">{item.display_name || item.name}</span>
-                  {meta && <span className="dress-suggest-meta">{meta}</span>}
-                </span>
-              </button>
-            );
-          })}
+      {!skip && open && items.length > 0 && (
+        <div className="dress-suggest-panel" style={{ display: "block", position: "absolute", zIndex: 9999 }}>
+          {canScrollUp && (
+            <button
+              type="button"
+              className="dress-suggest-scroll-btn dress-suggest-scroll-up"
+              aria-label="Scroll suggestions up"
+              onMouseDown={(e) => {
+                e.preventDefault();
+                scrollList("up");
+              }}
+              onTouchEnd={(e) => {
+                e.preventDefault();
+                scrollList("up");
+              }}
+            >
+              <i className="fa-solid fa-chevron-up" /> Scroll up
+            </button>
+          )}
+          <div
+            ref={listRef}
+            className="dress-suggest-dropdown"
+            onScroll={updateScrollButtons}
+            onTouchMove={(e) => e.stopPropagation()}
+          >
+            {items.map((item, idx) => {
+              const meta = [item.category, item.size ? `Size ${item.size}` : "", item.sku]
+                .filter(Boolean)
+                .join(" · ");
+              const thumb = showPhotos ? catalogPhotoUrl(item) : "";
+              return (
+                <button
+                  key={`${item.id ?? item.name}-${item.sku || idx}`}
+                  type="button"
+                  className={`dress-suggest-item${idx === activeIdx ? " active" : ""}`}
+                  style={showPhotos ? { display: "flex", alignItems: "center", gap: 10, textAlign: "left" } : undefined}
+                  onMouseDown={(e) => {
+                    e.preventDefault();
+                    selectItem(item);
+                  }}
+                >
+                  {showPhotos && (
+                    thumb ? (
+                      // Plain img — ZoomableImage steals touch and blocks list scroll on tablets.
+                      // eslint-disable-next-line @next/next/no-img-element
+                      <img
+                        src={thumb}
+                        alt=""
+                        className="dress-suggest-thumb"
+                        draggable={false}
+                        style={{
+                          width: 48,
+                          height: 48,
+                          objectFit: "cover",
+                          borderRadius: 8,
+                          border: "1px solid var(--border)",
+                          flexShrink: 0,
+                          pointerEvents: "none",
+                        }}
+                      />
+                    ) : (
+                      <span
+                        style={{
+                          width: 48,
+                          height: 48,
+                          borderRadius: 8,
+                          border: "1px solid var(--border)",
+                          background: "var(--bg)",
+                          display: "flex",
+                          alignItems: "center",
+                          justifyContent: "center",
+                          flexShrink: 0,
+                          fontSize: 18,
+                          pointerEvents: "none",
+                        }}
+                      >
+                        👔
+                      </span>
+                    )
+                  )}
+                  <span style={{ flex: 1, minWidth: 0 }}>
+                    <span className="dress-suggest-name">{item.display_name || item.name}</span>
+                    {meta && <span className="dress-suggest-meta">{meta}</span>}
+                  </span>
+                </button>
+              );
+            })}
+          </div>
+          {canScrollDown && (
+            <button
+              type="button"
+              className="dress-suggest-scroll-btn dress-suggest-scroll-down"
+              aria-label="Scroll suggestions down"
+              onMouseDown={(e) => {
+                e.preventDefault();
+                scrollList("down");
+              }}
+              onTouchEnd={(e) => {
+                e.preventDefault();
+                scrollList("down");
+              }}
+            >
+              <i className="fa-solid fa-chevron-down" /> Scroll down
+            </button>
+          )}
         </div>
       )}
     </div>

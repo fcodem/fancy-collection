@@ -3,6 +3,7 @@ import PremiumSlipMarker from "@/components/PremiumSlipMarker";
 import SlipBrandTitle from "@/components/SlipBrandTitle";
 import SlipLogo from "@/components/SlipLogo";
 import SlipMottoBanner from "@/components/SlipMottoBanner";
+import SlipOutfitPhoto from "@/components/SlipOutfitPhoto";
 import {
   SLIP_AMBER,
   SLIP_BORDER,
@@ -652,10 +653,11 @@ export default function ReturnSlip(props: ReturnSlipProps) {
             </div>
           </div>
           <div style={{ padding: 16, textAlign: "center" }}>
-            <img
+            <SlipOutfitPhoto
               src={it.photoUrl!}
               alt={it.dressName}
-              style={{ maxWidth: "100%", maxHeight: 420, objectFit: "contain", borderRadius: 8 }}
+              caption={it.dressName}
+              imgStyle={{ maxWidth: "100%", maxHeight: 420, objectFit: "contain", borderRadius: 8 }}
             />
           </div>
         </div>

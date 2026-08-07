@@ -1,6 +1,8 @@
 import { redirect } from "next/navigation";
 import { getCurrentUser, isOwner } from "@/lib/auth";
 import InventoryFormClient from "@/components/InventoryFormClient";
+import { getAllCategories } from "@/lib/categories";
+import { listSubCategories } from "@/lib/services/adminOps";
 
 export const dynamic = "force-dynamic";
 
@@ -22,10 +24,17 @@ export default async function InventoryAddPage({
         }
       : undefined;
 
+  const [categories, subCategoryRows] = await Promise.all([
+    getAllCategories(),
+    listSubCategories(),
+  ]);
+
   return (
     <InventoryFormClient
       key={saveConfirmed ? `saved-${saveConfirmed.sku}` : "new"}
       saveConfirmed={saveConfirmed}
+      categories={categories}
+      subCategories={subCategoryRows.map((s) => s.name)}
     />
   );
 }

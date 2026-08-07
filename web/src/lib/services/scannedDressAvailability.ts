@@ -2,11 +2,18 @@ import type { Prisma, PrismaClient } from "@prisma/client";
 import prisma from "@/lib/prisma";
 import { whereBookingOverlapsPeriod } from "@/lib/bookingDateQuery";
 import { formatDate } from "@/lib/constants";
+import { stripUnitSuffix } from "@/lib/dress";
+import { photoUrl } from "@/lib/photoUrl";
 import {
   InventoryScanCodeError,
   normalizeScanCode,
   resolveInventoryFromScannedCodeInDb,
 } from "@/lib/services/inventoryScanCode";
+import {
+  formatJewelleryPartsLabel,
+  partsPresentOnItem,
+  type JewelleryPartFlags,
+} from "@/lib/jewelleryParts";
 
 /**
  * Availability check for one scanned physical dress between a requested
@@ -71,6 +78,10 @@ export type ScannedDressSummary = {
   color: string | null;
   status: string;
   thumbnailUrl: string | null;
+  /** Catalog photo path/URL for sharp zoom (prefer over thumbnail). */
+  photoUrl?: string | null;
+  /** Human-readable jewellery parts present (Necklace, Long Har, …). */
+  jewelleryPartsLabel?: string | null;
 };
 
 export type ScannedDressAvailabilityTimings = {
@@ -82,6 +93,10 @@ export type ScannedDressAvailabilityTimings = {
 export type ScannedDressAvailabilityResult = {
   status: ScannedDressAvailabilityStatus;
   dress: ScannedDressSummary | null;
+  /** Units free for the requested window (group-aware). */
+  free_quantity: number;
+  /** Bookable units in the dress group (excludes maintenance/inactive). */
+  total_quantity: number;
   blockingRecords: ScannedDressBookingRecord[];
   warningRecords: ScannedDressBookingRecord[];
   timings: ScannedDressAvailabilityTimings;
@@ -254,6 +269,19 @@ const INVENTORY_LOOKUP_SELECT = {
   color: true,
   status: true,
   thumbnailPhoto: true,
+  photo: true,
+  inventoryGroupId: true,
+  itemType: true,
+  hasNecklace: true,
+  hasEarrings: true,
+  hasTeeka: true,
+  hasPasa: true,
+  hasSheeshpatti: true,
+  hasNath: true,
+  hasHathfool: true,
+  hasKamarband: true,
+  hasRings: true,
+  hasLongHar: true,
 } satisfies Prisma.ClothingItemSelect;
 
 type LookupInventory = Prisma.ClothingItemGetPayload<{
@@ -348,6 +376,8 @@ export function createScannedDressAvailabilityService(db: AvailabilityDb) {
       return {
         status: "CODE_NOT_FOUND",
         dress: null,
+        free_quantity: 0,
+        total_quantity: 0,
         blockingRecords: [],
         warningRecords: [],
         timings,
@@ -357,6 +387,8 @@ export function createScannedDressAvailabilityService(db: AvailabilityDb) {
       return {
         status: "AMBIGUOUS_LEGACY_CODE",
         dress: null,
+        free_quantity: 0,
+        total_quantity: 0,
         blockingRecords: [],
         warningRecords: [],
         timings,
@@ -365,38 +397,91 @@ export function createScannedDressAvailabilityService(db: AvailabilityDb) {
 
     const inventory = resolved.inventory!;
 
+    // 2. Expand to sibling units of the SAME size only.
+    // Men's inventory historically shared one group across sizes 38/40/42/…;
+    // availability + QR must stay size-specific.
+    let units: LookupInventory[] = [inventory];
+    if (inventory.inventoryGroupId) {
+      const siblings = await db.clothingItem.findMany({
+        where: { inventoryGroupId: inventory.inventoryGroupId },
+        select: INVENTORY_LOOKUP_SELECT,
+        orderBy: { id: "asc" },
+      });
+      const sizeKey = String(inventory.size || "")
+        .trim()
+        .toLowerCase();
+      const sameSize = siblings.filter(
+        (row) =>
+          String(row.size || "")
+            .trim()
+            .toLowerCase() === sizeKey,
+      );
+      if (sameSize.length) units = sameSize;
+    }
+
+    const displayUnit =
+      units.find((u) => u.id === inventory.id) || units[0] || inventory;
+    const partFlags: JewelleryPartFlags = {
+      hasNecklace: displayUnit.hasNecklace,
+      hasEarrings: displayUnit.hasEarrings,
+      hasTeeka: displayUnit.hasTeeka,
+      hasPasa: displayUnit.hasPasa,
+      hasSheeshpatti: displayUnit.hasSheeshpatti,
+      hasNath: displayUnit.hasNath,
+      hasHathfool: displayUnit.hasHathfool,
+      hasKamarband: displayUnit.hasKamarband,
+      hasRings: displayUnit.hasRings,
+      hasLongHar: displayUnit.hasLongHar,
+    };
+    const jewelleryPartsLabel =
+      displayUnit.itemType === "jewellery" || partsPresentOnItem(partFlags).length
+        ? formatJewelleryPartsLabel(partsPresentOnItem(partFlags)) || null
+        : null;
+    const thumbRef =
+      displayUnit.thumbnailPhoto ||
+      units.find((u) => u.thumbnailPhoto)?.thumbnailPhoto ||
+      displayUnit.photo ||
+      units.find((u) => u.photo)?.photo ||
+      null;
+    const fullRef =
+      displayUnit.photo ||
+      units.find((u) => u.photo)?.photo ||
+      thumbRef;
     const dress: ScannedDressSummary = {
-      id: inventory.id,
-      name: inventory.name,
-      sku: inventory.sku,
-      category: inventory.category,
-      size: inventory.size,
-      color: inventory.color,
-      status: inventory.status,
-      thumbnailUrl: inventory.thumbnailPhoto || null,
+      id: displayUnit.id,
+      name: stripUnitSuffix(displayUnit.name),
+      sku: displayUnit.sku,
+      category: displayUnit.category,
+      size: displayUnit.size,
+      color: displayUnit.color,
+      status: displayUnit.status,
+      thumbnailUrl: thumbRef ? photoUrl(thumbRef) : null,
+      photoUrl: fullRef ? photoUrl(fullRef) : null,
+      ...(jewelleryPartsLabel ? { jewelleryPartsLabel } : {}),
     };
 
-    // 2. Inventory lifecycle states end the check before any booking query.
-    if (MAINTENANCE_STATUSES.has(inventory.status)) {
+    const bookableUnits = units.filter(
+      (u) =>
+        !MAINTENANCE_STATUSES.has(u.status) && !INACTIVE_STATUSES.has(u.status),
+    );
+    const total_quantity = bookableUnits.length;
+
+    if (bookableUnits.length === 0) {
+      const allMaintenance = units.every((u) => MAINTENANCE_STATUSES.has(u.status));
       return {
-        status: "MAINTENANCE",
+        status: allMaintenance ? "MAINTENANCE" : "INACTIVE",
         dress,
-        blockingRecords: [],
-        warningRecords: [],
-        timings,
-      };
-    }
-    if (INACTIVE_STATUSES.has(inventory.status)) {
-      return {
-        status: "INACTIVE",
-        dress,
+        free_quantity: 0,
+        total_quantity: 0,
         blockingRecords: [],
         warningRecords: [],
         timings,
       };
     }
 
-    // 3. One bounded conflict query using the approved overlap window.
+    const unitIds = bookableUnits.map((u) => u.id);
+
+    // 3. One bounded conflict query for every unit in the dress group.
     //    Cancelled/returned booking items never occupy inventory; legacy
     //    bookings (itemId set, no item rows) still do.
     const conflictStart = Date.now();
@@ -411,10 +496,14 @@ export function createScannedDressAvailabilityService(db: AvailabilityDb) {
       OR: [
         {
           bookingItems: {
-            some: { itemId: dress.id, isCancelled: false, isReturned: false },
+            some: {
+              itemId: { in: unitIds },
+              isCancelled: false,
+              isReturned: false,
+            },
           },
         },
-        { itemId: dress.id, bookingItems: { none: {} } },
+        { itemId: { in: unitIds }, bookingItems: { none: {} } },
       ],
     };
     const conflicts = (await db.booking.findMany({
@@ -422,7 +511,11 @@ export function createScannedDressAvailabilityService(db: AvailabilityDb) {
       select: {
         ...CONFLICT_BOOKING_SELECT,
         bookingItems: {
-          where: { itemId: dress.id },
+          where: {
+            itemId: { in: unitIds },
+            isCancelled: false,
+            isReturned: false,
+          },
           select: {
             itemId: true,
             dressName: true,
@@ -437,50 +530,91 @@ export function createScannedDressAvailabilityService(db: AvailabilityDb) {
     })) as ConflictBookingRow[];
     timings.conflictQueryMs = Date.now() - conflictStart;
 
-    // 4-7. Classify each conflict: boundary days warn unless the recorded
-    //      times prove a genuine time overlap, everything else blocks.
+    // 4-7. Classify each conflict per unit: boundary days warn unless times
+    //      prove a genuine overlap; everything else blocks that unit.
     const classifyStart = Date.now();
+    const blockedUnitIds = new Set<number>();
+    const warnReturningUnitIds = new Set<number>();
+    const warnBookedUnitIds = new Set<number>();
     const blockingRecords: ScannedDressBookingRecord[] = [];
     const warningRecords: ScannedDressBookingRecord[] = [];
-    let hasReturningWarning = false;
-    let hasBookedWarning = false;
+    const seenBlockKeys = new Set<string>();
+    const seenWarnKeys = new Set<string>();
+
+    function touchedUnitIds(booking: ConflictBookingRow): number[] {
+      const fromItems = booking.bookingItems
+        .map((row) => row.itemId)
+        .filter((id): id is number => id != null && unitIds.includes(id));
+      if (fromItems.length) return [...new Set(fromItems)];
+      if (booking.itemId != null && unitIds.includes(booking.itemId)) {
+        return [booking.itemId];
+      }
+      return [];
+    }
 
     for (const booking of conflicts) {
+      const touched = touchedUnitIds(booking);
+      if (!touched.length) continue;
+
       const existingDelivery = formatDate(booking.deliveryDate, "iso");
       const existingReturn = formatDate(booking.returnDate, "iso");
+      let reason: ScannedDressRecordReason = "OVERLAPPING_BOOKING";
 
       if (existingReturn === delivery.date) {
         const existingReturnMinutes = parseBookingTimeToMinutes(booking.returnTime);
         if (existingReturnMinutes != null && existingReturnMinutes > delivery.minutes) {
-          blockingRecords.push(recordFrom(booking, "OVERLAPPING_BOOKING"));
+          reason = "OVERLAPPING_BOOKING";
         } else {
-          hasReturningWarning = true;
-          warningRecords.push(recordFrom(booking, "RETURNING_ON_DELIVERY_DAY"));
+          reason = "RETURNING_ON_DELIVERY_DAY";
         }
-        continue;
-      }
-
-      if (existingDelivery === requestedReturn.date) {
+      } else if (existingDelivery === requestedReturn.date) {
         const existingDeliveryMinutes = parseBookingTimeToMinutes(booking.deliveryTime);
         if (
           existingDeliveryMinutes != null &&
           existingDeliveryMinutes < requestedReturn.minutes
         ) {
-          blockingRecords.push(recordFrom(booking, "OVERLAPPING_BOOKING"));
+          reason = "OVERLAPPING_BOOKING";
         } else {
-          hasBookedWarning = true;
-          warningRecords.push(recordFrom(booking, "BOOKED_ON_RETURN_DAY"));
+          reason = "BOOKED_ON_RETURN_DAY";
         }
-        continue;
       }
 
-      blockingRecords.push(recordFrom(booking, "OVERLAPPING_BOOKING"));
+      for (const unitId of touched) {
+        if (reason === "OVERLAPPING_BOOKING") blockedUnitIds.add(unitId);
+        else if (reason === "RETURNING_ON_DELIVERY_DAY") {
+          warnReturningUnitIds.add(unitId);
+        } else {
+          warnBookedUnitIds.add(unitId);
+        }
+      }
+
+      const recordKey = `${booking.id}:${reason}`;
+      if (reason === "OVERLAPPING_BOOKING") {
+        if (!seenBlockKeys.has(recordKey)) {
+          seenBlockKeys.add(recordKey);
+          blockingRecords.push(recordFrom(booking, reason));
+        }
+      } else if (!seenWarnKeys.has(recordKey)) {
+        seenWarnKeys.add(recordKey);
+        warningRecords.push(recordFrom(booking, reason));
+      }
     }
-    timings.classificationMs = Date.now() - classifyStart;
+
+    const freeUnits = bookableUnits.filter((u) => !blockedUnitIds.has(u.id));
+    const free_quantity = freeUnits.length;
+    const cleanFree = freeUnits.some(
+      (u) => !warnReturningUnitIds.has(u.id) && !warnBookedUnitIds.has(u.id),
+    );
+    const hasReturningWarning = freeUnits.some((u) =>
+      warnReturningUnitIds.has(u.id),
+    );
+    const hasBookedWarning = freeUnits.some((u) => warnBookedUnitIds.has(u.id));
 
     let status: ScannedDressAvailabilityStatus = "AVAILABLE";
-    if (blockingRecords.length) {
+    if (free_quantity === 0) {
       status = "BOOKED";
+    } else if (cleanFree) {
+      status = "AVAILABLE";
     } else if (hasReturningWarning && hasBookedWarning) {
       status = "WARNING_BOTH_BOUNDARIES";
     } else if (hasReturningWarning) {
@@ -488,8 +622,17 @@ export function createScannedDressAvailabilityService(db: AvailabilityDb) {
     } else if (hasBookedWarning) {
       status = "WARNING_BOOKED_ON_RETURN_DAY";
     }
+    timings.classificationMs = Date.now() - classifyStart;
 
-    return { status, dress, blockingRecords, warningRecords, timings };
+    return {
+      status,
+      dress,
+      free_quantity,
+      total_quantity,
+      blockingRecords,
+      warningRecords,
+      timings,
+    };
   }
 
   return { checkScannedDressAvailability };

@@ -58,8 +58,10 @@ describe("AI and backup safety", () => {
     assert.match(read("src/lib/dressChecker/aiJobWorker.ts"), /defaultValue = false/);
   });
 
-  it("repair cron drains one job", () => {
-    assert.match(read("src/app/api/cron/dress-checker-repair/route.ts"), /drainAiJobQueue\(1/);
+  it("repair cron drains a bounded job batch", () => {
+    const repair = read("src/app/api/cron/dress-checker-repair/route.ts");
+    assert.match(repair, /resolveAiCronDrainLimit/);
+    assert.match(repair, /drainAiJobQueue\(drainLimit/);
   });
 
   it("backup requires private backup token only", () => {

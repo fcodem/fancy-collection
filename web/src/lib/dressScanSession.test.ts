@@ -60,7 +60,7 @@ describe("continuous scan duplicate suppression", () => {
     assert.equal(normalizeSessionScanCode("fc-d-ab12"), "FC-D-AB12");
   });
 
-  it("locks duplicate decode callbacks synchronously for 1.5 seconds", () => {
+  it("locks duplicate decode callbacks synchronously for a short window", () => {
     const gate = createScanDedupeGate(1_500);
     assert.equal(gate.claim("00123", 1_000).accepted, true);
     const callback = gate.claim("00123", 1_010);
@@ -117,12 +117,14 @@ describe("Scan Dress Availability UI contracts", () => {
     assert.match(component, /phase !== "scanning"/);
   });
 
-  it("creates a new camera session for each scan via Scan Next Dress", () => {
+  it("keeps the camera session open for continuous dress scanning", () => {
     const qrSessions = (component.match(/new QrCameraSession/g) || []).length;
     assert.ok(qrSessions >= 1, "must create at least one QrCameraSession");
-    assert.match(component, /scanLockedRef/);
+    assert.match(component, /sessionRef\.current\?\.pause\(\)/);
+    assert.match(component, /session\.resume\(\)/);
     assert.match(camera, /pause\(\): void/);
     assert.match(camera, /resume\(\): void/);
+    assert.match(camera, /preferMediumFirst/);
   });
 
   it("uses a controlled request queue, AbortController and generation guard", () => {
@@ -141,7 +143,7 @@ describe("Scan Dress Availability UI contracts", () => {
       "Change Dates",
       "Clear Scanned List",
       "Remove One Result",
-      "Scan Next Dress",
+      "Restart Camera",
       "Manual Code Entry",
       "Recheck",
       "Switch Camera",

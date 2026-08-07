@@ -2,7 +2,10 @@ import { NextRequest } from "next/server";
 import * as Sentry from "@sentry/nextjs";
 import { jsonError, jsonOk } from "@/lib/api";
 import { enqueueRepairJobs } from "@/lib/dressChecker/aiJobQueue";
-import { drainAiJobQueue } from "@/lib/dressChecker/aiJobWorker";
+import {
+  drainAiJobQueue,
+  resolveAiCronDrainLimit,
+} from "@/lib/dressChecker/aiJobWorker";
 
 export const dynamic = "force-dynamic";
 export const maxDuration = 300;
@@ -21,9 +24,10 @@ export async function GET(req: NextRequest) {
   }
 
   try {
-    const enqueued = await enqueueRepairJobs(200);
-    const drained = await drainAiJobQueue(1, { source: "repair" });
-    return jsonOk({ ok: true, enqueued, ...drained });
+    const enqueued = await enqueueRepairJobs(250);
+    const drainLimit = resolveAiCronDrainLimit(10);
+    const drained = await drainAiJobQueue(drainLimit, { source: "repair" });
+    return jsonOk({ ok: true, enqueued, drainLimit, ...drained });
   } catch (e) {
     Sentry.captureException(e);
     console.error("dress-checker-repair cron failed:", e);

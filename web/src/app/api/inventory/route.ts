@@ -118,6 +118,12 @@ export async function POST(req: NextRequest) {
       has_earrings: form.get("has_earrings") === "1",
       has_teeka: form.get("has_teeka") === "1",
       has_pasa: form.get("has_pasa") === "1",
+      has_sheeshpatti: form.get("has_sheeshpatti") === "1",
+      has_nath: form.get("has_nath") === "1",
+      has_hathfool: form.get("has_hathfool") === "1",
+      has_kamarband: form.get("has_kamarband") === "1",
+      has_rings: form.get("has_rings") === "1",
+      has_long_har: form.get("has_long_har") === "1",
       photo_content_hash: photoHash,
       photo_path: directPhotoPath,
       thumbnail_path: directThumbnailPath,
@@ -179,6 +185,12 @@ export async function POST(req: NextRequest) {
       has_earrings: form.get("has_earrings") === "1",
       has_teeka: form.get("has_teeka") === "1",
       has_pasa: form.get("has_pasa") === "1",
+      has_sheeshpatti: form.get("has_sheeshpatti") === "1",
+      has_nath: form.get("has_nath") === "1",
+      has_hathfool: form.get("has_hathfool") === "1",
+      has_kamarband: form.get("has_kamarband") === "1",
+      has_rings: form.get("has_rings") === "1",
+      has_long_har: form.get("has_long_har") === "1",
     };
 
     const result = await prisma.$transaction(async (tx) => {
@@ -224,16 +236,28 @@ export async function POST(req: NextRequest) {
     const createdIds = result.ids;
 
     after(async () => {
+      // One shared QR/barcode per inventory group (men's sizes are separate groups).
       if (createdIds.length) {
-        await Promise.all(
-          createdIds.map((id) =>
-            prisma
-              .$transaction((tx) => generateDefaultScanCodesInTx(tx, id))
-              .catch((error) => {
-                console.error(`[inventory POST] scan code gen failed for item ${id}:`, error);
-              }),
-          ),
-        );
+        const createdRows = await prisma.clothingItem.findMany({
+          where: { id: { in: createdIds } },
+          select: { id: true, inventoryGroupId: true },
+        });
+        const canonicalByGroup = new Map<string, number>();
+        for (const row of createdRows) {
+          const key = row.inventoryGroupId || `solo:${row.id}`;
+          const prev = canonicalByGroup.get(key);
+          if (prev == null || row.id < prev) canonicalByGroup.set(key, row.id);
+        }
+        for (const canonicalId of canonicalByGroup.values()) {
+          await prisma
+            .$transaction((tx) => generateDefaultScanCodesInTx(tx, canonicalId))
+            .catch((error) => {
+              console.error(
+                `[inventory POST] scan code gen failed for group canonical item ${canonicalId}:`,
+                error,
+              );
+            });
+        }
       }
       invalidateInventoryListCaches();
       broadcastShopEvent({

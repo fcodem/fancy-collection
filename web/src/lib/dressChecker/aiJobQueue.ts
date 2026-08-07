@@ -24,6 +24,7 @@ export {
 } from "./aiJobTypes";
 export {
   enqueueInventoryAiJob,
+  enqueueBulkAiRebuild,
   enqueueRepairJobs,
   getAiJobQueueStats,
   ignoreDeadLetterAiJob,

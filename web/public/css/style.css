@@ -199,6 +199,55 @@ body {
   font-weight: 700;
 }
 
+.nav-badge--inbox {
+  background: #16a34a;
+  animation: inbox-badge-pulse 1.6s ease-in-out infinite;
+}
+
+.header-inbox-btn {
+  position: relative;
+  display: inline-flex;
+  align-items: center;
+  gap: 8px;
+  text-decoration: none;
+}
+
+.header-inbox-count {
+  display: inline-flex;
+  align-items: center;
+  justify-content: center;
+  min-width: 22px;
+  height: 22px;
+  padding: 0 7px;
+  border-radius: 999px;
+  background: #dc2626;
+  color: #fff;
+  font-size: 12px;
+  font-weight: 800;
+  line-height: 1;
+  animation: inbox-badge-pulse 1.6s ease-in-out infinite;
+}
+
+.header-inbox-banner {
+  margin: 0 16px 8px;
+  padding: 10px 14px;
+  border-radius: 8px;
+  background: rgba(22, 163, 74, 0.1);
+  border: 1px solid rgba(22, 163, 74, 0.35);
+  color: #166534;
+  font-weight: 700;
+  font-size: 13px;
+  display: flex;
+  align-items: center;
+  justify-content: space-between;
+  gap: 12px;
+}
+
+@keyframes inbox-badge-pulse {
+  0%, 100% { transform: scale(1); box-shadow: 0 0 0 0 rgba(220, 38, 38, 0.45); }
+  50% { transform: scale(1.06); box-shadow: 0 0 0 6px rgba(220, 38, 38, 0); }
+}
+
 .sidebar-footer {
   padding: 16px 22px;
   border-top: 1px solid rgba(201,168,70,0.2);
@@ -1419,8 +1468,7 @@ textarea.form-control { resize: vertical; min-height: 80px; }
   width: 100%;
 }
 
-.dress-suggest-dropdown {
-  position: absolute;
+.dress-suggest-panel {
   left: 0;
   right: 0;
   top: calc(100% + 4px);
@@ -1429,8 +1477,51 @@ textarea.form-control { resize: vertical; min-height: 80px; }
   border: 1.5px solid var(--border);
   border-radius: 10px;
   box-shadow: var(--shadow-lg);
-  max-height: 280px;
+  overflow: hidden;
+}
+
+.dress-suggest-dropdown {
+  max-height: min(360px, 50vh);
   overflow-y: auto;
+  -webkit-overflow-scrolling: touch;
+  touch-action: pan-y;
+  overscroll-behavior: contain;
+}
+
+.dress-suggest-scroll-btn {
+  display: flex;
+  align-items: center;
+  justify-content: center;
+  gap: 6px;
+  width: 100%;
+  padding: 12px 10px;
+  border: none;
+  background: rgba(123, 31, 69, 0.08);
+  color: var(--primary);
+  font-size: 12px;
+  font-weight: 700;
+  cursor: pointer;
+  font-family: inherit;
+  touch-action: manipulation;
+  min-height: 44px;
+}
+
+.dress-suggest-scroll-btn:hover {
+  background: rgba(123, 31, 69, 0.14);
+}
+
+.dress-suggest-scroll-up {
+  border-bottom: 1px solid var(--border);
+}
+
+.dress-suggest-scroll-down {
+  border-top: 1px solid var(--border);
+}
+
+.dress-suggest-thumb {
+  min-width: 48px;
+  min-height: 48px;
+  display: block;
 }
 
 .dress-suggest-item {
@@ -1462,6 +1553,55 @@ textarea.form-control { resize: vertical; min-height: 80px; }
 
 .dress-suggest-meta {
   font-size: 11px;
+  color: var(--text-muted);
+}
+
+/* Booking time combobox — avoids native <select> typeahead jumping to 5 PM */
+.booking-time-select {
+  position: relative;
+  width: 100%;
+}
+
+.booking-time-dropdown {
+  position: absolute;
+  left: 0;
+  right: 0;
+  top: calc(100% + 4px);
+  z-index: 1300;
+  max-height: 240px;
+  overflow-y: auto;
+  -webkit-overflow-scrolling: touch;
+  background: var(--white);
+  border: 1.5px solid var(--border);
+  border-radius: 10px;
+  box-shadow: var(--shadow-lg);
+}
+
+.booking-time-option {
+  display: block;
+  width: 100%;
+  padding: 10px 14px;
+  border: none;
+  border-bottom: 1px solid var(--border);
+  background: var(--white);
+  text-align: left;
+  cursor: pointer;
+  font-family: inherit;
+  font-size: 14px;
+}
+
+.booking-time-option:last-child { border-bottom: none; }
+.booking-time-option.active,
+.booking-time-option:hover {
+  background: rgba(123, 31, 69, 0.06);
+}
+.booking-time-option.selected {
+  font-weight: 700;
+  color: var(--primary);
+}
+.booking-time-empty {
+  padding: 12px 14px;
+  font-size: 13px;
   color: var(--text-muted);
 }
 

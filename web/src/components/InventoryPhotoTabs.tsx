@@ -2,6 +2,7 @@
 
 import { useState } from "react";
 import { fetchJson } from "@/lib/fetchJson";
+import ZoomableImage from "@/components/ZoomableImage";
 
 type PhotoSet = {
   original: string | null;
@@ -122,10 +123,10 @@ export default function InventoryPhotoTabs({
 
       {/* Photo */}
       {current ? (
-        /* eslint-disable-next-line @next/next/no-img-element */
-        <img
+        <ZoomableImage
           src={current}
           alt={`${displayName} — ${active}`}
+          overlayCaption={`${displayName} — ${active}`}
           className="inv-detail-photo-img"
           style={{
             border:

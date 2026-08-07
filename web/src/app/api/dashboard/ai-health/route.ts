@@ -1,5 +1,5 @@
-import prisma from "@/lib/prisma";
 import { jsonOk, requireUser, isResponse } from "@/lib/api";
+import { getPublicHealthStatus } from "@/lib/dressChecker/publicHealthStatus";
 
 export const dynamic = "force-dynamic";
 
@@ -8,11 +8,16 @@ export async function GET() {
   const user = await requireUser();
   if (isResponse(user)) return user;
 
-  const rows = await prisma.$queryRaw<Array<{ queued: number; failed: number }>>`
-    SELECT
-      COUNT(*) FILTER (WHERE status IN ('pending', 'processing'))::int AS queued,
-      COUNT(*) FILTER (WHERE status = 'failed')::int AS failed
-    FROM inventory_ai_jobs
-  `;
-  return jsonOk(rows[0] ?? { queued: 0, failed: 0 });
+  const status = await getPublicHealthStatus({ selfHeal: true });
+  return jsonOk({
+    queued:
+      (status.queue?.pending ?? 0) +
+      (status.queue?.processing ?? 0) +
+      (status.queue?.retrying ?? 0),
+    failed: status.failedJobCount ?? 0,
+    ready: status.readyProfiles ?? status.ai?.READY ?? 0,
+    unindexed: status.unindexedWithPhoto ?? 0,
+    banner: status.banner,
+    bannerLevel: status.bannerLevel,
+  });
 }

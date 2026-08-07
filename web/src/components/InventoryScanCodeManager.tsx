@@ -234,9 +234,10 @@ export default function InventoryScanCodeManager({
     let symbol = "";
     if (format === "QR_CODE") {
       const dataUrl = await QRCode.toDataURL(code.code, {
-        width: 280,
+        width: 400,
         margin: 1,
         errorCorrectionLevel: "M",
+        color: { dark: "#000000", light: "#FFFFFF" },
       });
       symbol = `<img class="qr" src="${dataUrl}" alt="QR code">`;
     } else {

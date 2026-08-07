@@ -421,6 +421,12 @@ export async function getAvailableItemsApi(
     hasEarrings: true,
     hasTeeka: true,
     hasPasa: true,
+    hasSheeshpatti: true,
+    hasNath: true,
+    hasHathfool: true,
+    hasKamarband: true,
+    hasRings: true,
+    hasLongHar: true,
   } as const;
 
   const [allItems, warningBookings] = await Promise.all([
@@ -465,6 +471,12 @@ export async function getAvailableItemsApi(
         pickEarrings: true,
         pickTeeka: true,
         pickPasa: true,
+        pickSheeshpatti: true,
+        pickNath: true,
+        pickHathfool: true,
+        pickKamarband: true,
+        pickRings: true,
+        pickLongHar: true,
         booking: { include: bookingWarningInclude },
       },
     }),
@@ -509,6 +521,12 @@ export async function getAvailableItemsApi(
     pickEarrings: boolean;
     pickTeeka: boolean;
     pickPasa: boolean;
+    pickSheeshpatti: boolean;
+    pickNath: boolean;
+    pickHathfool: boolean;
+    pickKamarband: boolean;
+    pickRings: boolean;
+    pickLongHar: boolean;
   };
   const jewInteriorByItem = new Map<number, JewPick[]>();
   for (const js of overlappingJewellery) {
@@ -537,6 +555,12 @@ export async function getAvailableItemsApi(
         pickEarrings: js.pickEarrings,
         pickTeeka: js.pickTeeka,
         pickPasa: js.pickPasa,
+        pickSheeshpatti: js.pickSheeshpatti,
+        pickNath: js.pickNath,
+        pickHathfool: js.pickHathfool,
+        pickKamarband: js.pickKamarband,
+        pickRings: js.pickRings,
+        pickLongHar: js.pickLongHar,
       });
       jewInteriorByItem.set(js.itemId, arr);
     }
@@ -551,6 +575,12 @@ export async function getAvailableItemsApi(
       hasEarrings: it.hasEarrings,
       hasTeeka: it.hasTeeka,
       hasPasa: it.hasPasa,
+      hasSheeshpatti: it.hasSheeshpatti,
+      hasNath: it.hasNath,
+      hasHathfool: it.hasHathfool,
+      hasKamarband: it.hasKamarband,
+      hasRings: it.hasRings,
+      hasLongHar: it.hasLongHar,
     };
     const hasParts = itemHasJewelleryParts(itemParts);
     const interior = jewInteriorByItem.get(it.id) || [];
@@ -574,6 +604,12 @@ export async function getAvailableItemsApi(
         hasEarrings: i.hasEarrings,
         hasTeeka: i.hasTeeka,
         hasPasa: i.hasPasa,
+        hasSheeshpatti: i.hasSheeshpatti,
+        hasNath: i.hasNath,
+        hasHathfool: i.hasHathfool,
+        hasKamarband: i.hasKamarband,
+        hasRings: i.hasRings,
+        hasLongHar: i.hasLongHar,
       };
       const hasParts = isJewellery && itemHasJewelleryParts(itemParts);
       return {
@@ -591,6 +627,12 @@ export async function getAvailableItemsApi(
         has_earrings: i.hasEarrings,
         has_teeka: i.hasTeeka,
         has_pasa: i.hasPasa,
+        has_sheeshpatti: i.hasSheeshpatti,
+        has_nath: i.hasNath,
+        has_hathfool: i.hasHathfool,
+        has_kamarband: i.hasKamarband,
+        has_rings: i.hasRings,
+        has_long_har: i.hasLongHar,
         booked_parts: isJewellery ? jewBookedParts[i.id] || [] : [],
         available_parts: hasParts ? jewFreeParts[i.id] ?? partsPresentOnItem(itemParts) : [],
         returning_warning: returningInfo[i.id] || null,

@@ -54,7 +54,7 @@ export type BotProcessResult = {
 };
 
 const DATE_INVALID_MSG =
-  "Please enter the date in DD-MM-YYYY format, for example 24-07-2026.";
+  "Please enter the date in DD/MM/YYYY format, for example 24/07/2026.";
 
 const FORBIDDEN_CONFIRMATION =
   /\b(your booking is confirmed|dress is booked|definitely available|booking confirmed)\b/i;
@@ -358,7 +358,7 @@ function handoverResult(
 
 function askDeliveryDate(category: string): BotProcessResult {
   return {
-    reply: `Great! You are looking for *${category}*. 🗓️\nPlease share your *delivery date* in DD-MM-YYYY format (for example 24-07-2026).`,
+    reply: `Great! You are looking for *${category}*. 🗓️\nPlease share your *delivery date* in DD/MM/YYYY format (for example 24/07/2026).`,
     nextState: {
       botStep: "AWAITING_DELIVERY_DATE",
       botCategory: category,
@@ -421,7 +421,7 @@ function processFlowStep(
         };
       }
       return {
-        reply: `Delivery date noted: ${formatDisplayDate(parsed.iso)}.\nPlease share your *return date* in DD-MM-YYYY format.`,
+        reply: `Delivery date noted: ${formatDisplayDate(parsed.iso)}.\nPlease share your *return date* in DD/MM/YYYY format.`,
         nextState: {
           botStep: "AWAITING_RETURN_DATE",
           botDeliveryDate: parsed.iso,
@@ -442,7 +442,7 @@ function processFlowStep(
       }
       if (state.botDeliveryDate && parsed.iso < state.botDeliveryDate) {
         return {
-          reply: "Return date cannot be earlier than the delivery date. Please enter a valid return date in DD-MM-YYYY format.",
+          reply: "Return date cannot be earlier than the delivery date. Please enter a valid return date in DD/MM/YYYY format.",
           nextState: {},
           sendHandover: false,
           incrementInvalidAttempts: true,

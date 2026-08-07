@@ -55,6 +55,8 @@ function resultWith(
       status: "available",
       thumbnailUrl: "/thumbs/br-001.webp",
     },
+    free_quantity: 1,
+    total_quantity: 1,
     blockingRecords: [],
     warningRecords: [],
     timings: { codeLookupMs: 2, conflictQueryMs: 5, classificationMs: 0 },

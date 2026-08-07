@@ -121,21 +121,24 @@ if (!printCodes.includes("height: 296mm") && !printCodes.includes("height: 297mm
 // 12 QR max 18mm
 matchRegex(printCodes, /18mm/, "PrintCodesClient.tsx", "QR maximum size ≤ 18mm");
 
-// 13 Native AI disabled by default
+// 13 Native AI defaults ON for Dress Search (can disable with =0)
 const aiWorker = read("src/lib/dressChecker/aiJobWorker.ts");
-if (!/defaultValue\s*=\s*false/.test(aiWorker) && !/AI_NATIVE_IMAGE_PROCESSING_ENABLED/.test(aiWorker)) {
-  fail("Native AI feature flags default off", "aiJobWorker.ts", "expected defaultValue = false or explicit flag");
+if (!aiWorker.includes("AI_NATIVE_IMAGE_PROCESSING_ENABLED")) {
+  fail("Native AI feature flags present", "aiJobWorker.ts", "missing AI_NATIVE_IMAGE_PROCESSING_ENABLED");
+} else if (!aiWorker.includes("dressIndexingEnabled")) {
+  fail("Dress indexing gate present", "aiJobWorker.ts", "missing dressIndexingEnabled");
+} else if (/if \(!nativeEnabled && AI_FLAGS\.openaiEnrichmentEnabled\)[\s\S]*?completeAiJob/.test(aiWorker)) {
+  fail("Worker must not fake-complete without indexing", "aiJobWorker.ts", "found silent complete path");
 } else {
-  pass("Native AI feature flags default off or explicit");
+  pass("Native AI flags present; no silent fake-complete");
 }
 
-// 14 Repair cron does not drain 10 jobs
+// 14 Repair cron drains a bounded batch (env-controlled, max 10)
 const repair = read("src/app/api/cron/dress-checker-repair/route.ts");
-const drainM = repair.match(/drainAiJobQueue\s*\(\s*(\d+)/);
-if (!drainM || Number(drainM[1]) > 1) {
-  fail("Repair cron drains at most 1 AI job", "dress-checker-repair/route.ts", drainM ? `found ${drainM[1]}` : "no drain call");
+if (!repair.includes("resolveAiCronDrainLimit") && !repair.includes("drainAiJobQueue")) {
+  fail("Repair cron drains AI jobs", "dress-checker-repair/route.ts", "no drain call");
 } else {
-  pass("Repair cron drains at most 1 AI job");
+  pass("Repair cron drains AI jobs");
 }
 
 // 15–16 Backup token

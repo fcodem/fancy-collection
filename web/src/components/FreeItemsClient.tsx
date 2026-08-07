@@ -5,13 +5,17 @@ import CategorySelect from "./CategorySelect";
 import { BookingWarningPanel } from "@/components/BookingDetailsColumns";
 import { WARNING_BOOKED_ON_RETURN, WARNING_RETURNING_ON_DELIVERY } from "@/lib/bookingDetails";
 import type { BookingWarningRecord } from "@/lib/bookingDetails";
-import { BASE_JEWELLERY, BASE_MENS, BASE_WOMENS, SIZES } from "@/lib/constants";
+import { BASE_JEWELLERY, BASE_MENS, BASE_WOMENS, REMOVED_SUB_CATEGORIES, SIZES } from "@/lib/constants";
 import { useRealtimeRefresh } from "@/hooks/useRealtimeRefresh";
 import { BOOKING_EVENTS, INVENTORY_EVENTS } from "@/lib/realtime/types";
 import DownloadPdfButton from "@/components/DownloadPdfButton";
 import { formatJewelleryPartsLabel, type JewelleryPartKey } from "@/lib/jewelleryParts";
 import { addDaysIso } from "@/lib/dateInput";
 import { photoUrl } from "@/lib/photoUrl";
+import ZoomableImage from "@/components/ZoomableImage";
+import { dressDisplayName, stripUnitSuffix } from "@/lib/dress";
+
+const REMOVED_SUB_SET = new Set(REMOVED_SUB_CATEGORIES.map((s) => s.toLowerCase()));
 
 type FreeItem = {
   id: number;
@@ -21,20 +25,85 @@ type FreeItem = {
   size?: string;
   color?: string;
   sub_category?: string;
-  photo?: string;
+  photo?: string | null;
+  thumbnail?: string | null;
   item_type?: string;
+  inventory_group_id?: string | null;
+  free_quantity?: number;
+  total_quantity?: number;
   has_necklace?: boolean;
   has_earrings?: boolean;
   has_teeka?: boolean;
   has_pasa?: boolean;
+  has_sheeshpatti?: boolean;
+  has_nath?: boolean;
+  has_hathfool?: boolean;
+  has_kamarband?: boolean;
+  has_rings?: boolean;
+  has_long_har?: boolean;
   booked_parts?: JewelleryPartKey[];
   available_parts?: JewelleryPartKey[];
   returning_warning?: BookingWarningRecord | null;
   booked_warning?: BookingWarningRecord | null;
 };
 
+function itemThumbSrc(item: FreeItem): string {
+  return photoUrl(item.thumbnail || item.photo) || "";
+}
+
+function itemFullSrc(item: FreeItem): string {
+  return photoUrl(item.photo || item.thumbnail) || itemThumbSrc(item);
+}
+
 function hasBookedParts(item: FreeItem): boolean {
   return (item.booked_parts?.length ?? 0) > 0;
+}
+
+function freeItemGroupKey(item: FreeItem): string {
+  if (item.inventory_group_id) return `g:${item.inventory_group_id}`;
+  return `legacy:${stripUnitSuffix(item.name)}|${item.category}|${item.size || ""}|${item.color || ""}`;
+}
+
+/** Collapse multi-unit free rows into one dress with free quantity. */
+function collapseMultiUnitFreeItems(items: FreeItem[]): FreeItem[] {
+  const byKey = new Map<string, FreeItem[]>();
+  for (const item of items) {
+    const key = freeItemGroupKey(item);
+    const arr = byKey.get(key) || [];
+    arr.push(item);
+    byKey.set(key, arr);
+  }
+  const out: FreeItem[] = [];
+  for (const group of byKey.values()) {
+    const primary = group[0]!;
+    const freeQty = group.length;
+    const totalQty = Math.max(
+      primary.total_quantity || 0,
+      freeQty,
+      ...group.map((g) => g.total_quantity || 0),
+    );
+    const isMulti = totalQty > 1 || group.length > 1;
+    if (!isMulti) {
+      out.push(primary);
+      continue;
+    }
+    const baseName = stripUnitSuffix(primary.name);
+    out.push({
+      ...primary,
+      name: baseName,
+      display_name: dressDisplayName(baseName, primary.category, primary.size),
+      free_quantity: freeQty,
+      total_quantity: totalQty,
+      // Prefer a totally-free representative when collapsing warning sections.
+      returning_warning: group.every((g) => g.returning_warning)
+        ? primary.returning_warning
+        : group.find((g) => g.returning_warning)?.returning_warning || null,
+      booked_warning: group.every((g) => g.booked_warning)
+        ? primary.booked_warning
+        : group.find((g) => g.booked_warning)?.booked_warning || null,
+    });
+  }
+  return out;
 }
 
 // Four main divisions requested for the Free Item List.
@@ -75,58 +144,82 @@ function groupByCategory(items: FreeItem[]): { category: string; items: FreeItem
   return groups;
 }
 
-function FreeItemBlock({
-  item,
-  onImageClick,
-}: {
-  item: FreeItem;
-  onImageClick: (item: FreeItem) => void;
-}) {
+function FreeItemBlock({ item }: { item: FreeItem }) {
   const isJewellery = item.item_type === "jewellery";
   const freeLabel = formatJewelleryPartsLabel(item.available_parts || []);
   const bookedLabel = formatJewelleryPartsLabel(item.booked_parts || []);
+  const thumb = itemThumbSrc(item);
+  const label = item.display_name || item.name;
+  const freeQty = item.free_quantity || 1;
+  const totalQty = item.total_quantity || freeQty;
+  const showFreeQty = totalQty > 1;
+
   return (
-    <div className="free-item-block" style={{ display: "flex", gap: 12, alignItems: "flex-start" }}>
-      {item.photo ? (
-        <button type="button" onClick={() => onImageClick(item)} style={{ padding: 0, border: 0, background: "transparent", cursor: "zoom-in" }}>
-          {/* API returns only the 320px thumbnail; original is fetched after this click. */}
-          {/* eslint-disable-next-line @next/next/no-img-element */}
-          <img src={photoUrl(item.photo) || item.photo} alt={item.display_name || item.name} style={{ width: 56, height: 56, borderRadius: 8, objectFit: "cover", display: "block" }} />
-        </button>
-      ) : (
-        <div
-          style={{
-            width: 56,
-            height: 56,
-            borderRadius: 8,
-            background: "var(--cream-dark)",
-            display: "flex",
-            alignItems: "center",
-            justifyContent: "center",
-            color: "var(--text-muted)",
-            flexShrink: 0,
-          }}
-        >
-          <i className={`fa-solid ${isJewellery ? "fa-gem" : "fa-shirt"}`} />
-        </div>
-      )}
-      <div style={{ flex: 1, minWidth: 0 }}>
-        <div className="free-item-summary">
-          <strong>{item.display_name || item.name}</strong>
+    <div className="free-item-block">
+      <div className="free-item-summary">
+        {thumb ? (
+          <ZoomableImage
+            src={thumb}
+            fullSrc={itemFullSrc(item)}
+            alt={label}
+            overlayCaption={label}
+            style={{
+              width: 40,
+              height: 40,
+              borderRadius: 6,
+              objectFit: "cover",
+              flexShrink: 0,
+              border: "1px solid var(--border)",
+            }}
+          />
+        ) : (
+          <div
+            className="free-item-thumb-empty"
+            aria-hidden
+            style={{
+              width: 40,
+              height: 40,
+              borderRadius: 6,
+              background: "var(--cream-dark, #f3efe6)",
+              display: "flex",
+              alignItems: "center",
+              justifyContent: "center",
+              color: "var(--text-muted)",
+              flexShrink: 0,
+              border: "1px solid var(--border)",
+              fontSize: 14,
+            }}
+          >
+            <i className={`fa-solid ${isJewellery ? "fa-gem" : "fa-shirt"}`} />
+          </div>
+        )}
+        <div className="free-item-text">
+          <strong>
+            {showFreeQty ? (
+              <span style={{ color: "var(--success)", marginRight: 8 }}>
+                {freeQty} free
+                {totalQty > freeQty ? ` / ${totalQty}` : ""}
+              </span>
+            ) : null}
+            {label}
+          </strong>
           <span className="free-item-meta">
             {item.category}
+            {item.sub_category ? ` · ${item.sub_category}` : ""}
             {item.size ? ` · ${item.size}` : ""}
             {item.color ? ` · ${item.color}` : ""}
           </span>
         </div>
+      </div>
+      <div className="free-item-details">
         {isJewellery && freeLabel && (
-          <div style={{ fontSize: 11, color: "var(--success)", marginTop: 4 }}>
+          <div style={{ fontSize: 11, color: "var(--success)", padding: "6px 16px" }}>
             <i className="fa-solid fa-circle-check" style={{ marginRight: 4 }} />
             Free parts: {freeLabel}
           </div>
         )}
         {isJewellery && bookedLabel && (
-          <div style={{ fontSize: 11, color: "#E65100", marginTop: 4 }}>
+          <div style={{ fontSize: 11, color: "#E65100", padding: "6px 16px" }}>
             <i className="fa-solid fa-triangle-exclamation" style={{ marginRight: 4 }} />
             Booked in another record: {bookedLabel}
           </div>
@@ -146,12 +239,10 @@ function FreeItemsSection({
   title,
   titleColor,
   items,
-  onImageClick,
 }: {
   title: string;
   titleColor?: string;
   items: FreeItem[];
-  onImageClick: (item: FreeItem) => void;
 }) {
   if (!items.length) return null;
   return (
@@ -179,7 +270,7 @@ function FreeItemsSection({
               {grp.category} ({grp.items.length})
             </div>
             {grp.items.map((item) => (
-              <FreeItemBlock key={item.id} item={item} onImageClick={onImageClick} />
+              <FreeItemBlock key={item.id} item={item} />
             ))}
           </div>
         ))}
@@ -195,6 +286,7 @@ export default function FreeItemsClient({ today }: { today: string }) {
   const [category, setCategory] = useState("");
   const [size, setSize] = useState("");
   const [subCat, setSubCat] = useState("");
+  const [subCategoryOptions, setSubCategoryOptions] = useState<string[]>([]);
   const [free, setFree] = useState<FreeItem[]>([]);
   const [loaded, setLoaded] = useState(false);
   const [loading, setLoading] = useState(false);
@@ -203,25 +295,30 @@ export default function FreeItemsClient({ today }: { today: string }) {
   );
   const [nextCursor, setNextCursor] = useState<string | null>(null);
   const [hasMore, setHasMore] = useState(false);
-  const [lightbox, setLightbox] = useState<{ src: string; caption: string } | null>(null);
   const abortRef = useRef<AbortController | null>(null);
   const requestSeqRef = useRef(0);
 
   const showSize = category === "Sherwani" || category === "Suit" || category === "Blazer";
 
-  const openOriginal = useCallback(async (item: FreeItem) => {
-    try {
-      const res = await fetch(`/api/inventory/${item.id}`, {
-        credentials: "same-origin",
-        headers: { Accept: "application/json" },
+  useEffect(() => {
+    let cancelled = false;
+    fetch("/api/sub-categories", { credentials: "same-origin" })
+      .then((r) => (r.ok ? r.json() : null))
+      .then((data) => {
+        if (cancelled) return;
+        const names = Array.isArray(data?.sub_categories)
+          ? data.sub_categories
+              .map((s: { name: string }) => String(s.name || "").trim())
+              .filter((n: string) => n && !REMOVED_SUB_SET.has(n.toLowerCase()))
+          : [];
+        setSubCategoryOptions(names);
+      })
+      .catch(() => {
+        if (!cancelled) setSubCategoryOptions([]);
       });
-      if (!res.ok) return;
-      const detail = await res.json();
-      const src = detail.original_photo_url || detail.photo_url;
-      if (src) setLightbox({ src, caption: item.display_name || item.name });
-    } catch {
-      /* keep the list usable if an original image is unavailable */
-    }
+    return () => {
+      cancelled = true;
+    };
   }, []);
 
   const search = useCallback(async (append = false) => {
@@ -274,11 +371,21 @@ export default function FreeItemsClient({ today }: { today: string }) {
     if (loaded) void search(false);
   });
 
-  const totallyFree = free.filter((i) => !i.returning_warning && !i.booked_warning && !hasBookedParts(i));
-  const partialParts = free.filter((i) => !i.returning_warning && !i.booked_warning && hasBookedParts(i));
-  const returning = free.filter((i) => i.returning_warning && !i.booked_warning);
-  const booked = free.filter((i) => i.booked_warning && !i.returning_warning);
-  const both = free.filter((i) => i.returning_warning && i.booked_warning);
+  const totallyFree = collapseMultiUnitFreeItems(
+    free.filter((i) => !i.returning_warning && !i.booked_warning && !hasBookedParts(i)),
+  );
+  const partialParts = collapseMultiUnitFreeItems(
+    free.filter((i) => !i.returning_warning && !i.booked_warning && hasBookedParts(i)),
+  );
+  const returning = collapseMultiUnitFreeItems(
+    free.filter((i) => i.returning_warning && !i.booked_warning),
+  );
+  const booked = collapseMultiUnitFreeItems(
+    free.filter((i) => i.booked_warning && !i.returning_warning),
+  );
+  const both = collapseMultiUnitFreeItems(
+    free.filter((i) => i.returning_warning && i.booked_warning),
+  );
 
   const pdfHeaders = ["Item", "Category", "Size", "Color", "Availability"];
   const pdfRows = sortByCategory(free).map((item) => {
@@ -365,9 +472,11 @@ export default function FreeItemsClient({ today }: { today: string }) {
               <label className="form-label">Sub-Category</label>
               <select className="form-control" value={subCat} onChange={(e) => setSubCat(e.target.value)}>
                 <option value="">All</option>
-                <option value="Premium">Premium</option>
-                <option value="Normal">Normal</option>
-                <option value="Cheap">Cheap</option>
+                {subCategoryOptions.map((s) => (
+                  <option key={s} value={s}>
+                    {s}
+                  </option>
+                ))}
               </select>
             </div>
           </div>
@@ -379,11 +488,11 @@ export default function FreeItemsClient({ today }: { today: string }) {
 
       {loaded && (
         <>
-          <FreeItemsSection title="Totally Free" titleColor="var(--success)" items={totallyFree} onImageClick={openOriginal} />
-          <FreeItemsSection title="Some Parts Booked (parts still free)" titleColor="#E65100" items={partialParts} onImageClick={openOriginal} />
-          <FreeItemsSection title={WARNING_RETURNING_ON_DELIVERY} titleColor="#E65100" items={returning} onImageClick={openOriginal} />
-          <FreeItemsSection title={WARNING_BOOKED_ON_RETURN} titleColor="var(--danger)" items={booked} onImageClick={openOriginal} />
-          <FreeItemsSection title={`${WARNING_RETURNING_ON_DELIVERY} & ${WARNING_BOOKED_ON_RETURN}`} items={both} onImageClick={openOriginal} />
+          <FreeItemsSection title="Totally Free" titleColor="var(--success)" items={totallyFree} />
+          <FreeItemsSection title="Some Parts Booked (parts still free)" titleColor="#E65100" items={partialParts} />
+          <FreeItemsSection title={WARNING_RETURNING_ON_DELIVERY} titleColor="#E65100" items={returning} />
+          <FreeItemsSection title={WARNING_BOOKED_ON_RETURN} titleColor="var(--danger)" items={booked} />
+          <FreeItemsSection title={`${WARNING_RETURNING_ON_DELIVERY} & ${WARNING_BOOKED_ON_RETURN}`} items={both} />
           {hasMore && (
             <div style={{ textAlign: "center", margin: "8px 0 24px" }}>
               <button type="button" className="btn btn-outline" disabled={loading} onClick={() => void search(true)}>
@@ -397,18 +506,6 @@ export default function FreeItemsClient({ today }: { today: string }) {
       {loaded && !free.length && (
         <div style={{ textAlign: "center", padding: 40, color: "var(--text-muted)" }}>
           No free items found for selected dates.
-        </div>
-      )}
-      {lightbox && (
-        <div
-          role="dialog"
-          aria-modal="true"
-          aria-label={lightbox.caption}
-          onClick={() => setLightbox(null)}
-          style={{ position: "fixed", inset: 0, zIndex: 1000, background: "rgba(0,0,0,.82)", display: "grid", placeItems: "center", padding: 24 }}
-        >
-          {/* eslint-disable-next-line @next/next/no-img-element */}
-          <img src={lightbox.src} alt={lightbox.caption} style={{ maxWidth: "95vw", maxHeight: "90vh", objectFit: "contain" }} />
         </div>
       )}
     </div>

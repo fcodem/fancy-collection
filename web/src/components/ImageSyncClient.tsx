@@ -6,6 +6,8 @@ import { useCallback, useEffect, useRef, useState } from "react";
 
 import JSZip from "jszip";
 
+import { normalizeSyncDressName } from "@/lib/imageSyncMatch";
+
 
 
 type FileStatus = "pending" | "uploading" | "success" | "failed" | "skipped";
@@ -67,13 +69,9 @@ function getExt(name: string): string {
 
 
 function stripExtension(filename: string): string {
-
   const basename = filename.split("/").pop() || filename;
-
   const i = basename.lastIndexOf(".");
-
   return i > 0 ? basename.slice(0, i) : basename;
-
 }
 
 
@@ -110,66 +108,113 @@ export default function ImageSyncClient() {
 
   const abortRef = useRef(false);
 
-  const [indexStatus, setIndexStatus] = useState<{ total: number; indexed: number; pending: number } | null>(null);
+  const [indexStatus, setIndexStatus] = useState<{
+    total: number;
+    indexed: number;
+    pending: number;
+    queuePending?: number;
+    queueProcessing?: number;
+  } | null>(null);
 
   const [indexRunning, setIndexRunning] = useState(false);
 
   const [indexResult, setIndexResult] = useState("");
+  const [indexResultOk, setIndexResultOk] = useState(true);
 
-
-
-  useEffect(() => {
-
-    fetch("/api/admin/index-dress-photos", { credentials: "same-origin" })
-
-      .then((r) => r.json())
-
-      .then((d) => setIndexStatus(d))
-
-      .catch(() => {});
-
+  const refreshIndexStatus = useCallback(async () => {
+    try {
+      const d = await fetch("/api/admin/index-dress-photos", {
+        credentials: "same-origin",
+        cache: "no-store",
+      }).then((r) => r.json());
+      setIndexStatus(d);
+      return d as {
+        total: number;
+        indexed: number;
+        pending: number;
+        queuePending?: number;
+        queueProcessing?: number;
+      };
+    } catch {
+      return null;
+    }
   }, []);
 
+  useEffect(() => {
+    void refreshIndexStatus();
+  }, [refreshIndexStatus]);
 
+  // Keep counters live while the queue still has work.
+  useEffect(() => {
+    const queueBusy =
+      (indexStatus?.pending ?? 0) > 0 ||
+      (indexStatus?.queuePending ?? 0) > 0 ||
+      (indexStatus?.queueProcessing ?? 0) > 0;
+    if (!queueBusy) return;
+    const id = setInterval(() => {
+      void refreshIndexStatus();
+    }, 15_000);
+    return () => clearInterval(id);
+  }, [
+    indexStatus?.pending,
+    indexStatus?.queuePending,
+    indexStatus?.queueProcessing,
+    refreshIndexStatus,
+  ]);
 
   async function runIndexing(force: boolean) {
-
     setIndexRunning(true);
-
     setIndexResult("");
-
+    setIndexResultOk(true);
     try {
-
       const res = await fetch("/api/admin/index-dress-photos", {
-
         method: "POST",
-
         headers: { "Content-Type": "application/json" },
-
         body: JSON.stringify({ force }),
-
         credentials: "same-origin",
-
       });
-
-      const data = await res.json();
-
-      setIndexResult(data.message || "Done.");
-
-      const updated = await fetch("/api/admin/index-dress-photos", { credentials: "same-origin" }).then((r) => r.json());
-
-      setIndexStatus(updated);
-
+      let data: { message?: string; error?: string; ok?: boolean } = {};
+      try {
+        data = (await res.json()) as typeof data;
+      } catch {
+        /* non-JSON */
+      }
+      if (!res.ok) {
+        setIndexResultOk(false);
+        setIndexResult(data.error || data.message || `Request failed (${res.status})`);
+      } else {
+        setIndexResultOk(true);
+        setIndexResult(
+          data.message ||
+            (force
+              ? "Rebuild queued."
+              : "Pending photos queued for AI indexing."),
+        );
+      }
+      // Fire-and-forget drain kick — do not await (heavy; would look like a failure).
+      void fetch("/api/admin/ai-indexing", {
+        method: "POST",
+        headers: { "Content-Type": "application/json" },
+        credentials: "same-origin",
+        body: JSON.stringify({ action: "drain_queue" }),
+      }).catch(() => {});
+      await refreshIndexStatus();
     } catch {
-
-      setIndexResult("Failed. Check server logs.");
-
+      const latest = await refreshIndexStatus();
+      const queueBusy =
+        (latest?.queuePending ?? 0) > 0 || (latest?.queueProcessing ?? 0) > 0;
+      if (queueBusy) {
+        setIndexResultOk(true);
+        setIndexResult(
+          "Jobs are already in the queue and the worker is running. This page will update as photos finish indexing.",
+        );
+      } else {
+        setIndexResultOk(false);
+        setIndexResult("Could not start indexing. Open AI Indexing Health and click Self-Heal Queue.");
+      }
     } finally {
-
       setIndexRunning(false);
-
     }
-
   }
 
 
@@ -210,7 +255,7 @@ export default function ImageSyncClient() {
 
           name: path.split("/").pop() || path,
 
-          dressName: stripExtension(path),
+          dressName: normalizeSyncDressName(stripExtension(path)),
 
           blob,
 
@@ -324,7 +369,27 @@ export default function ImageSyncClient() {
 
         });
 
-        const data = await res.json();
+        const raw = await res.text();
+
+        let data: { matched?: boolean; error?: string; itemName?: string; sku?: string } = {};
+
+        try {
+
+          data = raw ? (JSON.parse(raw) as typeof data) : {};
+
+        } catch {
+
+          updateFile(i, {
+
+            status: "failed",
+
+            message: raw.slice(0, 160) || `Server error (${res.status})`,
+
+          });
+
+          continue;
+
+        }
 
 
 
@@ -354,9 +419,15 @@ export default function ImageSyncClient() {
 
         }
 
-      } catch {
+      } catch (err) {
 
-        updateFile(i, { status: "failed", message: "Network error" });
+        updateFile(i, {
+
+          status: "failed",
+
+          message: err instanceof Error ? err.message : "Network error",
+
+        });
 
       }
 
@@ -460,15 +531,34 @@ export default function ImageSyncClient() {
 
               )}
 
+              {((indexStatus.queuePending ?? 0) > 0 || (indexStatus.queueProcessing ?? 0) > 0) && (
+
+                <span style={{ color: "var(--text-muted)", marginLeft: 10 }}>
+
+                  · queue {indexStatus.queueProcessing ?? 0} running / {indexStatus.queuePending ?? 0} waiting
+
+                </span>
+
+              )}
+
             </div>
 
           )}
 
           {indexResult && (
 
-            <div style={{ fontSize: 13, color: "var(--success)", marginBottom: 10 }}>
+            <div
+              style={{
+                fontSize: 13,
+                color: indexResultOk ? "var(--success)" : "var(--danger, #c62828)",
+                marginBottom: 10,
+              }}
+            >
 
-              <i className="fa-solid fa-circle-check" style={{ marginRight: 6 }} />
+              <i
+                className={`fa-solid ${indexResultOk ? "fa-circle-check" : "fa-circle-xmark"}`}
+                style={{ marginRight: 6 }}
+              />
 
               {indexResult}
 
@@ -542,7 +632,9 @@ export default function ImageSyncClient() {
 
             Upload a <strong>.zip</strong> file containing inventory photos. Each image filename should match the dress name in your inventory
 
-            (e.g., <code>GOLDEN BRIDAL.jpg</code>). Photos are auto-matched and uploaded.
+            (e.g., <code>GOLDEN BRIDAL.jpg</code> or <code>PINK BRIDAL.jpg</code> for <code>PINK BRIDAL #1</code>).
+
+            Photos are uploaded with list thumbnails. Skip this if photos already show after a backup restore — use <strong>AI Dress Search Index</strong> above instead.
 
           </p>
 

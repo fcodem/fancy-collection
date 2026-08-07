@@ -59,7 +59,7 @@ describe("WhatsApp bot flow", () => {
 
   it("6 Hinglish keyword", () => {
     const r = processBotInbound({ text: "lehenga chahiye", messageType: "text", isFirstContact: false, state: baseState(), settings });
-    assert.match(r.reply || "", /delivery date|DD-MM-YYYY/i);
+    assert.match(r.reply || "", /delivery date|DD\/MM\/YYYY/i);
   });
 
   it("7 booking flow starts", () => {
@@ -79,14 +79,14 @@ describe("WhatsApp bot flow", () => {
 
   it("10 valid delivery date advances flow", () => {
     const r = processBotInbound({
-      text: "24-07-2026",
+      text: "24-08-2026",
       messageType: "text",
       isFirstContact: false,
       state: baseState({ botStep: "AWAITING_DELIVERY_DATE", botCategory: "Lehenga" }),
       settings,
     });
     assert.equal(r.nextState.botStep, "AWAITING_RETURN_DATE");
-    assert.equal(r.nextState.botDeliveryDate, "2026-07-24");
+    assert.equal(r.nextState.botDeliveryDate, "2026-08-24");
   });
 
   it("11 invalid date does not advance", () => {
@@ -97,20 +97,20 @@ describe("WhatsApp bot flow", () => {
       state: baseState({ botStep: "AWAITING_DELIVERY_DATE", botCategory: "Lehenga" }),
       settings,
     });
-    assert.match(r.reply || "", /DD-MM-YYYY/);
+    assert.match(r.reply || "", /DD\/MM\/YYYY/);
     assert.equal(r.nextState.botStep, undefined);
     assert.ok(r.incrementInvalidAttempts);
   });
 
   it("12 return date before delivery is rejected", () => {
     const r = processBotInbound({
-      text: "20-07-2026",
+      text: "20-08-2026",
       messageType: "text",
       isFirstContact: false,
       state: baseState({
         botStep: "AWAITING_RETURN_DATE",
         botCategory: "Lehenga",
-        botDeliveryDate: "2026-07-24",
+        botDeliveryDate: "2026-08-24",
       }),
       settings,
     });
@@ -119,13 +119,13 @@ describe("WhatsApp bot flow", () => {
 
   it("13 size is collected", () => {
     const r = processBotInbound({
-      text: "26-07-2026",
+      text: "26-08-2026",
       messageType: "text",
       isFirstContact: false,
       state: baseState({
         botStep: "AWAITING_RETURN_DATE",
         botCategory: "Lehenga",
-        botDeliveryDate: "2026-07-24",
+        botDeliveryDate: "2026-08-24",
       }),
       settings,
     });
@@ -140,8 +140,8 @@ describe("WhatsApp bot flow", () => {
       state: baseState({
         botStep: "AWAITING_SIZE",
         botCategory: "Lehenga",
-        botDeliveryDate: "2026-07-24",
-        botReturnDate: "2026-07-26",
+        botDeliveryDate: "2026-08-24",
+        botReturnDate: "2026-08-26",
       }),
       settings,
     });
@@ -157,8 +157,8 @@ describe("WhatsApp bot flow", () => {
       state: baseState({
         botStep: "AWAITING_COLOUR",
         botCategory: "Lehenga",
-        botDeliveryDate: "2026-07-24",
-        botReturnDate: "2026-07-26",
+        botDeliveryDate: "2026-08-24",
+        botReturnDate: "2026-08-26",
         botSize: "42",
       }),
       settings,
@@ -176,8 +176,8 @@ describe("WhatsApp bot flow", () => {
       state: baseState({
         botStep: "AWAITING_COLOUR",
         botCategory: "Lehenga",
-        botDeliveryDate: "2026-07-24",
-        botReturnDate: "2026-07-26",
+        botDeliveryDate: "2026-08-24",
+        botReturnDate: "2026-08-26",
         botSize: "42",
       }),
       settings,
@@ -315,8 +315,8 @@ describe("WhatsApp bot flow", () => {
       state: baseState({
         botStep: "AWAITING_COLOUR",
         botCategory: "Lehenga",
-        botDeliveryDate: "2026-07-24",
-        botReturnDate: "2026-07-26",
+        botDeliveryDate: "2026-08-24",
+        botReturnDate: "2026-08-26",
         botSize: "42",
       }),
       settings,
@@ -340,8 +340,8 @@ describe("WhatsApp bot flow", () => {
     const s = buildEnquirySummary(
       baseState({
         botCategory: "Lehenga",
-        botDeliveryDate: "2026-07-24",
-        botReturnDate: "2026-07-26",
+        botDeliveryDate: "2026-08-24",
+        botReturnDate: "2026-08-26",
         botSize: "42",
         botColour: "Blue",
       }),

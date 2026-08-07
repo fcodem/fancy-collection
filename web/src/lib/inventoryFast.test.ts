@@ -22,8 +22,14 @@ describe("inventory keyset and filtering contracts", () => {
   it("applies category and status without losing full group totals", () => {
     const source = read("src/lib/services/inventoryList.ts");
     assert.match(source, /\$\{category\} = '' OR category = \$\{category\}/);
+    assert.match(
+      source,
+      /\$\{subCategory\} = ''\s*\n\s*OR COALESCE\(NULLIF\(TRIM\(sub_category\), ''\), 'Normal'\) = \$\{subCategory\}/,
+    );
     assert.match(source, /BOOL_OR\(status = \$\{status\}\) AS status_match/);
     assert.match(source, /\$\{status\} = '' OR status_match/);
+    assert.match(source, /CASE WHEN NOT \$\{useNewest\} THEN category END ASC/);
+    assert.match(source, /CASE WHEN NOT \$\{useNewest\} THEN sub_category END ASC/);
     assert.match(
       source,
       /sku: \{ equals: q, mode: "insensitive" \}[\s\S]*category[\s\S]*status/,
@@ -33,7 +39,7 @@ describe("inventory keyset and filtering contracts", () => {
   it("returns thumbnails in summaries and loads originals only in detail", () => {
     const service = read("src/lib/services/inventoryList.ts");
     const listClient = read("src/components/InventoryListClient.tsx");
-    assert.match(service, /\(ARRAY_AGG\(thumbnail_photo/);
+    assert.match(service, /ARRAY_AGG\(COALESCE\(thumbnail_photo, photo\)/);
     assert.doesNotMatch(service.slice(service.indexOf("WITH base AS"), service.indexOf("async function listInventoryGroupsPrismaFallback")), /original_photo/);
     assert.match(listClient, /fetch\(`\/api\/inventory\/\$\{g\.primaryId\}`/);
     assert.match(listClient, /original_photo_url/);
@@ -62,7 +68,9 @@ describe("one-click inventory save contracts", () => {
     assert.match(createRoute, /persistInventoryPhotoFromForm/);
     assert.match(createRoute, /after\(async \(\) =>/);
     assert.match(createRoute, /generateDefaultScanCodesInTx/);
+    assert.match(createRoute, /canonicalByGroup/);
     assert.match(operations, /createManyAndReturn/);
+    assert.match(operations, /sizeGroupId/);
   });
 
   it("clears photo fields and protects shared references before cleanup", () => {

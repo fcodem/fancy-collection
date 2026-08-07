@@ -50,7 +50,13 @@ function InventoryListFallback() {
 export default async function InventoryPage({
   searchParams,
 }: {
-  searchParams: Promise<{ q?: string; category?: string; status?: string }>;
+  searchParams: Promise<{
+    q?: string;
+    category?: string;
+    status?: string;
+    sub_category?: string;
+    subcategory?: string;
+  }>;
 }) {
   const perf = createPerfTimer("GET /inventory");
   perf.mark("auth");
@@ -61,6 +67,7 @@ export default async function InventoryPage({
   const sp = await searchParams;
   const q = sp.q?.trim() || "";
   const category = sp.category || "";
+  const subCategory = sp.sub_category || sp.subcategory || "";
   const status = sp.status || "";
   // First page: 40 desktop default; client may request 20 on mobile via API
   const pageSize = 40;
@@ -69,6 +76,7 @@ export default async function InventoryPage({
   const result = await listInventoryGroups({
     q,
     category,
+    subCategory,
     status,
     limit: pageSize,
     sort: "name",
@@ -85,6 +93,7 @@ export default async function InventoryPage({
         initialQ={q}
         initialStatus={status}
         initialCategory={category}
+        initialSubCategory={subCategory}
         isOwner={isOwner(user)}
         pageSize={pageSize}
       />

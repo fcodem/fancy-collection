@@ -11,7 +11,7 @@ export async function POST(req: NextRequest) {
   try {
     const body = await req.json();
     const staff = await addStaff(body);
-    return jsonOk({ ok: true, id: staff.id });
+    return jsonOk({ ok: true, staff });
   } catch (e) {
     return jsonError(e instanceof Error ? e.message : "Failed");
   }

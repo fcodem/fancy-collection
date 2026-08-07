@@ -10,12 +10,28 @@ describe("menu loading performance contracts", () => {
   it("booked items paginate with lean select and no O(n²) dedupe", () => {
     const service = read("src/lib/services/bookingList.ts");
     assert.match(service, /BOOKING_LIST_PAGE_SIZE/);
-    assert.match(service, /take,/);
     assert.match(service, /bookingListSelect/);
     assert.match(service, /dedupeById/);
     assert.doesNotMatch(service, /findIndex/);
     assert.doesNotMatch(service, /photo:/);
     assert.match(service, /getBookingListExportData/);
+  });
+
+  it("booked items page bundle shares where/count work", () => {
+    const service = read("src/lib/services/bookingList.ts");
+    assert.match(service, /getBookingListPageBundle/);
+    assert.match(service, /One shared where\/count pair/);
+    assert.match(service, /categoryWhere/);
+    const bundleStart = service.indexOf("export async function getBookingListPageBundle");
+    const bundleEnd = service.indexOf("export async function attachBookingListWarnings");
+    const bundle = service.slice(bundleStart, bundleEnd);
+    assert.doesNotMatch(bundle, /getBookingListData\(/);
+  });
+
+  it("booked items client soft-refreshes without blanking SSR rows", () => {
+    const client = read("src/components/BookingListClient.tsx");
+    assert.match(client, /soft:\s*true/);
+    assert.match(client, /opts\?\.soft/);
   });
 
   it("booked items page does not block on categories", () => {

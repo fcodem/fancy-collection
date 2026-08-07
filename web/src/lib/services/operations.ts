@@ -7,6 +7,7 @@ import { formatDate, parseDate } from "../constants";
 import { Prisma } from "@prisma/client";
 import { dressDisplayName, bookingItemSize, serializeBookingItems } from "../dress";
 import { catalogPhotoRef } from "../catalogPhotoRef";
+import { photoUrl } from "../photoUrl";
 import { serializeStandardBookingDetails, bookingWarningRecordFrom } from "../bookingDetails";
 import { isStarBooking } from "../starBooking";
 import { getAvailableItemsApi, bookingUsesItem, findItemIdsStillInActiveBookings } from "../booking";
@@ -15,6 +16,7 @@ import { logActivity, snapshotBooking } from "../activityLog";
 import { saveIdProofUpload, IdProofUploadError, deleteUpload } from "../upload";
 import { trackBookingPrivateMedia } from "../bookingPrivateMediaTracking";
 import { BOOKING_PRIVATE_MEDIA_TYPES } from "../bookingPrivateMediaTypes";
+import { deletePrivateBookingMedia } from "../storage/privateBookingMedia";
 import { syncBookingStatusFromItems } from "../syncBookingStatusFromItems";
 import { cachedQuery, memoryCachedQuery } from "../perfCache";
 import { serializeActiveOrders } from "../slipBookingData";
@@ -216,7 +218,16 @@ export async function getDashboardFreeItems(deliveryDateStr: string, returnDateS
         ...(categoryFilter ? { category: categoryFilter } : {}),
         ...(subCategoryFilter ? { subCategory: subCategoryFilter } : {}),
       },
-      select: { id: true, name: true, category: true, subCategory: true, color: true, size: true },
+      select: {
+        id: true,
+        name: true,
+        category: true,
+        subCategory: true,
+        color: true,
+        size: true,
+        photo: true,
+        thumbnailPhoto: true,
+      },
     }),
     whereBookingOverlapsPeriod(deliveryDateStr, returnDateStr),
   ]);
@@ -339,6 +350,8 @@ export async function getDashboardFreeItems(deliveryDateStr: string, returnDateS
         sub_category: i.subCategory || "",
         color: i.color || "",
         size: i.size || "",
+        photo: photoUrl(i.photo || i.thumbnailPhoto) || "",
+        thumbnail: photoUrl(i.thumbnailPhoto || i.photo) || "",
       });
       if (bookedOnReturnInfo[String(i.id)]) warnings[String(i.id)] = bookedOnReturnInfo[String(i.id)];
     }
@@ -2307,10 +2320,62 @@ export async function restoreBooking(
 }
 
 export async function deleteBookingPermanent(bookingId: number, by?: string) {
-  const booking = await prisma.booking.findUnique({ where: { id: bookingId }, include: { bookingItems: true } });
-  if (!booking || booking.status !== "cancelled") throw new Error("Only cancelled bookings can be deleted");
+  const booking = await prisma.booking.findUnique({
+    where: { id: bookingId },
+    include: {
+      bookingItems: { select: { itemIncompletePhoto: true } },
+      privateMedia: { select: { blobUrl: true } },
+      selectedJewellery: { select: { photo: true } },
+      orders: { select: { photo: true } },
+    },
+  });
+  if (!booking || booking.status !== "cancelled") {
+    throw new Error("Only cancelled bookings can be deleted");
+  }
+
   const beforeSnapshot = snapshotBooking(booking as unknown as Record<string, unknown>);
-  await prisma.booking.delete({ where: { id: bookingId } });
+
+  // Collect every blob URL before cascade removes tracking rows.
+  const blobUrls = new Set<string>();
+  const pushUrl = (url: string | null | undefined) => {
+    const cleaned = (url || "").trim();
+    if (cleaned) blobUrls.add(cleaned);
+  };
+  pushUrl(booking.idPhoto1);
+  pushUrl(booking.idPhoto2);
+  pushUrl(booking.incompletePhoto);
+  for (const media of booking.privateMedia) pushUrl(media.blobUrl);
+  for (const item of booking.bookingItems) pushUrl(item.itemIncompletePhoto);
+  for (const jew of booking.selectedJewellery) pushUrl(jew.photo);
+  for (const order of booking.orders) pushUrl(order.photo);
+
+  await prisma.$transaction(async (tx) => {
+    // Orphan tables without FK cascade to Booking.
+    await tx.whatsAppSendLedger.deleteMany({ where: { bookingId } });
+    await tx.mutationReceipt.deleteMany({ where: { bookingId } });
+    await tx.blobCleanupJob.deleteMany({ where: { bookingId } });
+    // Purge linked WhatsApp message rows (conversations keep SetNull).
+    await tx.whatsAppMessage.deleteMany({ where: { bookingId } });
+    await tx.whatsAppConversation.updateMany({
+      where: { bookingId },
+      data: { bookingId: null },
+    });
+    // Cascades booking_items, orders, jewellery, whatsapp_jobs, private_media rows.
+    await tx.booking.delete({ where: { id: bookingId } });
+  });
+
+  for (const url of blobUrls) {
+    void deletePrivateBookingMedia(url).catch((error) => {
+      console.error(
+        `[deleteBookingPermanent] blob cleanup failed for booking ${bookingId}:`,
+        error,
+      );
+      void deleteUpload(url).catch(() => {
+        /* best-effort */
+      });
+    });
+  }
+
   logActivity({
     username: by || "system",
     action: "deleted",
@@ -2318,6 +2383,13 @@ export async function deleteBookingPermanent(bookingId: number, by?: string) {
     entityId: bookingId,
     label: `Permanently deleted — Booking #${String(booking.monthlySerial).padStart(2, "0")} — ${booking.customerName}`,
     before: beforeSnapshot,
+  });
+
+  broadcastShopEvent({
+    type: "booking.cancelled",
+    bookingId,
+    status: "deleted",
+    by: by || "system",
   });
 }
 

@@ -67,6 +67,12 @@ type Selection = {
   pickEarrings?: boolean;
   pickTeeka?: boolean;
   pickPasa?: boolean;
+  pickSheeshpatti?: boolean;
+  pickNath?: boolean;
+  pickHathfool?: boolean;
+  pickKamarband?: boolean;
+  pickRings?: boolean;
+  pickLongHar?: boolean;
   partsLabel?: string;
 };
 
@@ -82,6 +88,12 @@ type AvailItem = {
   has_earrings?: boolean;
   has_teeka?: boolean;
   has_pasa?: boolean;
+  has_sheeshpatti?: boolean;
+  has_nath?: boolean;
+  has_hathfool?: boolean;
+  has_kamarband?: boolean;
+  has_rings?: boolean;
+  has_long_har?: boolean;
   available_parts?: JewelleryPartKey[];
   booked_parts?: JewelleryPartKey[];
   returning_warning?: BookingWarningRecord | null;
@@ -134,19 +146,31 @@ export default function JewellerySelectionClient({
 
   const selectedItemIds = new Set(selections.filter((s) => s.itemId != null).map((s) => s.itemId as number));
 
-  function defaultPartPicks(item: AvailItem): Record<JewelleryPartKey, boolean> {
-    const picks: Record<JewelleryPartKey, boolean> = { necklace: false, earrings: false, teeka: false, pasa: false };
-    for (const p of item.available_parts || []) picks[p] = true;
-    if (!item.available_parts?.length && itemHasJewelleryParts({
+  function itemPartFlags(item: AvailItem) {
+    return {
       hasNecklace: item.has_necklace,
       hasEarrings: item.has_earrings,
       hasTeeka: item.has_teeka,
       hasPasa: item.has_pasa,
-    })) {
-      if (item.has_necklace) picks.necklace = true;
-      if (item.has_earrings) picks.earrings = true;
-      if (item.has_teeka) picks.teeka = true;
-      if (item.has_pasa) picks.pasa = true;
+      hasSheeshpatti: item.has_sheeshpatti,
+      hasNath: item.has_nath,
+      hasHathfool: item.has_hathfool,
+      hasKamarband: item.has_kamarband,
+      hasRings: item.has_rings,
+      hasLongHar: item.has_long_har,
+    };
+  }
+
+  function defaultPartPicks(item: AvailItem): Record<JewelleryPartKey, boolean> {
+    const picks = Object.fromEntries(
+      JEWELLERY_PART_DEFS.map((d) => [d.key, false]),
+    ) as Record<JewelleryPartKey, boolean>;
+    for (const p of item.available_parts || []) picks[p] = true;
+    const flags = itemPartFlags(item);
+    if (!item.available_parts?.length && itemHasJewelleryParts(flags)) {
+      for (const d of JEWELLERY_PART_DEFS) {
+        if (flags[d.hasField]) picks[d.key] = true;
+      }
     }
     return picks;
   }
@@ -239,12 +263,7 @@ export default function JewellerySelectionClient({
 
     const picks = getPartPicks(item);
     const pickKeys = (Object.keys(picks) as JewelleryPartKey[]).filter((k) => picks[k]);
-    const hasParts = itemHasJewelleryParts({
-      hasNecklace: item.has_necklace,
-      hasEarrings: item.has_earrings,
-      hasTeeka: item.has_teeka,
-      hasPasa: item.has_pasa,
-    });
+    const hasParts = itemHasJewelleryParts(itemPartFlags(item));
     if (hasParts && !pickKeys.length) {
       toast("Select at least one part to book", "error");
       setAddingId(null);
@@ -265,6 +284,12 @@ export default function JewellerySelectionClient({
           pick_earrings: pickFlags.pickEarrings,
           pick_teeka: pickFlags.pickTeeka,
           pick_pasa: pickFlags.pickPasa,
+          pick_sheeshpatti: pickFlags.pickSheeshpatti,
+          pick_nath: pickFlags.pickNath,
+          pick_hathfool: pickFlags.pickHathfool,
+          pick_kamarband: pickFlags.pickKamarband,
+          pick_rings: pickFlags.pickRings,
+          pick_long_har: pickFlags.pickLongHar,
         }),
       });
       const partsLabel = formatJewelleryPartsLabel(pickKeys);
@@ -371,12 +396,8 @@ export default function JewellerySelectionClient({
 
   function AvailRow({ item }: { item: AvailItem }) {
     const already = selectedItemIds.has(item.id);
-    const hasParts = itemHasJewelleryParts({
-      hasNecklace: item.has_necklace,
-      hasEarrings: item.has_earrings,
-      hasTeeka: item.has_teeka,
-      hasPasa: item.has_pasa,
-    });
+    const flags = itemPartFlags(item);
+    const hasParts = itemHasJewelleryParts(flags);
     const picks = getPartPicks(item);
     return (
       <div
@@ -413,14 +434,7 @@ export default function JewellerySelectionClient({
               </div>
               <div style={{ display: "flex", flexWrap: "wrap", gap: 10 }}>
                 {JEWELLERY_PART_DEFS.map((def) => {
-                  const present =
-                    def.key === "necklace"
-                      ? item.has_necklace
-                      : def.key === "earrings"
-                        ? item.has_earrings
-                        : def.key === "teeka"
-                          ? item.has_teeka
-                          : item.has_pasa;
+                  const present = Boolean(flags[def.hasField]);
                   if (!present) return null;
                   const booked = item.booked_parts?.includes(def.key);
                   return (

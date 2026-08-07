@@ -1,7 +1,7 @@
 "use client";
 
 import Link from "next/link";
-import { usePathname } from "next/navigation";
+import { usePathname, useRouter } from "next/navigation";
 import { ReactNode, useEffect, useMemo, useRef, useState } from "react";
 import { fetchJson, parseResponseJson } from "@/lib/fetchJson";
 import { useToast } from "@/components/ui/Toast";
@@ -9,6 +9,7 @@ import { useMounted } from "@/lib/useMounted";
 import RealtimeProvider, { useRealtime } from "@/components/RealtimeProvider";
 import { SidebarBrandMark, BrandBreadcrumbLabel, BrandLogo, BrandMottoPill } from "@/components/BrandMark";
 import { BRAND_APP_TITLE } from "@/lib/branding";
+import { dispatchPageOpenRefresh } from "@/lib/pageOpenRefresh";
 
 const NAV_WHATSAPP = [
   { href: "/whatsapp", label: "Inbox", icon: "fa-comment-dots" },
@@ -142,6 +143,7 @@ export default function AppShell({
   initialOverdueDelivery?: number;
 }) {
   const pathname = usePathname();
+  const router = useRouter();
   const toast = useToast();
   const mounted = useMounted();
   const [collapsed, setCollapsed] = useState(false);
@@ -149,14 +151,70 @@ export default function AppShell({
   const [overdueDelivery, setOverdueDelivery] = useState(initialOverdueDelivery ?? 0);
   const [whatsappUnread, setWhatsappUnread] = useState(0);
   const [aiHealthBanner, setAiHealthBanner] = useState<string | null>(null);
+  const [aiHealthBannerLevel, setAiHealthBannerLevel] = useState<
+    "info" | "warning" | "error" | null
+  >(null);
   const [navigating, setNavigating] = useState(false);
   const skipNavProgress = useRef(true);
+  const skipMenuRefresh = useRef(true);
+  const lastFocusRefreshAt = useRef(0);
 
   const title = useMemo(() => pageTitle(pathname), [pathname]);
 
   function startNavProgress() {
     setNavigating(true);
   }
+
+  /** Re-tapping the current menu should still reload latest data. */
+  function onMenuNavigate(href: string) {
+    startNavProgress();
+    const pathOnly = href.split("?")[0] || href;
+    const sameRoute =
+      pathname === pathOnly ||
+      (pathOnly !== "/" && pathname.startsWith(`${pathOnly}/`));
+    if (sameRoute) {
+      router.refresh();
+      window.setTimeout(() => dispatchPageOpenRefresh("navigate"), 50);
+    }
+  }
+
+  /** Soft-nav reuses cached RSC/client data — refresh whenever a menu opens. */
+  useEffect(() => {
+    if (!mounted) return;
+    if (skipMenuRefresh.current) {
+      skipMenuRefresh.current = false;
+      return;
+    }
+    router.refresh();
+    // Let the new route mount listeners, then ask client lists to refetch.
+    const t = window.setTimeout(() => dispatchPageOpenRefresh("navigate"), 50);
+    return () => window.clearTimeout(t);
+  }, [pathname, mounted, router]);
+
+  /** Returning to the app (any device) should show latest data. */
+  useEffect(() => {
+    if (!mounted) return;
+    function refreshIfVisible(reason: "focus" | "visible") {
+      if (document.hidden) return;
+      const now = Date.now();
+      if (now - lastFocusRefreshAt.current < 8_000) return;
+      lastFocusRefreshAt.current = now;
+      router.refresh();
+      dispatchPageOpenRefresh(reason);
+    }
+    function onFocus() {
+      refreshIfVisible("focus");
+    }
+    function onVisibility() {
+      if (!document.hidden) refreshIfVisible("visible");
+    }
+    window.addEventListener("focus", onFocus);
+    document.addEventListener("visibilitychange", onVisibility);
+    return () => {
+      window.removeEventListener("focus", onFocus);
+      document.removeEventListener("visibilitychange", onVisibility);
+    };
+  }, [mounted, router]);
 
   useEffect(() => {
     try {
@@ -251,7 +309,7 @@ export default function AppShell({
       loadWhatsappUnread();
     }
     loadWhatsappUnreadIfVisible();
-    const interval = setInterval(loadWhatsappUnreadIfVisible, 180_000);
+    const interval = setInterval(loadWhatsappUnreadIfVisible, 60_000);
     return () => {
       cancelled = true;
       clearInterval(interval);
@@ -263,24 +321,23 @@ export default function AppShell({
     let cancelled = false;
     function loadAiHealth() {
       fetch("/api/health")
-        .then((r) => parseResponseJson<{ banner?: string | null; worker?: { status?: string; displayLabel?: string } }>(r))
+        .then((r) =>
+          parseResponseJson<{
+            banner?: string | null;
+            bannerLevel?: "info" | "warning" | "error" | null;
+            worker?: { status?: string; displayLabel?: string };
+          }>(r),
+        )
         .then((d) => {
           if (cancelled) return;
-          const status = d.worker?.status;
-          if (status === "OFFLINE" || status === "STALE" || status === "DISABLED") {
-            setAiHealthBanner(
-              d.banner ||
-                d.worker?.displayLabel ||
-                "AI indexing is offline or stale. Inventory and bookings are unaffected.",
-            );
-          } else if (d.banner) {
-            setAiHealthBanner(d.banner);
-          } else {
-            setAiHealthBanner(null);
-          }
+          setAiHealthBanner(d.banner ?? null);
+          setAiHealthBannerLevel(d.bannerLevel ?? (d.banner ? "warning" : null));
         })
         .catch(() => {
-          if (!cancelled) setAiHealthBanner(null);
+          if (!cancelled) {
+            setAiHealthBanner(null);
+            setAiHealthBannerLevel(null);
+          }
         });
     }
     function loadIfVisible() {
@@ -325,7 +382,7 @@ export default function AppShell({
         collapsed={collapsed}
         mobileOpen={mobileOpen}
         navigating={navigating}
-        onNavClick={startNavProgress}
+        onNavClick={onMenuNavigate}
         pathname={pathname}
         title={title}
         isOwner={isOwner}
@@ -333,7 +390,11 @@ export default function AppShell({
         overdueDelivery={overdueDelivery}
         whatsappUnread={whatsappUnread}
         aiHealthBanner={aiHealthBanner}
-        onDismissAiBanner={() => setAiHealthBanner(null)}
+        aiHealthBannerLevel={aiHealthBannerLevel}
+        onDismissAiBanner={() => {
+          setAiHealthBanner(null);
+          setAiHealthBannerLevel(null);
+        }}
         onToggleCollapsed={toggleCollapsed}
         onToggleMobile={toggleMobileMenu}
         onCloseMobile={() => setMobileOpen(false)}
@@ -384,6 +445,7 @@ function AppLayoutInner({
   overdueDelivery,
   whatsappUnread,
   aiHealthBanner,
+  aiHealthBannerLevel,
   onDismissAiBanner,
   onToggleCollapsed,
   onToggleMobile,
@@ -395,7 +457,7 @@ function AppLayoutInner({
   collapsed: boolean;
   mobileOpen: boolean;
   navigating: boolean;
-  onNavClick: () => void;
+  onNavClick: (href: string) => void;
   pathname: string;
   title: string;
   isOwner: boolean;
@@ -403,6 +465,7 @@ function AppLayoutInner({
   overdueDelivery: number;
   whatsappUnread: number;
   aiHealthBanner: string | null;
+  aiHealthBannerLevel: "info" | "warning" | "error" | null;
   onDismissAiBanner: () => void;
   onToggleCollapsed: () => void;
   onToggleMobile: () => void;
@@ -452,8 +515,8 @@ function AppLayoutInner({
   );
   const showAiNav = matchesSearch(NAV_AI_FEATURES.label);
 
-  function navClick() {
-    onNavClick();
+  function navClick(href: string) {
+    onNavClick(href);
     onCloseMobile();
   }
   return (
@@ -516,7 +579,7 @@ function AppLayoutInner({
                     : undefined
               }
               className={`nav-item ${active ? "active" : ""}`}
-              onClick={navClick}
+              onClick={() => navClick(item.href)}
             >
               <i className={`fa-solid ${item.icon}`} /> <span className="nav-label">{item.label}</span>
               {item.badgeKey === "overdue_delivery" && overdueDelivery > 0 && (
@@ -538,7 +601,7 @@ function AppLayoutInner({
                   ? "active"
                   : ""
               }`}
-              onClick={navClick}
+              onClick={() => navClick(item.href)}
             >
               <i className={`fa-solid ${item.icon}`} /> <span className="nav-label">{item.label}</span>
             </Link>
@@ -552,14 +615,14 @@ function AppLayoutInner({
                   href={item.href}
                   prefetch={false}
                   className={`nav-item ${pathname === item.href || pathname.startsWith(item.href + "/") ? "active" : ""}`}
-                  onClick={navClick}
+                  onClick={() => navClick(item.href)}
                 >
                   <i className={`fa-solid ${item.icon}`} /> <span className="nav-label">{item.label}</span>
                 </Link>
               ))}
               {filteredNavOwner.length > 0 && <div className="nav-section-label" style={{ marginTop: 8 }}>Admin</div>}
               {filteredNavOwner.map((item) => (
-                <Link key={item.href} href={item.href} className={`nav-item ${pathname === item.href ? "active" : ""}`} style={item.danger ? { color: "#fc8181" } : undefined} onClick={navClick}>
+                <Link key={item.href} href={item.href} className={`nav-item ${pathname === item.href ? "active" : ""}`} style={item.danger ? { color: "#fc8181" } : undefined} onClick={() => navClick(item.href)}>
                   <i className={`fa-solid ${item.icon}`} /> <span className="nav-label">{item.label}</span>
                 </Link>
               ))}
@@ -569,12 +632,12 @@ function AppLayoutInner({
                   key={item.href}
                   href={item.href}
                   className={`nav-item ${pathname === item.href || pathname.startsWith(item.href + "/") ? "active" : ""}`}
-                  onClick={navClick}
+                  onClick={() => navClick(item.href)}
                 >
                   <i className={`fa-solid ${item.icon}`} />
                   <span className="nav-label">{item.label}</span>
                   {item.href === "/whatsapp" && whatsappUnread > 0 && (
-                    <span className="nav-badge" style={{ background: "#16a34a" }}>{whatsappUnread}</span>
+                    <span className="nav-badge nav-badge--inbox">{whatsappUnread}</span>
                   )}
                 </Link>
               ))}
@@ -587,7 +650,7 @@ function AppLayoutInner({
               href={item.href}
               prefetch
               className={`nav-item ${pathname === item.href ? "active" : ""}`}
-              onClick={navClick}
+              onClick={() => navClick(item.href)}
             >
               <i className={`fa-solid ${item.icon}`} /> <span className="nav-label">{item.label}</span>
             </Link>
@@ -607,7 +670,7 @@ function AppLayoutInner({
                 ? "active"
                 : ""
             }`}
-            onClick={navClick}
+            onClick={() => navClick(NAV_AI_FEATURES.href)}
           >
             <i className={`fa-solid ${NAV_AI_FEATURES.icon}`} />{" "}
             <span className="nav-label">{NAV_AI_FEATURES.label}</span>
@@ -653,11 +716,34 @@ function AppLayoutInner({
           </div>
           <div className="header-actions">
             <OnlineIndicator />
+            {isOwner && whatsappUnread > 0 && (
+              <Link
+                href="/whatsapp"
+                className="btn btn-outline btn-sm header-inbox-btn"
+                title={`${whatsappUnread} unread WhatsApp message${whatsappUnread === 1 ? "" : "s"}`}
+                onClick={() => navClick("/whatsapp")}
+              >
+                <i className="fa-solid fa-comment-dots" />
+                Inbox
+                <span className="header-inbox-count">{whatsappUnread}</span>
+              </Link>
+            )}
             <Link href="/booking/new" prefetch className="btn btn-primary btn-sm">
               <i className="fa-solid fa-plus" /> New Booking
             </Link>
           </div>
         </header>
+        {isOwner && whatsappUnread > 0 && !pathname.startsWith("/whatsapp") && (
+          <div className="header-inbox-banner no-print" role="status">
+            <span>
+              <i className="fa-solid fa-comment-dots" style={{ marginRight: 8 }} />
+              {whatsappUnread} unread WhatsApp message{whatsappUnread === 1 ? "" : "s"} in Inbox
+            </span>
+            <Link href="/whatsapp" style={{ color: "#166534", fontWeight: 800, whiteSpace: "nowrap" }} onClick={() => navClick("/whatsapp")}>
+              Open Inbox →
+            </Link>
+          </div>
+        )}
         {isOwner && aiHealthBanner && (
           <div
             role="alert"
@@ -666,9 +752,24 @@ function AppLayoutInner({
               margin: "0 16px 8px",
               padding: "10px 14px",
               borderRadius: 8,
-              background: "rgba(180, 83, 9, 0.12)",
-              border: "1px solid rgba(180, 83, 9, 0.35)",
-              color: "#92400e",
+              background:
+                aiHealthBannerLevel === "info"
+                  ? "rgba(37, 99, 235, 0.08)"
+                  : aiHealthBannerLevel === "error"
+                    ? "rgba(220, 38, 38, 0.1)"
+                    : "rgba(180, 83, 9, 0.12)",
+              border:
+                aiHealthBannerLevel === "info"
+                  ? "1px solid rgba(37, 99, 235, 0.25)"
+                  : aiHealthBannerLevel === "error"
+                    ? "1px solid rgba(220, 38, 38, 0.35)"
+                    : "1px solid rgba(180, 83, 9, 0.35)",
+              color:
+                aiHealthBannerLevel === "info"
+                  ? "#1e40af"
+                  : aiHealthBannerLevel === "error"
+                    ? "#991b1b"
+                    : "#92400e",
               fontWeight: 600,
               fontSize: 13,
               display: "flex",
@@ -677,7 +778,9 @@ function AppLayoutInner({
               gap: 12,
             }}
           >
-            <span>⚠ {aiHealthBanner}</span>
+            <span>
+              {aiHealthBannerLevel === "info" ? "ℹ" : "⚠"} {aiHealthBanner}
+            </span>
             <span style={{ display: "flex", gap: 8, alignItems: "center" }}>
               <Link href="/ai-features" style={{ color: "#7B1F45", fontWeight: 700, whiteSpace: "nowrap" }}>
                 Open AI Features →

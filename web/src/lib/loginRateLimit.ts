@@ -31,17 +31,19 @@ export async function checkLoginBlocked(
     });
 
     const userKey = username?.trim().toLowerCase() || "";
-    const byUser = userKey
-      ? await prisma.loginAttempt.findMany({
-          where: {
-            success: false,
-            createdAt: { gte: cutoff },
-            username: { equals: userKey, mode: "insensitive" },
-          },
-          orderBy: { createdAt: "desc" },
-          take: MAX_FAILURES,
-        })
-      : [];
+    let byUser: Awaited<ReturnType<typeof prisma.loginAttempt.findMany>> = [];
+    if (userKey) {
+      // Avoid Prisma `mode: "insensitive"` (can fail on some pooler setups).
+      byUser = await prisma.loginAttempt.findMany({
+        where: {
+          success: false,
+          createdAt: { gte: cutoff },
+          username: userKey,
+        },
+        orderBy: { createdAt: "desc" },
+        take: MAX_FAILURES,
+      });
+    }
 
     const recentFailures = byIp.length >= byUser.length ? byIp : byUser;
     if (recentFailures.length < MAX_FAILURES) {
@@ -58,22 +60,32 @@ export async function checkLoginBlocked(
 
     return { blocked: false };
   } catch (e) {
-    console.error("[loginRateLimit] checkLoginBlocked failed closed:", e);
-    return { blocked: true, retryAfterMinutes: 5 };
+    // Fail open so a rate-limit DB glitch never locks everyone out.
+    console.error("[loginRateLimit] checkLoginBlocked failed open:", e);
+    return { blocked: false };
   }
 }
 
 export async function recordLoginAttempt(ip: string, success: boolean, username?: string) {
   try {
+    const userKey = username?.trim().toLowerCase() || null;
     await prisma.loginAttempt.create({
-      data: { ip, success, username: username || null },
+      data: { ip, success, username: userKey },
     });
 
     if (success) {
       const dayAgo = new Date(Date.now() - 24 * 60 * 60 * 1000);
-      await prisma.loginAttempt.deleteMany({
-        where: { ip, createdAt: { lt: dayAgo } },
-      }).catch(() => {});
+      await prisma.loginAttempt
+        .deleteMany({
+          where: {
+            OR: [
+              { ip, success: false },
+              ...(userKey ? [{ username: userKey, success: false }] : []),
+              { ip, createdAt: { lt: dayAgo } },
+            ],
+          },
+        })
+        .catch(() => {});
     }
   } catch (e) {
     console.warn("[loginRateLimit] recordLoginAttempt skipped:", e);

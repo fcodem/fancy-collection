@@ -4,33 +4,50 @@ import { useCallback, useEffect, useRef, useState, type CSSProperties } from "re
 import { createPortal } from "react-dom";
 
 const ZOOM_MIN = 1;
-const ZOOM_MAX = 4;
+const ZOOM_MAX = 5;
 const ZOOM_STEP = 0.25;
 
 /**
- * Thumbnail image that opens a full-screen lightbox with zoom (+/−, wheel, double-click).
- * The overlay is rendered via a portal to `document.body` so it is never clipped
- * by parent containers that use `overflow: hidden` (tables, slip cards, etc.).
+ * Thumbnail that opens a true full-screen lightbox.
+ * Pass `fullSrc` (catalog / original photo) so phone/tablet zoom stays sharp —
+ * never enlarge a 180px list thumbnail in the lightbox.
  */
 export default function ZoomableImage({
   src,
+  fullSrc,
   alt = "",
   style,
   className,
   overlayCaption,
+  onError,
+  loading,
+  decoding,
+  width,
+  height,
 }: {
   src: string;
+  /** Full-resolution (or catalog) URL for the lightbox. Falls back to `src`. */
+  fullSrc?: string | null;
   alt?: string;
   style?: CSSProperties;
   className?: string;
   overlayCaption?: string;
+  onError?: () => void;
+  loading?: "eager" | "lazy";
+  decoding?: "async" | "auto" | "sync";
+  width?: number | string;
+  height?: number | string;
 }) {
   const [open, setOpen] = useState(false);
   const [mounted, setMounted] = useState(false);
   const [scale, setScale] = useState(1);
   const [pan, setPan] = useState({ x: 0, y: 0 });
   const [isDragging, setIsDragging] = useState(false);
-  const dragRef = useRef<{ startX: number; startY: number; panX: number; panY: number } | null>(null);
+  const [lightboxSrc, setLightboxSrc] = useState("");
+  const overlayRef = useRef<HTMLDivElement | null>(null);
+  const dragRef = useRef<{ startX: number; startY: number; panX: number; panY: number } | null>(
+    null,
+  );
 
   useEffect(() => setMounted(true), []);
 
@@ -42,6 +59,9 @@ export default function ZoomableImage({
   const close = useCallback(() => {
     setOpen(false);
     resetZoom();
+    if (typeof document !== "undefined" && document.fullscreenElement) {
+      void document.exitFullscreen?.().catch(() => undefined);
+    }
   }, [resetZoom]);
 
   const zoomIn = useCallback(() => {
@@ -67,6 +87,12 @@ export default function ZoomableImage({
     document.addEventListener("keydown", onKey);
     const prevOverflow = document.body.style.overflow;
     document.body.style.overflow = "hidden";
+
+    const el = overlayRef.current;
+    if (el && typeof el.requestFullscreen === "function") {
+      void el.requestFullscreen().catch(() => undefined);
+    }
+
     return () => {
       document.removeEventListener("keydown", onKey);
       document.body.style.overflow = prevOverflow;
@@ -118,7 +144,15 @@ export default function ZoomableImage({
     else setScale(2);
   }
 
+  if (!src) return null;
+
   const zoomPercent = Math.round(scale * 100);
+  const openLightbox = () => {
+    const sharp = (fullSrc && String(fullSrc).trim()) || src;
+    setLightboxSrc(sharp);
+    resetZoom();
+    setOpen(true);
+  };
 
   return (
     <>
@@ -126,30 +160,42 @@ export default function ZoomableImage({
       <img
         src={src}
         alt={alt}
-        onClick={(e) => {
+        width={width}
+        height={height}
+        loading={loading}
+        decoding={decoding}
+        onError={onError}
+        onMouseDown={(e) => {
           e.stopPropagation();
-          resetZoom();
-          setOpen(true);
+        }}
+        onClick={(e) => {
+          e.preventDefault();
+          e.stopPropagation();
+          openLightbox();
         }}
         style={{ cursor: "zoom-in", ...style }}
         className={className}
-        title="Click to enlarge"
+        title="Click to enlarge full screen"
       />
       {open && mounted
         ? createPortal(
             <div
+              ref={overlayRef}
               className="no-print"
               onClick={close}
               style={{
                 position: "fixed",
                 inset: 0,
-                zIndex: 100000,
-                background: "rgba(0,0,0,0.88)",
+                width: "100vw",
+                height: "100vh",
+                zIndex: 2147483000,
+                background: "#000",
                 display: "flex",
                 flexDirection: "column",
                 alignItems: "center",
                 justifyContent: "center",
-                padding: 24,
+                margin: 0,
+                padding: 0,
                 cursor: scale > 1 ? "grab" : "zoom-out",
               }}
             >
@@ -162,20 +208,20 @@ export default function ZoomableImage({
                 aria-label="Close"
                 style={{
                   position: "absolute",
-                  top: 20,
-                  right: 24,
-                  width: 44,
-                  height: 44,
+                  top: "max(12px, env(safe-area-inset-top))",
+                  right: "max(12px, env(safe-area-inset-right))",
+                  width: 48,
+                  height: 48,
                   borderRadius: "50%",
                   border: "none",
-                  background: "rgba(255,255,255,0.15)",
+                  background: "rgba(255,255,255,0.18)",
                   color: "#fff",
                   fontSize: 22,
                   cursor: "pointer",
                   display: "flex",
                   alignItems: "center",
                   justifyContent: "center",
-                  zIndex: 2,
+                  zIndex: 3,
                 }}
               >
                 <i className="fa-solid fa-xmark" />
@@ -187,7 +233,7 @@ export default function ZoomableImage({
                 onClick={(e) => e.stopPropagation()}
                 style={{
                   position: "absolute",
-                  top: 20,
+                  top: "max(12px, env(safe-area-inset-top))",
                   left: "50%",
                   transform: "translateX(-50%)",
                   display: "flex",
@@ -195,9 +241,9 @@ export default function ZoomableImage({
                   gap: 8,
                   padding: "6px 10px",
                   borderRadius: 999,
-                  background: "rgba(0,0,0,0.45)",
+                  background: "rgba(0,0,0,0.55)",
                   border: "1px solid rgba(255,255,255,0.2)",
-                  zIndex: 2,
+                  zIndex: 3,
                 }}
               >
                 <button
@@ -260,11 +306,12 @@ export default function ZoomableImage({
                 onPointerCancel={onPointerUp}
                 onDoubleClick={onImageDoubleClick}
                 style={{
+                  flex: 1,
+                  width: "100vw",
+                  height: "100vh",
                   display: "flex",
                   alignItems: "center",
                   justifyContent: "center",
-                  maxWidth: "95vw",
-                  maxHeight: overlayCaption ? "78vh" : "85vh",
                   overflow: "hidden",
                   touchAction: "none",
                   cursor: scale > 1 ? (isDragging ? "grabbing" : "grab") : "zoom-in",
@@ -272,15 +319,19 @@ export default function ZoomableImage({
               >
                 {/* eslint-disable-next-line @next/next/no-img-element */}
                 <img
-                  src={src}
+                  src={lightboxSrc || fullSrc || src}
                   alt={alt}
                   draggable={false}
+                  decoding="sync"
+                  loading="eager"
                   style={{
-                    maxWidth: "95vw",
-                    maxHeight: overlayCaption ? "78vh" : "85vh",
+                    width: "100vw",
+                    height: overlayCaption ? "calc(100vh - 56px)" : "100vh",
+                    maxWidth: "100vw",
+                    maxHeight: overlayCaption ? "calc(100vh - 56px)" : "100vh",
                     objectFit: "contain",
-                    borderRadius: 8,
-                    boxShadow: "0 12px 48px rgba(0,0,0,0.6)",
+                    imageRendering: "auto",
+                    WebkitUserSelect: "none",
                     transform: `translate(${pan.x}px, ${pan.y}px) scale(${scale})`,
                     transformOrigin: "center center",
                     transition: isDragging ? "none" : "transform 0.15s ease",
@@ -292,7 +343,17 @@ export default function ZoomableImage({
               {overlayCaption ? (
                 <div
                   onClick={(e) => e.stopPropagation()}
-                  style={{ marginTop: 16, color: "#fff", fontSize: 15, maxWidth: "90vw", textAlign: "center" }}
+                  style={{
+                    position: "absolute",
+                    bottom: "max(48px, env(safe-area-inset-bottom))",
+                    left: 0,
+                    right: 0,
+                    color: "#fff",
+                    fontSize: 15,
+                    textAlign: "center",
+                    padding: "0 16px",
+                    zIndex: 3,
+                  }}
                 >
                   {overlayCaption}
                 </div>
@@ -301,14 +362,17 @@ export default function ZoomableImage({
               <div
                 style={{
                   position: "absolute",
-                  bottom: 20,
+                  bottom: "max(12px, env(safe-area-inset-bottom))",
+                  left: 0,
+                  right: 0,
                   color: "rgba(255,255,255,0.55)",
                   fontSize: 12,
                   textAlign: "center",
                   pointerEvents: "none",
+                  zIndex: 2,
                 }}
               >
-                Scroll or use +/− to zoom · Double-click to toggle · Drag when zoomed · Esc to close
+                Full screen · Scroll or +/− to zoom · Double-click · Esc to close
               </div>
             </div>,
             document.body,

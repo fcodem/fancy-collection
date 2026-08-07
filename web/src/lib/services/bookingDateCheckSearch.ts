@@ -83,7 +83,13 @@ export async function searchBookingDateCheck(opts: {
         ci.has_necklace AS "hasNecklace",
         ci.has_earrings AS "hasEarrings",
         ci.has_teeka AS "hasTeeka",
-        ci.has_pasa AS "hasPasa"
+        ci.has_pasa AS "hasPasa",
+        ci.has_sheeshpatti AS "hasSheeshpatti",
+        ci.has_nath AS "hasNath",
+        ci.has_hathfool AS "hasHathfool",
+        ci.has_kamarband AS "hasKamarband",
+        ci.has_rings AS "hasRings",
+        ci.has_long_har AS "hasLongHar"
       FROM clothing_items ci
       WHERE ci.id IN (${Prisma.join(uniqueIds)})
     ),
@@ -187,9 +193,36 @@ export async function searchBookingDateCheck(opts: {
           WHERE (b.return_date AT TIME ZONE 'UTC')::date <> (${deliveryStart}::timestamptz AT TIME ZONE 'UTC')::date
             AND (b.delivery_date AT TIME ZONE 'UTC')::date <> (${returnStart}::timestamptz AT TIME ZONE 'UTC')::date
         ) AS pasa_busy,
+        BOOL_OR(bj.pick_sheeshpatti) FILTER (
+          WHERE (b.return_date AT TIME ZONE 'UTC')::date <> (${deliveryStart}::timestamptz AT TIME ZONE 'UTC')::date
+            AND (b.delivery_date AT TIME ZONE 'UTC')::date <> (${returnStart}::timestamptz AT TIME ZONE 'UTC')::date
+        ) AS sheeshpatti_busy,
+        BOOL_OR(bj.pick_nath) FILTER (
+          WHERE (b.return_date AT TIME ZONE 'UTC')::date <> (${deliveryStart}::timestamptz AT TIME ZONE 'UTC')::date
+            AND (b.delivery_date AT TIME ZONE 'UTC')::date <> (${returnStart}::timestamptz AT TIME ZONE 'UTC')::date
+        ) AS nath_busy,
+        BOOL_OR(bj.pick_hathfool) FILTER (
+          WHERE (b.return_date AT TIME ZONE 'UTC')::date <> (${deliveryStart}::timestamptz AT TIME ZONE 'UTC')::date
+            AND (b.delivery_date AT TIME ZONE 'UTC')::date <> (${returnStart}::timestamptz AT TIME ZONE 'UTC')::date
+        ) AS hathfool_busy,
+        BOOL_OR(bj.pick_kamarband) FILTER (
+          WHERE (b.return_date AT TIME ZONE 'UTC')::date <> (${deliveryStart}::timestamptz AT TIME ZONE 'UTC')::date
+            AND (b.delivery_date AT TIME ZONE 'UTC')::date <> (${returnStart}::timestamptz AT TIME ZONE 'UTC')::date
+        ) AS kamarband_busy,
+        BOOL_OR(bj.pick_rings) FILTER (
+          WHERE (b.return_date AT TIME ZONE 'UTC')::date <> (${deliveryStart}::timestamptz AT TIME ZONE 'UTC')::date
+            AND (b.delivery_date AT TIME ZONE 'UTC')::date <> (${returnStart}::timestamptz AT TIME ZONE 'UTC')::date
+        ) AS rings_busy,
+        BOOL_OR(bj.pick_long_har) FILTER (
+          WHERE (b.return_date AT TIME ZONE 'UTC')::date <> (${deliveryStart}::timestamptz AT TIME ZONE 'UTC')::date
+            AND (b.delivery_date AT TIME ZONE 'UTC')::date <> (${returnStart}::timestamptz AT TIME ZONE 'UTC')::date
+        ) AS long_har_busy,
         BOOL_OR(
           NOT bj.pick_necklace AND NOT bj.pick_earrings
           AND NOT bj.pick_teeka AND NOT bj.pick_pasa
+          AND NOT bj.pick_sheeshpatti AND NOT bj.pick_nath
+          AND NOT bj.pick_hathfool AND NOT bj.pick_kamarband
+          AND NOT bj.pick_rings AND NOT bj.pick_long_har
         ) FILTER (
           WHERE (b.return_date AT TIME ZONE 'UTC')::date <> (${deliveryStart}::timestamptz AT TIME ZONE 'UTC')::date
             AND (b.delivery_date AT TIME ZONE 'UTC')::date <> (${returnStart}::timestamptz AT TIME ZONE 'UTC')::date
@@ -216,6 +249,12 @@ export async function searchBookingDateCheck(opts: {
             AND (NOT ri."hasEarrings" OR COALESCE(jew.earrings_busy, false))
             AND (NOT ri."hasTeeka" OR COALESCE(jew.teeka_busy, false))
             AND (NOT ri."hasPasa" OR COALESCE(jew.pasa_busy, false))
+            AND (NOT ri."hasSheeshpatti" OR COALESCE(jew.sheeshpatti_busy, false))
+            AND (NOT ri."hasNath" OR COALESCE(jew.nath_busy, false))
+            AND (NOT ri."hasHathfool" OR COALESCE(jew.hathfool_busy, false))
+            AND (NOT ri."hasKamarband" OR COALESCE(jew.kamarband_busy, false))
+            AND (NOT ri."hasRings" OR COALESCE(jew.rings_busy, false))
+            AND (NOT ri."hasLongHar" OR COALESCE(jew.long_har_busy, false))
           )
         )
     ),

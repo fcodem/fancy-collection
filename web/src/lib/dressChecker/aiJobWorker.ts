@@ -2,6 +2,10 @@
  * Background worker for durable InventoryAiJob queue.
  * In-process setInterval is only a local pump — NEVER used for health status.
  * Health = durable Postgres heartbeat (cron / drain / startup).
+ *
+ * Dress Search backbone: always run full enterprise indexing (SigLIP + fingerprints)
+ * unless explicitly disabled with AI_NATIVE_*=0. Never mark a job complete without
+ * attempting processInventoryAiProfile.
  */
 // NOTE: `./processInventory` (transformers/onnx/sharp) is intentionally NOT
 // imported statically. It is dynamically imported inside processOneAiJob so the
@@ -30,18 +34,30 @@ function aiFeatureFlag(envVar: string, defaultValue = false): boolean {
   return raw !== "0" && raw !== "false" && raw !== "no";
 }
 
+/**
+ * Native dress indexing is ON by default — Dress Search depends on it.
+ * Set AI_NATIVE_EMBEDDING_ENABLED=0 (etc.) only for emergency disable.
+ */
 export const AI_FLAGS = {
   get nativeImageProcessingEnabled() {
-    return aiFeatureFlag("AI_NATIVE_IMAGE_PROCESSING_ENABLED", false);
+    return aiFeatureFlag("AI_NATIVE_IMAGE_PROCESSING_ENABLED", true);
   },
   get nativeColourEnabled() {
-    return aiFeatureFlag("AI_LOCAL_COLOUR_ANALYSIS_ENABLED", false);
+    return aiFeatureFlag("AI_LOCAL_COLOUR_ANALYSIS_ENABLED", true);
   },
   get nativeEmbeddingEnabled() {
-    return aiFeatureFlag("AI_NATIVE_EMBEDDING_ENABLED", false);
+    return aiFeatureFlag("AI_NATIVE_EMBEDDING_ENABLED", true);
   },
   get openaiEnrichmentEnabled() {
     return aiFeatureFlag("AI_OPENAI_ENRICHMENT_ENABLED", true);
+  },
+  /** True when any part of the local dress-index pipeline is allowed. */
+  get dressIndexingEnabled() {
+    return (
+      this.nativeImageProcessingEnabled ||
+      this.nativeEmbeddingEnabled ||
+      this.nativeColourEnabled
+    );
   },
 } as const;
 
@@ -122,23 +138,17 @@ async function runClaimedJob(job: {
   retryCount: number;
   maxRetries: number;
 }): Promise<void> {
-  const nativeEnabled =
-    AI_FLAGS.nativeImageProcessingEnabled ||
-    AI_FLAGS.nativeEmbeddingEnabled ||
-    AI_FLAGS.nativeColourEnabled;
-
-  if (!nativeEnabled) {
-    console.info(
-      `[ai-worker] skipped native job=${job.id} item=${job.itemId} — native processing disabled by feature flag`,
-    );
-    if (!AI_FLAGS.openaiEnrichmentEnabled) {
-      await completeAiJob(job.id);
-      return;
-    }
-  }
-
-  if (!nativeEnabled && AI_FLAGS.openaiEnrichmentEnabled) {
-    await completeAiJob(job.id);
+  // Emergency kill-switch only — never silently "complete" without indexing.
+  if (!AI_FLAGS.dressIndexingEnabled) {
+    const msg =
+      "Dress indexing disabled (AI_NATIVE_EMBEDDING_ENABLED / AI_NATIVE_IMAGE_PROCESSING_ENABLED / AI_LOCAL_COLOUR_ANALYSIS_ENABLED all off). Set them to 1.";
+    lastError = msg;
+    const outcome = await failOrRetryAiJob(job.id, msg, {
+      retryCount: job.maxRetries,
+      maxRetries: job.maxRetries,
+      itemId: job.itemId,
+    });
+    console.error(`[ai-worker] ${outcome} job=${job.id} item=${job.itemId}: ${msg}`);
     return;
   }
 
@@ -176,6 +186,13 @@ async function runClaimedJob(job: {
     });
     console.warn(`[ai-worker] ${outcome} job=${job.id} item=${job.itemId}`);
   }
+}
+
+/** Default batch size for serverless cron drains (override with AI_CRON_DRAIN_LIMIT). */
+export function resolveAiCronDrainLimit(fallback = 5): number {
+  const n = Number(process.env.AI_CRON_DRAIN_LIMIT || fallback);
+  if (!Number.isFinite(n) || n < 1) return fallback;
+  return Math.min(15, Math.floor(n));
 }
 
 /** Drain up to `limit` jobs (used by cron / admin Resume Queue). */

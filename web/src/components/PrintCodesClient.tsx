@@ -1,9 +1,17 @@
 "use client";
 
-import { useCallback, useEffect, useRef, useState } from "react";
+import { useCallback, useEffect, useRef, useState, type FormEvent } from "react";
 import QRCode from "qrcode";
 import JsBarcode from "jsbarcode";
 import { BRAND_NAME, BRAND_OWNER } from "@/lib/branding";
+import { useRealtimeRefresh } from "@/hooks/useRealtimeRefresh";
+import { BOOKING_EVENTS, INVENTORY_EVENTS } from "@/lib/realtime/types";
+import CategorySelect from "@/components/CategorySelect";
+import { MENS_CATEGORIES, REMOVED_SUB_CATEGORIES } from "@/lib/constants";
+import { groupMensPrintProducts } from "@/lib/printCodesCollapse";
+
+const REMOVED_SUB_SET = new Set(REMOVED_SUB_CATEGORIES.map((s) => s.toLowerCase()));
+const MENS_SET = new Set(MENS_CATEGORIES.map((c) => c.toLowerCase()));
 
 type ScanCode = { id: number; code: string; format: string; isPrimary: boolean };
 type InventoryItem = {
@@ -13,28 +21,57 @@ type InventoryItem = {
   category: string;
   size: string | null;
   color: string | null;
+  unitCount?: number;
+  displayName?: string;
+  inventoryGroupId?: string | null;
   scanCodes: ScanCode[];
 };
 
 type PrintFormat = "QR_CODE" | "CODE_128" | "BOTH";
 
-/** A4 24-up sheet — measured: 60×30 mm labels, 10 mm page margins (Apple Measure). */
+/**
+ * Mazus Label A4 ST-24 / Avery L7159 — permanent sheet geometry.
+ * Physical: 64 × 33.9 mm, 3×8, vertical pitch = label height (gap down = 0).
+ * Prior 60×35 + derived gaps caused cumulative downward drift after ~row 3.
+ *
+ * Verify: top+8×h+bottom = 12.9+271.2+12.9 = 297
+ *         left+3×w+2×gap+right = 6.5+192+5+6.5 = 210
+ */
 const COLS = 3;
 const ROWS = 8;
 const PAGE_W_MM = 210;
 const PAGE_H_MM = 297;
-const PAGE_MARGIN_MM = 10;
-const LABEL_W_MM = 60;
-const LABEL_H_MM = 30;
+const PAGE_MARGIN_LEFT_MM = 6.5;
+const PAGE_MARGIN_RIGHT_MM = 6.5;
+const PAGE_MARGIN_TOP_MM = 12.9;
+const PAGE_MARGIN_BOTTOM_MM = 12.9;
+const LABEL_W_MM = 64;
+const LABEL_H_MM = 33.9;
+const COL_GAP_MM = 2.5;
+const ROW_GAP_MM = 0;
 const LABELS_PER_PAGE = COLS * ROWS;
-/** Printable area after 1 cm margins on all sides. */
-const PRINT_W_MM = PAGE_W_MM - PAGE_MARGIN_MM * 2;
-const PRINT_H_MM = PAGE_H_MM - PAGE_MARGIN_MM * 2;
-/** Gutter between die-cut labels on the physical sheet. */
-const COL_GAP_MM = (PRINT_W_MM - COLS * LABEL_W_MM) / (COLS - 1);
-const ROW_GAP_MM = (PRINT_H_MM - ROWS * LABEL_H_MM) / (ROWS - 1);
-const QR_COL_MM = 18;
-const QR_SIZE_MM = 15;
+/** Horizontal / vertical pitch (edge-to-edge of successive labels). */
+const COL_PITCH_MM = LABEL_W_MM + COL_GAP_MM; // 66.5
+const ROW_PITCH_MM = LABEL_H_MM + ROW_GAP_MM; // 33.9
+
+const QR_CELL_PAD_MM = 1.2;
+/** Usable height inside 33.9mm slip after padding each side. */
+const QR_USABLE_H_MM = LABEL_H_MM - QR_CELL_PAD_MM * 2; // 31.5
+/**
+ * Slightly smaller QR + larger quiet zone so first/last rows stay scannable
+ * when printers clip sheet edges.
+ */
+const QR_SIZE_MM = 18;
+const QR_COL_MM = 20;
+
+function labelCellPosition(slotIdx: number): { leftMm: number; topMm: number } {
+  const col = slotIdx % COLS;
+  const row = Math.floor(slotIdx / COLS);
+  return {
+    leftMm: PAGE_MARGIN_LEFT_MM + col * COL_PITCH_MM,
+    topMm: PAGE_MARGIN_TOP_MM + row * ROW_PITCH_MM,
+  };
+}
 
 function activeScanCode(item: InventoryItem, format: "QR_CODE" | "CODE_128") {
   return item.scanCodes.find((code) => code.format === format);
@@ -63,48 +100,229 @@ function missingPrintFormats(
 export default function PrintCodesClient() {
   const [items, setItems] = useState<InventoryItem[]>([]);
   const [loading, setLoading] = useState(true);
-  const [selected, setSelected] = useState<Set<number>>(new Set());
+  const [loadError, setLoadError] = useState("");
+  /** Persists across category / product switches so multi-dress print carts stay intact. */
+  const [selectedBag, setSelectedBag] = useState<Record<number, InventoryItem>>({});
   const [category, setCategory] = useState("");
+  const [subCategory, setSubCategory] = useState("");
+  const [subCategoryOptions, setSubCategoryOptions] = useState<string[]>([]);
+  const [searchInput, setSearchInput] = useState("");
+  const [q, setQ] = useState("");
   const [startCol, setStartCol] = useState(1);
   const [startRow, setStartRow] = useState(1);
   const [printFormat, setPrintFormat] = useState<PrintFormat>("QR_CODE");
   const [repairingId, setRepairingId] = useState<number | null>(null);
+  /** How many identical labels to print per selected dress (for multi-unit stock). */
+  const [copiesById, setCopiesById] = useState<Record<number, number>>({});
+  /** Men's flow: which product accordion is expanded (selection is independent). */
+  const [expandedMensKey, setExpandedMensKey] = useState<string | null>(null);
+
+  const isMensPrintMode = Boolean(category && MENS_SET.has(category.toLowerCase()));
+  const mensProducts = isMensPrintMode ? groupMensPrintProducts(items) : [];
+  const selectedCount = Object.keys(selectedBag).length;
+
+  useEffect(() => {
+    let cancelled = false;
+    fetch("/api/sub-categories", { credentials: "same-origin" })
+      .then((r) => (r.ok ? r.json() : null))
+      .then((data) => {
+        if (cancelled) return;
+        const names = Array.isArray(data?.sub_categories)
+          ? data.sub_categories
+              .map((s: { name: string }) => String(s.name || "").trim())
+              .filter((n: string) => n && !REMOVED_SUB_SET.has(n.toLowerCase()))
+          : [];
+        setSubCategoryOptions(names);
+      })
+      .catch(() => {
+        if (!cancelled) setSubCategoryOptions([]);
+      });
+    return () => {
+      cancelled = true;
+    };
+  }, []);
 
   const fetchItems = useCallback(async () => {
     setLoading(true);
+    setLoadError("");
     try {
       const params = new URLSearchParams();
       if (category) params.set("category", category);
+      if (subCategory) params.set("sub_category", subCategory);
+      if (q) params.set("q", q);
       params.set("all", "1");
-      const res = await fetch(`/api/inventory/print-codes?${params}`);
-      if (res.ok) {
-        const data = await res.json();
-        setItems(data.items || []);
+      const res = await fetch(`/api/inventory/print-codes?${params}`, {
+        credentials: "same-origin",
+        cache: "no-store",
+      });
+      if (!res.ok) {
+        setLoadError("Could not load print list. Try again.");
+        return;
       }
+      const data = await res.json();
+      const nextItems: InventoryItem[] = data.items || [];
+      setItems(nextItems);
+      // Refresh QR status for anything already in the print cart.
+      setSelectedBag((prev) => {
+        if (!Object.keys(prev).length) return prev;
+        const byId = new Map(nextItems.map((i) => [i.id, i]));
+        const next = { ...prev };
+        for (const id of Object.keys(next)) {
+          const numId = Number(id);
+          const fresh = byId.get(numId);
+          if (fresh) next[numId] = fresh;
+        }
+        return next;
+      });
+    } catch {
+      setLoadError("Network error while loading inventory.");
     } finally {
       setLoading(false);
     }
-  }, [category]);
+  }, [category, subCategory, q]);
 
-  useEffect(() => { void fetchItems(); }, [fetchItems]);
+  useEffect(() => {
+    void fetchItems();
+  }, [fetchItems]);
 
-  const toggleSelect = (id: number) => {
-    setSelected((prev) => {
-      const next = new Set(prev);
-      if (next.has(id)) next.delete(id);
-      else next.add(id);
+  useRealtimeRefresh([...BOOKING_EVENTS, ...INVENTORY_EVENTS], () => {
+    void fetchItems();
+  });
+
+  const runSearch = (e?: FormEvent) => {
+    e?.preventDefault();
+    setQ(searchInput.trim());
+    // Keep existing cart selections across search.
+  };
+
+  const setCopies = (id: number, raw: number) => {
+    const n = Math.max(1, Math.min(99, Math.floor(Number(raw) || 1)));
+    setCopiesById((prev) => ({ ...prev, [id]: n }));
+  };
+
+  const toInventoryItem = (item: {
+    id: number;
+    sku: string;
+    name: string;
+    category: string;
+    size: string | null;
+    color: string | null;
+    inventoryGroupId?: string | null;
+    scanCodes: ScanCode[];
+    unitCount?: number;
+    displayName?: string;
+  }): InventoryItem => ({
+    id: item.id,
+    sku: item.sku,
+    name: item.displayName || item.name,
+    category: item.category,
+    size: item.size,
+    color: item.color,
+    inventoryGroupId: item.inventoryGroupId ?? null,
+    scanCodes: item.scanCodes,
+    unitCount: item.unitCount,
+    displayName: item.displayName || item.name,
+  });
+
+  const toggleSelectItem = (raw: InventoryItem) => {
+    const item = toInventoryItem(raw);
+    setSelectedBag((prev) => {
+      if (prev[item.id]) {
+        const { [item.id]: _removed, ...rest } = prev;
+        setCopiesById((c) => {
+          const { [item.id]: _c, ...crest } = c;
+          return crest;
+        });
+        return rest;
+      }
+      setCopiesById((c) => ({
+        ...c,
+        [item.id]: c[item.id] ?? Math.max(1, Math.min(99, item.unitCount || 1)),
+      }));
+      return { ...prev, [item.id]: item };
+    });
+  };
+
+  /** Merge items into the cart (never replaces other products/categories). */
+  const addItemsToSelection = (list: InventoryItem[]) => {
+    if (!list.length) return;
+    setSelectedBag((prev) => {
+      const next = { ...prev };
+      for (const raw of list) {
+        const item = toInventoryItem(raw);
+        next[item.id] = item;
+      }
+      return next;
+    });
+    setCopiesById((c) => {
+      const next = { ...c };
+      for (const raw of list) {
+        const item = toInventoryItem(raw);
+        if (next[item.id] == null) {
+          next[item.id] = Math.max(1, Math.min(99, item.unitCount || 1));
+        }
+      }
       return next;
     });
   };
 
-  const selectAll = () => {
-    if (selected.size === items.length) setSelected(new Set());
-    else setSelected(new Set(items.map((i) => i.id)));
+  const clearSelection = () => {
+    setSelectedBag({});
+    setCopiesById({});
   };
 
-  const selectedItems = items.filter((i) => selected.has(i.id));
+  const selectAllVisible = () => {
+    if (isMensPrintMode) {
+      const sizeItems = mensProducts.flatMap((p) =>
+        p.sizes.map((s) => toInventoryItem(s.item as InventoryItem)),
+      );
+      const allSelected =
+        sizeItems.length > 0 && sizeItems.every((i) => Boolean(selectedBag[i.id]));
+      if (allSelected) {
+        // Remove only currently visible men's sizes; keep other categories in cart.
+        setSelectedBag((prev) => {
+          const next = { ...prev };
+          for (const i of sizeItems) delete next[i.id];
+          return next;
+        });
+        setCopiesById((c) => {
+          const next = { ...c };
+          for (const i of sizeItems) delete next[i.id];
+          return next;
+        });
+        return;
+      }
+      addItemsToSelection(sizeItems);
+      return;
+    }
+    const allSelected = items.length > 0 && items.every((i) => Boolean(selectedBag[i.id]));
+    if (allSelected) {
+      setSelectedBag((prev) => {
+        const next = { ...prev };
+        for (const i of items) delete next[i.id];
+        return next;
+      });
+      setCopiesById((c) => {
+        const next = { ...c };
+        for (const i of items) delete next[i.id];
+        return next;
+      });
+      return;
+    }
+    addItemsToSelection(items);
+  };
+
+  const selectedItems = Object.values(selectedBag);
   const printableSelected = selectedItems.filter((item) => isItemPrintReady(item, printFormat));
   const blockedPrintCount = selectedItems.length - printableSelected.length;
+
+  /** Expand each dress by its copy count (same QR repeated for each unit). */
+  const labelSlots: InventoryItem[] = [];
+  for (const item of printableSelected) {
+    const copies = Math.max(1, Math.min(99, copiesById[item.id] || 1));
+    for (let i = 0; i < copies; i++) labelSlots.push(item);
+  }
+  const totalLabels = labelSlots.length;
 
   const generateMissingCodes = async (itemId: number, formats: Array<"QR_CODE" | "CODE_128">) => {
     setRepairingId(itemId);
@@ -130,6 +348,8 @@ export default function PrintCodesClient() {
 
   const buildPages = () => {
     const pages: (InventoryItem | null)[][] = [];
+    if (totalLabels === 0) return pages;
+
     const skipSlots = (startRow - 1) * COLS + (startCol - 1);
     let currentPage: (InventoryItem | null)[] = [];
 
@@ -137,7 +357,7 @@ export default function PrintCodesClient() {
       currentPage.push(null);
     }
 
-    for (const item of printableSelected) {
+    for (const item of labelSlots) {
       if (currentPage.length >= LABELS_PER_PAGE) {
         pages.push(currentPage);
         currentPage = [];
@@ -145,10 +365,12 @@ export default function PrintCodesClient() {
       currentPage.push(item);
     }
 
-    while (currentPage.length < LABELS_PER_PAGE) {
-      currentPage.push(null);
+    if (currentPage.length > 0) {
+      while (currentPage.length < LABELS_PER_PAGE) {
+        currentPage.push(null);
+      }
+      pages.push(currentPage);
     }
-    if (currentPage.length > 0) pages.push(currentPage);
 
     return pages;
   };
@@ -156,66 +378,220 @@ export default function PrintCodesClient() {
   const pages = buildPages();
 
   const handlePrint = () => {
+    if (totalLabels === 0 || pages.length === 0) return;
+    const printedIds = printableSelected.map((i) => i.id);
+    let cleared = false;
+
+    const clearPrinted = () => {
+      if (cleared) return;
+      cleared = true;
+      setSelectedBag((prev) => {
+        const next = { ...prev };
+        for (const id of printedIds) delete next[id];
+        return next;
+      });
+      setCopiesById((prev) => {
+        const next = { ...prev };
+        for (const id of printedIds) delete next[id];
+        return next;
+      });
+    };
+
+    const onAfterPrint = () => {
+      clearPrinted();
+      window.removeEventListener("afterprint", onAfterPrint);
+    };
+    window.addEventListener("afterprint", onAfterPrint);
     window.print();
   };
 
+  const renderSizeOrItemCard = (item: InventoryItem, opts?: { sizeTitle?: string }) => {
+    const missing = missingPrintFormats(item, printFormat);
+    const checked = Boolean(selectedBag[item.id]);
+    const sizeLabel = opts?.sizeTitle || item.size || "—";
+    return (
+      <div
+        key={item.id}
+        className={`flex items-start gap-3 p-3 border rounded transition-colors ${
+          checked ? "bg-blue-50 border-blue-400" : "bg-white border-gray-200 hover:border-gray-300"
+        }`}
+      >
+        <input
+          type="checkbox"
+          checked={checked}
+          onChange={() => toggleSelectItem(item)}
+          className="w-4 h-4 text-blue-600 mt-1"
+        />
+        <div className="min-w-0 flex-1">
+          {opts?.sizeTitle ? (
+            <p className="text-sm font-bold">SIZE {sizeLabel}</p>
+          ) : (
+            <p className="text-sm font-medium truncate">{item.name}</p>
+          )}
+          <p className="text-xs text-gray-500">
+            {item.sku}
+            {!opts?.sizeTitle && item.category ? <span> · {item.category}</span> : null}
+            {!opts?.sizeTitle && item.size ? <span> · {item.size}</span> : null}
+            {(item.unitCount || 1) > 1 ? (
+              <span> · {item.unitCount} units · 1 QR</span>
+            ) : opts?.sizeTitle ? (
+              <span> · 1 QR for this size</span>
+            ) : null}
+          </p>
+          {missing.length > 0 ? (
+            <div className="mt-2 space-y-1">
+              <p className="text-xs text-amber-700">QR code missing</p>
+              <button
+                type="button"
+                className="text-xs bg-amber-100 text-amber-900 px-2 py-1 rounded hover:bg-amber-200 disabled:opacity-50"
+                disabled={repairingId === item.id}
+                onClick={() => void generateMissingCodes(item.id, missing)}
+              >
+                {repairingId === item.id ? "Generating…" : "Generate code"}
+              </button>
+            </div>
+          ) : (
+            <p className="text-xs text-green-700 mt-1">
+              Registered
+              {opts?.sizeTitle ? ` · unique QR for size ${sizeLabel}` : ""}
+              {(item.unitCount || 1) > 1 && !opts?.sizeTitle
+                ? ` · ${item.unitCount} units share one QR`
+                : ""}
+            </p>
+          )}
+          {checked && missing.length === 0 ? (
+            <div className="mt-2 flex flex-wrap items-center gap-2">
+              <label className="text-xs text-gray-600 font-semibold" htmlFor={`copies-${item.id}`}>
+                {opts?.sizeTitle ? "Qty of this size QR" : "Labels / units"}
+              </label>
+              <input
+                id={`copies-${item.id}`}
+                type="number"
+                min={1}
+                max={99}
+                inputMode="numeric"
+                value={copiesById[item.id] ?? 1}
+                onChange={(e) => setCopies(item.id, Number(e.target.value))}
+                onClick={(e) => e.stopPropagation()}
+                className="border rounded px-2 py-1 text-sm w-16"
+              />
+              {(item.unitCount || 1) > 1 ? (
+                <button
+                  type="button"
+                  className="text-xs text-blue-700 underline"
+                  onClick={(e) => {
+                    e.stopPropagation();
+                    setCopies(item.id, item.unitCount || 1);
+                  }}
+                >
+                  All {item.unitCount} units
+                </button>
+              ) : null}
+            </div>
+          ) : null}
+        </div>
+      </div>
+    );
+  };
+
   return (
-    <div className="min-h-screen bg-gray-50 p-4">
+    <div className="print-codes-root min-h-screen bg-gray-50 p-4">
       <style>{`
+        /* Keep sticker sheets off-screen until Print (must not take layout height). */
+        .print-area {
+          position: absolute;
+          left: -10000px;
+          top: 0;
+          width: ${PAGE_W_MM}mm;
+          height: 0;
+          overflow: hidden;
+          opacity: 0;
+          pointer-events: none;
+        }
         @media print {
           @page {
-            size: A4;
+            size: ${PAGE_W_MM}mm ${PAGE_H_MM}mm;
             margin: 0;
           }
-          body { margin: 0; padding: 0; }
+          html, body {
+            margin: 0 !important;
+            padding: 0 !important;
+            width: auto !important;
+            height: auto !important;
+            min-height: 0 !important;
+            background: #fff !important;
+            -webkit-print-color-adjust: exact;
+            print-color-adjust: exact;
+          }
+          /* Hide UI; only sticker sheets print (fixes blank page + multi-page clip). */
+          .print-codes-root {
+            margin: 0 !important;
+            padding: 0 !important;
+            min-height: 0 !important;
+            background: transparent !important;
+          }
           .no-print { display: none !important; }
           .print-area {
             display: block !important;
             position: static !important;
             left: auto !important;
             top: auto !important;
+            width: ${PAGE_W_MM}mm !important;
+            height: auto !important;
+            margin: 0 !important;
+            padding: 0 !important;
+            overflow: visible !important;
+            opacity: 1 !important;
+            pointer-events: auto !important;
           }
           .label-page {
+            position: relative;
             width: ${PAGE_W_MM}mm;
             height: ${PAGE_H_MM}mm;
             box-sizing: border-box;
-            padding: ${PAGE_MARGIN_MM}mm;
-            page-break-after: always;
-            display: grid;
-            grid-template-columns: repeat(3, ${LABEL_W_MM}mm);
-            grid-template-rows: repeat(8, ${LABEL_H_MM}mm);
-            column-gap: ${COL_GAP_MM}mm;
-            row-gap: ${ROW_GAP_MM}mm;
             margin: 0;
+            padding: 0;
+            overflow: hidden;
+            page-break-after: always;
+            break-after: page;
+            break-inside: avoid;
+            page-break-inside: avoid;
           }
           .label-page:last-child {
-            page-break-after: auto;
+            page-break-after: auto !important;
+            break-after: auto !important;
           }
           .label-cell {
+            position: absolute;
             width: ${LABEL_W_MM}mm;
             height: ${LABEL_H_MM}mm;
+            max-width: ${LABEL_W_MM}mm;
+            max-height: ${LABEL_H_MM}mm;
             overflow: hidden;
             box-sizing: border-box;
-            padding: 1.5mm;
+            padding: ${QR_CELL_PAD_MM}mm;
           }
           .label-cell.label-qr-only {
             display: grid;
             grid-template-columns: minmax(0, 1fr) ${QR_COL_MM}mm;
             column-gap: 1mm;
             align-items: center;
-            padding: 1mm 1.5mm;
+            justify-items: stretch;
+            padding: ${QR_CELL_PAD_MM}mm;
           }
           .label-cell.label-barcode-only,
           .label-cell.label-both {
             display: flex;
             flex-direction: column;
-            gap: 0.5mm;
+            gap: 0.4mm;
           }
           .label-row {
             display: contents;
           }
           .label-left {
             min-width: 0;
+            max-height: 100%;
+            overflow: hidden;
             display: flex;
             flex-direction: column;
             justify-content: center;
@@ -227,17 +603,30 @@ export default function PrintCodesClient() {
             flex-direction: column;
             align-items: center;
             justify-content: center;
+            box-sizing: border-box;
             width: ${QR_COL_MM}mm;
             max-width: ${QR_COL_MM}mm;
+            height: ${QR_USABLE_H_MM}mm;
+            max-height: ${QR_USABLE_H_MM}mm;
+            padding-top: 0;
+            overflow: visible;
             min-width: 0;
+            background: #fff;
           }
+          .label-cell img.label-qr,
           .label-cell canvas.label-qr {
             width: ${QR_SIZE_MM}mm !important;
             height: ${QR_SIZE_MM}mm !important;
             max-width: ${QR_SIZE_MM}mm !important;
             max-height: ${QR_SIZE_MM}mm !important;
             display: block;
+            flex: 0 0 auto;
+            object-fit: contain;
+            background: #fff;
+            image-rendering: pixelated;
+            image-rendering: crisp-edges;
           }
+          .label-both img.label-qr,
           .label-both canvas.label-qr {
             width: 12mm !important;
             height: 12mm !important;
@@ -246,22 +635,23 @@ export default function PrintCodesClient() {
           }
           .label-cell svg.barcode-svg {
             width: 100% !important;
-            max-width: 54mm !important;
+            max-width: 58mm !important;
             height: auto !important;
-            max-height: 8mm !important;
+            max-height: 7mm !important;
           }
           .label-both svg.barcode-svg {
-            max-height: 6mm !important;
+            max-height: 5.5mm !important;
           }
           .label-text {
-            font-family: Arial, sans-serif;
+            font-family: Arial, Helvetica, sans-serif;
             text-align: left;
             overflow: hidden;
             width: 100%;
+            max-height: 100%;
           }
           .label-name {
             font-weight: 900;
-            font-size: 9pt;
+            font-size: 7pt;
             overflow: hidden;
             display: -webkit-box;
             -webkit-line-clamp: 2;
@@ -273,56 +663,137 @@ export default function PrintCodesClient() {
           }
           .label-brand {
             color: #7B1F45;
-            letter-spacing: 0.3pt;
-            margin-bottom: 0.3mm;
-            line-height: 1.1;
+            letter-spacing: 0.2pt;
+            margin-bottom: 0.15mm;
+            line-height: 1.05;
+            font-size: 5pt;
           }
           .label-size-badge {
             display: inline-flex;
-            font-size: 8pt;
+            font-size: 6pt;
             font-weight: 900;
-            border: 1.5pt solid #333;
-            border-radius: 3px;
-            padding: 0.2mm 1.2mm;
-            margin-top: 0.5mm;
+            border: 1pt solid #333;
+            border-radius: 2px;
+            padding: 0.1mm 0.8mm;
+            margin-top: 0.25mm;
             line-height: 1.1;
           }
           .label-sku {
-            font-size: 6pt;
+            font-size: 5pt;
             font-weight: 700;
             font-family: "Courier New", monospace;
             color: #333;
-            margin-top: 0.4mm;
+            margin-top: 0.2mm;
           }
         }
       `}</style>
 
-      <div className="max-w-7xl mx-auto">
-        <div className="no-print mb-6">
+      <div className="max-w-7xl mx-auto no-print">
+        <div className="mb-6">
           <h1 className="text-2xl font-bold text-gray-900 mb-4">
-            Print QR Codes — A4 Sticker Sheet (24 labels, 60×30mm, 1cm margins)
+            Print QR Codes — Mazus A4 ST-24 (64×33.9mm, 24 labels)
           </h1>
 
           <div className="bg-white border rounded-lg p-4 mb-4">
             <h2 className="font-semibold text-sm text-gray-700 mb-3">Print Settings</h2>
-            <div className="flex flex-wrap gap-4 items-end">
+            <form
+              className="flex flex-wrap gap-4 items-end mb-4"
+              onSubmit={runSearch}
+            >
+              <div style={{ flex: "1 1 220px", minWidth: 200 }}>
+                <label className="block text-xs text-gray-500 mb-1">Search dresses</label>
+                <input
+                  type="search"
+                  value={searchInput}
+                  onChange={(e) => setSearchInput(e.target.value)}
+                  placeholder="Dress name, SKU, or color…"
+                  className="border rounded px-3 py-2 text-sm w-full"
+                  autoComplete="off"
+                />
+              </div>
               <div>
                 <label className="block text-xs text-gray-500 mb-1">Category</label>
-                <select
+                <CategorySelect
                   value={category}
-                  onChange={(e) => setCategory(e.target.value)}
                   className="border rounded px-3 py-2 text-sm"
+                  onChange={(v) => {
+                    setCategory(v);
+                    setExpandedMensKey(null);
+                    // Keep selectedBag — cart persists across categories.
+                  }}
+                />
+              </div>
+              <div>
+                <label className="block text-xs text-gray-500 mb-1">Sub-Category</label>
+                <select
+                  value={subCategory}
+                  onChange={(e) => {
+                    setSubCategory(e.target.value);
+                  }}
+                  className="border rounded px-3 py-2 text-sm"
+                  aria-label="Sub-category"
                 >
-                  <option value="">All Categories</option>
-                  <option value="Lehenga">Lehenga</option>
-                  <option value="Sherwani">Sherwani</option>
-                  <option value="Gown">Gown</option>
-                  <option value="Suit">Suit</option>
-                  <option value="Saree">Saree</option>
-                  <option value="Indo-Western">Indo-Western</option>
-                  <option value="Jewellery">Jewellery</option>
+                  <option value="">All Sub-Categories</option>
+                  {subCategory && !subCategoryOptions.includes(subCategory) && (
+                    <option value={subCategory}>{subCategory}</option>
+                  )}
+                  {subCategoryOptions.map((s) => (
+                    <option key={s} value={s}>
+                      {s}
+                    </option>
+                  ))}
                 </select>
               </div>
+              <button
+                type="submit"
+                disabled={loading}
+                className="bg-blue-600 text-white px-4 py-2 rounded text-sm hover:bg-blue-700 disabled:opacity-50"
+              >
+                {loading ? "Searching…" : "Search"}
+              </button>
+              {(q || category || subCategory) && (
+                <button
+                  type="button"
+                  className="border px-4 py-2 rounded text-sm text-gray-700 hover:bg-gray-50"
+                  onClick={() => {
+                    setSearchInput("");
+                    setQ("");
+                    setCategory("");
+                    setSubCategory("");
+                    setExpandedMensKey(null);
+                  }}
+                >
+                  Clear filters
+                </button>
+              )}
+              {selectedCount > 0 ? (
+                <button
+                  type="button"
+                  className="border border-amber-300 bg-amber-50 px-4 py-2 rounded text-sm text-amber-900 hover:bg-amber-100"
+                  onClick={clearSelection}
+                >
+                  Clear cart ({selectedCount})
+                </button>
+              ) : null}
+            </form>
+            {isMensPrintMode ? (
+              <div className="mb-4 p-3 rounded border border-indigo-200 bg-indigo-50/60">
+                <p className="text-sm font-semibold text-indigo-900 mb-1">
+                  Men&apos;s QR print — all products listed below
+                </p>
+                <p className="text-xs text-indigo-800">
+                  Click a product to open its sizes, tick sizes, set quantity. Switching product or
+                  category keeps your previous selections in the print cart.
+                </p>
+              </div>
+            ) : null}
+            {selectedCount > 0 ? (
+              <p className="text-xs text-blue-800 mb-3 font-medium">
+                Print cart: {selectedCount} size/dress selected · {totalLabels} label(s) ready
+                (kept when you change category or product)
+              </p>
+            ) : null}
+            <div className="flex flex-wrap gap-4 items-end">
               <div>
                 <label className="block text-xs text-gray-500 mb-1">Label type</label>
                 <select
@@ -360,17 +831,21 @@ export default function PrintCodesClient() {
                 </select>
               </div>
               <button
-                onClick={selectAll}
+                type="button"
+                onClick={selectAllVisible}
                 className="bg-blue-600 text-white px-4 py-2 rounded text-sm hover:bg-blue-700"
+                disabled={loading || (isMensPrintMode ? mensProducts.length === 0 : items.length === 0)}
               >
-                {selected.size === items.length ? "Deselect All" : "Select All"}
+                {isMensPrintMode ? "Add all sizes (this category)" : "Add all visible"}
               </button>
               <button
+                type="button"
                 onClick={handlePrint}
-                disabled={printableSelected.length === 0 || blockedPrintCount > 0}
+                disabled={totalLabels === 0 || blockedPrintCount > 0}
                 className="bg-green-600 text-white px-4 py-2 rounded text-sm hover:bg-green-700 disabled:opacity-50 disabled:cursor-not-allowed"
               >
-                🖨️ Print Selected ({printableSelected.length})
+                🖨️ Print {totalLabels} label{totalLabels === 1 ? "" : "s"}
+                {pages.length > 0 ? ` · ${pages.length} page${pages.length === 1 ? "" : "s"}` : ""}
               </button>
             </div>
             {blockedPrintCount > 0 ? (
@@ -380,74 +855,101 @@ export default function PrintCodesClient() {
               </p>
             ) : null}
             <p className="text-xs text-gray-400 mt-2">
-              24 labels per A4 sheet (3×8 grid, 60×30mm). Page margins: 1cm top/bottom/left/right.
-              Each label: left = branding + dress name + size; right = QR code.
-              Skipping {(startRow - 1) * COLS + (startCol - 1)} sticker(s) on the first sheet. Total pages: {pages.length}
+              Mazus ST-24 · skip {(startRow - 1) * COLS + (startCol - 1)} sticker(s) on sheet 1 ·
+              {" "}{totalLabels} label(s) across {pages.length || 0} page(s).
+              After print, printed dresses are deselected automatically.
             </p>
             <p className="text-xs text-gray-400 mt-1">
-              Print at 100% scale (Actual Size). Disable &quot;Fit to page&quot;. Paper: A4. Margins: None or minimum.
+              Print at <strong>100% / Actual Size</strong>. Disable &quot;Fit to page&quot;.
+              Paper: A4. Margins: <strong>None</strong>. First/last rows need edge-safe quiet zone — do not scale.
+              Set quantity per size for multi-unit labels (same size shares one QR).
             </p>
           </div>
 
           {loading ? (
             <p className="text-gray-500">Loading inventory...</p>
+          ) : loadError ? (
+            <p className="text-amber-700 bg-amber-50 border border-amber-200 rounded-lg p-4">
+              {loadError}{" "}
+              <button type="button" className="underline" onClick={() => void fetchItems()}>
+                Retry
+              </button>
+            </p>
           ) : items.length === 0 ? (
-            <p className="text-gray-500">No inventory items found.</p>
-          ) : (
-            <div className="grid grid-cols-1 sm:grid-cols-2 md:grid-cols-3 lg:grid-cols-4 gap-3">
-              {items.map((item) => {
-                const missing = missingPrintFormats(item, printFormat);
+            <p className="text-gray-500">
+              {q || category
+                ? "No dresses matched your search. Try another name, SKU, or clear filters."
+                : "No inventory items found. Pick a category to load faster."}
+            </p>
+          ) : isMensPrintMode ? (
+            <div className="space-y-3">
+              {mensProducts.map((product) => {
+                const open = expandedMensKey === product.key;
+                const selectedInProduct = product.sizes.filter((s) =>
+                  Boolean(selectedBag[s.item.id]),
+                ).length;
                 return (
-                  <div
-                    key={item.id}
-                    className={`flex items-start gap-3 p-3 border rounded transition-colors ${
-                      selected.has(item.id)
-                        ? "bg-blue-50 border-blue-400"
-                        : "bg-white border-gray-200 hover:border-gray-300"
-                    }`}
-                  >
-                    <input
-                      type="checkbox"
-                      checked={selected.has(item.id)}
-                      onChange={() => toggleSelect(item.id)}
-                      className="w-4 h-4 text-blue-600 mt-1"
-                    />
-                    <div className="min-w-0 flex-1">
-                      <p className="text-sm font-medium truncate">{item.name}</p>
-                      <p className="text-xs text-gray-500">
-                        {item.sku} &middot; {item.category}
-                        {item.size && <span> &middot; {item.size}</span>}
-                      </p>
-                      {missing.length > 0 ? (
-                        <div className="mt-2 space-y-1">
-                          <p className="text-xs text-amber-700">
-                            QR code missing
-                            {missing.includes("CODE_128") ? " / barcode missing" : ""}
-                          </p>
+                  <div key={product.key} className="bg-white border rounded-lg overflow-hidden">
+                    <button
+                      type="button"
+                      className="w-full flex flex-wrap items-center justify-between gap-2 px-4 py-3 text-left hover:bg-gray-50"
+                      onClick={() =>
+                        setExpandedMensKey((prev) => (prev === product.key ? null : product.key))
+                      }
+                    >
+                      <div>
+                        <span className="font-semibold text-gray-900">{product.name}</span>
+                        <span className="text-sm text-gray-500 ml-2">
+                          · {product.category} · {product.sizes.length} size
+                          {product.sizes.length === 1 ? "" : "s"}
+                          {selectedInProduct > 0
+                            ? ` · ${selectedInProduct} in cart`
+                            : ""}
+                        </span>
+                      </div>
+                      <span className="text-sm text-blue-700 font-medium">
+                        {open ? "Hide sizes ▲" : "Select sizes ▼"}
+                      </span>
+                    </button>
+                    {open ? (
+                      <div className="border-t px-4 py-3 space-y-3 bg-slate-50/60">
+                        <div className="flex justify-end">
                           <button
                             type="button"
-                            className="text-xs bg-amber-100 text-amber-900 px-2 py-1 rounded hover:bg-amber-200 disabled:opacity-50"
-                            disabled={repairingId === item.id}
-                            onClick={() => void generateMissingCodes(item.id, missing)}
+                            className="text-sm text-blue-700 underline"
+                            onClick={() =>
+                              addItemsToSelection(
+                                product.sizes.map((s) => toInventoryItem(s.item as InventoryItem)),
+                              )
+                            }
                           >
-                            {repairingId === item.id ? "Generating…" : "Generate code"}
+                            Add all sizes of this product
                           </button>
                         </div>
-                      ) : (
-                        <p className="text-xs text-green-700 mt-1">
-                          Registered for {printFormat === "BOTH" ? "QR + barcode" : printFormat}
-                        </p>
-                      )}
-                    </div>
+                        <div className="grid grid-cols-1 sm:grid-cols-2 md:grid-cols-3 lg:grid-cols-4 gap-3">
+                          {product.sizes.map(({ size, item }) =>
+                            renderSizeOrItemCard(toInventoryItem(item as InventoryItem), {
+                              sizeTitle: size,
+                            }),
+                          )}
+                        </div>
+                      </div>
+                    ) : null}
                   </div>
                 );
               })}
             </div>
+          ) : (
+            <div className="grid grid-cols-1 sm:grid-cols-2 md:grid-cols-3 lg:grid-cols-4 gap-3">
+              {items.map((item) => renderSizeOrItemCard(item))}
+            </div>
           )}
 
-          {selected.size > 0 && (
+          {selectedCount > 0 && (
             <div className="mt-6">
-              <h2 className="font-semibold text-gray-700 mb-2">Preview (first page, 3×8)</h2>
+              <h2 className="font-semibold text-gray-700 mb-2">
+                Preview (page 1 of {pages.length || 1}) — {totalLabels} label(s)
+              </h2>
               <div className="border rounded bg-white p-2 inline-block">
                 <div
                   style={{
@@ -484,11 +986,13 @@ export default function PrintCodesClient() {
             </div>
           )}
         </div>
+      </div>
 
-        <div className="print-area" style={{ position: "fixed", left: "-9999px", top: 0 }}>
+        <div className="print-area" aria-hidden={totalLabels === 0}>
           {pages.map((page, pageIdx) => (
             <div key={pageIdx} className="label-page">
               {page.map((item, slotIdx) => {
+                const { leftMm, topMm } = labelCellPosition(slotIdx);
                 const layoutClass =
                   item &&
                   (printFormat === "QR_CODE"
@@ -497,7 +1001,11 @@ export default function PrintCodesClient() {
                       ? "label-barcode-only"
                       : "label-both");
                 return (
-                  <div key={slotIdx} className={`label-cell${layoutClass ? ` ${layoutClass}` : ""}`}>
+                  <div
+                    key={`${pageIdx}-${slotIdx}-${item?.id ?? "empty"}`}
+                    className={`label-cell${layoutClass ? ` ${layoutClass}` : ""}`}
+                    style={{ left: `${leftMm}mm`, top: `${topMm}mm` }}
+                  >
                     {item && <StickerLabel item={item} format={printFormat} />}
                   </div>
                 );
@@ -505,14 +1013,13 @@ export default function PrintCodesClient() {
             </div>
           ))}
         </div>
-      </div>
     </div>
   );
 }
 
 function StickerLabel({ item, format }: { item: InventoryItem; format: PrintFormat }) {
-  const qrRef = useRef<HTMLCanvasElement>(null);
   const barcodeRef = useRef<SVGSVGElement>(null);
+  const [qrSrc, setQrSrc] = useState<string>("");
 
   const qrCode = activeScanCode(item, "QR_CODE");
   const barcode = activeScanCode(item, "CODE_128");
@@ -520,13 +1027,22 @@ function StickerLabel({ item, format }: { item: InventoryItem; format: PrintForm
   const barcodeValue = barcode?.code;
 
   useEffect(() => {
-    if ((format === "QR_CODE" || format === "BOTH") && qrRef.current && qrValue) {
-      void QRCode.toCanvas(qrRef.current, qrValue, {
-        width: format === "BOTH" ? 100 : 120,
-        margin: 1,
+    let cancelled = false;
+    if ((format === "QR_CODE" || format === "BOTH") && qrValue) {
+      void QRCode.toDataURL(qrValue, {
+        width: format === "BOTH" ? 280 : 480,
+        margin: 2,
         errorCorrectionLevel: "H",
+        color: { dark: "#000000", light: "#FFFFFF" },
+      }).then((url) => {
+        if (!cancelled) setQrSrc(url);
       });
+    } else {
+      setQrSrc("");
     }
+    return () => {
+      cancelled = true;
+    };
   }, [qrValue, format]);
 
   useEffect(() => {
@@ -568,8 +1084,8 @@ function StickerLabel({ item, format }: { item: InventoryItem; format: PrintForm
       <div className="label-left">
         <div className="label-text">
           <div className="label-brand">
-            <div style={{ fontWeight: 900, fontSize: "7pt" }}>{BRAND_NAME}</div>
-            <div style={{ fontWeight: 600, fontSize: "5.5pt", marginTop: "0.2mm" }}>by {BRAND_OWNER}</div>
+            <div style={{ fontWeight: 900, fontSize: "5.5pt" }}>{BRAND_NAME}</div>
+            <div style={{ fontWeight: 600, fontSize: "4.5pt", marginTop: "0.15mm" }}>by {BRAND_OWNER}</div>
           </div>
           <div className="label-name">{item.name}</div>
           {item.size ? <div className="label-size-badge">SIZE {item.size}</div> : null}
@@ -577,13 +1093,12 @@ function StickerLabel({ item, format }: { item: InventoryItem; format: PrintForm
         </div>
       </div>
       <div className="label-code-block">
-        {(format === "QR_CODE" || format === "BOTH") && qrValue ? (
-          <canvas ref={qrRef} className="label-qr" />
+        {(format === "QR_CODE" || format === "BOTH") && qrSrc ? (
+          // eslint-disable-next-line @next/next/no-img-element
+          <img src={qrSrc} className="label-qr" alt="" />
         ) : null}
         {(format === "CODE_128" || format === "BOTH") && barcodeValue ? (
-          <>
-            <svg ref={barcodeRef} className="barcode-svg" />
-          </>
+          <svg ref={barcodeRef} className="barcode-svg" />
         ) : null}
       </div>
     </div>

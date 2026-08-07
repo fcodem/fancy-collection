@@ -15,6 +15,8 @@ import StarBookingBadge from "@/components/StarBookingBadge";
 import { useRealtimeRefresh } from "@/hooks/useRealtimeRefresh";
 import { BOOKING_EVENTS, INVENTORY_EVENTS } from "@/lib/realtime/types";
 import type { SerializedDashboardData } from "@/lib/services/core";
+import ZoomableImage from "@/components/ZoomableImage";
+import { photoUrl } from "@/lib/photoUrl";
 
 type BookingRow = {
   id: number;
@@ -634,17 +636,61 @@ export default function DashboardView({
                     <table className="data-table">
                       <thead><tr><th>#</th><th>Dress</th><th>Category</th><th>Sub Category</th><th>Color</th><th>Size</th><th>Status</th></tr></thead>
                       <tbody>
-                        {fiData.free_items.map((item, i) => (
+                        {fiData.free_items.map((item, i) => {
+                          const label = String(item.display_name || item.name || "");
+                          const thumb = photoUrl(String(item.thumbnail || "")) || "";
+                          const full = photoUrl(String(item.photo || item.thumbnail || "")) || thumb;
+                          return (
                           <tr key={String(item.id)} style={fiData.warnings?.[String(item.id)] ? { background: "#FFF8E1" } : undefined}>
                             <td>{i + 1}</td>
-                            <td><strong>{String(item.display_name || item.name)}</strong></td>
+                            <td>
+                              <div style={{ display: "flex", alignItems: "center", gap: 8 }}>
+                                {thumb || full ? (
+                                  <ZoomableImage
+                                    src={thumb || full}
+                                    fullSrc={full}
+                                    alt={label}
+                                    overlayCaption={label}
+                                    style={{
+                                      width: 36,
+                                      height: 36,
+                                      borderRadius: 6,
+                                      objectFit: "cover",
+                                      flexShrink: 0,
+                                      border: "1px solid var(--border)",
+                                    }}
+                                  />
+                                ) : (
+                                  <span
+                                    aria-hidden
+                                    style={{
+                                      width: 36,
+                                      height: 36,
+                                      borderRadius: 6,
+                                      background: "var(--cream-dark, #f3efe6)",
+                                      display: "inline-flex",
+                                      alignItems: "center",
+                                      justifyContent: "center",
+                                      color: "var(--text-muted)",
+                                      flexShrink: 0,
+                                      fontSize: 12,
+                                      border: "1px solid var(--border)",
+                                    }}
+                                  >
+                                    <i className="fa-solid fa-shirt" />
+                                  </span>
+                                )}
+                                <strong>{label}</strong>
+                              </div>
+                            </td>
                             <td>{String(item.category)}</td>
                             <td>{String(item.sub_category || "—")}</td>
                             <td>{String(item.color || "—")}</td>
                             <td>{String(item.size || "—")}</td>
                             <td>{fiData.warnings?.[String(item.id)] ? <span className="badge badge-warning">Warning</span> : <span className="badge badge-available">Free</span>}</td>
                           </tr>
-                        ))}
+                          );
+                        })}
                       </tbody>
                     </table>
                   </div>

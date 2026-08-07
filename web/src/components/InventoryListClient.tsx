@@ -16,11 +16,16 @@ import { BOOKING_EVENTS, INVENTORY_EVENTS } from "@/lib/realtime/types";
 import PrefetchOnIntentLink from "@/components/PrefetchOnIntentLink";
 import DressNameSuggestInput from "@/components/DressNameSuggestInput";
 import CategorySelect from "@/components/CategorySelect";
+import ZoomableImage from "@/components/ZoomableImage";
 import { useAbortableSearch } from "@/hooks/useAbortableSearch";
 import { useBoundedQueryCache } from "@/hooks/useBoundedQueryCache";
-import type { InventoryGroupSummary } from "@/lib/services/inventoryList";
+import type { InventoryGroupSummary, MensSizeSummary } from "@/lib/services/inventoryList";
 import { dressDisplayName } from "@/lib/dress";
 import { useToast } from "@/components/ui/Toast";
+import { MENS_CATEGORIES, REMOVED_SUB_CATEGORIES, SIZES } from "@/lib/constants";
+
+const REMOVED_SUB_SET = new Set(REMOVED_SUB_CATEGORIES.map((s) => s.toLowerCase()));
+const MENS_SET = new Set(MENS_CATEGORIES.map((c) => c.toLowerCase()));
 
 const InventoryLightbox = dynamic(() => import("./InventoryLightbox"), {
   ssr: false,
@@ -56,6 +61,7 @@ type Props = {
   initialQ: string;
   initialStatus: string;
   initialCategory: string;
+  initialSubCategory: string;
   isOwner: boolean;
   pageSize: number;
 };
@@ -90,6 +96,7 @@ export default function InventoryListClient({
   initialQ,
   initialStatus,
   initialCategory,
+  initialSubCategory,
   isOwner,
   pageSize,
 }: Props) {
@@ -104,11 +111,16 @@ export default function InventoryListClient({
   const [query, setQuery] = useState(initialQ);
   const [statusVal, setStatusVal] = useState(initialStatus);
   const [categoryVal, setCategoryVal] = useState(initialCategory);
+  const [subCategoryVal, setSubCategoryVal] = useState(initialSubCategory);
+  const [subCategoryOptions, setSubCategoryOptions] = useState<string[]>([]);
   const deferredQuery = useDeferredValue(query);
   const [loading, setLoading] = useState(false);
   const [loadingMore, setLoadingMore] = useState(false);
   const [, startTransition] = useTransition();
   const [expanded, setExpanded] = useState<Record<string, GroupUnit[] | "loading">>({});
+  const [mensSizes, setMensSizes] = useState<Record<string, MensSizeSummary[] | "loading">>({});
+  const [mensAddSize, setMensAddSize] = useState<Record<string, string>>({});
+  const [mensBusy, setMensBusy] = useState<string | null>(null);
   const [lightbox, setLightbox] = useState<{ src: string; caption: string } | null>(null);
   const [drawer, setDrawer] = useState<InventoryGroupSummary | null>(null);
   const [drawerDetail, setDrawerDetail] = useState<InventoryDetail | null>(null);
@@ -120,9 +132,30 @@ export default function InventoryListClient({
     markPerf("inventory-shell-rendered");
   }, []);
 
+  useEffect(() => {
+    let cancelled = false;
+    fetch("/api/sub-categories", { credentials: "same-origin" })
+      .then((r) => (r.ok ? r.json() : null))
+      .then((data) => {
+        if (cancelled) return;
+        const names = Array.isArray(data?.sub_categories)
+          ? data.sub_categories
+              .map((s: { name: string }) => String(s.name || "").trim())
+              .filter((n: string) => n && !REMOVED_SUB_SET.has(n.toLowerCase()))
+          : [];
+        setSubCategoryOptions(names);
+      })
+      .catch(() => {
+        if (!cancelled) setSubCategoryOptions([]);
+      });
+    return () => {
+      cancelled = true;
+    };
+  }, []);
+
   const buildKey = useCallback(
-    (q: string, status: string, category: string, cursor: string | null) =>
-      `list|${q}|${status}|${category}|${cursor || ""}|${pageSize}`,
+    (q: string, status: string, category: string, subCategory: string, cursor: string | null) =>
+      `list|${q}|${status}|${category}|${subCategory}|${cursor || ""}|${pageSize}`,
     [pageSize],
   );
 
@@ -131,10 +164,11 @@ export default function InventoryListClient({
       q: string,
       status: string,
       category: string,
+      subCategory: string,
       cursor: string | null,
       opts: { append: boolean; debounce: boolean },
     ) => {
-      const key = buildKey(q, status, category, cursor);
+      const key = buildKey(q, status, category, subCategory, cursor);
       const cached = !cursor ? cache.get(key) : undefined;
       if (cached && !opts.append) {
         setGroups(cached.groups);
@@ -153,6 +187,7 @@ export default function InventoryListClient({
             if (q.trim()) params.set("q", q.trim());
             if (status) params.set("status", status);
             if (category) params.set("category", category);
+            if (subCategory) params.set("sub_category", subCategory);
             if (cursor) params.set("cursor", cursor);
             params.set("limit", String(pageSize));
             params.set("sort", "name");
@@ -191,7 +226,10 @@ export default function InventoryListClient({
 
   useRealtimeRefresh([...BOOKING_EVENTS, ...INVENTORY_EVENTS], () => {
     cache.clear();
-    fetchPage(deferredQuery, statusVal, categoryVal, null, { append: false, debounce: false });
+    fetchPage(deferredQuery, statusVal, categoryVal, subCategoryVal, null, {
+      append: false,
+      debounce: false,
+    });
   });
 
   // Debounced client filter — skip first mount (SSR already hydrated results)
@@ -204,16 +242,23 @@ export default function InventoryListClient({
     if (deferredQuery.trim()) params.set("q", deferredQuery.trim());
     if (statusVal) params.set("status", statusVal);
     if (categoryVal) params.set("category", categoryVal);
+    if (subCategoryVal) params.set("sub_category", subCategoryVal);
     const qs = params.toString();
     window.history.replaceState(null, "", qs ? `${pathname}?${qs}` : pathname);
-    void fetchPage(deferredQuery, statusVal, categoryVal, null, { append: false, debounce: true });
+    void fetchPage(deferredQuery, statusVal, categoryVal, subCategoryVal, null, {
+      append: false,
+      debounce: true,
+    });
     // eslint-disable-next-line react-hooks/exhaustive-deps -- intentional filter sync
-  }, [deferredQuery, statusVal, categoryVal]);
+  }, [deferredQuery, statusVal, categoryVal, subCategoryVal]);
 
   function onFilterSubmit(e: FormEvent) {
     e.preventDefault();
     markPerf("inventory-filter-submit");
-    void fetchPage(query, statusVal, categoryVal, null, { append: false, debounce: false });
+    void fetchPage(query, statusVal, categoryVal, subCategoryVal, null, {
+      append: false,
+      debounce: false,
+    });
   }
 
   async function expandGroup(groupKey: string) {
@@ -241,6 +286,135 @@ export default function InventoryListClient({
         return next;
       });
       showToast("Could not load units", "error");
+    }
+  }
+
+  async function toggleMensSizes(g: InventoryGroupSummary) {
+    const key = g.groupKey;
+    if (mensSizes[key]) {
+      setMensSizes((prev) => {
+        const next = { ...prev };
+        delete next[key];
+        return next;
+      });
+      return;
+    }
+    if (g.sizes?.length) {
+      setMensSizes((prev) => ({ ...prev, [key]: g.sizes || [] }));
+      return;
+    }
+    setMensSizes((prev) => ({ ...prev, [key]: "loading" }));
+    try {
+      const res = await fetch(`/api/inventory/${g.primaryId}/mens-sizes`, {
+        credentials: "same-origin",
+      });
+      if (!res.ok) throw new Error("sizes failed");
+      const data = (await res.json()) as { sizes: MensSizeSummary[] };
+      setMensSizes((prev) => ({ ...prev, [key]: data.sizes || [] }));
+    } catch {
+      setMensSizes((prev) => {
+        const next = { ...prev };
+        delete next[key];
+        return next;
+      });
+      showToast("Could not load sizes", "error");
+    }
+  }
+
+  async function refreshMensSizes(g: InventoryGroupSummary, seedIdOverride?: number) {
+    const seedId = seedIdOverride || g.primaryId;
+    try {
+      const res = await fetch(`/api/inventory/${seedId}/mens-sizes`, {
+        credentials: "same-origin",
+      });
+      if (!res.ok) return;
+      const data = (await res.json()) as { sizes: MensSizeSummary[] };
+      const nextSizes = data.sizes || [];
+      setMensSizes((prev) => ({ ...prev, [g.groupKey]: nextSizes }));
+      if (!nextSizes.length) {
+        setGroups((prev) => prev.filter((row) => row.groupKey !== g.groupKey));
+        return;
+      }
+      setGroups((prev) =>
+        prev.map((row) =>
+          row.groupKey === g.groupKey
+            ? {
+                ...row,
+                primaryId: nextSizes[0]!.primaryId,
+                primarySku: nextSizes[0]!.primarySku,
+                sizes: nextSizes,
+                size: nextSizes.map((s) => s.size).join(", "),
+                totalQuantity: nextSizes.reduce((n, s) => n + s.totalQuantity, 0),
+                availableQuantity: nextSizes.reduce((n, s) => n + s.availableQuantity, 0),
+                rentedQuantity: nextSizes.reduce((n, s) => n + s.rentedQuantity, 0),
+                maintenanceQuantity: nextSizes.reduce(
+                  (n, s) => n + s.maintenanceQuantity,
+                  0,
+                ),
+              }
+            : row,
+        ),
+      );
+    } catch {
+      /* ignore */
+    }
+  }
+
+  async function addMensSize(g: InventoryGroupSummary) {
+    const size = (mensAddSize[g.groupKey] || "").trim();
+    if (!size) {
+      showToast("Choose a size to add", "error");
+      return;
+    }
+    setMensBusy(`${g.groupKey}:add`);
+    try {
+      const res = await fetch(`/api/inventory/${g.primaryId}/mens-sizes`, {
+        method: "POST",
+        credentials: "same-origin",
+        headers: { "content-type": "application/json" },
+        body: JSON.stringify({ action: "add", size, quantity: 1 }),
+      });
+      const data = await res.json().catch(() => ({}));
+      if (!res.ok) {
+        showToast((data as { error?: string }).error || "Could not add size", "error");
+        return;
+      }
+      setMensAddSize((prev) => ({ ...prev, [g.groupKey]: "" }));
+      cache.clear();
+      await refreshMensSizes(g);
+      showToast(`Size ${size} added`, "success");
+    } finally {
+      setMensBusy(null);
+    }
+  }
+
+  async function removeMensSize(g: InventoryGroupSummary, size: string) {
+    if (!confirm(`Remove size ${size} from ${g.baseName}? All units of this size will be deleted.`)) {
+      return;
+    }
+    const panel = mensSizes[g.groupKey];
+    const currentSizes = Array.isArray(panel) ? panel : g.sizes || [];
+    const survivor = currentSizes.find(
+      (s) => s.size.toLowerCase() !== size.toLowerCase(),
+    );
+    setMensBusy(`${g.groupKey}:rm:${size}`);
+    try {
+      const res = await fetch(`/api/inventory/${g.primaryId}/mens-sizes`, {
+        method: "POST",
+        credentials: "same-origin",
+        headers: { "content-type": "application/json" },
+        body: JSON.stringify({ action: "remove", size }),
+      });
+      const data = await res.json().catch(() => ({}));
+      if (!res.ok) {
+        showToast((data as { error?: string }).error || "Could not remove size", "error");
+        return;
+      }
+      cache.clear();
+      await refreshMensSizes(g, survivor?.primaryId);
+      showToast(`Size ${size} removed`, "success");
+    } finally {
+      setMensBusy(null);
     }
   }
 
@@ -353,8 +527,26 @@ export default function InventoryListClient({
               <option value="maintenance">Maintenance</option>
             </select>
             <CategorySelect value={categoryVal} onChange={setCategoryVal} />
+            <select
+              name="sub_category"
+              value={subCategoryVal}
+              onChange={(e) => setSubCategoryVal(e.target.value)}
+              className="form-control"
+              aria-label="Sub-category"
+            >
+              <option value="">All Sub-Categories</option>
+              {subCategoryVal &&
+                !subCategoryOptions.includes(subCategoryVal) && (
+                  <option value={subCategoryVal}>{subCategoryVal}</option>
+                )}
+              {subCategoryOptions.map((s) => (
+                <option key={s} value={s}>
+                  {s}
+                </option>
+              ))}
+            </select>
             <button className="btn btn-primary" type="submit" disabled={loading}>
-              {loading ? "…" : "Filter"}
+              {loading ? "Searching…" : "Search"}
             </button>
             {loading ? <span className="inv-inline-loading" aria-live="polite">Updating…</span> : null}
           </form>
@@ -368,21 +560,32 @@ export default function InventoryListClient({
         style={{ display: "grid", gridTemplateColumns: "repeat(auto-fit, minmax(min(100%, 320px), 1fr))", gap: 12 }}
       >
         {groups.map((g) => {
+          const isMens = Boolean(g.isMensProduct) || MENS_SET.has(g.category.toLowerCase());
           const badge = statusBadge(g);
-          const caption = dressDisplayName(g.baseName, g.category, g.size);
+          const caption = isMens
+            ? g.baseName
+            : dressDisplayName(g.baseName, g.category, g.size);
           const units = expanded[g.groupKey];
+          const sizePanel = mensSizes[g.groupKey];
+          const presentSizes = new Set(
+            (Array.isArray(sizePanel) ? sizePanel : g.sizes || []).map((s) =>
+              s.size.toLowerCase(),
+            ),
+          );
+          const addableSizes = SIZES.filter((s) => !presentSizes.has(s.toLowerCase()));
           return (
             <article key={g.groupKey} className="inv-card">
               <button
                 type="button"
                 className="inv-card-main"
-                onClick={() => openRow(g)}
+                onClick={() => (isMens ? void toggleMensSizes(g) : openRow(g))}
               >
                 {g.thumbnailUrl ? (
-                  // eslint-disable-next-line @next/next/no-img-element
-                  <img
+                  <ZoomableImage
                     src={g.thumbnailUrl}
+                    fullSrc={g.photoUrl || g.thumbnailUrl}
                     alt=""
+                    overlayCaption={caption}
                     width={64}
                     height={64}
                     loading="lazy"
@@ -395,23 +598,53 @@ export default function InventoryListClient({
                 <div className="inv-card-body">
                   <div className="inv-card-title">{caption}</div>
                   <div className="inv-card-meta">
-                    {g.totalQuantity === 1 ? g.primarySku : `${g.totalQuantity} units`}
-                    {g.size ? ` · ${g.size}` : ""}
-                    {g.color ? ` · ${g.color}` : ""}
+                    {isMens ? (
+                      <>
+                        {(g.sizes || []).length
+                          ? `${g.sizes!.length} size${g.sizes!.length === 1 ? "" : "s"} (${g.size})`
+                          : "Sizes…"}
+                        {` · ${g.totalQuantity} unit${g.totalQuantity === 1 ? "" : "s"}`}
+                      </>
+                    ) : (
+                      <>
+                        {g.totalQuantity === 1 ? g.primarySku : `${g.totalQuantity} units`}
+                        {g.size ? ` · ${g.size}` : ""}
+                        {g.color ? ` · ${g.color}` : ""}
+                      </>
+                    )}
                   </div>
                   <div className="inv-card-stats">
                     <span className={`badge badge-${badge.className}`}>{badge.label}</span>
+                    <span>
+                      {g.category}
+                      {g.subCategory ? ` · ${g.subCategory}` : ""}
+                    </span>
                     <span>₹{g.dailyRate.toLocaleString()}</span>
+                    {isMens ? (
+                      <span style={{ color: "var(--primary, #1d4ed8)", fontWeight: 600 }}>
+                        {sizePanel ? "Hide sizes ▲" : "Sizes ▼"}
+                      </span>
+                    ) : null}
                   </div>
                 </div>
               </button>
               <div className="inv-card-actions">
-                <PrefetchOnIntentLink
-                  href={`/inventory/${g.primaryId}`}
-                  className="btn btn-sm btn-outline inv-touch"
-                >
-                  Details
-                </PrefetchOnIntentLink>
+                {!isMens ? (
+                  <PrefetchOnIntentLink
+                    href={`/inventory/${g.primaryId}`}
+                    className="btn btn-sm btn-outline inv-touch"
+                  >
+                    Details
+                  </PrefetchOnIntentLink>
+                ) : (
+                  <button
+                    type="button"
+                    className="btn btn-sm btn-outline inv-touch"
+                    onClick={() => void toggleMensSizes(g)}
+                  >
+                    {sizePanel ? "Hide sizes" : "Manage sizes"}
+                  </button>
+                )}
                 <button
                   type="button"
                   className="btn btn-sm btn-outline inv-touch"
@@ -425,12 +658,12 @@ export default function InventoryListClient({
               </div>
               {menuOpen === g.groupKey && (
                 <div className="inv-card-menu">
-                  {g.totalQuantity > 1 && (
+                  {!isMens && g.totalQuantity > 1 && (
                     <button type="button" onClick={() => expandGroup(g.groupKey)}>
                       Show units
                     </button>
                   )}
-                  {isOwner && g.totalQuantity === 1 && (
+                  {isOwner && !isMens && g.totalQuantity === 1 && (
                     <button
                       type="button"
                       disabled={deletingId === g.primaryId}
@@ -439,6 +672,113 @@ export default function InventoryListClient({
                       Delete
                     </button>
                   )}
+                  {isMens && (
+                    <button type="button" onClick={() => openRow(g)}>
+                      Quick view
+                    </button>
+                  )}
+                </div>
+              )}
+              {isMens && sizePanel === "loading" && (
+                <div className="inv-unit-list" style={{ padding: 12 }}>Loading sizes…</div>
+              )}
+              {isMens && Array.isArray(sizePanel) && (
+                <div className="inv-unit-list" style={{ padding: 12, borderTop: "1px solid var(--border)" }}>
+                  <div style={{ display: "grid", gap: 8 }}>
+                    {sizePanel.map((sz) => (
+                      <div
+                        key={`${sz.groupKey}-${sz.size}`}
+                        style={{
+                          display: "flex",
+                          flexWrap: "wrap",
+                          alignItems: "center",
+                          justifyContent: "space-between",
+                          gap: 8,
+                          padding: "8px 10px",
+                          borderRadius: 8,
+                          background: "var(--bg, #f8fafc)",
+                          border: "1px solid var(--border)",
+                        }}
+                      >
+                        <div>
+                          <strong>SIZE {sz.size}</strong>
+                          <div style={{ fontSize: 12, color: "var(--text-muted)" }}>
+                            {sz.primarySku} · {sz.availableQuantity}/{sz.totalQuantity} avail
+                          </div>
+                        </div>
+                        <div style={{ display: "flex", flexWrap: "wrap", gap: 6 }}>
+                          <PrefetchOnIntentLink
+                            href={`/inventory/${sz.primaryId}`}
+                            className="btn btn-sm btn-outline"
+                          >
+                            Open
+                          </PrefetchOnIntentLink>
+                          {isOwner ? (
+                            <PrefetchOnIntentLink
+                              href={`/inventory/${sz.primaryId}/edit`}
+                              className="btn btn-sm btn-outline"
+                            >
+                              Edit
+                            </PrefetchOnIntentLink>
+                          ) : null}
+                          {isOwner ? (
+                            <button
+                              type="button"
+                              className="btn btn-sm btn-outline"
+                              style={{ color: "#b91c1c" }}
+                              disabled={mensBusy === `${g.groupKey}:rm:${sz.size}`}
+                              onClick={() => void removeMensSize(g, sz.size)}
+                            >
+                              {mensBusy === `${g.groupKey}:rm:${sz.size}`
+                                ? "Removing…"
+                                : "Remove size"}
+                            </button>
+                          ) : null}
+                        </div>
+                      </div>
+                    ))}
+                  </div>
+                  {isOwner ? (
+                    <div
+                      style={{
+                        marginTop: 12,
+                        display: "flex",
+                        flexWrap: "wrap",
+                        gap: 8,
+                        alignItems: "center",
+                      }}
+                    >
+                      <select
+                        className="form-control"
+                        style={{ maxWidth: 160 }}
+                        value={mensAddSize[g.groupKey] || ""}
+                        onChange={(e) =>
+                          setMensAddSize((prev) => ({
+                            ...prev,
+                            [g.groupKey]: e.target.value,
+                          }))
+                        }
+                        aria-label="Add size"
+                      >
+                        <option value="">Add size…</option>
+                        {addableSizes.map((s) => (
+                          <option key={s} value={s}>
+                            {s}
+                          </option>
+                        ))}
+                      </select>
+                      <button
+                        type="button"
+                        className="btn btn-sm btn-primary"
+                        disabled={
+                          !mensAddSize[g.groupKey] || mensBusy === `${g.groupKey}:add`
+                        }
+                        onClick={() => void addMensSize(g)}
+                      >
+                        {mensBusy === `${g.groupKey}:add` ? "Adding…" : "Add size"}
+                      </button>
+                    </div>
+                  ) : null}
                 </div>
               )}
               {units === "loading" && (
@@ -469,7 +809,7 @@ export default function InventoryListClient({
             className="btn btn-outline inv-touch"
             disabled={loadingMore}
             onClick={() =>
-              fetchPage(deferredQuery, statusVal, categoryVal, nextCursor, {
+              fetchPage(deferredQuery, statusVal, categoryVal, subCategoryVal, nextCursor, {
                 append: true,
                 debounce: false,
               })
@@ -480,7 +820,13 @@ export default function InventoryListClient({
         </div>
       )}
 
-      {drawer && (
+      {drawer && (() => {
+        const drawerIsMens =
+          Boolean(drawer.isMensProduct) || MENS_SET.has(drawer.category.toLowerCase());
+        const drawerCaption = drawerIsMens
+          ? drawer.baseName
+          : dressDisplayName(drawer.baseName, drawer.category, drawer.size);
+        return (
         <div className="inv-drawer-backdrop" onClick={() => setDrawer(null)}>
           <aside
             className="inv-drawer"
@@ -489,19 +835,23 @@ export default function InventoryListClient({
             onClick={(e) => e.stopPropagation()}
           >
             <header className="inv-drawer-header">
-              <h3>
-                {dressDisplayName(drawer.baseName, drawer.category, drawer.size)}
-              </h3>
+              <h3>{drawerCaption}</h3>
               <button type="button" className="btn btn-sm" onClick={() => setDrawer(null)}>
                 Close
               </button>
             </header>
             <div className="inv-drawer-body">
               {drawer.thumbnailUrl ? (
-                // eslint-disable-next-line @next/next/no-img-element
-                <img
+                <ZoomableImage
                   src={drawer.thumbnailUrl}
+                  fullSrc={
+                    drawerDetail?.original_photo_url ||
+                    drawerDetail?.photo_url ||
+                    drawer.photoUrl ||
+                    drawer.thumbnailUrl
+                  }
                   alt=""
+                  overlayCaption={drawerCaption}
                   width={160}
                   height={160}
                   className="inv-drawer-thumb"
@@ -514,13 +864,18 @@ export default function InventoryListClient({
                   onClick={() =>
                     setLightbox({
                       src: drawerDetail.original_photo_url || drawerDetail.photo_url || "",
-                      caption: dressDisplayName(drawer.baseName, drawer.category, drawer.size),
+                      caption: drawerCaption,
                     })
                   }
                 >
                   View original image
                 </button>
               )}
+              {drawerIsMens && drawer.size ? (
+                <p>
+                  <strong>Sizes:</strong> {drawer.size}
+                </p>
+              ) : null}
               <p>
                 <strong>SKU:</strong> {drawer.primarySku}
               </p>
@@ -540,22 +895,45 @@ export default function InventoryListClient({
               ) : (
                 <p className="inv-drawer-hint">Loading full details…</p>
               )}
-              <PrefetchOnIntentLink
-                href={`/inventory/${drawer.primaryId}`}
-                className="btn btn-primary"
-              >
-                {drawer.totalQuantity === 1 ? "Open details & QR / Barcode" : "Open primary unit"}
-              </PrefetchOnIntentLink>
-              {drawer.totalQuantity > 1 ? (
-                <p className="inv-drawer-hint">
-                  QR/barcodes are managed per physical unit. Use “Show units” and open the
-                  required unit.
-                </p>
-              ) : null}
+              {drawerIsMens ? (
+                <>
+                  <button
+                    type="button"
+                    className="btn btn-primary"
+                    onClick={() => {
+                      setDrawer(null);
+                      void toggleMensSizes(drawer);
+                    }}
+                  >
+                    Manage sizes
+                  </button>
+                  <p className="inv-drawer-hint">
+                    Open a size row to edit details or manage QR codes for that size.
+                  </p>
+                </>
+              ) : (
+                <>
+                  <PrefetchOnIntentLink
+                    href={`/inventory/${drawer.primaryId}`}
+                    className="btn btn-primary"
+                  >
+                    {drawer.totalQuantity === 1
+                      ? "Open details & QR / Barcode"
+                      : "Open primary unit"}
+                  </PrefetchOnIntentLink>
+                  {drawer.totalQuantity > 1 ? (
+                    <p className="inv-drawer-hint">
+                      QR/barcodes are managed per physical unit. Use “Show units” and open the
+                      required unit.
+                    </p>
+                  ) : null}
+                </>
+              )}
             </div>
           </aside>
         </div>
-      )}
+        );
+      })()}
 
       {lightbox && (
         <InventoryLightbox

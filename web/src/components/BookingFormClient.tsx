@@ -24,6 +24,8 @@ import type { CSSProperties, ReactNode } from "react";
 import { useRouter } from "next/navigation";
 import { useCallback, useEffect, useMemo, useRef, useState } from "react";
 import DressNameSuggestInput from "@/components/DressNameSuggestInput";
+import BookingPhotoThumb from "@/components/BookingPhotoThumb";
+import BookingTimeSelect from "@/components/BookingTimeSelect";
 import PhotoCaptureButton from "@/components/PhotoCaptureButton";
 import TypeableDateInput from "@/components/TypeableDateInput";
 import { generateUuidV4 } from "@/lib/clientUuid";
@@ -33,7 +35,7 @@ import PaymentModePicker from "@/components/PaymentModePicker";
 import { inventoryItemMatches } from "@/lib/dress";
 import { todayIso, parseDate, isDateBeforeToday } from "@/lib/constants";
 import { formatInr } from "@/lib/format";
-import { privateMediaUrl, photoUrl } from "@/lib/photoUrl";
+import { privateMediaUrl } from "@/lib/photoUrl";
 import { isAbortError } from "@/lib/bookingQrClient";
 import { useToast } from "@/components/ui/Toast";
 import { downloadBookingSlipPdf } from "@/lib/bookingSlipClient";
@@ -41,8 +43,6 @@ import { useRealtimeRefresh } from "@/hooks/useRealtimeRefresh";
 import { BOOKING_EVENTS, INVENTORY_EVENTS } from "@/lib/realtime/types";
 import { cachedFetchJson, yearMonthKey, invalidateClientCache } from "@/lib/clientRequestCache";
 import BookingSelectedDressRow from "@/components/booking/BookingSelectedDressRow";
-
-
 
 const TIMES = [
 
@@ -266,31 +266,6 @@ type Props = {
   unlockHref?: string;
 
 };
-
-
-
-/** Placeholder or thumbnail for a dress photo in list rows. */
-function PhotoThumb({ photo, size = 44 }: { photo?: string; size?: number }) {
-
-  const src = photoUrl(photo);
-
-  if (src) {
-
-    return <img src={src} alt="" style={{ width: size, height: size, borderRadius: 8, objectFit: "cover", flexShrink: 0 }} />;
-
-  }
-
-  return (
-
-    <div style={{ width: size, height: size, borderRadius: 8, background: "linear-gradient(135deg, var(--cream-dark), var(--cream))", display: "flex", alignItems: "center", justifyContent: "center", fontSize: size * 0.45, flexShrink: 0 }}>
-
-      👗
-
-    </div>
-
-  );
-
-}
 
 
 
@@ -774,6 +749,8 @@ export default function BookingFormClient(props: Props) {
         notes: "",
 
       }]);
+      // Clear name filter so the next dress can be typed without deleting first.
+      setNameSearch("");
 
     }
 
@@ -1362,7 +1339,7 @@ export default function BookingFormClient(props: Props) {
                 onChange={applyDeliveryDate}
               />
 
-              <span className="form-hint">Type DD-MM-YYYY or use the calendar · return date auto-fills to next day</span>
+              <span className="form-hint">Type DD/MM/YYYY or use the calendar · return date auto-fills to next day</span>
 
             </div>
 
@@ -1370,11 +1347,12 @@ export default function BookingFormClient(props: Props) {
 
               <label className="form-label">Delivery Time *</label>
 
-              <select className="form-control" value={deliveryTime} onChange={(e) => setDeliveryTime(e.target.value)}>
-
-                {TIMES.map((t) => <option key={t} value={t}>{t}</option>)}
-
-              </select>
+              <BookingTimeSelect
+                value={deliveryTime}
+                onChange={setDeliveryTime}
+                times={TIMES}
+                aria-label="Delivery time"
+              />
 
             </div>
 
@@ -1388,7 +1366,7 @@ export default function BookingFormClient(props: Props) {
                 onChange={applyReturnDate}
               />
 
-              <span className="form-hint">Type DD-MM-YYYY or use the calendar · cannot be before today or delivery date</span>
+              <span className="form-hint">Type DD/MM/YYYY or use the calendar · cannot be before today or delivery date</span>
 
             </div>
 
@@ -1396,11 +1374,12 @@ export default function BookingFormClient(props: Props) {
 
               <label className="form-label">Return Time *</label>
 
-              <select className="form-control" value={returnTime} onChange={(e) => setReturnTime(e.target.value)}>
-
-                {TIMES.map((t) => <option key={t} value={t}>{t}</option>)}
-
-              </select>
+              <BookingTimeSelect
+                value={returnTime}
+                onChange={setReturnTime}
+                times={TIMES}
+                aria-label="Return time"
+              />
 
             </div>
 
@@ -1479,10 +1458,27 @@ export default function BookingFormClient(props: Props) {
               value={nameSearch}
               category={categoryFilter}
               showPhotos
-              suggestions={Boolean(dressNameFilter)}
+              clearOnSelect
               minChars={2}
               onChange={(e) => setNameSearch(e.target.value)}
-              onSuggestSelect={(item) => setNameSearch(item.name)}
+              onSuggestSelect={(item) => {
+                const found =
+                  item.id != null
+                    ? allFreeItems.find((i) => i.id === item.id)
+                    : allFreeItems.find(
+                        (i) =>
+                          i.name === item.name ||
+                          i.display_name === item.name ||
+                          i.display_name === item.display_name,
+                      );
+                if (found) {
+                  const already = selectedDresses.some((d) => d.id === found.id);
+                  if (!already) toggleDress(found);
+                  setNameSearch("");
+                } else {
+                  setNameSearch(item.name);
+                }
+              }}
             />
 
           </div>
@@ -1518,7 +1514,11 @@ export default function BookingFormClient(props: Props) {
 
                   <div key={item.id} onClick={() => toggleDress(item)} style={rowStyle(item, sel)}>
 
-                    <PhotoThumb photo={item.photo} />
+                    <BookingPhotoThumb
+                      photo={item.photo}
+                      size={56}
+                      alt={item.display_name || item.name}
+                    />
 
                     <div style={{ flex: 1, minWidth: 0 }}>
 
@@ -1713,9 +1713,12 @@ export default function BookingFormClient(props: Props) {
                     </div>
                     <div className="form-group" style={{ margin: 0 }}>
                       <label className="form-label">Delivery Time *</label>
-                      <select className="form-control" value={o.delivery_time} onChange={(e) => updateOrderField(i, "delivery_time", e.target.value)}>
-                        {TIMES.map((t) => <option key={t} value={t}>{t}</option>)}
-                      </select>
+                      <BookingTimeSelect
+                        value={o.delivery_time}
+                        onChange={(v) => updateOrderField(i, "delivery_time", v)}
+                        times={TIMES}
+                        aria-label="Order delivery time"
+                      />
                     </div>
                   </div>
 

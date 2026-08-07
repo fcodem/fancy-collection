@@ -7,6 +7,9 @@ function errorMessage(code?: string) {
   if (code === "invalid") return "Invalid username or password.";
   if (code === "missing") return "Username and password are required.";
   if (code === "blocked") return "Too many failed login attempts. Please try again in about 1 hour.";
+  if (code === "elsewhere") {
+    return "This account was signed in on another device. Please sign in again to continue on this device.";
+  }
   return undefined;
 }
 

@@ -23,6 +23,9 @@ import { formatJewelleryPartsLabel } from "@/lib/jewelleryParts";
 import { limitedDbRead } from "@/lib/readDbLimit";
 import { BOOKING_LIST_PAGE_SIZE } from "@/lib/menuPerf";
 
+/** Full export for PDF — separate from paginated list (max 500 rows). */
+export const BOOKING_LIST_EXPORT_MAX = 500;
+
 type ItemRow = {
   dress_name: string;
   display_name: string;
@@ -265,10 +268,11 @@ export async function getBookingListData(opts: BookingListQuery) {
 
   const fromDisplay = formatDate(dDate, "display");
   const toDisplay = formatDate(rDate, "display");
+  const rangeEnd = returnDateStr || deliveryDateStr;
 
   const [dateRangeWhere, unavailDateWhere] = await Promise.all([
-    whereDeliveryInRange(deliveryDateStr, returnDateStr || deliveryDateStr),
-    whereUnavailableDuringPeriod(deliveryDateStr, returnDateStr || deliveryDateStr),
+    whereDeliveryInRange(deliveryDateStr, rangeEnd),
+    whereUnavailableDuringPeriod(deliveryDateStr, rangeEnd),
   ]);
 
   const timeFilter = {
@@ -276,41 +280,64 @@ export async function getBookingListData(opts: BookingListQuery) {
     ...(returnTimeFilter ? { returnTime: returnTimeFilter } : {}),
   };
 
+  const categoryWhere = categoryFilter
+    ? {
+        OR: [
+          { bookingItems: { some: { category: categoryFilter } } },
+          {
+            selectedJewellery: {
+              some: { status: "active", category: categoryFilter },
+            },
+          },
+          {
+            AND: [
+              { bookingItems: { none: {} } },
+              { legacyItem: { is: { category: categoryFilter } } },
+            ],
+          },
+        ],
+      }
+    : {};
+
   const mainWhere = {
     status: { in: ["booked", "delivered"] as string[] },
     ...dateRangeWhere,
     ...timeFilter,
+    ...categoryWhere,
   };
 
   const unavailWhere = {
     status: { in: ["booked", "delivered"] as string[] },
     ...unavailDateWhere,
     ...timeFilter,
+    ...categoryWhere,
   };
 
   const safePage = Math.max(1, page);
-  const take = Math.min(50, Math.max(1, pageSize));
-
-  const [totalMain, totalUnavailable] = await Promise.all([
-    limitedDbRead(() => prisma.booking.count({ where: mainWhere })),
-    limitedDbRead(() => prisma.booking.count({ where: unavailWhere })),
-  ]);
-
+  const take = Math.min(BOOKING_LIST_EXPORT_MAX, Math.max(1, pageSize));
   const queryWhere = section === "unavailable" ? unavailWhere : mainWhere;
   const skip = (safePage - 1) * take;
 
-  const pageBookings = await limitedDbRead(() =>
-    prisma.booking.findMany({
-      where: queryWhere,
-      select: bookingListSelect,
-      orderBy:
-        section === "unavailable"
-          ? [{ deliveryDate: "asc" }, { returnTime: "asc" }]
-          : [{ deliveryDate: "asc" }, { deliveryTime: "asc" }],
-      skip,
-      take,
-    }),
-  );
+  // Only count the section being loaded — callers that need both use getBookingListPageBundle.
+  const [sectionTotal, pageBookings] = await Promise.all([
+    limitedDbRead(() =>
+      prisma.booking.count({
+        where: queryWhere,
+      }),
+    ),
+    limitedDbRead(() =>
+      prisma.booking.findMany({
+        where: queryWhere,
+        select: bookingListSelect,
+        orderBy:
+          section === "unavailable"
+            ? [{ deliveryDate: "asc" }, { returnTime: "asc" }]
+            : [{ deliveryDate: "asc" }, { deliveryTime: "asc" }],
+        skip,
+        take,
+      }),
+    ),
+  ]);
 
   const bookings =
     section === "main"
@@ -331,6 +358,9 @@ export async function getBookingListData(opts: BookingListQuery) {
           .filter((b): b is BookingListRow => b !== null)
       : [];
 
+  const totalMain = section === "main" ? sectionTotal : 0;
+  const totalUnavailable = section === "unavailable" ? sectionTotal : 0;
+
   return {
     bookings,
     unavailable,
@@ -345,23 +375,138 @@ export async function getBookingListData(opts: BookingListQuery) {
   };
 }
 
-/** Load main + unavailable pages (max 2 bounded queries per section via semaphore). */
+/**
+ * One shared where/count pair + two page queries — avoids the old pattern of running
+ * getBookingListData twice (which duplicated date filters and both counts).
+ */
 export async function getBookingListPageBundle(opts: Omit<BookingListQuery, "section">) {
-  const [main, unavail] = await Promise.all([
-    getBookingListData({ ...opts, section: "main" }),
-    getBookingListData({ ...opts, section: "unavailable" }),
+  const {
+    deliveryDateStr,
+    returnDateStr,
+    categoryFilter = "",
+    deliveryTimeFilter = "",
+    returnTimeFilter = "",
+    page = 1,
+    pageSize = BOOKING_LIST_PAGE_SIZE,
+  } = opts;
+
+  if (!deliveryDateStr) {
+    return {
+      bookings: [],
+      unavailable: [],
+      from_date: "",
+      to_date: "",
+      page: 1,
+      pageSize,
+      totalMain: 0,
+      totalUnavailable: 0,
+      totalPagesMain: 1,
+      totalPagesUnavailable: 1,
+    };
+  }
+
+  const dDate = parseDate(deliveryDateStr);
+  let rDate = returnDateStr ? parseDate(returnDateStr) : dDate;
+  if (rDate < dDate) rDate = dDate;
+
+  const fromDisplay = formatDate(dDate, "display");
+  const toDisplay = formatDate(rDate, "display");
+  const rangeEnd = returnDateStr || deliveryDateStr;
+
+  const [dateRangeWhere, unavailDateWhere] = await Promise.all([
+    whereDeliveryInRange(deliveryDateStr, rangeEnd),
+    whereUnavailableDuringPeriod(deliveryDateStr, rangeEnd),
   ]);
+
+  const timeFilter = {
+    ...(deliveryTimeFilter ? { deliveryTime: deliveryTimeFilter } : {}),
+    ...(returnTimeFilter ? { returnTime: returnTimeFilter } : {}),
+  };
+
+  const categoryWhere = categoryFilter
+    ? {
+        OR: [
+          { bookingItems: { some: { category: categoryFilter } } },
+          {
+            selectedJewellery: {
+              some: { status: "active", category: categoryFilter },
+            },
+          },
+          {
+            AND: [
+              { bookingItems: { none: {} } },
+              { legacyItem: { is: { category: categoryFilter } } },
+            ],
+          },
+        ],
+      }
+    : {};
+
+  const mainWhere = {
+    status: { in: ["booked", "delivered"] as string[] },
+    ...dateRangeWhere,
+    ...timeFilter,
+    ...categoryWhere,
+  };
+
+  const unavailWhere = {
+    status: { in: ["booked", "delivered"] as string[] },
+    ...unavailDateWhere,
+    ...timeFilter,
+    ...categoryWhere,
+  };
+
+  const safePage = Math.max(1, page);
+  const take = Math.min(BOOKING_LIST_EXPORT_MAX, Math.max(1, pageSize));
+  const skip = (safePage - 1) * take;
+
+  const [totalMain, totalUnavailable, mainRows, unavailRows] = await Promise.all([
+    limitedDbRead(() => prisma.booking.count({ where: mainWhere })),
+    limitedDbRead(() => prisma.booking.count({ where: unavailWhere })),
+    limitedDbRead(() =>
+      prisma.booking.findMany({
+        where: mainWhere,
+        select: bookingListSelect,
+        orderBy: [{ deliveryDate: "asc" }, { deliveryTime: "asc" }],
+        skip,
+        take,
+      }),
+    ),
+    limitedDbRead(() =>
+      prisma.booking.findMany({
+        where: unavailWhere,
+        select: bookingListSelect,
+        orderBy: [{ deliveryDate: "asc" }, { returnTime: "asc" }],
+        skip,
+        take,
+      }),
+    ),
+  ]);
+
+  const bookings = mainRows
+    .map((b) => serializeBooking(b, categoryFilter))
+    .filter((b): b is BookingListRow => b !== null);
+
+  const unavailable = unavailRows
+    .map((b) => {
+      const row = serializeBooking(b, categoryFilter);
+      if (!row) return null;
+      row.reason = `Delivered ${formatDate(b.deliveryDate, "display")} (before ${fromDisplay}) - returns ${formatDate(b.returnDate, "display")} (before ${toDisplay})`;
+      return row;
+    })
+    .filter((b): b is BookingListRow => b !== null);
+
   return {
-    bookings: main.bookings,
-    unavailable: unavail.unavailable,
-    from_date: main.from_date,
-    to_date: main.to_date,
-    page: main.page,
-    pageSize: main.pageSize,
-    totalMain: main.totalMain,
-    totalUnavailable: main.totalUnavailable,
-    totalPagesMain: main.totalPagesMain,
-    totalPagesUnavailable: main.totalPagesUnavailable,
+    bookings,
+    unavailable,
+    from_date: formatDate(dDate, "iso"),
+    to_date: formatDate(rDate, "iso"),
+    page: safePage,
+    pageSize: take,
+    totalMain,
+    totalUnavailable,
+    totalPagesMain: Math.max(1, Math.ceil(totalMain / take)),
+    totalPagesUnavailable: Math.max(1, Math.ceil(totalUnavailable / take)),
   };
 }
 
@@ -425,24 +570,20 @@ export function getBookingListDataCached(opts: Omit<BookingListQuery, "section">
   );
 }
 
-/** Full export for PDF — separate from paginated list (max 500 rows). */
-export const BOOKING_LIST_EXPORT_MAX = 500;
-
+/** Full export for PDF — uses the shared page bundle at export page size. */
 export async function getBookingListExportData(opts: Omit<BookingListQuery, "page" | "pageSize">) {
-  const [main, unavail] = await Promise.all([
-    getBookingListData({ ...opts, page: 1, pageSize: BOOKING_LIST_EXPORT_MAX, section: "main" }),
-    getBookingListData({
-      ...opts,
-      page: 1,
-      pageSize: BOOKING_LIST_EXPORT_MAX,
-      section: "unavailable",
-    }),
-  ]);
+  const data = await getBookingListPageBundle({
+    ...opts,
+    page: 1,
+    pageSize: BOOKING_LIST_EXPORT_MAX,
+  });
   return {
-    bookings: main.bookings,
-    unavailable: unavail.unavailable,
-    from_date: main.from_date,
-    to_date: main.to_date,
-    truncated: main.totalMain > BOOKING_LIST_EXPORT_MAX || unavail.totalUnavailable > BOOKING_LIST_EXPORT_MAX,
+    bookings: data.bookings,
+    unavailable: data.unavailable,
+    from_date: data.from_date,
+    to_date: data.to_date,
+    truncated:
+      data.totalMain > BOOKING_LIST_EXPORT_MAX ||
+      data.totalUnavailable > BOOKING_LIST_EXPORT_MAX,
   };
 }

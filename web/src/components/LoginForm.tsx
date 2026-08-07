@@ -13,6 +13,7 @@ type LoginResponse = {
 export default function LoginForm({ initialError }: { initialError?: string }) {
   const [error, setError] = useState(initialError);
   const [pending, setPending] = useState(false);
+  const [showPassword, setShowPassword] = useState(false);
 
   async function handleSubmit(e: FormEvent<HTMLFormElement>) {
     e.preventDefault();
@@ -92,18 +93,28 @@ export default function LoginForm({ initialError }: { initialError?: string }) {
           </div>
           <div className="form-group">
             <label htmlFor="login-password">Password</label>
-            <div className="input-icon-wrap">
+            <div className="input-icon-wrap input-icon-wrap--password">
               <i className="fa-solid fa-lock" aria-hidden />
               <input
                 id="login-password"
                 name="password"
-                type="password"
+                type={showPassword ? "text" : "password"}
                 className="form-control"
                 required
                 autoComplete="current-password"
                 placeholder="Enter password"
                 suppressHydrationWarning
               />
+              <button
+                type="button"
+                className="password-visibility-toggle"
+                onClick={() => setShowPassword((v) => !v)}
+                aria-label={showPassword ? "Hide password" : "Show password"}
+                aria-pressed={showPassword}
+                title={showPassword ? "Hide password" : "Show password"}
+              >
+                <i className={`fa-solid ${showPassword ? "fa-eye-slash" : "fa-eye"}`} aria-hidden />
+              </button>
             </div>
           </div>
           <button type="submit" className="btn btn-primary btn-block btn-lg" disabled={pending}>

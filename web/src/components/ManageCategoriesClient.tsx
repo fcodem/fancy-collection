@@ -4,6 +4,7 @@ import { useEffect, useState } from "react";
 import { useRouter } from "next/navigation";
 import { SaveConfirmedBanner } from "@/components/SaveConfirmedBanner";
 import { buildSaveRedirectUrl } from "@/components/SaveConfirmedBanner";
+import { invalidateClientCache } from "@/lib/clientRequestCache";
 
 type CategoryEntry = {
   name: string;
@@ -71,14 +72,16 @@ export default function ManageCategoriesClient({
     if (!catName) return;
     const res = await fetch("/api/categories", {
       method: "POST",
+      credentials: "same-origin",
       headers: { "Content-Type": "application/json" },
       body: JSON.stringify({ name: catName, group }),
     });
     if (!res.ok) {
-      const err = await res.json().catch(() => ({}));
-      alert(err.error || "Failed to add category");
+      const err = await res.json().catch(() => ({} as { error?: string }));
+      alert(err.error || `Failed to add category (${res.status})`);
       return;
     }
+    invalidateClientCache("categories");
     setName("");
     void load();
     router.replace(
@@ -97,12 +100,14 @@ export default function ManageCategoriesClient({
       headers: { "Content-Type": "application/json" },
       body: JSON.stringify({ name: catName }),
     });
+    invalidateClientCache("categories");
     void load();
   }
 
   async function removeCustom(id: number) {
     if (!confirm("Remove this custom category?")) return;
     await fetch(`/api/categories/${id}`, { method: "POST" });
+    invalidateClientCache("categories");
     void load();
   }
 
@@ -119,6 +124,7 @@ export default function ManageCategoriesClient({
       headers: { "Content-Type": "application/json" },
       body: JSON.stringify({ name: editCatName, group: editCatGroup }),
     });
+    invalidateClientCache("categories");
     setEditingCatId(null);
     void load();
   }

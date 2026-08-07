@@ -318,27 +318,53 @@ export default function UsersClient() {
                       )}
                     </td>
                     <td className="no-print">
-                      <button
-                        type="button"
-                        className="btn btn-sm btn-outline"
-                        onClick={async () => {
-                          const role = prompt("New role (owner/staff):", u.role);
-                          if (!role) return;
-                          try {
-                            await fetchJson(`/api/users/${u.id}/change-role`, {
-                              method: "POST",
-                              headers: { "Content-Type": "application/json" },
-                              body: JSON.stringify({ role }),
-                            });
-                            toast("Role updated", "success");
-                            await load();
-                          } catch (e) {
-                            toast(e instanceof Error ? e.message : "Failed", "error");
-                          }
-                        }}
-                      >
-                        Change Role
-                      </button>
+                      <div style={{ display: "flex", gap: 6, flexWrap: "wrap" }}>
+                        <button
+                          type="button"
+                          className="btn btn-sm btn-outline"
+                          onClick={async () => {
+                            const role = prompt("New role (owner/staff):", u.role);
+                            if (!role) return;
+                            try {
+                              await fetchJson(`/api/users/${u.id}/change-role`, {
+                                method: "POST",
+                                headers: { "Content-Type": "application/json" },
+                                body: JSON.stringify({ role }),
+                              });
+                              toast("Role updated", "success");
+                              await load();
+                            } catch (e) {
+                              toast(e instanceof Error ? e.message : "Failed", "error");
+                            }
+                          }}
+                        >
+                          Change Role
+                        </button>
+                        {!(u.role === "owner" && u.username.toLowerCase() === "owner") && (
+                          <button
+                            type="button"
+                            className="btn btn-sm btn-danger"
+                            onClick={async () => {
+                              if (
+                                !confirm(
+                                  `Delete user "${u.username}" permanently? Their login will be removed and the username can be reused.`,
+                                )
+                              ) {
+                                return;
+                              }
+                              try {
+                                await fetchJson(`/api/users/${u.id}/delete`, { method: "POST" });
+                                toast(`Deleted ${u.username}`, "success");
+                                await load();
+                              } catch (e) {
+                                toast(e instanceof Error ? e.message : "Failed to delete", "error");
+                              }
+                            }}
+                          >
+                            Delete
+                          </button>
+                        )}
+                      </div>
                     </td>
                   </tr>
                 );

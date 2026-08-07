@@ -185,8 +185,8 @@ export default function StaffAttendanceClient({
     }
   }, [salStaffId, salMonth]);
 
-  const loadStaffUsers = useCallback(async () => {
-    if (allUsers.length || usersLoading) return;
+  const loadStaffUsers = useCallback(async (force = false) => {
+    if (!force && (allUsers.length || usersLoading)) return;
     setUsersLoading(true);
     try {
       const data = await fetchJson<{ users: StaffUser[] }>("/api/staff/linked-users");
@@ -297,8 +297,17 @@ export default function StaffAttendanceClient({
   async function addStaff(e: React.FormEvent) {
     e.preventDefault();
     if (!addName.trim()) return;
+    const username = addUsername.trim();
+    const password = addPassword;
+    if ((username && !password) || (!username && password)) {
+      toast("Enter both username and password for login, or leave both blank", "error");
+      return;
+    }
     try {
-      await fetchJson("/api/staff", {
+      const res = await fetchJson<{
+        ok: boolean;
+        staff: Staff & { loginUsername?: string | null; role?: string | null };
+      }>("/api/staff", {
         method: "POST",
         headers: { "Content-Type": "application/json" },
         body: JSON.stringify({
@@ -306,12 +315,28 @@ export default function StaffAttendanceClient({
           phone: addPhone,
           monthlySalary: addMonthlySalary ? Number(addMonthlySalary) : undefined,
           salaryDate: addSalaryDate ? Number(addSalaryDate) : undefined,
-          username: addUsername,
-          password: addPassword,
+          username,
+          password,
           role: addRole,
         }),
       });
-      toast("Staff added", "success");
+      const created = res.staff;
+      if (created?.id) {
+        setStaffList((prev) => {
+          if (prev.some((s) => s.id === created.id)) return prev;
+          return [...prev, {
+            id: created.id,
+            name: created.name,
+            phone: created.phone,
+            monthlySalary: created.monthlySalary,
+            salaryDate: created.salaryDate,
+          }].sort((a, b) => a.name.localeCompare(b.name));
+        });
+        setStatuses((prev) => ({ ...prev, [created.id]: prev[created.id] || "present" }));
+        if (!calStaffId) setCalStaffId(String(created.id));
+        if (!salStaffId) setSalStaffId(String(created.id));
+        if (!salPayStaffId) setSalPayStaffId(String(created.id));
+      }
       setAddName("");
       setAddPhone("");
       setAddMonthlySalary("");
@@ -319,7 +344,18 @@ export default function StaffAttendanceClient({
       setAddUsername("");
       setAddPassword("");
       setAddRole("staff");
-      toast("Staff saved — refresh the staff list if needed", "success");
+      invalidateClientCache("att-dash:");
+      invalidateClientCache("sal-dash:");
+      setRightTab("staff");
+      await loadStaffUsers(true);
+      if (created?.loginUsername) {
+        toast(
+          `Staff saved with login "${created.loginUsername}". Free login 10 AM–9 PM IST; after 9 PM needs your approval.`,
+          "success",
+        );
+      } else {
+        toast("Staff saved (no login account)", "success");
+      }
       router.refresh();
     } catch (e) {
       toast(e instanceof Error ? e.message : "Failed to add staff", "error");
@@ -327,13 +363,27 @@ export default function StaffAttendanceClient({
   }
 
   async function removeStaff(id: number, name: string) {
-    if (!confirm(`Remove ${name}? Their login will be deactivated.`)) return;
+    if (!confirm(`Remove ${name}? Their login will be deleted and the username can be reused.`)) return;
     try {
       await fetchJson(`/api/staff/${id}`, { method: "POST" });
       toast("Staff removed", "success");
+      setStaffList((prev) => prev.filter((s) => s.id !== id));
       router.refresh();
     } catch (e) {
       toast(e instanceof Error ? e.message : "Failed", "error");
+    }
+  }
+
+  async function grantNextLogin(staffId: number, name: string) {
+    try {
+      const res = await fetchJson<{ message?: string }>(`/api/staff/${staffId}/grant-login`, {
+        method: "POST",
+        headers: { "Content-Type": "application/json" },
+        body: "{}",
+      });
+      toast(res.message || `${name} can sign in now`, "success");
+    } catch (e) {
+      toast(e instanceof Error ? e.message : "Failed to grant login", "error");
     }
   }
 
@@ -480,16 +530,33 @@ export default function StaffAttendanceClient({
                   </div>
                 </div>
                 <hr style={{ borderColor: "var(--border)", margin: "12px 0" }} />
-                <div style={{ fontSize: 11, color: "var(--gold-dark)", fontWeight: 700, textTransform: "uppercase", letterSpacing: 1, marginBottom: 10 }}>
+                <div style={{ fontSize: 11, color: "var(--gold-dark)", fontWeight: 700, textTransform: "uppercase", letterSpacing: 1, marginBottom: 6 }}>
                   <i className="fa-solid fa-key" /> Login Account (optional)
                 </div>
+                <p style={{ fontSize: 12, color: "var(--text-muted)", marginBottom: 10, lineHeight: 1.4 }}>
+                  Enter both username and password to create a login. Staff can sign in freely
+                  from 10 AM–9 PM (IST); after 9 PM they need your Allow Login on the Dashboard.
+                </p>
                 <div className="form-group">
                   <label className="form-label">Username</label>
-                  <input className="form-control" value={addUsername} onChange={(e) => setAddUsername(e.target.value)} />
+                  <input
+                    className="form-control"
+                    value={addUsername}
+                    onChange={(e) => setAddUsername(e.target.value)}
+                    autoComplete="off"
+                    placeholder="e.g. ravi"
+                  />
                 </div>
                 <div className="form-group">
                   <label className="form-label">Password</label>
-                  <input type="password" className="form-control" value={addPassword} onChange={(e) => setAddPassword(e.target.value)} />
+                  <input
+                    type="password"
+                    className="form-control"
+                    value={addPassword}
+                    onChange={(e) => setAddPassword(e.target.value)}
+                    autoComplete="new-password"
+                    placeholder="Required if username is set"
+                  />
                 </div>
                 <div className="form-group">
                   <label className="form-label">Role</label>
@@ -541,6 +608,17 @@ export default function StaffAttendanceClient({
                       <option value="absent">Absent</option>
                       <option value="half_day">Half Day</option>
                     </select>
+                    {isOwner && (
+                      <button
+                        type="button"
+                        className="btn btn-danger btn-sm"
+                        style={{ fontSize: 10, padding: "4px 8px", flexShrink: 0 }}
+                        title={`Remove ${s.name}`}
+                        onClick={() => removeStaff(s.id, s.name)}
+                      >
+                        Remove
+                      </button>
+                    )}
                   </div>
                 ))}
                 <button type="button" className="btn btn-primary btn-sm" style={{ marginTop: 12 }} onClick={saveAttendance} disabled={saving}>
@@ -911,7 +989,7 @@ export default function StaffAttendanceClient({
           </>
         )}
 
-        {rightTab === "staff" && staffList.length > 0 && (
+        {rightTab === "staff" && (
           <div className="card" style={{ marginTop: 0 }}>
             <div className="card-header">
               <h3 className="card-title">
@@ -920,6 +998,11 @@ export default function StaffAttendanceClient({
               </h3>
             </div>
             <div className="card-body p-0">
+              {staffList.length === 0 ? (
+                <p style={{ padding: 16, color: "var(--text-muted)", margin: 0 }}>
+                  No active staff yet. Add someone using the form on the left.
+                </p>
+              ) : (
               <div className="table-wrapper">
                 <table className="data-table" style={{ fontSize: 12 }}>
                   <thead>
@@ -955,6 +1038,11 @@ export default function StaffAttendanceClient({
                                   <><i className="fa-solid fa-user" /> Staff</>
                                 )}{" "}
                                 ({linked.username})
+                              </span>
+                            )}
+                            {!linked && isOwner && (
+                              <span style={{ fontSize: 10, marginLeft: 6, color: "var(--text-muted)" }}>
+                                (no login)
                               </span>
                             )}
                           </td>
@@ -1015,14 +1103,27 @@ export default function StaffAttendanceClient({
                           </td>
                           {isOwner && (
                             <td className="no-print">
-                              <button
-                                type="button"
-                                className="btn btn-danger btn-sm"
-                                style={{ fontSize: 10, padding: "3px 8px" }}
-                                onClick={() => removeStaff(s.id, s.name)}
-                              >
-                                Remove
-                              </button>
+                              <div style={{ display: "flex", gap: 6, flexWrap: "wrap" }}>
+                                {linked && linked.role === "staff" && (
+                                  <button
+                                    type="button"
+                                    className="btn btn-outline btn-sm"
+                                    style={{ fontSize: 10, padding: "3px 8px" }}
+                                    title="Let this staff sign in once without waiting for dashboard approval"
+                                    onClick={() => grantNextLogin(s.id, s.name)}
+                                  >
+                                    Allow login
+                                  </button>
+                                )}
+                                <button
+                                  type="button"
+                                  className="btn btn-danger btn-sm"
+                                  style={{ fontSize: 10, padding: "3px 8px" }}
+                                  onClick={() => removeStaff(s.id, s.name)}
+                                >
+                                  Remove
+                                </button>
+                              </div>
                             </td>
                           )}
                         </tr>
@@ -1031,6 +1132,7 @@ export default function StaffAttendanceClient({
                   </tbody>
                 </table>
               </div>
+              )}
             </div>
           </div>
         )}

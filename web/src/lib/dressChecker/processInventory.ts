@@ -203,35 +203,8 @@ export function scheduleInventoryAiProfile(itemId: number, reason = "photo_chang
 }
 
 export async function rebuildAllAiProfiles(force = false): Promise<{ processed: number; failed: number }> {
-  const items = await prisma.clothingItem.findMany({
-    where: force
-      ? { photo: { not: null }, NOT: { photo: "" } }
-      : {
-          photo: { not: null },
-          NOT: { photo: "" },
-          OR: [
-            { identificationIndexedAt: null },
-            { aiProfile: { is: { matchingVersion: { lt: DRESS_CHECKER_ENGINE_VERSION } } } },
-            { aiProfile: { is: { aiStatus: { not: "READY" } } } },
-            { aiProfile: { is: { needsReindex: true } } },
-            { aiProfile: { is: null } },
-          ],
-        },
-    select: { id: true },
-    orderBy: { id: "asc" },
-  });
-
-  let processed = 0;
-  for (const item of items) {
-    await enqueueInventoryAiJob({
-      itemId: item.id,
-      reason: force ? "bulk_rebuild_full" : "bulk_rebuild",
-      priority: 80,
-      staleExisting: true,
-    });
-    processed++;
-  }
-  return { processed, failed: 0 };
+  const { enqueueBulkAiRebuild } = await import("./aiJobClient");
+  return enqueueBulkAiRebuild(force);
 }
 
 export async function rebuildSelectedAiProfiles(

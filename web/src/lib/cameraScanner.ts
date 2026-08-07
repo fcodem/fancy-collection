@@ -210,7 +210,8 @@ function buildAttempts(
 
 function buildHighResVideoConstraints(
   attempt: StartAttempt,
-  preferBack: boolean
+  preferBack: boolean,
+  preferMediumFirst = false,
 ): MediaStreamConstraints[] {
   const facing =
     attempt.kind === "facing"
@@ -240,11 +241,13 @@ function buildHighResVideoConstraints(
           deviceId: { ideal: attempt.id },
           width: { ideal: 1280 },
           height: { ideal: 720 },
+          frameRate: { ideal: 30 },
         }
       : {
           facingMode: { ideal: facing },
           width: { ideal: 1280 },
           height: { ideal: 720 },
+          frameRate: { ideal: 30 },
         };
 
   const facingOnly: MediaTrackConstraints =
@@ -257,7 +260,10 @@ function buildHighResVideoConstraints(
       ? { deviceId: { exact: attempt.id } }
       : { facingMode: { exact: facing } };
 
-  return [{ video: highRes }, { video: mediumRes }, { video: facingOnly }, { video: facingExact }, { video: true }];
+  // Dress QR stickers decode fine at 720p; trying it first opens the camera faster.
+  return preferMediumFirst
+    ? [{ video: mediumRes }, { video: highRes }, { video: facingOnly }, { video: facingExact }, { video: true }]
+    : [{ video: highRes }, { video: mediumRes }, { video: facingOnly }, { video: facingExact }, { video: true }];
 }
 
 async function applyAdvancedTrackSettings(track: MediaStreamTrack): Promise<void> {
@@ -570,7 +576,8 @@ export class QrCameraSession {
           if (value && (!this.qrOnly || acceptQrOnlyDecode(format))) {
             log("native decode", value.slice(0, 40));
             onDecode(value, format);
-            return;
+            // Keep the decode loop alive so the session can pause/resume without
+            // tearing down the camera between consecutive dress scans.
           }
         } catch {
           /* skip bad frame */
@@ -589,7 +596,11 @@ export class QrCameraSession {
   ): Promise<boolean> {
     if (!this.detector) return false;
 
-    const constraintSets = buildHighResVideoConstraints(attempt, this.preferBack);
+    const constraintSets = buildHighResVideoConstraints(
+      attempt,
+      this.preferBack,
+      this.qrOnly,
+    );
     let stream: MediaStream | null = null;
     let lastError: unknown;
 

@@ -8,36 +8,40 @@ const read = (rel: string) => fs.readFileSync(path.join(root, rel), "utf8");
 const exists = (rel: string) => fs.existsSync(path.join(root, rel));
 
 describe("QR label printing", () => {
-  it("QR fits inside 60×30mm sticker on the right side", () => {
+  it("uses Mazus ST-24 / Avery L7159 geometry (64×33.9mm)", () => {
     const source = read("src/components/PrintCodesClient.tsx");
-    assert.match(source, /QR_SIZE_MM = 15/);
-    assert.match(source, /LABEL_W_MM = 60/);
-    assert.match(source, /LABEL_H_MM = 30/);
+    assert.match(source, /LABEL_W_MM = 64/);
+    assert.match(source, /LABEL_H_MM = 33\.9/);
+    assert.match(source, /PAGE_MARGIN_TOP_MM = 12\.9/);
+    assert.match(source, /PAGE_MARGIN_LEFT_MM = 6\.5/);
+    assert.match(source, /COL_GAP_MM = 2\.5/);
+    assert.match(source, /ROW_GAP_MM = 0/);
+    assert.match(source, /ROW_PITCH_MM/);
+    assert.match(source, /labelCellPosition/);
   });
 
-  it("A4 sheet uses 1cm margins and 24 labels in a 3×8 grid", () => {
+  it("A4 sheet uses absolute 3×8 slots so rows cannot drift", () => {
     const source = read("src/components/PrintCodesClient.tsx");
-    assert.match(source, /PAGE_MARGIN_MM = 10/);
-    assert.match(source, /padding: \$\{PAGE_MARGIN_MM\}mm/);
-    assert.match(source, /grid-template-columns: repeat\(3, \$\{LABEL_W_MM\}mm\)/);
-    assert.match(source, /grid-template-rows: repeat\(8, \$\{LABEL_H_MM\}mm\)/);
     assert.match(source, /COLS = 3/);
     assert.match(source, /ROWS = 8/);
+    assert.match(source, /position:\s*absolute/);
+    assert.match(source, /left: `\$\{leftMm\}mm`/);
+    assert.match(source, /top: `\$\{topMm\}mm`/);
+    assert.match(source, /size: \$\{PAGE_W_MM\}mm \$\{PAGE_H_MM\}mm/);
   });
 
-  it("column and row gaps fill printable area after margins", () => {
+  it("QR fits inside 33.9mm slip height", () => {
     const source = read("src/components/PrintCodesClient.tsx");
-    assert.match(source, /COL_GAP_MM/);
-    assert.match(source, /ROW_GAP_MM/);
-    assert.match(source, /column-gap: \$\{COL_GAP_MM\}mm/);
-    assert.match(source, /row-gap: \$\{ROW_GAP_MM\}mm/);
+    assert.match(source, /QR_SIZE_MM = 20/);
+    assert.match(source, /QR_USABLE_H_MM/);
+    assert.match(source, /overflow:\s*hidden/);
   });
 
-  it("dress name is prominent at 9pt or larger", () => {
+  it("dress name is prominent and clamped", () => {
     const source = read("src/components/PrintCodesClient.tsx");
     assert.match(source, /label-name/);
-    assert.match(source, /font-size:\s*9pt/);
     assert.match(source, /font-weight:\s*900/);
+    assert.match(source, /-webkit-line-clamp:\s*2/);
   });
 
   it("size uses badge styling", () => {
@@ -57,11 +61,17 @@ describe("QR label printing", () => {
     const source = read("src/components/PrintCodesClient.tsx");
     assert.match(source, /display:\s*grid/);
     assert.match(source, /grid-template-columns: minmax\(0, 1fr\) \$\{QR_COL_MM\}mm/);
-    assert.doesNotMatch(source, /position:\s*absolute/);
   });
 
   it("label-cell receives layout class", () => {
     assert.match(read("src/components/PrintCodesClient.tsx"), /label-cell\$\{layoutClass/);
+  });
+
+  it("sheet math sums exactly to A4", () => {
+    const w = 6.5 + 3 * 64 + 2 * 2.5 + 6.5;
+    const h = 12.9 + 8 * 33.9 + 12.9;
+    assert.equal(w, 210);
+    assert.equal(Number(h.toFixed(1)), 297);
   });
 });
 
@@ -96,12 +106,18 @@ describe("AI worker safety", () => {
     assert.doesNotMatch(worker, /^import.*processInventory/m);
   });
 
-  it("AI feature flags exist for native processing", () => {
+  it("AI feature flags exist for native processing and never fake-complete", () => {
     const worker = read("src/lib/dressChecker/aiJobWorker.ts");
     assert.match(worker, /AI_LOCAL_COLOUR_ANALYSIS_ENABLED/);
     assert.match(worker, /AI_NATIVE_EMBEDDING_ENABLED/);
     assert.match(worker, /AI_OPENAI_ENRICHMENT_ENABLED/);
     assert.match(worker, /AI_FLAGS/);
+    assert.match(worker, /dressIndexingEnabled/);
+    assert.match(worker, /aiFeatureFlag\("AI_NATIVE_EMBEDDING_ENABLED", true\)/);
+    assert.doesNotMatch(
+      worker,
+      /if \(!nativeEnabled && AI_FLAGS\.openaiEnrichmentEnabled\)[\s\S]{0,200}completeAiJob/,
+    );
   });
 
   it("deterministic failures are detected and dead-lettered", () => {

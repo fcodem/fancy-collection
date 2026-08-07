@@ -127,12 +127,24 @@ export const RECOGNITION_IMAGE_SIZE = 768;
 export const QUERY_ROTATION_DEGREES = [0, 90, 180, 270] as const;
 export const GEOMETRIC_PASS_THRESHOLD = 32;
 
-/** Reference photo labels for multi-view indexing */
+/**
+ * Reference photo labels for multi-view indexing.
+ * Staff should upload several angles so search works from hanger / mannequin /
+ * photoshoot / indoor / outdoor customer photos.
+ */
 export const REFERENCE_PHOTO_LABELS = [
+  "front",
+  "back",
+  "side",
   "hanger",
   "mannequin",
   "folded",
   "customer",
-  "front",
+  "photoshoot",
+  "indoor",
+  "outdoor",
   "detail",
 ] as const;
+
+/** Synthetic orientation variants built from the primary photo during index. */
+export const INDEX_SYNTHETIC_ROTATION_DEGREES = [90, 180, 270] as const;

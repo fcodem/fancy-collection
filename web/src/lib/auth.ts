@@ -108,6 +108,9 @@ function resolveSessionPassword(): string {
   return "dev-only-change-in-production-min-32-chars!!";
 }
 
+/** Cookie + DB session lifetime. Must stay aligned with createUserSessionRecord. */
+export const SESSION_MAX_AGE_SECONDS = 30 * 24 * 60 * 60;
+
 export function getSessionOptions(): SessionOptions {
   const isProd = readEnv("NODE_ENV") === "production" || readEnv("VERCEL") === "1";
   if (isProd && readEnv("SESSION_COOKIE_SECURE") === "false") {
@@ -117,10 +120,14 @@ export function getSessionOptions(): SessionOptions {
     // iron-session requires password length >= 32
     password: resolveSessionPassword(),
     cookieName: "fancy_collection_session",
+    // Persist across browser restarts; refresh must not clear the cookie.
+    ttl: SESSION_MAX_AGE_SECONDS,
     cookieOptions: {
       secure: isProd ? true : false,
       httpOnly: true,
       sameSite: "lax",
+      maxAge: SESSION_MAX_AGE_SECONDS,
+      path: "/",
     },
   };
 }
@@ -395,13 +402,14 @@ export const getCurrentUserReadOnly = cache(
 );
 
 async function createUserSessionRecord(userId: number) {
+  // Single active session per user — new login ends every other device immediately.
   await prisma.userSession.updateMany({
     where: { userId, active: true },
     data: { active: false, endedAt: new Date(), revision: { increment: 1 } },
   });
   await invalidateReadSessionCachesForUser(userId);
   const sessionId = uuidv4().replace(/-/g, "");
-  const expiresAt = new Date(Date.now() + 7 * 24 * 60 * 60 * 1000);
+  const expiresAt = new Date(Date.now() + SESSION_MAX_AGE_SECONDS * 1000);
   return prisma.userSession.create({
     data: { userId, sessionId, active: true, revision: 1, expiresAt },
     select: { sessionId: true, revision: true, expiresAt: true },
@@ -607,28 +615,6 @@ export async function findUserForLogin(identifier: string) {
   const trimmed = identifier.trim();
   if (!trimmed) return null;
 
-  // Avoid Prisma `mode: "insensitive"` (can fail on some Postgres/pooler setups).
-  const exact = await prisma.user.findFirst({
-    where: { active: true, username: trimmed },
-  });
-  if (exact) return exact;
-
-  const lower = trimmed.toLowerCase();
-  if (lower !== trimmed) {
-    const ci = await prisma.user.findFirst({
-      where: { active: true, username: lower },
-    });
-    if (ci) return ci;
-  }
-
-  // Also try common casing for owner.
-  if (lower === "owner") {
-    const owner = await prisma.user.findFirst({
-      where: { active: true, username: "owner" },
-    });
-    if (owner) return owner;
-  }
-
   if (/^\d+$/.test(trimmed)) {
     const staffId = parseInt(trimmed, 10);
     return prisma.user.findFirst({
@@ -636,30 +622,113 @@ export async function findUserForLogin(identifier: string) {
     });
   }
 
-  return null;
+  // Prefer Prisma (full User model). Try exact, then lowercase.
+  const exact = await prisma.user.findFirst({
+    where: { active: true, username: trimmed },
+  });
+  if (exact) return exact;
+
+  const lower = trimmed.toLowerCase();
+  if (lower !== trimmed) {
+    const lowerMatch = await prisma.user.findFirst({
+      where: { active: true, username: lower },
+    });
+    if (lowerMatch) return lowerMatch;
+  }
+
+  // Case-insensitive fallback without Prisma `mode: "insensitive"`.
+  try {
+    const rows = await prisma.$queryRaw<
+      Array<{
+        id: number;
+        username: string;
+        password_hash: string;
+        role: string;
+        staff_id: number | null;
+        active: boolean;
+        created_at: Date;
+      }>
+    >`
+      SELECT id, username, password_hash, role, staff_id, active, created_at
+      FROM users
+      WHERE active = true AND lower(username) = lower(${trimmed})
+      LIMIT 1
+    `;
+    const row = rows[0];
+    if (!row) return null;
+    return {
+      id: row.id,
+      username: row.username,
+      passwordHash: row.password_hash,
+      role: row.role,
+      staffId: row.staff_id,
+      active: row.active,
+      createdAt: row.created_at,
+    };
+  } catch (e) {
+    console.error("[auth] findUserForLogin raw fallback failed:", e);
+    return null;
+  }
 }
 
-export async function verifyPassword(password: string, hash: string) {
-  if (hash.startsWith("$2a$") || hash.startsWith("$2b$") || hash.startsWith("$2y$")) {
-    return bcrypt.compare(password, hash);
+export async function verifyPassword(password: string, hash: string | null | undefined) {
+  if (!password || !hash) return false;
+  const normalized = String(hash).trim();
+  if (!normalized) return false;
+
+  // Case-insensitive: accept the typed password in any letter casing.
+  const candidates = Array.from(
+    new Set([password, password.toLowerCase(), password.toUpperCase()]),
+  );
+
+  async function matches(candidate: string): Promise<boolean> {
+    if (normalized.startsWith("$2a$") || normalized.startsWith("$2b$") || normalized.startsWith("$2y$")) {
+      return bcrypt.compare(candidate, normalized);
+    }
+    if (isWerkzeugHash(normalized)) {
+      return verifyWerkzeugPassword(candidate, normalized);
+    }
+    return bcrypt.compare(candidate, normalized);
   }
-  if (isWerkzeugHash(hash)) {
-    return verifyWerkzeugPassword(password, hash);
+
+  try {
+    for (const candidate of candidates) {
+      if (await matches(candidate)) return true;
+    }
+    return false;
+  } catch (e) {
+    console.error("[auth] verifyPassword failed:", e);
+    return false;
   }
-  return bcrypt.compare(password, hash);
 }
 
-/** Re-hash Flask/Werkzeug passwords to bcrypt after successful login. */
+/** Re-hash legacy / mixed-case passwords to lowercase bcrypt after successful login. */
 export async function upgradePasswordHashIfNeeded(userId: number, password: string, currentHash: string) {
-  if (!isWerkzeugHash(currentHash)) return;
+  const shouldUpgrade =
+    isWerkzeugHash(currentHash) || (await needsCaseNormalizeRehash(password, currentHash));
+  if (!shouldUpgrade) return;
   await prisma.user.update({
     where: { id: userId },
     data: { passwordHash: await hashPassword(password) },
   });
 }
 
+/** True when stored hash only matches mixed-case input and should be normalized to lowercase. */
+async function needsCaseNormalizeRehash(password: string, currentHash: string): Promise<boolean> {
+  if (password === password.toLowerCase()) return false;
+  try {
+    const lowerOk = await bcrypt.compare(password.toLowerCase(), currentHash);
+    if (lowerOk) return false;
+    const exactOk = await bcrypt.compare(password, currentHash);
+    return exactOk;
+  } catch {
+    return false;
+  }
+}
+
 export async function hashPassword(password: string) {
-  return bcrypt.hash(password, 10);
+  // Store lowercase so login is case-insensitive going forward.
+  return bcrypt.hash(password.toLowerCase(), 10);
 }
 
 export async function expireOldLoginRequests() {

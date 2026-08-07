@@ -19,7 +19,8 @@ export const RETRY_DELAYS_MS = [30_000, 120_000, 600_000] as const;
 export const DEFAULT_MAX_RETRIES = 3;
 
 /** Hard cap per job invocation (cron maxDuration is 60s; leave headroom). */
-export const AI_JOB_TIMEOUT_MS = Number(process.env.AI_JOB_TIMEOUT_MS || 50_000);
+/** Per-job timeout — allow longer on serverless for SigLIP + multi-view index. */
+export const AI_JOB_TIMEOUT_MS = Number(process.env.AI_JOB_TIMEOUT_MS || 120_000);
 
 /** Native/OOM/size failures — dead-letter immediately, never retry forever. */
 export const DETERMINISTIC_FAILURE_RE =

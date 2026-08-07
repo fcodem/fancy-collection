@@ -211,8 +211,12 @@ export function serializeScanAvailability(
           colour: result.dress.color,
           status: result.dress.status,
           thumbnailUrl: result.dress.thumbnailUrl,
+          photoUrl: result.dress.photoUrl || result.dress.thumbnailUrl,
+          jewelleryPartsLabel: result.dress.jewelleryPartsLabel || null,
         }
       : null,
+    free_quantity: result.free_quantity,
+    total_quantity: result.total_quantity,
     blockingRecords: result.blockingRecords.map(serializeRecord),
     warningRecords: result.warningRecords.map(serializeRecord),
     ...(result.status === "CODE_NOT_FOUND"

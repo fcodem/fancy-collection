@@ -86,34 +86,51 @@ async function loadBookingPanelPageUncached(opts: {
   const pageSize = opts.pageSize ?? BOOKING_PANEL_PAGE_SIZE;
   const page = Math.max(1, opts.page || 1);
   const panelDeliveryWhere = await whereDeliveryInRange(opts.panelFrom, opts.panelTo);
-  const where = { ...activeBookingWhere(), ...panelDeliveryWhere };
+  const activeWhere = {
+    ...panelDeliveryWhere,
+    status: { in: ["booked", "delivered"] as string[] },
+  };
+  const returnedWhere = {
+    ...panelDeliveryWhere,
+    status: "returned",
+  };
+  const statsWhere = { ...activeBookingWhere(), ...panelDeliveryWhere };
 
   const yearBounds = await loadBookingPanelYearBounds();
 
-  const [totalCount, statusCounts] = await Promise.all([
-    limitedRead(() => prisma.booking.count({ where })),
+  const [totalCount, statusCounts, bookings, returnedBookings] = await Promise.all([
+    limitedRead(() => prisma.booking.count({ where: activeWhere })),
     limitedRead(() =>
       prisma.booking.groupBy({
         by: ["status"],
-        where,
+        where: statsWhere,
         _count: { _all: true },
+      }),
+    ),
+    limitedRead(() =>
+      prisma.booking.findMany({
+        where: activeWhere,
+        select: bookingPanelSelect,
+        orderBy: [{ deliveryDate: "asc" }, { monthlySerial: "asc" }],
+        skip: (page - 1) * pageSize,
+        take: pageSize,
+      }),
+    ),
+    // Returned bookings shown in a separate bottom section (not paginated with active).
+    limitedRead(() =>
+      prisma.booking.findMany({
+        where: returnedWhere,
+        select: bookingPanelSelect,
+        orderBy: [{ returnDate: "desc" }, { monthlySerial: "asc" }],
+        take: 80,
       }),
     ),
   ]);
 
-  const bookings = await limitedRead(() =>
-    prisma.booking.findMany({
-      where,
-      select: bookingPanelSelect,
-      orderBy: [{ deliveryDate: "asc" }, { monthlySerial: "asc" }],
-      skip: (page - 1) * pageSize,
-      take: pageSize,
-    }),
-  );
-
   return {
     yearBounds,
     bookings,
+    returnedBookings,
     statusCounts,
     totalCount,
     page,

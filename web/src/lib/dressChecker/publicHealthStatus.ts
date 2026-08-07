@@ -6,6 +6,11 @@ import {
   CURRENT_PIPELINE_VERSION,
   CURRENT_RECOGNITION_VERSION,
 } from "./profileReadiness";
+import { decideAiIndexingBanner } from "./aiIndexingBanner";
+import {
+  countUnindexedInventoryWithPhotos,
+  runAiIndexingSelfHealIfDue,
+} from "./aiIndexingSelfHeal";
 
 /** Match deploymentSafety lease window without importing that heavy module. */
 const PROCESSING_LEASE_MS = 8 * 60 * 1000;
@@ -17,7 +22,11 @@ const PROCESSING_LEASE_MS = 8 * 60 * 1000;
  * Website `ok` depends ONLY on the database. AI worker STALE/OFFLINE/DEGRADED
  * never marks the business website unhealthy.
  */
-export async function getPublicHealthStatus() {
+export async function getPublicHealthStatus(opts?: { selfHeal?: boolean }) {
+  if (opts?.selfHeal !== false) {
+    await runAiIndexingSelfHealIfDue().catch(() => undefined);
+  }
+
   const queue = await getAiJobQueueStats().catch(() => null);
 
   let stuckProcessing = 0;
@@ -35,7 +44,7 @@ export async function getPublicHealthStatus() {
     stuckProcessing = 0;
   }
 
-  const [dbOk, durable, profileRows] = await Promise.all([
+  const [dbOk, durable, profileRows, unindexedWithPhoto] = await Promise.all([
     prisma.$queryRaw`SELECT 1`.then(() => true).catch(() => false),
     getDurableWorkerHealth({
       failed: queue?.failed ?? 0,
@@ -50,6 +59,7 @@ export async function getPublicHealthStatus() {
          FROM inventory_ai_profiles GROUP BY 1`,
       )
       .catch(() => [] as Array<{ ai_status: string; count: number }>),
+    countUnindexedInventoryWithPhotos(),
   ]);
 
   const profiles: Record<string, number> = {};
@@ -61,27 +71,30 @@ export async function getPublicHealthStatus() {
   const failedJobCount = (queue?.failed ?? 0) + deadLetterCount;
   const failedProfiles = profiles.FAILED ?? 0;
   const staleProfiles = profiles.STALE ?? 0;
+  const pendingProfiles = profiles.PENDING ?? 0;
+  const readyProfiles = profiles.READY ?? 0;
+
+  const bannerDecision = decideAiIndexingBanner({
+    dbOk,
+    workerStatus: durable.status,
+    failedJobCount,
+    deadLetterCount,
+    failedProfiles,
+    staleProfiles,
+    pendingProfiles,
+    readyProfiles,
+    queuePending: queue?.pending ?? 0,
+    queueProcessing: queue?.processing ?? 0,
+    queueRetrying: queue?.retrying ?? 0,
+    unindexedWithPhoto,
+    stuckProcessing,
+  });
 
   // Optional AI degradation must never mark the business website unhealthy.
   const websiteOk = dbOk;
-  const aiHealthy =
-    dbOk && durable.status === "HEALTHY" && failedJobCount === 0 && failedProfiles === 0;
-
-  let banner: string | null = null;
-  if (!dbOk) {
-    banner = "Database unreachable.";
-  } else if (durable.status === "DISABLED") {
-    banner = "AI indexing is disabled. Inventory and bookings are unaffected.";
-  } else if (durable.status === "OFFLINE" || durable.status === "STALE") {
-    banner = "AI indexing is offline or stale. Inventory and bookings are unaffected.";
-  } else if (
-    durable.status === "DEGRADED" ||
-    failedJobCount > 0 ||
-    failedProfiles > 0 ||
-    staleProfiles > 0
-  ) {
-    banner = "AI indexing degraded — inventory and bookings are unaffected.";
-  }
+  const aiHealthy = bannerDecision.aiHealthy;
+  const banner = bannerDecision.banner;
+  const bannerLevel = bannerDecision.bannerLevel;
 
   return {
     ok: websiteOk,
@@ -147,6 +160,9 @@ export async function getPublicHealthStatus() {
     },
     failedJobCount,
     banner,
+    bannerLevel,
+    unindexedWithPhoto,
+    readyProfiles,
     versions: {
       pipeline: CURRENT_PIPELINE_VERSION,
       matching: CURRENT_MATCHING_VERSION,

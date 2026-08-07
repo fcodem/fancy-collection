@@ -98,7 +98,7 @@ export async function DashboardOrdersSection() {
         {orders.map((order) => (
           <div key={order.id} style={{ padding: "12px 20px", borderBottom: "1px solid var(--border)", display: "flex", justifyContent: "space-between", gap: 12, flexWrap: "wrap" }}>
             <div><Link href={`/booking/${order.booking.id}`}><strong>#{String(order.booking.monthlySerial).padStart(2, "0")} — {order.booking.customerName}</strong></Link><div style={{ fontSize: 12 }}>{order.description}</div></div>
-            <div>{formatDate(order.deliveryDate)} · {order.deliveryTime}</div>
+            <div>{formatDate(order.deliveryDate, "display")} · {order.deliveryTime}</div>
           </div>
         ))}
       </div>
@@ -116,7 +116,7 @@ export async function DashboardOverdueSection() {
         {rows.map((row) => (
           <div key={row.id} style={{ padding: "12px 20px", borderBottom: "1px solid var(--border)", display: "flex", justifyContent: "space-between", gap: 12 }}>
             <span><strong>{row.rentalNumber}</strong> · {row.customer.name}</span>
-            <span>{formatDate(row.endDate)} · ₹{formatInr(row.totalAmount)}</span>
+            <span>{formatDate(row.endDate, "display")} · ₹{formatInr(row.totalAmount)}</span>
           </div>
         ))}
       </div>
@@ -157,13 +157,38 @@ export async function DashboardStaffSection() {
 
 export async function DashboardAiHealthSection() {
   const data = await getDashboardAiHealth();
+  const indexing = data.unindexed > 0;
   return (
     <div className="card mb-24">
       <div className="card-header"><h3 className="card-title">AI Indexing Health</h3></div>
-      <div className="card-body" style={{ display: "flex", gap: 20, flexWrap: "wrap" }}>
-        <span><strong>{data.queued}</strong> queued/processing</span>
-        <span><strong>{data.failed}</strong> failed</span>
-        <Link href="/admin/image-sync" className="btn btn-outline btn-sm">Open AI Jobs</Link>
+      <div className="card-body" style={{ display: "grid", gap: 8 }}>
+        <div style={{ display: "flex", gap: 20, flexWrap: "wrap" }}>
+          <span><strong>{data.ready}</strong> indexed (READY)</span>
+          <span><strong>{data.queued}</strong> queued/processing</span>
+          {data.unindexed > 0 && (
+            <span style={{ color: "#1e40af" }}>
+              <strong>{data.unindexed}</strong> need indexing
+            </span>
+          )}
+          {data.failed > 0 && (
+            <span style={{ color: "#c62828" }}>
+              <strong>{data.failed}</strong> failed
+            </span>
+          )}
+        </div>
+        {indexing && data.failed === 0 ? (
+          <p style={{ margin: 0, fontSize: 13, color: "var(--text-muted)" }}>
+            Indexing in progress — this is normal after restore or new photos. Dress search improves as items reach READY.
+          </p>
+        ) : null}
+        {data.failed > 0 ? (
+          <p style={{ margin: 0, fontSize: 13, color: "#c62828" }}>
+            Some items failed indexing. Open AI Indexing Health to retry.
+          </p>
+        ) : null}
+        <div>
+          <Link href="/admin/image-sync" className="btn btn-outline btn-sm">Open Bulk Image Sync</Link>
+        </div>
       </div>
     </div>
   );
