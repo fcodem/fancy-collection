@@ -1156,7 +1156,10 @@ a.stat-card:hover {
 .dress-picker-scroll {
   max-height: min(420px, 52vh);
   overflow-y: auto;
+  overflow-x: hidden;
   -webkit-overflow-scrolling: touch;
+  overscroll-behavior: contain;
+  touch-action: pan-y;
   padding-right: 4px;
 }
 

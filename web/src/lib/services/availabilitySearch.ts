@@ -16,7 +16,10 @@ function freeItemGroupKey(item: {
   size?: string | null;
   color?: string | null;
 }): string {
-  if (item.inventoryGroupId) return `g:${item.inventoryGroupId}`;
+  // Always include size so shared legacy inventory_group_id values cannot merge sizes.
+  if (item.inventoryGroupId) {
+    return `g:${item.inventoryGroupId}|${item.size || ""}`;
+  }
   return `legacy:${stripUnitSuffix(item.name)}|${item.category}|${item.size || ""}|${item.color || ""}`;
 }
 
@@ -394,11 +397,11 @@ function buildAvailabilityQuery(opts: {
         AND (${status} = '' OR ci.status = ${status})
         AND (
           ${search} = ''
-          OR ci.name ILIKE (${search} || '%')
+          OR ci.name ILIKE ('%' || ${search} || '%')
           OR ci.sku = ${search}
         )
         ${cursorSql}
-      ORDER BY ci.category, ci.name, ci.id
+      ORDER BY ci.category, ci.name, COALESCE(ci.size, ''), ci.id
       LIMIT ${candidateCap}
     ),
     active_booking_occupancy AS (
@@ -517,7 +520,7 @@ function buildAvailabilityQuery(opts: {
             AND (NOT ci."hasLongHar" OR COALESCE(jew.long_har_busy, false))
           )
         )
-      ORDER BY ci.category, ci.name, ci.id
+      ORDER BY ci.category, ci.name, COALESCE(ci.size, ''), ci.id
       ${finalLimitSql}
     )
   `;
@@ -542,11 +545,27 @@ export async function searchAvailableItems(
   const search = opts.search?.trim() || "";
   const excludeId = opts.excludeBookingId ?? null;
   const cursorSql = cursor
-    ? Prisma.sql`AND (
-        ci.category > ${cursor.category}
-        OR (ci.category = ${cursor.category} AND ci.name > ${cursor.name})
-        OR (ci.category = ${cursor.category} AND ci.name = ${cursor.name} AND ci.id > ${cursor.id})
-      )`
+    ? typeof cursor.size === "string"
+      ? Prisma.sql`AND (
+          ci.category > ${cursor.category}
+          OR (ci.category = ${cursor.category} AND ci.name > ${cursor.name})
+          OR (
+            ci.category = ${cursor.category}
+            AND ci.name = ${cursor.name}
+            AND COALESCE(ci.size, '') > ${cursor.size}
+          )
+          OR (
+            ci.category = ${cursor.category}
+            AND ci.name = ${cursor.name}
+            AND COALESCE(ci.size, '') = ${cursor.size}
+            AND ci.id > ${cursor.id}
+          )
+        )`
+      : Prisma.sql`AND (
+          ci.category > ${cursor.category}
+          OR (ci.category = ${cursor.category} AND ci.name > ${cursor.name})
+          OR (ci.category = ${cursor.category} AND ci.name = ${cursor.name} AND ci.id > ${cursor.id})
+        )`
     : Prisma.empty;
   const groupSql =
     group === "men"
@@ -603,7 +622,7 @@ export async function searchAvailableItems(
     LEFT JOIN bookings rb ON rb.id = rw.booking_id
     LEFT JOIN same_day_delivery_warnings bw ON bw.item_id = fa.id
     LEFT JOIN bookings bb ON bb.id = bw.booking_id
-    ORDER BY fa.category, fa.name, fa.id
+    ORDER BY fa.category, fa.name, COALESCE(fa.size, ''), fa.id
   `;
   const queryMs = Math.round(performance.now() - queryStart);
 
@@ -733,6 +752,7 @@ export async function searchAvailableItems(
         ? encodeAvailabilityCursor({
             category: last.category,
             name: last.name,
+            size: last.size || "",
             id: last.id,
           })
         : null,

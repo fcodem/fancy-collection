@@ -60,7 +60,7 @@ function hasBookedParts(item: FreeItem): boolean {
 }
 
 function freeItemGroupKey(item: FreeItem): string {
-  if (item.inventory_group_id) return `g:${item.inventory_group_id}`;
+  if (item.inventory_group_id) return `g:${item.inventory_group_id}|${item.size || ""}`;
   return `legacy:${stripUnitSuffix(item.name)}|${item.category}|${item.size || ""}|${item.color || ""}`;
 }
 

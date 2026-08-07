@@ -32,7 +32,11 @@ import { generateUuidV4 } from "@/lib/clientUuid";
 import { addDaysIso } from "@/lib/dateInput";
 import BookingConflictSummary from "@/components/BookingConflictSummary";
 import PaymentModePicker from "@/components/PaymentModePicker";
-import { inventoryItemMatches } from "@/lib/dress";
+import { inventoryItemMatches, stripUnitSuffix } from "@/lib/dress";
+import {
+  collapseMensAvailabilityItems,
+  mergeAvailabilityItemsById,
+} from "@/lib/mensAvailabilityCollapse";
 import { todayIso, parseDate, isDateBeforeToday } from "@/lib/constants";
 import { formatInr } from "@/lib/format";
 import { privateMediaUrl } from "@/lib/photoUrl";
@@ -140,6 +144,10 @@ type FreeItem = {
   color?: string;
 
   photo?: string;
+
+  free_quantity?: number;
+
+  total_quantity?: number;
 
   returning_warning?: WarningInfo | null;
 
@@ -506,13 +514,17 @@ export default function BookingFormClient(props: Props) {
 
     setLoading(true);
     const cursor = append ? availabilityCursorRef.current : null;
+    const pageLimit =
+      nameSearch.trim().length >= 2
+        ? Math.max(availabilityPageLimit, 50)
+        : availabilityPageLimit;
     const params = new URLSearchParams({
       delivery_date: deliveryDate,
       return_date: returnDate,
       category: categoryFilter,
       size: sizeFilter,
       search: nameSearch.trim(),
-      limit: String(availabilityPageLimit),
+      limit: String(pageLimit),
     });
     if (props.editId) params.set("exclude_booking", String(props.editId));
     if (cursor) params.set("cursor", cursor);
@@ -544,7 +556,9 @@ export default function BookingFormClient(props: Props) {
 
       if (controller.signal.aborted || version !== availabilityVersionRef.current) return;
       setAllFreeItems((previous) =>
-        append ? [...previous, ...(data.free_items || [])] : (data.free_items || []),
+        append
+          ? mergeAvailabilityItemsById(previous, data.free_items || [])
+          : (data.free_items || []),
       );
       availabilityCursorRef.current =
         typeof data.nextCursor === "string" ? data.nextCursor : null;
@@ -694,25 +708,25 @@ export default function BookingFormClient(props: Props) {
 
 
   const filtered = useMemo(() => {
-
     let list = allFreeItems;
-
     if (categoryFilter) list = list.filter((i) => i.category === categoryFilter);
-
     if (dressNameFilter) {
       list = list.filter((i) => inventoryItemMatches(i, nameSearch));
     }
-
     if (sizeFilter) list = list.filter((i) => i.size?.includes(sizeFilter));
-
-    if (props.mensCategories.includes(categoryFilter)) {
-
-      list = [...list].sort((a, b) => (parseInt(a.size || "999", 10) || 999) - (parseInt(b.size || "999", 10) || 999));
-
+    // Men's: one row per size so searching a sherwani shows 36/38/40… not the same size 20 times.
+    list = collapseMensAvailabilityItems(list);
+    if (
+      props.mensCategories.includes(categoryFilter) ||
+      list.some((i) => props.mensCategories.includes(i.category))
+    ) {
+      list = [...list].sort((a, b) => {
+        const nameCmp = stripUnitSuffix(a.name).localeCompare(stripUnitSuffix(b.name));
+        if (nameCmp !== 0) return nameCmp;
+        return (parseInt(a.size || "999", 10) || 999) - (parseInt(b.size || "999", 10) || 999);
+      });
     }
-
     return list;
-
   }, [allFreeItems, categoryFilter, dressNameFilter, nameSearch, sizeFilter, props.mensCategories]);
 
 
@@ -1526,7 +1540,10 @@ export default function BookingFormClient(props: Props) {
 
                       <div style={{ fontSize: 11, color: "var(--text-muted)" }}>
 
-                        {item.category}{item.size ? ` · ${item.size}` : ""}{item.color ? ` · ${item.color}` : ""}
+                        {item.category}{item.size ? ` · Size ${item.size}` : ""}{item.color ? ` · ${item.color}` : ""}
+                        {typeof item.free_quantity === "number" && item.free_quantity > 1
+                          ? ` · ${item.free_quantity} free`
+                          : ""}
 
                       </div>
 

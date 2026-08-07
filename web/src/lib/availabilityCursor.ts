@@ -2,6 +2,8 @@ export type AvailabilityCursor = {
   category: string;
   name: string;
   id: number;
+  /** Optional — newer cursors include size so men's sizes paginate correctly. */
+  size?: string;
 };
 
 export function encodeAvailabilityCursor(value: AvailabilityCursor): string {
@@ -19,7 +21,12 @@ export function decodeAvailabilityCursor(raw?: string | null): AvailabilityCurso
     ) {
       return null;
     }
-    return value;
+    return {
+      category: value.category,
+      name: value.name,
+      id: value.id,
+      ...(typeof value.size === "string" ? { size: value.size } : {}),
+    };
   } catch {
     return null;
   }

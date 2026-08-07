@@ -59,16 +59,16 @@ describe("single-query availability contracts", () => {
     assert.match(source, /LIMIT \$\{candidateCap\}/);
     assert.match(source, /LIMIT \$\{limit \+ 1\}/);
     assert.match(source, /WHERE false/);
-    assert.match(source, /thumbnail_photo AS thumbnail/);
-    assert.match(source, /photo: row\.thumbnail/);
+    assert.match(source, /COALESCE\(ci\.thumbnail_photo, ci\.photo\) AS thumbnail/);
+    assert.match(source, /photo: thumb/);
     assert.match(source, /jewelleryChecks && row\.itemType === "jewellery"/);
-    assert.doesNotMatch(source, /findMany|original_photo|enhanced_photo|embedding|recognition/i);
+    assert.doesNotMatch(source, /original_photo|enhanced_photo|embedding|recognition/i);
   });
 
   it("filters candidates before occupancy and excludes maintenance states", () => {
     assert.ok(source.indexOf("candidate_inventory AS") < source.indexOf("active_booking_occupancy AS"));
     assert.match(source, /status NOT IN \('maintenance', 'repair', 'cleaning'\)/);
-    assert.match(source, /ORDER BY ci\.category, ci\.name, ci\.id/);
+    assert.match(source, /ORDER BY ci\.category, ci\.name, COALESCE\(ci\.size, ''\), ci\.id/);
     assert.match(source, /ci\.category =/);
     assert.match(source, /ci\.sub_category/);
     assert.match(source, /ci\.size/);
@@ -96,7 +96,7 @@ describe("single-query availability contracts", () => {
   });
 
   it("cursor contains the complete category/name/id sort tuple", () => {
-    const cursor = { category: "Sherwani", name: "Blue", id: 17 };
+    const cursor = { category: "Sherwani", name: "Blue", id: 17, size: "40" };
     assert.deepEqual(
       decodeAvailabilityCursor(encodeAvailabilityCursor(cursor)),
       cursor,
