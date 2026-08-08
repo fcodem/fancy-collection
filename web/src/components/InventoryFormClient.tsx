@@ -271,7 +271,7 @@ export default function InventoryFormClient({
     setCategory("");
     setSubCategory("");
     setName("");
-    setSelectedSizes([]);
+    setMensSizeRows([{ size: "", quantity: "1" }]);
     setPartFlags(() => {
       const flags: JewelleryPartFlags = {};
       for (const d of JEWELLERY_PART_DEFS) flags[d.hasField] = false;
