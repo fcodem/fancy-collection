@@ -120,6 +120,7 @@ export default function InventoryListClient({
   const [expanded, setExpanded] = useState<Record<string, GroupUnit[] | "loading">>({});
   const [mensSizes, setMensSizes] = useState<Record<string, MensSizeSummary[] | "loading">>({});
   const [mensAddSize, setMensAddSize] = useState<Record<string, string>>({});
+  const [mensAddQty, setMensAddQty] = useState<Record<string, string>>({});
   const [mensBusy, setMensBusy] = useState<string | null>(null);
   const [lightbox, setLightbox] = useState<{ src: string; caption: string } | null>(null);
   const [drawer, setDrawer] = useState<InventoryGroupSummary | null>(null);
@@ -384,6 +385,7 @@ export default function InventoryListClient({
 
   async function addMensSize(g: InventoryGroupSummary) {
     const size = (mensAddSize[g.groupKey] || "").trim();
+    const quantity = Math.max(1, Math.min(Number(mensAddQty[g.groupKey]) || 1, 50));
     if (!size) {
       showToast("Choose a size to add", "error");
       return;
@@ -394,7 +396,7 @@ export default function InventoryListClient({
         method: "POST",
         credentials: "same-origin",
         headers: { "content-type": "application/json" },
-        body: JSON.stringify({ action: "add", size, quantity: 1 }),
+        body: JSON.stringify({ action: "add", size, quantity }),
       });
       const data = await res.json().catch(() => ({}));
       if (!res.ok) {
@@ -402,9 +404,44 @@ export default function InventoryListClient({
         return;
       }
       setMensAddSize((prev) => ({ ...prev, [g.groupKey]: "" }));
+      setMensAddQty((prev) => ({ ...prev, [g.groupKey]: "1" }));
       cache.clear();
       await refreshMensSizes(g);
-      showToast(`Size ${size} added`, "success");
+      showToast(`Size ${size} added (${quantity} unit${quantity === 1 ? "" : "s"})`, "success");
+    } finally {
+      setMensBusy(null);
+    }
+  }
+
+  async function deleteMensProduct(g: InventoryGroupSummary) {
+    if (
+      !confirm(
+        `Delete entire product "${g.baseName}" and ALL its sizes/units? This cannot be undone.`,
+      )
+    ) {
+      return;
+    }
+    setMensBusy(`${g.groupKey}:del`);
+    try {
+      const res = await fetch(`/api/inventory/${g.primaryId}/mens-sizes`, {
+        method: "POST",
+        credentials: "same-origin",
+        headers: { "content-type": "application/json" },
+        body: JSON.stringify({ action: "delete-product" }),
+      });
+      const data = await res.json().catch(() => ({}));
+      if (!res.ok) {
+        showToast((data as { error?: string }).error || "Could not delete product", "error");
+        return;
+      }
+      cache.clear();
+      setGroups((prev) => prev.filter((row) => row.groupKey !== g.groupKey));
+      setMensSizes((prev) => {
+        const next = { ...prev };
+        delete next[g.groupKey];
+        return next;
+      });
+      showToast("Product deleted", "success");
     } finally {
       setMensBusy(null);
     }
@@ -663,7 +700,32 @@ export default function InventoryListClient({
                   >
                     Details
                   </PrefetchOnIntentLink>
-                ) : null}
+                ) : (
+                  <>
+                    <button
+                      type="button"
+                      className="btn btn-sm btn-outline inv-touch"
+                      onClick={() => void toggleMensSizes(g)}
+                    >
+                      {sizesOpen ? "Hide sizes" : "Sizes"}
+                    </button>
+                    {isOwner ? (
+                      <PrefetchOnIntentLink
+                        href={`/inventory/${g.primaryId}/edit`}
+                        className="btn btn-sm btn-primary inv-touch"
+                      >
+                        Edit
+                      </PrefetchOnIntentLink>
+                    ) : (
+                      <PrefetchOnIntentLink
+                        href={`/inventory/${g.primaryId}`}
+                        className="btn btn-sm btn-outline inv-touch"
+                      >
+                        Open
+                      </PrefetchOnIntentLink>
+                    )}
+                  </>
+                )}
                 <button
                   type="button"
                   className="btn btn-sm btn-outline inv-touch"
@@ -691,11 +753,16 @@ export default function InventoryListClient({
                       Delete
                     </button>
                   )}
-                  {isMens && (
-                    <button type="button" onClick={() => void toggleMensSizes(g)}>
-                      {sizesOpen ? "Hide sizes" : "View sizes"}
+                  {isMens && isOwner ? (
+                    <button
+                      type="button"
+                      style={{ color: "#b91c1c" }}
+                      disabled={mensBusy === `${g.groupKey}:del`}
+                      onClick={() => void deleteMensProduct(g)}
+                    >
+                      {mensBusy === `${g.groupKey}:del` ? "Deleting…" : "Delete whole product"}
                     </button>
-                  )}
+                  ) : null}
                 </div>
               )}
               {isMens && sizePanel === "loading" && (
@@ -707,7 +774,7 @@ export default function InventoryListClient({
                   style={{ padding: "12px", borderTop: "1px solid var(--border)" }}
                 >
                   <div style={{ fontWeight: 600, marginBottom: 8, fontSize: 13 }}>
-                    Available sizes
+                    Sizes — edit or remove from this product
                   </div>
                   <div style={{ display: "grid", gap: 8 }}>
                     {sizePanel.map((sz) => (
@@ -732,21 +799,18 @@ export default function InventoryListClient({
                           </div>
                         </div>
                         <div style={{ display: "flex", flexWrap: "wrap", gap: 6 }}>
-                          {isOwner ? (
-                            <PrefetchOnIntentLink
-                              href={`/inventory/${sz.primaryId}/edit`}
-                              className="btn btn-sm btn-primary"
-                            >
-                              Edit
-                            </PrefetchOnIntentLink>
-                          ) : (
-                            <PrefetchOnIntentLink
-                              href={`/inventory/${sz.primaryId}`}
-                              className="btn btn-sm btn-outline"
-                            >
-                              Open
-                            </PrefetchOnIntentLink>
-                          )}
+                          <PrefetchOnIntentLink
+                            href={`/inventory/${sz.primaryId}/edit`}
+                            className="btn btn-sm btn-primary"
+                          >
+                            Edit
+                          </PrefetchOnIntentLink>
+                          <PrefetchOnIntentLink
+                            href={`/inventory/${sz.primaryId}`}
+                            className="btn btn-sm btn-outline"
+                          >
+                            Open
+                          </PrefetchOnIntentLink>
                           {isOwner ? (
                             <button
                               type="button"
@@ -757,7 +821,7 @@ export default function InventoryListClient({
                             >
                               {mensBusy === `${g.groupKey}:rm:${sz.size}`
                                 ? "Removing…"
-                                : "Remove"}
+                                : "Remove size"}
                             </button>
                           ) : null}
                         </div>
@@ -781,7 +845,7 @@ export default function InventoryListClient({
                     >
                       <select
                         className="form-control"
-                        style={{ maxWidth: 160 }}
+                        style={{ maxWidth: 140 }}
                         value={mensAddSize[g.groupKey] || ""}
                         onChange={(e) =>
                           setMensAddSize((prev) => ({
@@ -791,13 +855,29 @@ export default function InventoryListClient({
                         }
                         aria-label="Add size"
                       >
-                        <option value="">Add size…</option>
+                        <option value="">Size…</option>
                         {addableSizes.map((s) => (
                           <option key={s} value={s}>
                             {s}
                           </option>
                         ))}
                       </select>
+                      <input
+                        type="number"
+                        min={1}
+                        max={50}
+                        className="form-control"
+                        style={{ maxWidth: 90 }}
+                        value={mensAddQty[g.groupKey] || "1"}
+                        onChange={(e) =>
+                          setMensAddQty((prev) => ({
+                            ...prev,
+                            [g.groupKey]: e.target.value,
+                          }))
+                        }
+                        aria-label="Units for size"
+                        placeholder="Units"
+                      />
                       <button
                         type="button"
                         className="btn btn-sm btn-primary"

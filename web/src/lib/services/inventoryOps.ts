@@ -141,6 +141,8 @@ export type CreateInventoryForm = {
   name: string;
   category: string;
   sizes?: string[];
+  /** Per-size quantities for men's create: [{ size, quantity }, ...]. */
+  sizeQuantities?: Array<{ size: string; quantity: number }>;
   size?: string;
   color?: string;
   daily_rate?: number;
@@ -191,17 +193,28 @@ export async function createInventoryItemInTx(
   };
 
   if (MENS_CATEGORIES.includes(form.category)) {
-    const sizes = form.sizes || [];
-    if (!sizes.length) throw new Error("Please select at least one size for men's clothing.");
-    const total = sizes.length * quantity;
+    const sizeRows =
+      form.sizeQuantities?.length
+        ? form.sizeQuantities
+            .map((r) => ({
+              size: String(r.size || "").trim(),
+              quantity: Math.max(1, Math.min(Number(r.quantity) || 1, 50)),
+            }))
+            .filter((r) => r.size)
+        : (form.sizes || []).map((sz) => ({
+            size: String(sz || "").trim(),
+            quantity,
+          })).filter((r) => r.size);
+    if (!sizeRows.length) throw new Error("Please add at least one size with units for men's clothing.");
+    const total = sizeRows.reduce((n, r) => n + r.quantity, 0);
     const skus = await allocateInventorySkus(total, tx);
     const rows: ReturnType<typeof buildUnitRows> = [];
     let skuOffset = 0;
-    for (const sz of sizes) {
+    for (const { size: sz, quantity: qty } of sizeRows) {
       // Each size is its own dress group → separate QR / availability per size.
       const sizeGroupId = generateUuidV4();
-      const sizeSkus = skus.slice(skuOffset, skuOffset + quantity);
-      skuOffset += quantity;
+      const sizeSkus = skus.slice(skuOffset, skuOffset + qty);
+      skuOffset += qty;
       rows.push(
         ...buildUnitRows(
           {
@@ -219,7 +232,7 @@ export async function createInventoryItemInTx(
             inventoryGroupId: sizeGroupId,
             ...partFlags,
           },
-          quantity,
+          qty,
           sizeSkus,
         ),
       );
@@ -451,6 +464,86 @@ export async function updateInventoryItemInTx(
         : {}),
     },
   });
+
+  // Men's product = one group: sync shared attrs to every size/unit of the same dress.
+  if (MENS_CATEGORIES.includes(updated.category)) {
+    const oldBaseName = existing.name.replace(/\s+#\d+$/, "").trim().toLowerCase();
+    const newBaseName = form.name.trim().replace(/\s+#\d+$/, "").trim();
+    const siblings = await tx.clothingItem.findMany({
+      where: { category: existing.category, NOT: { id } },
+      select: { id: true, name: true },
+      take: 400,
+    });
+    const sharedData = {
+      dailyRate: updated.dailyRate,
+      deposit: updated.deposit,
+      conditionNotes: updated.conditionNotes,
+      subCategory: updated.subCategory,
+      photo: updated.photo,
+      thumbnailPhoto: updated.thumbnailPhoto,
+      originalPhoto: updated.originalPhoto,
+      hasNecklace: updated.hasNecklace,
+      hasEarrings: updated.hasEarrings,
+      hasTeeka: updated.hasTeeka,
+      hasPasa: updated.hasPasa,
+      hasSheeshpatti: updated.hasSheeshpatti,
+      hasNath: updated.hasNath,
+      hasHathfool: updated.hasHathfool,
+      hasKamarband: updated.hasKamarband,
+      hasRings: updated.hasRings,
+      hasLongHar: updated.hasLongHar,
+      ...(photoReplaced
+        ? {
+            enhancedPhoto: null,
+            enhancementStatus: "none" as const,
+            enhancementError: null,
+            recognitionImage: null,
+            recognitionFingerprint: Prisma.JsonNull,
+            identificationIndex: Prisma.JsonNull,
+            identificationIndexedAt: null,
+            siglipEmbedding: Prisma.JsonNull,
+            siglipIndexedAt: null,
+          }
+        : {}),
+      ...(photoRemoved
+        ? {
+            originalPhoto: null,
+            enhancedPhoto: null,
+            marketingPhoto: null,
+            enhancementStatus: "none" as const,
+            enhancementError: null,
+            aiFingerprint: null,
+            aiIndexedAt: null,
+            identificationIndex: Prisma.JsonNull,
+            identificationIndexedAt: null,
+            siglipEmbedding: Prisma.JsonNull,
+            siglipIndexedAt: null,
+            recognitionImage: null,
+            recognitionFingerprint: Prisma.JsonNull,
+          }
+        : {}),
+    };
+    for (const sib of siblings) {
+      if (sib.name.replace(/\s+#\d+$/, "").trim().toLowerCase() !== oldBaseName) {
+        continue;
+      }
+      const unitSuffix = sib.name.match(/\s+#\d+$/)?.[0] || "";
+      await tx.clothingItem.update({
+        where: { id: sib.id },
+        data: {
+          ...sharedData,
+          name: `${newBaseName}${unitSuffix}`,
+        },
+      });
+    }
+    const primarySuffix = existing.name.match(/\s+#\d+$/)?.[0] || "";
+    if (updated.name !== `${newBaseName}${primarySuffix}`) {
+      await tx.clothingItem.update({
+        where: { id },
+        data: { name: `${newBaseName}${primarySuffix}` },
+      });
+    }
+  }
 
   const safeUploadsToDelete = await unreferencedInventoryPhotoPaths(
     tx,
@@ -694,5 +787,32 @@ export async function removeMensProductSize(opts: {
     deletedIds.push(item.id);
   }
   return { deletedIds, size };
+}
+
+/**
+ * Delete an entire men's product (all sizes / units of the same dress name).
+ */
+export async function deleteMensProduct(opts: { seedItemId: number; by?: string }) {
+  const seed = await prisma.clothingItem.findUnique({ where: { id: opts.seedItemId } });
+  if (!seed) throw new Error("Product not found.");
+  if (!MENS_CATEGORIES.includes(seed.category)) {
+    throw new Error("Delete product is only supported for men's categories.");
+  }
+  const baseName = seed.name.replace(/\s+#\d+$/, "").trim();
+  const candidates = await prisma.clothingItem.findMany({
+    where: { category: seed.category },
+    take: 400,
+  });
+  const toDelete = candidates.filter(
+    (r) => r.name.replace(/\s+#\d+$/, "").trim().toLowerCase() === baseName.toLowerCase(),
+  );
+  if (!toDelete.length) throw new Error("Product not found.");
+
+  const deletedIds: number[] = [];
+  for (const item of toDelete) {
+    await deleteInventoryItem(item.id, opts.by);
+    deletedIds.push(item.id);
+  }
+  return { deletedIds, name: baseName, category: seed.category };
 }
 

@@ -9,6 +9,19 @@ import { BOOKING_EVENTS, INVENTORY_EVENTS } from "@/lib/realtime/types";
 import CategorySelect from "@/components/CategorySelect";
 import { MENS_CATEGORIES, REMOVED_SUB_CATEGORIES } from "@/lib/constants";
 import { groupMensPrintProducts } from "@/lib/printCodesCollapse";
+import {
+  DEFAULT_PRINT_LABEL_MARGINS,
+  PRINT_COLS,
+  PRINT_PAGE_H_MM,
+  PRINT_PAGE_W_MM,
+  PRINT_ROWS,
+  labelCellPositionWithMargins,
+  loadPrintLabelMargins,
+  normalizePrintLabelMargins,
+  savePrintLabelMargins,
+  type PrintLabelMargins,
+} from "@/lib/printLabelMargins";
+import PrefetchOnIntentLink from "@/components/PrefetchOnIntentLink";
 
 const REMOVED_SUB_SET = new Set(REMOVED_SUB_CATEGORIES.map((s) => s.toLowerCase()));
 const MENS_SET = new Set(MENS_CATEGORIES.map((c) => c.toLowerCase()));
@@ -29,49 +42,15 @@ type InventoryItem = {
 
 type PrintFormat = "QR_CODE" | "CODE_128" | "BOTH";
 
-/**
- * Mazus Label A4 ST-24 / Avery L7159 — permanent sheet geometry.
- * Physical: 64 × 33.9 mm, 3×8, vertical pitch = label height (gap down = 0).
- * Prior 60×35 + derived gaps caused cumulative downward drift after ~row 3.
- *
- * Verify: top+8×h+bottom = 12.9+271.2+12.9 = 297
- *         left+3×w+2×gap+right = 6.5+192+5+6.5 = 210
- */
-const COLS = 3;
-const ROWS = 8;
-const PAGE_W_MM = 210;
-const PAGE_H_MM = 297;
-const PAGE_MARGIN_LEFT_MM = 6.5;
-const PAGE_MARGIN_RIGHT_MM = 6.5;
-const PAGE_MARGIN_TOP_MM = 12.9;
-const PAGE_MARGIN_BOTTOM_MM = 12.9;
-const LABEL_W_MM = 64;
-const LABEL_H_MM = 33.9;
-const COL_GAP_MM = 2.5;
-const ROW_GAP_MM = 0;
+const COLS = PRINT_COLS;
+const ROWS = PRINT_ROWS;
+const PAGE_W_MM = PRINT_PAGE_W_MM;
+const PAGE_H_MM = PRINT_PAGE_H_MM;
 const LABELS_PER_PAGE = COLS * ROWS;
-/** Horizontal / vertical pitch (edge-to-edge of successive labels). */
-const COL_PITCH_MM = LABEL_W_MM + COL_GAP_MM; // 66.5
-const ROW_PITCH_MM = LABEL_H_MM + ROW_GAP_MM; // 33.9
 
 const QR_CELL_PAD_MM = 1.2;
-/** Usable height inside 33.9mm slip after padding each side. */
-const QR_USABLE_H_MM = LABEL_H_MM - QR_CELL_PAD_MM * 2; // 31.5
-/**
- * Slightly smaller QR + larger quiet zone so first/last rows stay scannable
- * when printers clip sheet edges.
- */
 const QR_SIZE_MM = 18;
 const QR_COL_MM = 20;
-
-function labelCellPosition(slotIdx: number): { leftMm: number; topMm: number } {
-  const col = slotIdx % COLS;
-  const row = Math.floor(slotIdx / COLS);
-  return {
-    leftMm: PAGE_MARGIN_LEFT_MM + col * COL_PITCH_MM,
-    topMm: PAGE_MARGIN_TOP_MM + row * ROW_PITCH_MM,
-  };
-}
 
 function activeScanCode(item: InventoryItem, format: "QR_CODE" | "CODE_128") {
   return item.scanCodes.find((code) => code.format === format);
@@ -116,6 +95,38 @@ export default function PrintCodesClient() {
   const [copiesById, setCopiesById] = useState<Record<number, number>>({});
   /** Men's flow: which product accordion is expanded (selection is independent). */
   const [expandedMensKey, setExpandedMensKey] = useState<string | null>(null);
+  const [margins, setMargins] = useState<PrintLabelMargins>(DEFAULT_PRINT_LABEL_MARGINS);
+  const [marginsOpen, setMarginsOpen] = useState(false);
+  const [marginsSavedMsg, setMarginsSavedMsg] = useState("");
+
+  useEffect(() => {
+    setMargins(loadPrintLabelMargins());
+  }, []);
+
+  const LABEL_W_MM = margins.labelWidthMm;
+  const LABEL_H_MM = margins.labelHeightMm;
+  const QR_USABLE_H_MM = LABEL_H_MM - QR_CELL_PAD_MM * 2;
+
+  function updateMarginField<K extends keyof PrintLabelMargins>(key: K, value: string) {
+    setMargins((prev) =>
+      normalizePrintLabelMargins({ ...prev, [key]: Number(value) }),
+    );
+  }
+
+  function saveMargins() {
+    const next = normalizePrintLabelMargins(margins);
+    setMargins(next);
+    savePrintLabelMargins(next);
+    setMarginsSavedMsg("Margins saved for this browser/printer.");
+    window.setTimeout(() => setMarginsSavedMsg(""), 2500);
+  }
+
+  function resetMargins() {
+    setMargins({ ...DEFAULT_PRINT_LABEL_MARGINS });
+    savePrintLabelMargins(DEFAULT_PRINT_LABEL_MARGINS);
+    setMarginsSavedMsg("Reset to Mazus ST-24 defaults.");
+    window.setTimeout(() => setMarginsSavedMsg(""), 2500);
+  }
 
   const isMensPrintMode = Boolean(category && MENS_SET.has(category.toLowerCase()));
   const mensProducts = isMensPrintMode ? groupMensPrintProducts(items) : [];
@@ -793,6 +804,78 @@ export default function PrintCodesClient() {
                 (kept when you change category or product)
               </p>
             ) : null}
+            <div className="mb-4 border rounded-lg bg-white p-3">
+              <div className="flex flex-wrap items-center justify-between gap-2">
+                <div>
+                  <p className="text-sm font-semibold text-gray-900">Label margin setup</p>
+                  <p className="text-xs text-gray-500">
+                    Tune page margins if stickers drift differently on each printer sheet.
+                    Saved in this browser.
+                  </p>
+                </div>
+                <div className="flex flex-wrap gap-2">
+                  <PrefetchOnIntentLink
+                    href="/inventory/print-codes/margins"
+                    className="text-sm text-blue-700 underline"
+                  >
+                    Open full margin page
+                  </PrefetchOnIntentLink>
+                  <button
+                    type="button"
+                    className="border rounded px-3 py-1.5 text-sm"
+                    onClick={() => setMarginsOpen((v) => !v)}
+                  >
+                    {marginsOpen ? "Hide margins" : "Adjust margins"}
+                  </button>
+                </div>
+              </div>
+              {marginsOpen ? (
+                <div className="mt-3 grid gap-3 sm:grid-cols-2 lg:grid-cols-4">
+                  {(
+                    [
+                      ["pageMarginTopMm", "Top (mm)"],
+                      ["pageMarginBottomMm", "Bottom (mm)"],
+                      ["pageMarginLeftMm", "Left (mm)"],
+                      ["pageMarginRightMm", "Right (mm)"],
+                      ["colGapMm", "Column gap (mm)"],
+                      ["rowGapMm", "Row gap (mm)"],
+                      ["labelWidthMm", "Label width (mm)"],
+                      ["labelHeightMm", "Label height (mm)"],
+                    ] as const
+                  ).map(([key, label]) => (
+                    <label key={key} className="text-xs text-gray-600">
+                      {label}
+                      <input
+                        type="number"
+                        step="0.1"
+                        className="mt-1 w-full border rounded px-2 py-1.5 text-sm"
+                        value={margins[key]}
+                        onChange={(e) => updateMarginField(key, e.target.value)}
+                      />
+                    </label>
+                  ))}
+                  <div className="sm:col-span-2 lg:col-span-4 flex flex-wrap gap-2 items-center">
+                    <button
+                      type="button"
+                      className="bg-blue-600 text-white px-3 py-1.5 rounded text-sm"
+                      onClick={saveMargins}
+                    >
+                      Save margins
+                    </button>
+                    <button
+                      type="button"
+                      className="border rounded px-3 py-1.5 text-sm"
+                      onClick={resetMargins}
+                    >
+                      Reset Mazus defaults
+                    </button>
+                    {marginsSavedMsg ? (
+                      <span className="text-xs text-green-700">{marginsSavedMsg}</span>
+                    ) : null}
+                  </div>
+                </div>
+              ) : null}
+            </div>
             <div className="flex flex-wrap gap-4 items-end">
               <div>
                 <label className="block text-xs text-gray-500 mb-1">Label type</label>
@@ -992,7 +1075,7 @@ export default function PrintCodesClient() {
           {pages.map((page, pageIdx) => (
             <div key={pageIdx} className="label-page">
               {page.map((item, slotIdx) => {
-                const { leftMm, topMm } = labelCellPosition(slotIdx);
+                const { leftMm, topMm } = labelCellPositionWithMargins(slotIdx, margins, COLS);
                 const layoutClass =
                   item &&
                   (printFormat === "QR_CODE"

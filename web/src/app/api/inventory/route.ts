@@ -99,6 +99,23 @@ export async function POST(req: NextRequest) {
     }
 
     const sizes = form.getAll("sizes[]").map(String);
+    let sizeQuantities: Array<{ size: string; quantity: number }> | undefined;
+    try {
+      const rawSq = String(form.get("size_quantities") || "").trim();
+      if (rawSq) {
+        const parsed = JSON.parse(rawSq) as Array<{ size?: string; quantity?: number }>;
+        if (Array.isArray(parsed)) {
+          sizeQuantities = parsed
+            .map((r) => ({
+              size: String(r.size || "").trim(),
+              quantity: Math.max(1, Math.min(Number(r.quantity) || 1, 50)),
+            }))
+            .filter((r) => r.size);
+        }
+      }
+    } catch {
+      sizeQuantities = undefined;
+    }
     const photoHashFromClient = String(form.get("photo_content_hash") || "").trim() || null;
     const photoHash =
       photoHashFromClient || (hasPhoto ? await fileContentHash(photo as File) : null);
@@ -107,6 +124,7 @@ export async function POST(req: NextRequest) {
       name: String(form.get("name") || ""),
       category: String(form.get("category") || ""),
       sizes,
+      size_quantities: sizeQuantities || null,
       size: String(form.get("size") || ""),
       color: String(form.get("color") || ""),
       daily_rate: Number(form.get("daily_rate") || 0),
@@ -174,6 +192,7 @@ export async function POST(req: NextRequest) {
       name: String(form.get("name") || ""),
       category: String(form.get("category") || ""),
       sizes: sizes.length ? sizes : undefined,
+      sizeQuantities: sizeQuantities?.length ? sizeQuantities : undefined,
       size: String(form.get("size") || ""),
       color: String(form.get("color") || ""),
       daily_rate: Number(form.get("daily_rate") || 0),

@@ -2,7 +2,11 @@ import { NextRequest, after } from "next/server";
 import prisma from "@/lib/prisma";
 import { jsonError, jsonOk, requireOwner, requireUser, isResponse } from "@/lib/api";
 import { listMensProductSizes } from "@/lib/services/inventoryList";
-import { addMensProductSize, removeMensProductSize } from "@/lib/services/inventoryOps";
+import {
+  addMensProductSize,
+  deleteMensProduct,
+  removeMensProductSize,
+} from "@/lib/services/inventoryOps";
 import { generateDefaultScanCodesInTx } from "@/lib/services/inventoryScanCode";
 import { invalidateInventoryListCaches } from "@/lib/inventoryCacheTags";
 import { SIZES } from "@/lib/constants";
@@ -40,7 +44,7 @@ export async function GET(
   });
 }
 
-/** Add or remove a men's size. Body: { action: "add"|"remove", size, quantity? } */
+/** Add/remove size or delete whole product. Body: { action, size?, quantity? } */
 export async function POST(
   req: NextRequest,
   ctx: { params: Promise<{ id: string }> },
@@ -59,9 +63,24 @@ export async function POST(
   };
   const action = String(body.action || "").trim().toLowerCase();
   const size = String(body.size || "").trim();
-  if (!size) return jsonError("Size is required.", 400);
 
   try {
+    if (action === "delete-product") {
+      const result = await deleteMensProduct({
+        seedItemId: seedId,
+        by: user.username,
+      });
+      invalidateInventoryListCaches();
+      return jsonOk({
+        ok: true,
+        action: "delete-product",
+        deletedIds: result.deletedIds,
+        name: result.name,
+      });
+    }
+
+    if (!size) return jsonError("Size is required.", 400);
+
     if (action === "add") {
       const result = await addMensProductSize({
         seedItemId: seedId,
@@ -100,7 +119,7 @@ export async function POST(
       });
     }
 
-    return jsonError('action must be "add" or "remove".', 400);
+    return jsonError('action must be "add", "remove", or "delete-product".', 400);
   } catch (e) {
     return jsonError(e instanceof Error ? e.message : "Size update failed.", 400);
   }

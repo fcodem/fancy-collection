@@ -95,10 +95,12 @@ type DuplicateCheckResult = {
 
 function buildPayloadKey(form: FormData, photoHash: string | null): string {
   const sizes = form.getAll("sizes[]").map(String).sort();
+  const sizeQuantities = String(form.get("size_quantities") || "");
   return JSON.stringify({
     name: String(form.get("name") || "").trim(),
     category: String(form.get("category") || ""),
     sizes,
+    size_quantities: sizeQuantities,
     size: String(form.get("size") || ""),
     color: String(form.get("color") || ""),
     quantity: String(form.get("quantity") || "1"),
@@ -159,8 +161,15 @@ export default function InventoryFormClient({
   const initialSubCategory = (item?.subCategory || "").trim();
   const [category, setCategory] = useState(initialCategory);
   const [subCategory, setSubCategory] = useState(initialSubCategory);
-  const [name, setName] = useState(item?.name || "");
-  const [selectedSizes, setSelectedSizes] = useState<string[]>([]);
+  const [name, setName] = useState(() => {
+    const raw = item?.name || "";
+    const mens = (categoriesProp ?? CATEGORY_FALLBACK).mens_categories;
+    const isMensItem = mens.includes(item?.category || "");
+    return item?.id && isMensItem ? raw.replace(/\s+#\d+$/, "").trim() : raw;
+  });
+  const [mensSizeRows, setMensSizeRows] = useState<Array<{ size: string; quantity: string }>>([
+    { size: "", quantity: "1" },
+  ]);
   const [partFlags, setPartFlags] = useState<JewelleryPartFlags>(() => {
     const flags: JewelleryPartFlags = {};
     for (const d of JEWELLERY_PART_DEFS) {
@@ -523,7 +532,29 @@ export default function InventoryFormClient({
     e.preventDefault();
     if (saving) return;
     const form = new FormData(e.currentTarget);
-    if (!isEdit && isMens) selectedSizes.forEach((s) => form.append("sizes[]", s));
+    if (!isEdit && isMens) {
+      const rows = mensSizeRows
+        .map((r) => ({
+          size: r.size.trim(),
+          quantity: Math.max(1, Math.min(Number(r.quantity) || 1, 50)),
+        }))
+        .filter((r) => r.size);
+      if (!rows.length) {
+        toast("Add at least one size with units", "error");
+        return;
+      }
+      const seen = new Set<string>();
+      for (const r of rows) {
+        const key = r.size.toLowerCase();
+        if (seen.has(key)) {
+          toast(`Size ${r.size} is listed twice`, "error");
+          return;
+        }
+        seen.add(key);
+      }
+      form.set("size_quantities", JSON.stringify(rows));
+      rows.forEach((r) => form.append("sizes[]", r.size));
+    }
     if (isJewellery) {
       for (const d of JEWELLERY_PART_DEFS) {
         if (partFlags[d.hasField]) form.set(d.formHasKey, "1");
@@ -653,37 +684,109 @@ export default function InventoryFormClient({
         )}
         {isMens && !isEdit ? (
           <div>
-            <label className="form-label">Sizes *</label>
-            <div style={{ display: "flex", flexWrap: "wrap", gap: 8 }}>
-              {SIZES.map((s) => (
-                <label key={s} style={{ display: "flex", gap: 4, alignItems: "center" }}>
-                  <input
-                    type="checkbox"
-                    checked={selectedSizes.includes(s)}
-                    onChange={(e) =>
-                      setSelectedSizes(
-                        e.target.checked
-                          ? [...selectedSizes, s]
-                          : selectedSizes.filter((x) => x !== s),
-                      )
-                    }
-                  />
-                  {s}
-                </label>
-              ))}
+            <label className="form-label">Sizes &amp; units *</label>
+            <div style={{ display: "grid", gap: 8 }}>
+              {mensSizeRows.map((row, idx) => {
+                const used = new Set(
+                  mensSizeRows
+                    .map((r, i) => (i === idx ? "" : r.size.trim().toLowerCase()))
+                    .filter(Boolean),
+                );
+                return (
+                  <div
+                    key={`mens-size-row-${idx}`}
+                    style={{ display: "flex", flexWrap: "wrap", gap: 8, alignItems: "center" }}
+                  >
+                    <select
+                      className="form-control"
+                      style={{ maxWidth: 160 }}
+                      value={row.size}
+                      onChange={(e) =>
+                        setMensSizeRows((prev) =>
+                          prev.map((r, i) => (i === idx ? { ...r, size: e.target.value } : r)),
+                        )
+                      }
+                      required={idx === 0}
+                      aria-label={`Size ${idx + 1}`}
+                    >
+                      <option value="">Select size…</option>
+                      {SIZES.filter((s) => !used.has(s.toLowerCase()) || s === row.size).map(
+                        (s) => (
+                          <option key={s} value={s}>
+                            {s}
+                          </option>
+                        ),
+                      )}
+                    </select>
+                    <input
+                      type="number"
+                      min={1}
+                      max={50}
+                      className="form-control"
+                      style={{ maxWidth: 110 }}
+                      value={row.quantity}
+                      onChange={(e) =>
+                        setMensSizeRows((prev) =>
+                          prev.map((r, i) =>
+                            i === idx ? { ...r, quantity: e.target.value } : r,
+                          ),
+                        )
+                      }
+                      aria-label={`Units for size ${idx + 1}`}
+                      placeholder="Units"
+                    />
+                    <span style={{ fontSize: 12, color: "var(--text-muted)" }}>units</span>
+                    {mensSizeRows.length > 1 ? (
+                      <button
+                        type="button"
+                        className="btn btn-sm btn-outline"
+                        onClick={() =>
+                          setMensSizeRows((prev) => prev.filter((_, i) => i !== idx))
+                        }
+                      >
+                        Remove
+                      </button>
+                    ) : null}
+                  </div>
+                );
+              })}
             </div>
+            <button
+              type="button"
+              className="btn btn-sm btn-outline"
+              style={{ marginTop: 8 }}
+              onClick={() =>
+                setMensSizeRows((prev) => [...prev, { size: "", quantity: "1" }])
+              }
+            >
+              + Add another size
+            </button>
+            <small className="text-muted" style={{ display: "block", marginTop: 6 }}>
+              Choose each size, then how many units of that size. Each size gets its own QR group.
+            </small>
           </div>
         ) : (
           <div>
             <label className="form-label">Size</label>
-            <input name="size" className="form-control" defaultValue={item?.size ?? ""} />
+            <input
+              name="size"
+              className="form-control"
+              defaultValue={item?.size ?? ""}
+              readOnly={isMens && isEdit}
+            />
+            {isMens && isEdit ? (
+              <small className="text-muted">
+                Size is managed from Manage Inventory → product sizes. Editing here updates the
+                whole product (name, photo, rates) across all sizes.
+              </small>
+            ) : null}
           </div>
         )}
         <div>
           <label className="form-label">Color</label>
           <input name="color" className="form-control" defaultValue={item?.color ?? ""} />
         </div>
-        {!isEdit && (
+        {!isEdit && !isMens && (
           <div>
             <label className="form-label">Quantity</label>
             <input name="quantity" type="number" inputMode="numeric" min={1} max={50} defaultValue={1} className="form-control" />
