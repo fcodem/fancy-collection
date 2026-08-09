@@ -33,7 +33,7 @@ export function DashboardShellSkeleton() {
         <div><h1 style={{ margin: 0 }}>Dashboard</h1><div>Loading today&apos;s essential cards…</div></div>
       </div>
       <div className="stats-grid" style={{ marginBottom: 24 }}>
-        {Array.from({ length: 6 }, (_, index) => (
+        {Array.from({ length: 7 }, (_, index) => (
           <div className="stat-card" key={index}>
             <div className="skeleton-line" style={{ width: "40%", height: 28, marginBottom: 8 }} />
             <div className="skeleton-line" style={{ width: "70%", height: 12 }} />

@@ -147,12 +147,23 @@ export default function InventoryFormClient({
   saveConfirmed,
   categories: categoriesProp,
   subCategories: subCategoriesProp,
+  mensProductEdit,
 }: {
   item?: InventoryFormItem;
   initialPhotoUrl?: string;
   saveConfirmed?: SaveConfirmed;
   categories?: CategoryLists;
   subCategories?: string[];
+  /** When set, this edit form updates the whole men's product (all sizes). */
+  mensProductEdit?: {
+    sizes: Array<{
+      size: string;
+      primaryId: number;
+      primarySku: string;
+      totalQuantity: number;
+      availableQuantity: number;
+    }>;
+  };
 }) {
   const router = useRouter();
   const toast = useToast();
@@ -205,7 +216,8 @@ export default function InventoryFormClient({
   );
   const [categories, setCategories] = useState<CategoryLists>(categoriesProp ?? CATEGORY_FALLBACK);
   const isEdit = Boolean(item?.id);
-  const isMens = categories.mens_categories.includes(category);
+  const isMensProductEdit = Boolean(isEdit && mensProductEdit);
+  const isMens = categories.mens_categories.includes(category) || isMensProductEdit;
   const isJewellery = categories.jewellery_categories.includes(category);
   const otherCategories = categories.other_categories || [];
   const allListed = new Set([
@@ -587,7 +599,14 @@ export default function InventoryFormClient({
         />
       )}
       <div className="card-header">
-        <h3 className="card-title">{isEdit ? "Edit Item" : "Add Item"}</h3>
+        <h3 className="card-title">
+          {isMensProductEdit ? "Edit Product" : isEdit ? "Edit Item" : "Add Item"}
+        </h3>
+        {isMensProductEdit ? (
+          <p className="text-muted" style={{ margin: "4px 0 0", fontSize: 13 }}>
+            Editing all sizes together. Name, photo, rates, and status apply to every size.
+          </p>
+        ) : null}
       </div>
       <div className="card-body" style={{ display: "grid", gap: 16, maxWidth: 600 }}>
         <div>
@@ -604,13 +623,15 @@ export default function InventoryFormClient({
         </div>
         <div>
           <label className="form-label">Category *</label>
+          {isMensProductEdit ? <input type="hidden" name="category" value={category} /> : null}
           <select
             id="invCategory"
-            name="category"
+            name={isMensProductEdit ? undefined : "category"}
             className="form-control"
             required
             value={category}
             onChange={(e) => setCategory(e.target.value)}
+            disabled={isMensProductEdit}
           >
             <option value="">Select…</option>
             {category && !allListed.has(category) ? (
@@ -765,6 +786,36 @@ export default function InventoryFormClient({
               Choose each size, then how many units of that size. Each size gets its own QR group.
             </small>
           </div>
+        ) : isMensProductEdit && mensProductEdit ? (
+          <div>
+            <label className="form-label">Sizes in this product</label>
+            <div style={{ display: "flex", flexWrap: "wrap", gap: 8 }}>
+              {mensProductEdit.sizes.map((s) => (
+                <span
+                  key={s.primaryId}
+                  style={{
+                    display: "inline-flex",
+                    gap: 6,
+                    alignItems: "center",
+                    padding: "6px 10px",
+                    border: "1px solid var(--border, #ddd)",
+                    borderRadius: 999,
+                    fontSize: 13,
+                  }}
+                >
+                  <strong>Size {s.size}</strong>
+                  <span className="text-muted">
+                    {s.availableQuantity}/{s.totalQuantity} free · {s.primarySku}
+                  </span>
+                </span>
+              ))}
+            </div>
+            <input type="hidden" name="size" value={item?.size ?? ""} />
+            <small className="text-muted" style={{ display: "block", marginTop: 6 }}>
+              To add or remove a size, use Manage Inventory → expand this product. Saving here
+              updates name, photo, rates, and status for all sizes above.
+            </small>
+          </div>
         ) : (
           <div>
             <label className="form-label">Size</label>
@@ -820,7 +871,7 @@ export default function InventoryFormClient({
             ))}
           </select>
         </div>
-        {isEdit && (
+        {isEdit && !isMensProductEdit && (
           <div>
             <label className="form-label">Status</label>
             <select name="status" className="form-control" defaultValue={item?.status}>
@@ -830,6 +881,11 @@ export default function InventoryFormClient({
             </select>
           </div>
         )}
+        {isMensProductEdit ? (
+          <p className="text-muted" style={{ margin: 0, fontSize: 13 }}>
+            Unit status stays per size (available / rented). Change sizes from Manage Inventory.
+          </p>
+        ) : null}
         <div>
           <label className="form-label">Condition Notes</label>
           <textarea name="condition_notes" className="form-control" defaultValue={item?.conditionNotes ?? ""} />

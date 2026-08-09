@@ -440,13 +440,14 @@ export function createScannedDressAvailabilityService(db: AvailabilityDb) {
     const thumbRef =
       displayUnit.thumbnailPhoto ||
       units.find((u) => u.thumbnailPhoto)?.thumbnailPhoto ||
-      displayUnit.photo ||
-      units.find((u) => u.photo)?.photo ||
       null;
     const fullRef =
       displayUnit.photo ||
       units.find((u) => u.photo)?.photo ||
       thumbRef;
+    // Prefer full catalog photo for the list tile. Dedicated thumbnails often 404 while
+    // the full photo still opens in the lightbox — matching Manage Inventory behaviour.
+    const listRef = fullRef || thumbRef;
     const dress: ScannedDressSummary = {
       id: displayUnit.id,
       name: stripUnitSuffix(displayUnit.name),
@@ -455,7 +456,7 @@ export function createScannedDressAvailabilityService(db: AvailabilityDb) {
       size: displayUnit.size,
       color: displayUnit.color,
       status: displayUnit.status,
-      thumbnailUrl: thumbRef ? photoUrl(thumbRef) : null,
+      thumbnailUrl: listRef ? photoUrl(listRef) : null,
       photoUrl: fullRef ? photoUrl(fullRef) : null,
       ...(jewelleryPartsLabel ? { jewelleryPartsLabel } : {}),
     };

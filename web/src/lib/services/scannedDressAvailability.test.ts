@@ -338,7 +338,7 @@ describe("checkScannedDressAvailability", () => {
       size: "40",
       color: "Red",
       status: "available",
-      thumbnailUrl: "/thumbs/br-001.webp",
+      thumbnailUrl: "/photos/br-001.jpg",
       photoUrl: "/photos/br-001.jpg",
     });
     assert.deepEqual(result.blockingRecords, []);
@@ -692,7 +692,7 @@ describe("LRG-001 legacy printed SKU fixture", () => {
       size: "M",
       color: "Red",
       status: "available",
-      thumbnailUrl: "/thumbs/lrg-001.webp",
+      thumbnailUrl: "/photos/lrg-001.jpg",
       photoUrl: "/photos/lrg-001.jpg",
     });
     assert.deepEqual(queryLog, [

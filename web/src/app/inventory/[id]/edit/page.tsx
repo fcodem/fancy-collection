@@ -6,6 +6,11 @@ import InventoryFormClient from "@/components/InventoryFormClient";
 import { catalogPhotoUrl } from "@/lib/catalogPhotoUrl";
 import { getAllCategories } from "@/lib/categories";
 import { listSubCategories } from "@/lib/services/adminOps";
+import {
+  isMensInventoryCategory,
+  listMensProductSizes,
+} from "@/lib/services/inventoryList";
+import { stripUnitSuffix } from "@/lib/dress";
 
 export default async function InventoryEditPage({ params }: { params: Promise<{ id: string }> }) {
   const user = await getCurrentUser();
@@ -20,16 +25,21 @@ export default async function InventoryEditPage({ params }: { params: Promise<{ 
   ]);
   if (!row) notFound();
 
+  const isMensProduct = isMensInventoryCategory(row.category);
+  const mensSizes = isMensProduct
+    ? await listMensProductSizes(row.name, row.category)
+    : [];
+  const productName = isMensProduct ? stripUnitSuffix(row.name) : row.name;
   const initialPhotoUrl = catalogPhotoUrl(row);
 
   return (
     <Suspense fallback={<p style={{ padding: 24 }}>Loading…</p>}>
       <InventoryFormClient
-        key={row.id}
+        key={`${row.id}-product`}
         item={{
           id: row.id,
           sku: row.sku,
-          name: row.name,
+          name: productName,
           category: row.category,
           size: row.size,
           color: row.color,
@@ -53,6 +63,19 @@ export default async function InventoryEditPage({ params }: { params: Promise<{ 
         initialPhotoUrl={initialPhotoUrl}
         categories={categories}
         subCategories={subCategoryRows.map((s) => s.name)}
+        mensProductEdit={
+          isMensProduct
+            ? {
+                sizes: mensSizes.map((s) => ({
+                  size: s.size,
+                  primaryId: s.primaryId,
+                  primarySku: s.primarySku,
+                  totalQuantity: s.totalQuantity,
+                  availableQuantity: s.availableQuantity,
+                })),
+              }
+            : undefined
+        }
       />
     </Suspense>
   );

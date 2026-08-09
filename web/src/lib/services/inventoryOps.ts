@@ -411,7 +411,10 @@ export async function updateInventoryItemInTx(
     data: {
       name: form.name.trim(),
       category: form.category,
-      size: form.size || "",
+      // Men's product edit must never overwrite a unit's size with a display string.
+      size: MENS_CATEGORIES.includes(form.category || existing.category)
+        ? existing.size
+        : form.size || "",
       color: form.color || "",
       dailyRate: form.daily_rate ?? existing.dailyRate,
       deposit: form.deposit ?? existing.deposit,
@@ -479,6 +482,7 @@ export async function updateInventoryItemInTx(
       deposit: updated.deposit,
       conditionNotes: updated.conditionNotes,
       subCategory: updated.subCategory,
+      color: updated.color,
       photo: updated.photo,
       thumbnailPhoto: updated.thumbnailPhoto,
       originalPhoto: updated.originalPhoto,

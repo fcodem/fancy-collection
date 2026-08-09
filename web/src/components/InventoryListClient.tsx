@@ -714,7 +714,7 @@ export default function InventoryListClient({
                         href={`/inventory/${g.primaryId}/edit`}
                         className="btn btn-sm btn-primary inv-touch"
                       >
-                        Edit
+                        Edit product
                       </PrefetchOnIntentLink>
                     ) : (
                       <PrefetchOnIntentLink
@@ -799,12 +799,6 @@ export default function InventoryListClient({
                           </div>
                         </div>
                         <div style={{ display: "flex", flexWrap: "wrap", gap: 6 }}>
-                          <PrefetchOnIntentLink
-                            href={`/inventory/${sz.primaryId}/edit`}
-                            className="btn btn-sm btn-primary"
-                          >
-                            Edit
-                          </PrefetchOnIntentLink>
                           <PrefetchOnIntentLink
                             href={`/inventory/${sz.primaryId}`}
                             className="btn btn-sm btn-outline"

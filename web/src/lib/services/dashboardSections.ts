@@ -33,6 +33,7 @@ export async function getDashboardEssentialData() {
                 returning: number;
                 lateReturns: number;
                 allUndelivered: number;
+                tomorrowPackingLeft: number;
               }>
             >`
             SELECT
@@ -73,7 +74,24 @@ export async function getDashboardEssentialData() {
                         AND bi.is_cancelled = false
                     )
                   )
-              )::int AS "allUndelivered"
+              )::int AS "allUndelivered",
+              COUNT(*) FILTER (
+                WHERE b.status = 'booked'
+                  AND b.delivery_date >= (${today}::timestamptz + interval '1 day')
+                  AND b.delivery_date < (${today}::timestamptz + interval '2 day')
+                  AND (
+                    NOT EXISTS (
+                      SELECT 1 FROM booking_items bi
+                      WHERE bi.booking_id = b.id AND bi.is_cancelled = false
+                    )
+                    OR EXISTS (
+                      SELECT 1 FROM booking_items bi
+                      WHERE bi.booking_id = b.id
+                        AND bi.is_cancelled = false
+                        AND bi.is_packed_ready = false
+                    )
+                  )
+              )::int AS "tomorrowPackingLeft"
             FROM bookings b
           `,
           );
@@ -96,6 +114,7 @@ export async function getDashboardEssentialData() {
               remaining_delivery: r?.remainingToday ?? 0,
               returning: r?.returning ?? 0,
               all_undelivered: r?.allUndelivered ?? 0,
+              tomorrow_packing_left: r?.tomorrowPackingLeft ?? 0,
             },
             late_return_count: r?.lateReturns ?? 0,
             orders_due_soon_count: 0,

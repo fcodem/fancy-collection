@@ -21,6 +21,10 @@ import {
   savePrintLabelMargins,
   type PrintLabelMargins,
 } from "@/lib/printLabelMargins";
+import {
+  loadPrintCodesPageSettings,
+  savePrintCodesPageSettings,
+} from "@/lib/printCodesPageSettings";
 import PrefetchOnIntentLink from "@/components/PrefetchOnIntentLink";
 
 const REMOVED_SUB_SET = new Set(REMOVED_SUB_CATEGORIES.map((s) => s.toLowerCase()));
@@ -48,9 +52,11 @@ const PAGE_W_MM = PRINT_PAGE_W_MM;
 const PAGE_H_MM = PRINT_PAGE_H_MM;
 const LABELS_PER_PAGE = COLS * ROWS;
 
-const QR_CELL_PAD_MM = 1.2;
-const QR_SIZE_MM = 18;
-const QR_COL_MM = 20;
+const QR_CELL_PAD_MM = 1;
+/** Keep QR fully inside the 33.9mm label with quiet zone — oversized QR clips on first/last rows. */
+const QR_SIZE_MM = 16;
+const QR_COL_MM = 18;
+const QR_WRAP_PAD_MM = 0.6;
 
 function activeScanCode(item: InventoryItem, format: "QR_CODE" | "CODE_128") {
   return item.scanCodes.find((code) => code.format === format);
@@ -98,10 +104,32 @@ export default function PrintCodesClient() {
   const [margins, setMargins] = useState<PrintLabelMargins>(DEFAULT_PRINT_LABEL_MARGINS);
   const [marginsOpen, setMarginsOpen] = useState(false);
   const [marginsSavedMsg, setMarginsSavedMsg] = useState("");
+  const [settingsHydrated, setSettingsHydrated] = useState(false);
 
   useEffect(() => {
     setMargins(loadPrintLabelMargins());
+    const saved = loadPrintCodesPageSettings();
+    setStartCol(saved.startCol);
+    setStartRow(saved.startRow);
+    setPrintFormat(saved.printFormat);
+    setCategory(saved.category);
+    setSubCategory(saved.subCategory);
+    setSearchInput(saved.search);
+    setQ(saved.search);
+    setSettingsHydrated(true);
   }, []);
+
+  useEffect(() => {
+    if (!settingsHydrated) return;
+    savePrintCodesPageSettings({
+      startCol,
+      startRow,
+      printFormat,
+      category,
+      subCategory,
+      search: q,
+    });
+  }, [settingsHydrated, startCol, startRow, printFormat, category, subCategory, q]);
 
   const LABEL_W_MM = margins.labelWidthMm;
   const LABEL_H_MM = margins.labelHeightMm;
@@ -619,30 +647,50 @@ export default function PrintCodesClient() {
             max-width: ${QR_COL_MM}mm;
             height: ${QR_USABLE_H_MM}mm;
             max-height: ${QR_USABLE_H_MM}mm;
-            padding-top: 0;
-            overflow: visible;
+            padding: 0;
+            overflow: hidden;
             min-width: 0;
             background: #fff;
+          }
+          .label-qr-wrap {
+            box-sizing: border-box;
+            width: ${QR_SIZE_MM + QR_WRAP_PAD_MM * 2}mm;
+            height: ${QR_SIZE_MM + QR_WRAP_PAD_MM * 2}mm;
+            max-width: 100%;
+            max-height: 100%;
+            padding: ${QR_WRAP_PAD_MM}mm;
+            display: flex;
+            align-items: center;
+            justify-content: center;
+            flex: 0 0 auto;
+            background: #fff;
+            overflow: hidden;
           }
           .label-cell img.label-qr,
           .label-cell canvas.label-qr {
             width: ${QR_SIZE_MM}mm !important;
             height: ${QR_SIZE_MM}mm !important;
-            max-width: ${QR_SIZE_MM}mm !important;
-            max-height: ${QR_SIZE_MM}mm !important;
+            max-width: 100% !important;
+            max-height: 100% !important;
             display: block;
             flex: 0 0 auto;
             object-fit: contain;
+            object-position: center;
             background: #fff;
             image-rendering: pixelated;
             image-rendering: crisp-edges;
+          }
+          .label-both .label-qr-wrap {
+            width: 13.2mm;
+            height: 13.2mm;
+            padding: 0.6mm;
           }
           .label-both img.label-qr,
           .label-both canvas.label-qr {
             width: 12mm !important;
             height: 12mm !important;
-            max-width: 12mm !important;
-            max-height: 12mm !important;
+            max-width: 100% !important;
+            max-height: 100% !important;
           }
           .label-cell svg.barcode-svg {
             width: 100% !important;
@@ -913,6 +961,9 @@ export default function PrintCodesClient() {
                   ))}
                 </select>
               </div>
+              <p className="text-xs text-gray-500 self-center max-w-xs">
+                Start column/row, label type, and filters are remembered on this device.
+              </p>
               <button
                 type="button"
                 onClick={selectAllVisible}
@@ -1113,9 +1164,10 @@ function StickerLabel({ item, format }: { item: InventoryItem; format: PrintForm
     let cancelled = false;
     if ((format === "QR_CODE" || format === "BOTH") && qrValue) {
       void QRCode.toDataURL(qrValue, {
-        width: format === "BOTH" ? 280 : 480,
+        width: format === "BOTH" ? 280 : 512,
+        /* Quiet zone inside the bitmap so modules are not clipped at label edges. */
         margin: 2,
-        errorCorrectionLevel: "H",
+        errorCorrectionLevel: "M",
         color: { dark: "#000000", light: "#FFFFFF" },
       }).then((url) => {
         if (!cancelled) setQrSrc(url);
@@ -1177,8 +1229,10 @@ function StickerLabel({ item, format }: { item: InventoryItem; format: PrintForm
       </div>
       <div className="label-code-block">
         {(format === "QR_CODE" || format === "BOTH") && qrSrc ? (
-          // eslint-disable-next-line @next/next/no-img-element
-          <img src={qrSrc} className="label-qr" alt="" />
+          <div className="label-qr-wrap">
+            {/* eslint-disable-next-line @next/next/no-img-element */}
+            <img src={qrSrc} className="label-qr" alt="" />
+          </div>
         ) : null}
         {(format === "CODE_128" || format === "BOTH") && barcodeValue ? (
           <svg ref={barcodeRef} className="barcode-svg" />

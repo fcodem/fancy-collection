@@ -1085,11 +1085,26 @@ export default function DressAvailabilityScanner({
                     >
                       {row.result.dress?.thumbnailUrl || row.result.dress?.photoUrl ? (
                         <ZoomableImage
-                          src={row.result.dress.thumbnailUrl || row.result.dress.photoUrl || ""}
-                          fullSrc={row.result.dress.photoUrl || row.result.dress.thumbnailUrl}
+                          src={
+                            row.result.dress.photoUrl ||
+                            row.result.dress.thumbnailUrl ||
+                            ""
+                          }
+                          fullSrc={
+                            row.result.dress.photoUrl ||
+                            row.result.dress.thumbnailUrl ||
+                            undefined
+                          }
                           alt={row.result.dress?.name || "Dress"}
                           overlayCaption={row.result.dress?.name || undefined}
-                          style={{ width: "100%", height: "100%", objectFit: "cover" }}
+                          style={{
+                            width: "100%",
+                            height: "100%",
+                            minWidth: 80,
+                            minHeight: 96,
+                            objectFit: "cover",
+                            display: "block",
+                          }}
                         />
                       ) : (
                         <i className="fa-solid fa-shirt" aria-hidden="true" />

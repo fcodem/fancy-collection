@@ -9,30 +9,32 @@ const exists = (rel: string) => fs.existsSync(path.join(root, rel));
 
 describe("QR label printing", () => {
   it("uses Mazus ST-24 / Avery L7159 geometry (64×33.9mm)", () => {
+    const margins = read("src/lib/printLabelMargins.ts");
     const source = read("src/components/PrintCodesClient.tsx");
-    assert.match(source, /LABEL_W_MM = 64/);
-    assert.match(source, /LABEL_H_MM = 33\.9/);
-    assert.match(source, /PAGE_MARGIN_TOP_MM = 12\.9/);
-    assert.match(source, /PAGE_MARGIN_LEFT_MM = 6\.5/);
-    assert.match(source, /COL_GAP_MM = 2\.5/);
-    assert.match(source, /ROW_GAP_MM = 0/);
-    assert.match(source, /ROW_PITCH_MM/);
-    assert.match(source, /labelCellPosition/);
+    assert.match(margins, /labelWidthMm:\s*64/);
+    assert.match(margins, /labelHeightMm:\s*33\.9/);
+    assert.match(margins, /pageMarginTopMm:\s*12\.9/);
+    assert.match(margins, /pageMarginLeftMm:\s*6\.5/);
+    assert.match(margins, /colGapMm:\s*2\.5/);
+    assert.match(margins, /rowGapMm:\s*0/);
+    assert.match(source, /labelCellPositionWithMargins/);
   });
 
   it("A4 sheet uses absolute 3×8 slots so rows cannot drift", () => {
+    const margins = read("src/lib/printLabelMargins.ts");
     const source = read("src/components/PrintCodesClient.tsx");
-    assert.match(source, /COLS = 3/);
-    assert.match(source, /ROWS = 8/);
+    assert.match(margins, /PRINT_COLS = 3/);
+    assert.match(margins, /PRINT_ROWS = 8/);
     assert.match(source, /position:\s*absolute/);
     assert.match(source, /left: `\$\{leftMm\}mm`/);
     assert.match(source, /top: `\$\{topMm\}mm`/);
     assert.match(source, /size: \$\{PAGE_W_MM\}mm \$\{PAGE_H_MM\}mm/);
   });
 
-  it("QR fits inside 33.9mm slip height", () => {
+  it("QR fits inside 33.9mm slip height with quiet-zone wrap", () => {
     const source = read("src/components/PrintCodesClient.tsx");
-    assert.match(source, /QR_SIZE_MM = 20/);
+    assert.match(source, /QR_SIZE_MM = 16/);
+    assert.match(source, /label-qr-wrap/);
     assert.match(source, /QR_USABLE_H_MM/);
     assert.match(source, /overflow:\s*hidden/);
   });

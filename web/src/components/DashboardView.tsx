@@ -488,6 +488,23 @@ export default function DashboardView({
           <div className="stat-label">Returning Today</div>
           <div style={{ fontSize: 10, opacity: 0.7, marginTop: 4 }}>Click to open list</div>
         </Link>
+        <Link
+          href="/dashboard/tomorrow-packing"
+          className="stat-card"
+          style={{
+            textDecoration: "none",
+            display: "block",
+            background: "linear-gradient(135deg,#6b3fa0,#4a2c7a)",
+            color: "white",
+          }}
+        >
+          <div className="stat-icon" style={{ background: "rgba(255,255,255,0.15)", color: "white" }}>
+            <i className="fa-solid fa-boxes-packing" />
+          </div>
+          <div className="stat-value">{data.today_stats.tomorrow_packing_left ?? 0}</div>
+          <div className="stat-label">Tomorrow&apos;s Packing Left</div>
+          <div style={{ fontSize: 10, opacity: 0.8, marginTop: 4 }}>Click to open list</div>
+        </Link>
         <Link href="/late-return" className="stat-card" style={{ textDecoration: "none", background: "linear-gradient(135deg,#dc3545,#c0392b)", color: "white" }}>
           <div className="stat-icon" style={{ background: "rgba(255,255,255,0.15)", color: "white" }}><i className="fa-solid fa-triangle-exclamation" /></div>
           <div className="stat-value">{data.late_return_count}</div>

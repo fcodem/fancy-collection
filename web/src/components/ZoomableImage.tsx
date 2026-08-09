@@ -44,12 +44,16 @@ export default function ZoomableImage({
   const [pan, setPan] = useState({ x: 0, y: 0 });
   const [isDragging, setIsDragging] = useState(false);
   const [lightboxSrc, setLightboxSrc] = useState("");
+  const [displaySrc, setDisplaySrc] = useState(src || "");
   const overlayRef = useRef<HTMLDivElement | null>(null);
   const dragRef = useRef<{ startX: number; startY: number; panX: number; panY: number } | null>(
     null,
   );
 
   useEffect(() => setMounted(true), []);
+  useEffect(() => {
+    setDisplaySrc(src || "");
+  }, [src]);
 
   const resetZoom = useCallback(() => {
     setScale(1);
@@ -148,7 +152,7 @@ export default function ZoomableImage({
 
   const zoomPercent = Math.round(scale * 100);
   const openLightbox = () => {
-    const sharp = (fullSrc && String(fullSrc).trim()) || src;
+    const sharp = (fullSrc && String(fullSrc).trim()) || displaySrc || src;
     setLightboxSrc(sharp);
     resetZoom();
     setOpen(true);
@@ -158,13 +162,20 @@ export default function ZoomableImage({
     <>
       {/* eslint-disable-next-line @next/next/no-img-element */}
       <img
-        src={src}
+        src={displaySrc}
         alt={alt}
         width={width}
         height={height}
         loading={loading}
         decoding={decoding}
-        onError={onError}
+        onError={() => {
+          const fallback = String(fullSrc || "").trim();
+          if (fallback && fallback !== displaySrc) {
+            setDisplaySrc(fallback);
+            return;
+          }
+          onError?.();
+        }}
         onMouseDown={(e) => {
           e.stopPropagation();
         }}

@@ -286,6 +286,7 @@ const _getDashboardDataRaw = async () => {
       remaining_delivery: b.today_remaining_delivery,
       returning: b.today_returning,
       all_undelivered: b.undelivered_count,
+      tomorrow_packing_left: 0,
     },
     overdue_list: overdueList,
     late_return_count: b.late_return_count,
