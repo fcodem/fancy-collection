@@ -22,21 +22,33 @@ type Template = {
 type MetaTemplateComponent = {
   type: "HEADER" | "BODY" | "FOOTER" | "BUTTONS";
   text?: string;
-  format?: "TEXT";
-  example?: { body_text?: string[][]; header_text?: string[] };
-  buttons?: Array<{ type: "QUICK_REPLY"; text: string } | { type: "URL"; text: string; url: string }>;
+  format?: "TEXT" | "IMAGE" | "VIDEO" | "DOCUMENT";
+  example?: {
+    body_text?: string[][];
+    header_text?: string[];
+    header_handle?: string[];
+  };
+  buttons?: Array<
+    { type: "QUICK_REPLY"; text: string } | { type: "URL"; text: string; url: string }
+  >;
 };
 
 const EMPTY_FORM = {
   name: "",
   language: "en",
-  category: "UTILITY" as "MARKETING" | "UTILITY" | "AUTHENTICATION",
+  category: "MARKETING" as "MARKETING" | "UTILITY" | "AUTHENTICATION",
+  headerFormat: "none" as "none" | "TEXT" | "IMAGE" | "DOCUMENT" | "VIDEO",
   headerText: "",
   bodyText: "",
   footerText: "",
+  buttonMode: "none" as "none" | "quick_reply" | "url",
   button1: "",
   button2: "",
   button3: "",
+  urlButton1Text: "",
+  urlButton1Url: "",
+  urlButton2Text: "",
+  urlButton2Url: "",
   exampleName: "Priya",
   exampleDetail: "15 July",
 };
@@ -82,6 +94,63 @@ const STARTER_PRESETS: Array<{
     }),
   },
   {
+    id: "sale_project",
+    label: "SALE PROJECT — Men's ethnic wear",
+    apply: () => ({
+      ...EMPTY_FORM,
+      name: "sale_project",
+      category: "MARKETING",
+      headerFormat: "TEXT",
+      headerText: "Men's Sale Collection",
+      bodyText:
+        "Dear Customer,\n\n" +
+        "Aapke pyaar aur bharose ke liye dil se dhanyavaad!\n\n" +
+        "1995 se Fancy Collection by Renu Agarwal ki Rental Collection ko aapne jo pyaar aur bharosa diya hai, wahi hamari sabse badi pehchaan hai.\n\n" +
+        "Ab usi bharose, quality aur dedication ke saath hum aapke liye lekar aaye hain:\n\n" +
+        "COMPLETE MEN'S ETHNIC WEAR FOR PURCHASE\n\n" +
+        "Sherwani | Jodhpuri | Coat Pant & Suits | Handwork Tuxedo | Indo-Western | Kurta Pajama | Kurta Koti | Marriage Accessories & More\n\n" +
+        "Jis tarah aapne hamari Rental Variety ko pasand kiya, usi tarah Men's Sale Collection mein bhi aapko exclusive variety, latest designs aur premium quality milegi.\n\n" +
+        "New Collection dekhne ke liye showroom zaroor visit karein.\n\n" +
+        "Near Balaji Mandir, Court Road, Moradabad\n\n" +
+        "Wahi Bharosa. Wahi Quality. Ab Sale Collection Ke Saath Bhi.",
+      footerText: "8126095836 | 8077843874",
+      buttonMode: "url",
+      urlButton1Text: "Shop Location",
+      urlButton1Url: "https://maps.app.goo.gl/5LajH7MJcqKfkiQj9",
+      urlButton2Text: "View on Instagram",
+      urlButton2Url: "https://www.instagram.com/fancycollection_renuagarwal",
+      exampleName: "",
+    }),
+  },
+  {
+    id: "sale_1",
+    label: "SALE 1 — Flyer image + men's sale message",
+    apply: () => ({
+      ...EMPTY_FORM,
+      name: "sale_1",
+      category: "MARKETING",
+      headerFormat: "IMAGE",
+      bodyText:
+        "Dear Customer,\n\n" +
+        "Aapke pyaar aur bharose ke liye dil se dhanyavaad!\n\n" +
+        "1995 se Fancy Collection by Renu Agarwal ki Rental Collection ko aapne jo pyaar aur bharosa diya hai, wahi hamari sabse badi pehchaan hai.\n\n" +
+        "Ab usi bharose, quality aur dedication ke saath hum aapke liye lekar aaye hain:\n\n" +
+        "COMPLETE MEN'S ETHNIC WEAR FOR PURCHASE\n\n" +
+        "Sherwani | Jodhpuri | Coat Pant & Suits | Handwork Tuxedo | Indo-Western | Kurta Pajama | Kurta Koti | Marriage Accessories & More\n\n" +
+        "Jis tarah aapne hamari Rental Variety ko pasand kiya, usi tarah Men's Sale Collection mein bhi aapko exclusive variety, latest designs aur premium quality milegi.\n\n" +
+        "New Collection dekhne ke liye showroom zaroor visit karein.\n\n" +
+        "Near Balaji Mandir, Court Road, Moradabad\n\n" +
+        "Wahi Bharosa. Wahi Quality. Ab Sale Collection Ke Saath Bhi.",
+      footerText: "8126095836 | 8077843874",
+      buttonMode: "url",
+      urlButton1Text: "Shop Location",
+      urlButton1Url: "https://maps.app.goo.gl/5LajH7MJcqKfkiQj9",
+      urlButton2Text: "View on Instagram",
+      urlButton2Url: "https://www.instagram.com/fancycollection_renuagarwal",
+      exampleName: "",
+    }),
+  },
+  {
     id: "thanks",
     label: "Thank you (utility)",
     apply: () => ({
@@ -121,7 +190,7 @@ function countBodyVars(text: string): number {
   return max;
 }
 
-function validateBuilder(form: FormState): string | null {
+function validateBuilder(form: FormState, hasHeaderFile: boolean): string | null {
   if (!form.name.trim()) return "Template name is required.";
   if (!/^[a-z][a-z0-9_]{0,511}$/.test(form.name.trim())) {
     return "Name must start with a letter and use only lowercase letters, numbers, and underscores.";
@@ -131,6 +200,17 @@ function validateBuilder(form: FormState): string | null {
   if (/^\{\{\s*\d+\s*\}\}/.test(body) || /\{\{\s*\d+\s*\}\}$/.test(body)) {
     return "Meta rejects templates that start or end with a variable. Add plain text around {{1}}.";
   }
+  if (form.bodyText.length > 1024) return "Body text must be 1024 characters or fewer.";
+  if (form.headerFormat === "TEXT" && !form.headerText.trim()) {
+    return "Text header requires header text (max 60 characters).";
+  }
+  if (form.headerFormat === "TEXT" && form.headerText.trim().length > 60) {
+    return "Text header must be 60 characters or fewer.";
+  }
+  if (["IMAGE", "DOCUMENT", "VIDEO"].includes(form.headerFormat) && !hasHeaderFile) {
+    return `Upload a ${form.headerFormat.toLowerCase()} file for the header.`;
+  }
+  if (form.footerText.trim().length > 60) return "Footer must be 60 characters or fewer.";
   const vars = countBodyVars(body);
   if (vars >= 1 && !form.exampleName.trim()) {
     return "Provide an example value for {{1}} (Meta requires sample values for variables).";
@@ -138,13 +218,34 @@ function validateBuilder(form: FormState): string | null {
   if (vars >= 2 && !form.exampleDetail.trim()) {
     return "Provide an example value for {{2}}.";
   }
+  if (form.buttonMode === "url") {
+    const pairs = [
+      [form.urlButton1Text.trim(), form.urlButton1Url.trim()],
+      [form.urlButton2Text.trim(), form.urlButton2Url.trim()],
+    ].filter(([text, url]) => text || url);
+    if (pairs.length === 0) return "Add at least one URL button (label + https link).";
+    for (const [text, url] of pairs) {
+      if (!text || !url) return "Each URL button needs both label and URL.";
+      if (!/^https:\/\/.+/i.test(url)) return "URL buttons must start with https://";
+    }
+  }
   return null;
 }
 
-function buildMetaComponents(form: FormState): MetaTemplateComponent[] {
+function buildMetaComponents(form: FormState, headerHandle?: string): MetaTemplateComponent[] {
   const components: MetaTemplateComponent[] = [];
-  if (form.headerText.trim()) {
+
+  if (form.headerFormat === "TEXT" && form.headerText.trim()) {
     components.push({ type: "HEADER", format: "TEXT", text: form.headerText.trim() });
+  } else if (
+    headerHandle &&
+    ["IMAGE", "DOCUMENT", "VIDEO"].includes(form.headerFormat)
+  ) {
+    components.push({
+      type: "HEADER",
+      format: form.headerFormat as "IMAGE" | "DOCUMENT" | "VIDEO",
+      example: { header_handle: [headerHandle] },
+    });
   }
 
   const body: MetaTemplateComponent = { type: "BODY", text: form.bodyText.trim() };
@@ -160,13 +261,33 @@ function buildMetaComponents(form: FormState): MetaTemplateComponent[] {
   if (form.footerText.trim()) {
     components.push({ type: "FOOTER", text: form.footerText.trim() });
   }
-  const buttons = [form.button1, form.button2, form.button3]
-    .map((t) => t.trim())
-    .filter(Boolean)
-    .map((text) => ({ type: "QUICK_REPLY" as const, text }));
-  if (buttons.length > 0) {
-    components.push({ type: "BUTTONS", buttons });
+
+  if (form.buttonMode === "quick_reply") {
+    const buttons = [form.button1, form.button2, form.button3]
+      .map((t) => t.trim())
+      .filter(Boolean)
+      .map((text) => ({ type: "QUICK_REPLY" as const, text }));
+    if (buttons.length > 0) components.push({ type: "BUTTONS", buttons });
+  } else if (form.buttonMode === "url") {
+    const buttons = [
+      form.urlButton1Text.trim() && form.urlButton1Url.trim()
+        ? {
+            type: "URL" as const,
+            text: form.urlButton1Text.trim().slice(0, 25),
+            url: form.urlButton1Url.trim(),
+          }
+        : null,
+      form.urlButton2Text.trim() && form.urlButton2Url.trim()
+        ? {
+            type: "URL" as const,
+            text: form.urlButton2Text.trim().slice(0, 25),
+            url: form.urlButton2Url.trim(),
+          }
+        : null,
+    ].filter(Boolean) as Array<{ type: "URL"; text: string; url: string }>;
+    if (buttons.length > 0) components.push({ type: "BUTTONS", buttons });
   }
+
   return components;
 }
 
@@ -188,6 +309,8 @@ export default function WhatsAppTemplatesClient() {
   const [ensuringWelcome, setEnsuringWelcome] = useState(false);
   const [ensuringAll, setEnsuringAll] = useState(false);
   const [cleaningLegacy, setCleaningLegacy] = useState(false);
+  const [headerFile, setHeaderFile] = useState<File | null>(null);
+  const [headerPreview, setHeaderPreview] = useState<string | null>(null);
 
   const load = async () => {
     setLoading(true);
@@ -206,7 +329,47 @@ export default function WhatsAppTemplatesClient() {
     load();
   }, []);
 
-  const builderError = useMemo(() => (showForm ? validateBuilder(form) : null), [showForm, form]);
+  const builderError = useMemo(
+    () => (showForm ? validateBuilder(form, Boolean(headerFile)) : null),
+    [showForm, form, headerFile],
+  );
+
+  const resetBuilder = () => {
+    setForm(EMPTY_FORM);
+    setHeaderFile(null);
+    if (headerPreview) URL.revokeObjectURL(headerPreview);
+    setHeaderPreview(null);
+  };
+
+  const applyPreset = async (preset: (typeof STARTER_PRESETS)[number]) => {
+    setForm(preset.apply());
+    if (preset.id === "sale_1") {
+      try {
+        const res = await fetch("/images/whatsapp/sale-1-flyer.png");
+        if (res.ok) {
+          const blob = await res.blob();
+          const file = new File([blob], "sale-1-flyer.png", {
+            type: blob.type || "image/png",
+          });
+          onHeaderFileChange(file);
+          return;
+        }
+      } catch {
+        // fall through — user can upload manually
+      }
+    }
+    onHeaderFileChange(null);
+  };
+
+  const onHeaderFileChange = (file: File | null) => {
+    setHeaderFile(file);
+    if (headerPreview) URL.revokeObjectURL(headerPreview);
+    if (file && file.type.startsWith("image/")) {
+      setHeaderPreview(URL.createObjectURL(file));
+    } else {
+      setHeaderPreview(null);
+    }
+  };
 
   const ensureBookingBillTemplate = async () => {
     setEnsuringBookingBill(true);
@@ -377,18 +540,34 @@ export default function WhatsAppTemplatesClient() {
   };
 
   const submitTemplate = async () => {
-    const err = validateBuilder(form);
+    const err = validateBuilder(form, Boolean(headerFile));
     if (err) {
       alert(err);
       return;
     }
     setSubmitting(true);
     try {
+      let headerHandle: string | undefined;
+      if (["IMAGE", "DOCUMENT", "VIDEO"].includes(form.headerFormat) && headerFile) {
+        const uploadForm = new FormData();
+        uploadForm.append("file", headerFile);
+        const uploadRes = await fetch("/api/whatsapp/templates/upload-header", {
+          method: "POST",
+          body: uploadForm,
+        });
+        const uploadData = (await uploadRes.json()) as { handle?: string; error?: string };
+        if (!uploadRes.ok || !uploadData.handle) {
+          alert(uploadData.error || "Failed to upload header file to Meta");
+          return;
+        }
+        headerHandle = uploadData.handle;
+      }
+
       const payload = {
         name: form.name.trim().toLowerCase(),
         language: form.language,
         category: form.category,
-        components: buildMetaComponents(form),
+        components: buildMetaComponents(form, headerHandle),
         allowCategoryChange: true,
       };
       const res = await fetch("/api/whatsapp/templates", {
@@ -405,7 +584,7 @@ export default function WhatsAppTemplatesClient() {
         alert(
           `Template "${data.template?.name || form.name}" submitted to Meta for verification.\n\nStatus: ${data.template?.status || "PENDING"}\n\nApproval usually takes minutes to 24 hours. Refresh this page to see status.`,
         );
-        setForm(EMPTY_FORM);
+        resetBuilder();
         setShowForm(false);
         load();
       } else {
@@ -436,6 +615,17 @@ export default function WhatsAppTemplatesClient() {
     } finally {
       setDeleting(null);
     }
+  };
+
+  const insertDearCustomer = () => {
+    setForm((f) => ({
+      ...f,
+      bodyText: f.bodyText.trim()
+        ? f.bodyText.startsWith("Dear Customer")
+          ? f.bodyText
+          : `Dear Customer,\n\n${f.bodyText}`
+        : "Dear Customer,\n\n",
+    }));
   };
 
   const insertVar = (n: 1 | 2) => {
@@ -478,8 +668,8 @@ export default function WhatsAppTemplatesClient() {
               Message Templates
             </h1>
             <p style={{ fontSize: 13, color: "#6b7280", margin: "2px 0 0 0" }}>
-              Build a template, submit it to Meta for verification, and manage approvals. Active slips use{" "}
-              <code>*_v3</code>.
+              Create unlimited WhatsApp templates here — text, image flyer, PDF, video, URL buttons.
+              Click <strong>Add Template</strong>, fill the form, submit to Meta, then use in Broadcast.
             </p>
           </div>
         </div>
@@ -576,7 +766,10 @@ export default function WhatsAppTemplatesClient() {
           </button>
           <button
             type="button"
-            onClick={() => setShowForm((v) => !v)}
+            onClick={() => {
+              if (showForm) resetBuilder();
+              setShowForm((v) => !v);
+            }}
             style={{
               display: "flex",
               alignItems: "center",
@@ -629,11 +822,13 @@ export default function WhatsAppTemplatesClient() {
           }}
         >
           <h2 style={{ fontSize: 15, fontWeight: 600, color: "#374151", margin: "0 0 4px 0" }}>
-            Template builder
+            Create new template
           </h2>
           <p style={{ fontSize: 12, color: "#9ca3af", margin: "0 0 12px 0" }}>
-            Guided form builds a Meta-ready payload and submits it for verification automatically. Use{" "}
-            {"{{1}}"} / {"{{2}}"} for personalization (customer name, date, etc.).
+            No code needed. Choose header type (text / image / PDF / video), write body, add URL or quick-reply
+            buttons, then submit to Meta. Use a new name each time (e.g. <code>sale_2</code>,{" "}
+            <code>festive_offer_mar</code>). Meta templates cannot be edited after approval — create a new version
+            instead.
           </p>
 
           <div style={{ display: "flex", flexWrap: "wrap", gap: 8, marginBottom: 16 }}>
@@ -642,7 +837,7 @@ export default function WhatsAppTemplatesClient() {
               <button
                 key={p.id}
                 type="button"
-                onClick={() => setForm(p.apply())}
+                onClick={() => applyPreset(p)}
                 style={{
                   fontSize: 12,
                   background: "#eff6ff",
@@ -706,19 +901,92 @@ export default function WhatsAppTemplatesClient() {
           </div>
 
           <div style={{ marginBottom: 12 }}>
-            <label style={labelStyle}>Header (optional, TEXT)</label>
-            <input
-              value={form.headerText}
-              onChange={(e) => setForm((f) => ({ ...f, headerText: e.target.value }))}
-              placeholder={WHATSAPP_TEAM_LINE}
+            <label style={labelStyle}>Header</label>
+            <select
+              value={form.headerFormat}
+              onChange={(e) => {
+                const headerFormat = e.target.value as FormState["headerFormat"];
+                setForm((f) => ({ ...f, headerFormat }));
+                if (headerFormat === "none" || headerFormat === "TEXT") onHeaderFileChange(null);
+              }}
               style={inputStyle}
-            />
+            >
+              <option value="none">No header</option>
+              <option value="TEXT">Text header</option>
+              <option value="IMAGE">Image header (flyer / photo)</option>
+              <option value="DOCUMENT">Document header (PDF)</option>
+              <option value="VIDEO">Video header</option>
+            </select>
           </div>
+
+          {form.headerFormat === "TEXT" && (
+            <div style={{ marginBottom: 12 }}>
+              <label style={labelStyle}>Header text (max 60 chars)</label>
+              <input
+                value={form.headerText}
+                onChange={(e) => setForm((f) => ({ ...f, headerText: e.target.value }))}
+                placeholder="Men's Sale Collection"
+                style={inputStyle}
+              />
+            </div>
+          )}
+
+          {["IMAGE", "DOCUMENT", "VIDEO"].includes(form.headerFormat) && (
+            <div style={{ marginBottom: 12 }}>
+              <label style={labelStyle}>
+                Upload {form.headerFormat.toLowerCase()} for header *
+              </label>
+              <input
+                type="file"
+                accept={
+                  form.headerFormat === "IMAGE"
+                    ? "image/jpeg,image/png,image/webp"
+                    : form.headerFormat === "VIDEO"
+                      ? "video/mp4,video/3gpp"
+                      : "application/pdf"
+                }
+                onChange={(e) => onHeaderFileChange(e.target.files?.[0] || null)}
+                style={{ ...inputStyle, padding: 6 }}
+              />
+              {headerFile && (
+                <div style={{ fontSize: 12, color: "#6b7280", marginTop: 6 }}>
+                  Selected: {headerFile.name} ({Math.round(headerFile.size / 1024)} KB)
+                </div>
+              )}
+              {headerPreview && (
+                <img
+                  src={headerPreview}
+                  alt="Header preview"
+                  style={{
+                    marginTop: 8,
+                    maxWidth: "100%",
+                    maxHeight: 220,
+                    borderRadius: 8,
+                    border: "1px solid #e5e7eb",
+                  }}
+                />
+              )}
+            </div>
+          )}
 
           <div style={{ marginBottom: 12 }}>
             <div style={{ display: "flex", alignItems: "center", justifyContent: "space-between" }}>
-              <label style={labelStyle}>Body *</label>
-              <div style={{ display: "flex", gap: 6 }}>
+              <label style={labelStyle}>Body * ({form.bodyText.length}/1024)</label>
+              <div style={{ display: "flex", gap: 6, flexWrap: "wrap" }}>
+                <button
+                  type="button"
+                  onClick={insertDearCustomer}
+                  style={{
+                    fontSize: 11,
+                    border: "1px solid #d1d5db",
+                    borderRadius: 6,
+                    background: "#fff",
+                    padding: "4px 8px",
+                    cursor: "pointer",
+                  }}
+                >
+                  Insert Dear Customer
+                </button>
                 <button
                   type="button"
                   onClick={() => insertVar(1)}
@@ -800,35 +1068,102 @@ export default function WhatsAppTemplatesClient() {
             />
           </div>
 
-          <div style={{ display: "grid", gridTemplateColumns: "1fr 1fr 1fr", gap: 12, marginBottom: 16 }}>
-            <div>
-              <label style={labelStyle}>Quick reply button 1</label>
-              <input
-                value={form.button1}
-                onChange={(e) => setForm((f) => ({ ...f, button1: e.target.value }))}
-                placeholder="Optional"
-                style={inputStyle}
-              />
-            </div>
-            <div>
-              <label style={labelStyle}>Quick reply button 2</label>
-              <input
-                value={form.button2}
-                onChange={(e) => setForm((f) => ({ ...f, button2: e.target.value }))}
-                placeholder="Optional"
-                style={inputStyle}
-              />
-            </div>
-            <div>
-              <label style={labelStyle}>Quick reply button 3</label>
-              <input
-                value={form.button3}
-                onChange={(e) => setForm((f) => ({ ...f, button3: e.target.value }))}
-                placeholder="Optional"
-                style={inputStyle}
-              />
-            </div>
+          <div style={{ marginBottom: 12 }}>
+            <label style={labelStyle}>Buttons</label>
+            <select
+              value={form.buttonMode}
+              onChange={(e) =>
+                setForm((f) => ({ ...f, buttonMode: e.target.value as FormState["buttonMode"] }))
+              }
+              style={inputStyle}
+            >
+              <option value="none">No buttons</option>
+              <option value="url">URL buttons (Maps, Instagram, website)</option>
+              <option value="quick_reply">Quick reply buttons</option>
+            </select>
           </div>
+
+          {form.buttonMode === "url" && (
+            <div
+              style={{
+                display: "grid",
+                gridTemplateColumns: "1fr 1fr",
+                gap: 12,
+                marginBottom: 16,
+              }}
+            >
+              <div>
+                <label style={labelStyle}>URL button 1 label</label>
+                <input
+                  value={form.urlButton1Text}
+                  onChange={(e) => setForm((f) => ({ ...f, urlButton1Text: e.target.value }))}
+                  placeholder="Shop Location"
+                  style={inputStyle}
+                />
+              </div>
+              <div>
+                <label style={labelStyle}>URL button 1 link (https)</label>
+                <input
+                  value={form.urlButton1Url}
+                  onChange={(e) => setForm((f) => ({ ...f, urlButton1Url: e.target.value }))}
+                  placeholder="https://maps.app.goo.gl/..."
+                  style={inputStyle}
+                />
+              </div>
+              <div>
+                <label style={labelStyle}>URL button 2 label</label>
+                <input
+                  value={form.urlButton2Text}
+                  onChange={(e) => setForm((f) => ({ ...f, urlButton2Text: e.target.value }))}
+                  placeholder="View on Instagram"
+                  style={inputStyle}
+                />
+              </div>
+              <div>
+                <label style={labelStyle}>URL button 2 link (https)</label>
+                <input
+                  value={form.urlButton2Url}
+                  onChange={(e) => setForm((f) => ({ ...f, urlButton2Url: e.target.value }))}
+                  placeholder="https://www.instagram.com/..."
+                  style={inputStyle}
+                />
+              </div>
+            </div>
+          )}
+
+          {form.buttonMode === "quick_reply" && (
+            <div style={{ display: "grid", gridTemplateColumns: "1fr 1fr 1fr", gap: 12, marginBottom: 16 }}>
+              <div>
+                <label style={labelStyle}>Quick reply button 1</label>
+                <input
+                  value={form.button1}
+                  onChange={(e) => setForm((f) => ({ ...f, button1: e.target.value }))}
+                  placeholder="Optional"
+                  style={inputStyle}
+                />
+              </div>
+              <div>
+                <label style={labelStyle}>Quick reply button 2</label>
+                <input
+                  value={form.button2}
+                  onChange={(e) => setForm((f) => ({ ...f, button2: e.target.value }))}
+                  placeholder="Optional"
+                  style={inputStyle}
+                />
+              </div>
+              <div>
+                <label style={labelStyle}>Quick reply button 3</label>
+                <input
+                  value={form.button3}
+                  onChange={(e) => setForm((f) => ({ ...f, button3: e.target.value }))}
+                  placeholder="Optional"
+                  style={inputStyle}
+                />
+              </div>
+            </div>
+          )}
+
+          {form.buttonMode === "none" && <div style={{ marginBottom: 16 }} />}
 
           <div
             style={{
@@ -842,8 +1177,14 @@ export default function WhatsAppTemplatesClient() {
             <div style={{ fontSize: 12, fontWeight: 600, color: "#15803d", marginBottom: 6 }}>
               Live preview (with sample values)
             </div>
-            {form.headerText.trim() && (
+            {form.headerFormat === "TEXT" && form.headerText.trim() && (
               <div style={{ fontWeight: 600, fontSize: 13, marginBottom: 4 }}>{form.headerText}</div>
+            )}
+            {form.headerFormat !== "none" && form.headerFormat !== "TEXT" && (
+              <div style={{ fontSize: 12, color: "#6b7280", marginBottom: 6 }}>
+                Header: {form.headerFormat}
+                {headerFile ? ` — ${headerFile.name}` : " (upload required)"}
+              </div>
             )}
             <div style={{ fontSize: 13, color: "#374151", whiteSpace: "pre-wrap" }}>
               {previewBody(form) || "Body preview…"}

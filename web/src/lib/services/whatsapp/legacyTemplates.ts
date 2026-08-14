@@ -17,6 +17,8 @@ export const ACTIVE_WHATSAPP_TEMPLATE_NAMES = new Set([
   "new_collection",
   "wedding_season_offer",
   "customer_thank_you",
+  "sale_project",
+  "sale_1",
   "hello_world",
 ]);
 

@@ -30,20 +30,39 @@ import {
   RETURN_SLIP_TEMPLATE_EXAMPLE,
   SLIP_WA_FOOTER,
 } from "./slipMessageCopy";
+import {
+  buildSaleProjectTemplateComponents,
+  SALE_PROJECT_INSTAGRAM_URL,
+  SALE_PROJECT_MAPS_URL,
+  SALE_PROJECT_PHONES,
+  SALE_PROJECT_HEADER,
+  SALE_PROJECT_TEMPLATE_BODY,
+  SALE_PROJECT_TEMPLATE_BODY_EXAMPLE,
+} from "./saleProjectTemplateCopy";
+import {
+  buildSale1TemplateComponents,
+  loadWebRelativeFile,
+} from "./sale1TemplateCopy";
 
 export type SlipTemplateDef = {
   key: string;
   name: string;
   envVar?: string;
   category: "UTILITY" | "MARKETING";
-  /** document = PDF header; url = PDF link button; text = body-only */
-  kind: "document" | "url" | "text";
+  /** document = PDF header; url = PDF link button; text = body-only; image = IMAGE header */
+  kind: "document" | "url" | "text" | "image";
   buttonText?: string;
   /** Path after public base, must end with /{{1}} for URL templates */
   urlPath?: string;
+  /** Repo-relative path under web/ for IMAGE header sample (kind=image) */
+  imageRelativePath?: string;
+  imageMime?: string;
   body: string;
   bodyExample: string[];
   footer?: string;
+  headerText?: string;
+  /** Static URL buttons (no {{1}} suffix) for marketing templates */
+  staticUrlButtons?: Array<{ text: string; url: string }>;
   description: string;
 };
 
@@ -192,6 +211,39 @@ export const SLIP_TEMPLATE_DEFS: SlipTemplateDef[] = [
     bodyExample: ["Customer Name"],
     footer: FOOTER,
     description: "Marketing — thank you / rebooking",
+  },
+  {
+    key: "sale_project",
+    name: "sale_project",
+    envVar: "WA_TEMPLATE_MARKETING_SALE_PROJECT",
+    category: "MARKETING",
+    kind: "text",
+    headerText: SALE_PROJECT_HEADER,
+    body: SALE_PROJECT_TEMPLATE_BODY,
+    bodyExample: SALE_PROJECT_TEMPLATE_BODY_EXAMPLE,
+    footer: SALE_PROJECT_PHONES,
+    staticUrlButtons: [
+      { text: "Shop Location", url: SALE_PROJECT_MAPS_URL },
+      { text: "View on Instagram", url: SALE_PROJECT_INSTAGRAM_URL },
+    ],
+    description: "Marketing — SALE PROJECT (Men's ethnic wear for purchase)",
+  },
+  {
+    key: "sale_1",
+    name: "sale_1",
+    envVar: "WA_TEMPLATE_MARKETING_SALE_1",
+    category: "MARKETING",
+    kind: "image",
+    imageRelativePath: "public/images/whatsapp/sale-1-flyer.png",
+    imageMime: "image/png",
+    body: SALE_PROJECT_TEMPLATE_BODY,
+    bodyExample: SALE_PROJECT_TEMPLATE_BODY_EXAMPLE,
+    footer: SALE_PROJECT_PHONES,
+    staticUrlButtons: [
+      { text: "Shop Location", url: SALE_PROJECT_MAPS_URL },
+      { text: "View on Instagram", url: SALE_PROJECT_INSTAGRAM_URL },
+    ],
+    description: "Marketing — SALE 1 (flyer image + men's ethnic wear message)",
   },
 ];
 
@@ -471,18 +523,100 @@ export async function ensureSlipTemplate(def: SlipTemplateDef): Promise<EnsureOn
     };
   }
 
+  if (def.key === "sale_project") {
+    const created = await createTemplate({
+      name,
+      language,
+      category: def.category,
+      allow_category_change: true,
+      components: buildSaleProjectTemplateComponents(),
+    });
+    if (!created.ok) return { key: def.key, name, ok: false, error: created.error };
+    return {
+      key: def.key,
+      name,
+      ok: true,
+      status: created.status,
+      created: true,
+      message: "SALE PROJECT template submitted to Meta for approval",
+    };
+  }
+
+  if (def.kind === "image") {
+    const rel = def.imageRelativePath || "public/images/whatsapp/sale-1-flyer.png";
+    const mime = def.imageMime || "image/png";
+    let buffer: Buffer;
+    try {
+      buffer = loadWebRelativeFile(rel);
+    } catch (e) {
+      return {
+        key: def.key,
+        name,
+        ok: false,
+        error:
+          `Could not read flyer image at ${rel}: ` +
+          (e instanceof Error ? e.message : "read failed"),
+      };
+    }
+    const ext = mime === "image/jpeg" ? "jpg" : mime === "image/webp" ? "webp" : "png";
+    const handleResult = await uploadTemplateMediaHandle(
+      buffer,
+      `${name}_flyer.${ext}`,
+      mime,
+    );
+    if (!handleResult.ok) {
+      return {
+        key: def.key,
+        name,
+        ok: false,
+        error: `Could not upload flyer for IMAGE template: ${handleResult.error}`,
+      };
+    }
+    const created = await createTemplate({
+      name,
+      language,
+      category: def.category,
+      allow_category_change: true,
+      components: buildSale1TemplateComponents(handleResult.handle),
+    });
+    if (!created.ok) return { key: def.key, name, ok: false, error: created.error };
+    return {
+      key: def.key,
+      name,
+      ok: true,
+      status: created.status,
+      created: true,
+      message: "SALE 1 image template submitted to Meta for approval",
+    };
+  }
+
   const created = await createTemplate({
     name,
     language,
     category: def.category,
     allow_category_change: true,
     components: [
+      ...(def.headerText
+        ? [{ type: "HEADER", format: "TEXT", text: def.headerText.slice(0, 60) }]
+        : []),
       {
         type: "BODY",
         text: def.body,
         example: { body_text: [def.bodyExample] },
       },
       ...(def.footer ? [{ type: "FOOTER", text: def.footer }] : []),
+      ...(def.staticUrlButtons?.length
+        ? [
+            {
+              type: "BUTTONS",
+              buttons: def.staticUrlButtons.map((b) => ({
+                type: "URL",
+                text: b.text.slice(0, 25),
+                url: b.url.slice(0, 2000),
+              })),
+            },
+          ]
+        : []),
     ],
   });
   if (!created.ok) return { key: def.key, name, ok: false, error: created.error };

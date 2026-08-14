@@ -19,7 +19,11 @@ type MetaTemplateComponent = {
   type: "HEADER" | "BODY" | "FOOTER" | "BUTTONS";
   text?: string;
   format?: "TEXT" | "IMAGE" | "VIDEO" | "DOCUMENT";
-  example?: { body_text?: string[][]; header_text?: string[] };
+  example?: {
+    body_text?: string[][];
+    header_text?: string[];
+    header_handle?: string[];
+  };
   buttons?: Array<
     | { type: "QUICK_REPLY"; text: string }
     | { type: "URL"; text: string; url: string }
@@ -59,6 +63,14 @@ function validateComponents(components: MetaTemplateComponent[]): string | null 
   for (const c of components) {
     if (c.type === "HEADER" && c.format === "TEXT" && !c.text?.trim()) {
       return "HEADER with TEXT format requires text.";
+    }
+    if (
+      c.type === "HEADER" &&
+      c.format &&
+      c.format !== "TEXT" &&
+      !c.example?.header_handle?.length
+    ) {
+      return `HEADER with ${c.format} format requires example.header_handle from media upload.`;
     }
     if (c.type === "BUTTONS") {
       if (!c.buttons?.length) return "BUTTONS component requires at least one button.";
@@ -133,12 +145,19 @@ export async function POST(req: NextRequest) {
     name: body.name.trim().toLowerCase(),
     language,
     category,
+    allow_category_change: true,
     components: body.components.map((c) => {
       if (c.type === "HEADER") {
+        const format = c.format || "TEXT";
+        if (format === "TEXT") {
+          return { type: "HEADER", format: "TEXT", text: c.text?.trim() };
+        }
         return {
           type: "HEADER",
-          format: c.format || "TEXT",
-          ...(c.format === "TEXT" || !c.format ? { text: c.text?.trim() } : {}),
+          format,
+          ...(c.example?.header_handle?.length
+            ? { example: { header_handle: c.example.header_handle } }
+            : {}),
         };
       }
       if (c.type === "BODY") {

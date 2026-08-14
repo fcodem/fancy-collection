@@ -56,6 +56,13 @@ export function BookingRecordDetails({
   const remDue =
     remainingCollected != null ? Math.max(0, d.total_remaining - remainingCollected) : null;
 
+  const dressRows =
+    items.length > 0
+      ? items.map((item) => item.display_name).filter(Boolean)
+      : d.dress_names && d.dress_names !== "—"
+        ? [d.dress_names]
+        : [];
+
   const activeOrders = orders ?? [];
   const hasOrders = activeOrders.length > 0;
   const ordersCost = activeOrders.reduce((s, o) => s + (o.cost || 0), 0);
@@ -95,7 +102,32 @@ export function BookingRecordDetails({
         <Field label="Venue" value={d.venue} />
         <Field label="Delivery" value={`${d.delivery_date} ${d.delivery_time}`} />
         <Field label="Return" value={`${d.return_date} ${d.return_time}`} />
-        <Field label="Dress" value={d.dress_names} />
+        <div style={{ gridColumn: "1 / -1" }}>
+          <Field
+            label="Dress"
+            value={
+              dressRows.length ? (
+                <ol
+                  style={{
+                    margin: 0,
+                    paddingLeft: 20,
+                    lineHeight: 1.45,
+                    display: "grid",
+                    gap: 4,
+                  }}
+                >
+                  {dressRows.map((name, idx) => (
+                    <li key={`${idx}-${name}`}>
+                      <strong style={{ fontWeight: 600 }}>{idx + 1}.</strong> {name}
+                    </li>
+                  ))}
+                </ol>
+              ) : (
+                "—"
+              )
+            }
+          />
+        </div>
         <Field label="Total Rent" value={<span style={{ fontWeight: 700, color: "var(--primary)" }}>₹{formatInr(d.total_rent)}</span>} />
         <Field label="Advance" value={<span style={{ color: "var(--success)", fontWeight: 600 }}>₹{formatInr(d.total_advance)}</span>} />
         <Field
@@ -174,6 +206,7 @@ export function BookingRecordDetails({
         <table className="data-table" style={{ marginTop: compact ? 12 : 16 }}>
           <thead>
             <tr>
+              <th style={{ width: 36 }}>#</th>
               <th>Dress</th>
               <th>Price</th>
               <th>Advance</th>
@@ -189,6 +222,7 @@ export function BookingRecordDetails({
               return (
                 <Fragment key={i}>
                   <tr>
+                    <td style={{ fontWeight: 700, color: "var(--text-muted)" }}>{i + 1}</td>
                     <td>{item.display_name}</td>
                     <td>₹{formatInr(item.price)}</td>
                     <td>₹{formatInr(item.advance)}</td>
@@ -197,7 +231,7 @@ export function BookingRecordDetails({
                   </tr>
                   {dressWarnings && (
                     <tr>
-                      <td colSpan={5} style={{ paddingTop: 0, paddingBottom: 12, borderTop: "none" }}>
+                      <td colSpan={6} style={{ paddingTop: 0, paddingBottom: 12, borderTop: "none" }}>
                         <BookingItemWarningsBlock item={dressWarnings} />
                       </td>
                     </tr>
