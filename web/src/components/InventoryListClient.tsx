@@ -121,6 +121,8 @@ export default function InventoryListClient({
   const [mensSizes, setMensSizes] = useState<Record<string, MensSizeSummary[] | "loading">>({});
   const [mensAddSize, setMensAddSize] = useState<Record<string, string>>({});
   const [mensAddQty, setMensAddQty] = useState<Record<string, string>>({});
+  /** Draft unit counts while editing size qty: `${groupKey}:${size}` → string */
+  const [mensQtyEdit, setMensQtyEdit] = useState<Record<string, string>>({});
   const [mensBusy, setMensBusy] = useState<string | null>(null);
   const [lightbox, setLightbox] = useState<{ src: string; caption: string } | null>(null);
   const [drawer, setDrawer] = useState<InventoryGroupSummary | null>(null);
@@ -470,8 +472,52 @@ export default function InventoryListClient({
         return;
       }
       cache.clear();
+      setMensQtyEdit((prev) => {
+        const next = { ...prev };
+        delete next[`${g.groupKey}:${size}`];
+        return next;
+      });
       await refreshMensSizes(g, survivor?.primaryId);
       showToast(`Size ${size} removed`, "success");
+    } finally {
+      setMensBusy(null);
+    }
+  }
+
+  async function saveMensSizeQuantity(g: InventoryGroupSummary, sz: MensSizeSummary) {
+    const key = `${g.groupKey}:${sz.size}`;
+    const quantity = Math.max(1, Math.min(Number(mensQtyEdit[key] ?? sz.totalQuantity) || 1, 50));
+    if (quantity === sz.totalQuantity) {
+      showToast("Quantity unchanged", "info");
+      return;
+    }
+    if (quantity < sz.totalQuantity) {
+      const drop = sz.totalQuantity - quantity;
+      if (
+        !confirm(
+          `Reduce size ${sz.size} from ${sz.totalQuantity} to ${quantity} unit(s)? ${drop} unit(s) will be deleted.`,
+        )
+      ) {
+        return;
+      }
+    }
+    setMensBusy(`${g.groupKey}:qty:${sz.size}`);
+    try {
+      const res = await fetch(`/api/inventory/${g.primaryId}/mens-sizes`, {
+        method: "POST",
+        credentials: "same-origin",
+        headers: { "content-type": "application/json" },
+        body: JSON.stringify({ action: "set-quantity", size: sz.size, quantity }),
+      });
+      const data = await res.json().catch(() => ({}));
+      if (!res.ok) {
+        showToast((data as { error?: string }).error || "Could not update quantity", "error");
+        return;
+      }
+      cache.clear();
+      setMensQtyEdit((prev) => ({ ...prev, [key]: String(quantity) }));
+      await refreshMensSizes(g);
+      showToast(`Size ${sz.size} set to ${quantity} unit${quantity === 1 ? "" : "s"}`, "success");
     } finally {
       setMensBusy(null);
     }
@@ -774,10 +820,14 @@ export default function InventoryListClient({
                   style={{ padding: "12px", borderTop: "1px solid var(--border)" }}
                 >
                   <div style={{ fontWeight: 600, marginBottom: 8, fontSize: 13 }}>
-                    Sizes — edit or remove from this product
+                    Sizes — change units, add, or remove
                   </div>
                   <div style={{ display: "grid", gap: 8 }}>
-                    {sizePanel.map((sz) => (
+                    {sizePanel.map((sz) => {
+                      const qtyKey = `${g.groupKey}:${sz.size}`;
+                      const draftQty = mensQtyEdit[qtyKey] ?? String(sz.totalQuantity);
+                      const qtyDirty = Number(draftQty) !== sz.totalQuantity;
+                      return (
                       <div
                         key={`${sz.groupKey}-${sz.size}`}
                         style={{
@@ -792,13 +842,55 @@ export default function InventoryListClient({
                           border: "1px solid var(--border)",
                         }}
                       >
-                        <div>
+                        <div style={{ minWidth: 0, flex: "1 1 160px" }}>
                           <strong>Size {sz.size}</strong>
                           <div style={{ fontSize: 12, color: "var(--text-muted)" }}>
                             {sz.primarySku} · {sz.availableQuantity}/{sz.totalQuantity} avail
                           </div>
                         </div>
-                        <div style={{ display: "flex", flexWrap: "wrap", gap: 6 }}>
+                        <div style={{ display: "flex", flexWrap: "wrap", gap: 6, alignItems: "center" }}>
+                          {isOwner ? (
+                            <>
+                              <label
+                                style={{
+                                  display: "inline-flex",
+                                  alignItems: "center",
+                                  gap: 6,
+                                  fontSize: 12,
+                                  color: "var(--text-muted)",
+                                }}
+                              >
+                                Units
+                                <input
+                                  type="number"
+                                  min={1}
+                                  max={50}
+                                  className="form-control"
+                                  style={{ width: 72 }}
+                                  value={draftQty}
+                                  onChange={(e) =>
+                                    setMensQtyEdit((prev) => ({
+                                      ...prev,
+                                      [qtyKey]: e.target.value,
+                                    }))
+                                  }
+                                  aria-label={`Units for size ${sz.size}`}
+                                />
+                              </label>
+                              <button
+                                type="button"
+                                className="btn btn-sm btn-primary"
+                                disabled={
+                                  !qtyDirty || mensBusy === `${g.groupKey}:qty:${sz.size}`
+                                }
+                                onClick={() => void saveMensSizeQuantity(g, sz)}
+                              >
+                                {mensBusy === `${g.groupKey}:qty:${sz.size}`
+                                  ? "Saving…"
+                                  : "Save qty"}
+                              </button>
+                            </>
+                          ) : null}
                           <PrefetchOnIntentLink
                             href={`/inventory/${sz.primaryId}`}
                             className="btn btn-sm btn-outline"
@@ -820,7 +912,8 @@ export default function InventoryListClient({
                           ) : null}
                         </div>
                       </div>
-                    ))}
+                      );
+                    })}
                     {!sizePanel.length ? (
                       <p style={{ margin: 0, fontSize: 13, color: "var(--text-muted)" }}>
                         No sizes found for this product.

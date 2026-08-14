@@ -6,6 +6,7 @@ import {
   addMensProductSize,
   deleteMensProduct,
   removeMensProductSize,
+  setMensProductSizeQuantity,
 } from "@/lib/services/inventoryOps";
 import { generateDefaultScanCodesInTx } from "@/lib/services/inventoryScanCode";
 import { invalidateInventoryListCaches } from "@/lib/inventoryCacheTags";
@@ -104,6 +105,35 @@ export async function POST(
       });
     }
 
+    if (action === "set-quantity") {
+      const result = await setMensProductSizeQuantity({
+        seedItemId: seedId,
+        size,
+        quantity: body.quantity ?? 1,
+        by: user.username,
+      });
+      if (result.addedIds.length) {
+        after(async () => {
+          for (const id of result.addedIds) {
+            await prisma
+              .$transaction((tx) => generateDefaultScanCodesInTx(tx, id))
+              .catch((e) => console.error("[mens-sizes] scan code gen failed:", e));
+          }
+          invalidateInventoryListCaches();
+        });
+      } else {
+        invalidateInventoryListCaches();
+      }
+      return jsonOk({
+        ok: true,
+        action: "set-quantity",
+        size: result.size,
+        quantity: result.quantity,
+        addedIds: result.addedIds,
+        deletedIds: result.deletedIds,
+      });
+    }
+
     if (action === "remove") {
       const result = await removeMensProductSize({
         seedItemId: seedId,
@@ -119,7 +149,10 @@ export async function POST(
       });
     }
 
-    return jsonError('action must be "add", "remove", or "delete-product".', 400);
+    return jsonError(
+      'action must be "add", "remove", "set-quantity", or "delete-product".',
+      400,
+    );
   } catch (e) {
     return jsonError(e instanceof Error ? e.message : "Size update failed.", 400);
   }

@@ -18,6 +18,9 @@ import { generateBookingQrToken } from "../bookingQr";
 import { trackBookingPrivateMedia } from "../bookingPrivateMediaTracking";
 import { BOOKING_PRIVATE_MEDIA_TYPES } from "../bookingPrivateMediaTypes";
 
+/** Interactive booking writes hold advisory locks — allow headroom on serverless + pooler. */
+const BOOKING_TX = { maxWait: 10_000, timeout: 30_000 } as const;
+
 export type BookingItemInput = {
   item_id: number;
   dress_name: string;
@@ -219,7 +222,7 @@ export async function createBooking(
     }
 
     return updated;
-  });
+  }, BOOKING_TX);
 
   broadcastShopEvent({ type: "booking.created", bookingId: booking.id, status: booking.status, by });
 
@@ -295,6 +298,12 @@ export async function updateBooking(bookingId: number, input: BookingFormInput, 
   const totalRemaining = totalPrice - totalAdvance;
   const staffNames = (input.staff_names || []).filter(Boolean).join(", ");
 
+  const oldItemsByItemId = new Map(
+    booking.bookingItems
+      .filter((bi) => bi.itemId != null)
+      .map((bi) => [bi.itemId!, bi]),
+  );
+
   await prisma.$transaction(async (tx) => {
     await lockInventoryItemsForBooking(tx, itemIds);
     throwIfConflict(
@@ -330,9 +339,10 @@ export async function updateBooking(bookingId: number, input: BookingFormInput, 
 
     await tx.bookingItem.deleteMany({ where: { bookingId } });
 
-    for (const { item, row } of itemsToBook) {
-      await tx.bookingItem.create({
-        data: {
+    await tx.bookingItem.createMany({
+      data: itemsToBook.map(({ item, row }) => {
+        const prev = oldItemsByItemId.get(item.id);
+        return {
           bookingId,
           itemId: item.id,
           dressName: row.dress_name,
@@ -342,18 +352,47 @@ export async function updateBooking(bookingId: number, input: BookingFormInput, 
           advance: row.advance,
           remaining: row.price - row.advance,
           notes: row.notes || null,
-        },
-      });
-      await tx.clothingItem.update({ where: { id: item.id }, data: { status: "rented" } });
-    }
+          ...(prev
+            ? {
+                preparedBy: prev.preparedBy,
+                checkedBy: prev.checkedBy,
+                isPackedReady: prev.isPackedReady,
+                packingNote: prev.packingNote,
+                isDelivered: prev.isDelivered,
+                deliveredAt: prev.deliveredAt,
+                itemRemainingCollected: prev.itemRemainingCollected,
+                itemSecurityCollected: prev.itemSecurityCollected,
+                itemDeliveryNotes: prev.itemDeliveryNotes,
+                isReturned: prev.isReturned,
+                isIncompleteReturn: prev.isIncompleteReturn,
+                itemIncompleteNotes: prev.itemIncompleteNotes,
+                itemIncompletePhoto: prev.itemIncompletePhoto,
+                itemSecurityHeld: prev.itemSecurityHeld,
+                deliverySlipNotifiedAt: prev.deliverySlipNotifiedAt,
+                returnSlipNotifiedAt: prev.returnSlipNotifiedAt,
+                isCancelled: prev.isCancelled,
+                cancelledAt: prev.cancelledAt,
+                cancelRefundAmount: prev.cancelRefundAmount,
+              }
+            : {}),
+        };
+      }),
+    });
+
+    await tx.clothingItem.updateMany({
+      where: { id: { in: itemIds } },
+      data: { status: "rented" },
+    });
 
     const freedIds = [...oldItemIds].filter((id) => !newItemIds.has(id));
     if (freedIds.length) {
       const stillUsed = await findItemIdsStillInActiveBookings(freedIds, bookingId, tx);
-      for (const freedId of freedIds) {
-        if (!stillUsed.has(freedId)) {
-          await tx.clothingItem.update({ where: { id: freedId }, data: { status: "available" } });
-        }
+      const releaseIds = freedIds.filter((id) => !stillUsed.has(id));
+      if (releaseIds.length) {
+        await tx.clothingItem.updateMany({
+          where: { id: { in: releaseIds } },
+          data: { status: "available" },
+        });
       }
     }
 
@@ -412,7 +451,7 @@ export async function updateBooking(bookingId: number, input: BookingFormInput, 
         },
       });
     }
-  });
+  }, BOOKING_TX);
 
   const updated = await prisma.booking.findUnique({ where: { id: bookingId }, include: { bookingItems: true } });
   if (updated) {

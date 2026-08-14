@@ -740,6 +740,140 @@ export async function addMensProductSize(opts: {
   };
 }
 
+function unitIndexFromName(name: string): number {
+  const match = name.match(/\s+#(\d+)$/);
+  return match ? Number(match[1]) : 1;
+}
+
+/**
+ * Set total unit count for one size on a men's product (add or remove units).
+ * Cannot go below 1 — use remove size for that. Won't delete rented / booked units.
+ */
+export async function setMensProductSizeQuantity(opts: {
+  seedItemId: number;
+  size: string;
+  quantity: number;
+  by?: string;
+}) {
+  const size = String(opts.size || "").trim();
+  if (!size) throw new Error("Size is required.");
+  const targetQty = Math.max(1, Math.min(Number(opts.quantity) || 1, 50));
+
+  const seed = await prisma.clothingItem.findUnique({ where: { id: opts.seedItemId } });
+  if (!seed) throw new Error("Product not found.");
+  if (!MENS_CATEGORIES.includes(seed.category)) {
+    throw new Error("Edit quantity is only supported for men's categories.");
+  }
+
+  const baseName = seed.name.replace(/\s+#\d+$/, "").trim();
+  const candidates = await prisma.clothingItem.findMany({
+    where: { category: seed.category, size },
+    take: 200,
+  });
+  const sizeUnits = candidates.filter(
+    (r) => r.name.replace(/\s+#\d+$/, "").trim().toLowerCase() === baseName.toLowerCase(),
+  );
+  if (!sizeUnits.length) throw new Error(`Size ${size} was not found on this product.`);
+
+  const currentQty = sizeUnits.length;
+  if (targetQty === currentQty) {
+    return {
+      size,
+      quantity: currentQty,
+      addedIds: [] as number[],
+      deletedIds: [] as number[],
+    };
+  }
+
+  if (targetQty > currentQty) {
+    const need = targetQty - currentQty;
+    const template = [...sizeUnits].sort((a, b) => b.id - a.id)[0]!;
+    const sizeGroupId = template.inventoryGroupId || generateUuidV4();
+    const maxIdx = Math.max(...sizeUnits.map((u) => unitIndexFromName(u.name)));
+    const created = await prisma.$transaction(async (tx) => {
+      if (!template.inventoryGroupId) {
+        await tx.clothingItem.updateMany({
+          where: { id: { in: sizeUnits.map((u) => u.id) } },
+          data: { inventoryGroupId: sizeGroupId },
+        });
+      }
+      const skus = await allocateInventorySkus(need, tx);
+      const rows = Array.from({ length: need }, (_, idx) => {
+        const unit = maxIdx + 1 + idx;
+        return {
+          name: formatUnitName(baseName, unit),
+          sku: skus[idx]!,
+          category: template.category,
+          size,
+          color: template.color || "",
+          dailyRate: template.dailyRate,
+          deposit: template.deposit,
+          conditionNotes: template.conditionNotes || "",
+          itemType: template.itemType || "clothing",
+          photo: template.photo || null,
+          thumbnailPhoto: template.thumbnailPhoto ?? null,
+          originalPhoto: template.originalPhoto || template.photo || null,
+          subCategory: template.subCategory || "Normal",
+          hasNecklace: template.hasNecklace,
+          hasEarrings: template.hasEarrings,
+          hasTeeka: template.hasTeeka,
+          hasPasa: template.hasPasa,
+          hasSheeshpatti: template.hasSheeshpatti,
+          hasNath: template.hasNath,
+          hasHathfool: template.hasHathfool,
+          hasKamarband: template.hasKamarband,
+          hasRings: template.hasRings,
+          hasLongHar: template.hasLongHar,
+          inventoryGroupId: sizeGroupId,
+        };
+      });
+      return tx.clothingItem.createManyAndReturn({ data: rows });
+    });
+
+    const addedIds = created.map((c) => c.id);
+    broadcastShopEvent({ type: "inventory.changed", itemIds: addedIds, by: opts.by });
+    for (const item of created) {
+      void logActivity({
+        username: opts.by || "system",
+        action: "created",
+        entity: "inventory",
+        entityId: item.id,
+        label: `Increased size ${size} qty on ${baseName} (+1 unit)`,
+        after: snapshotInventory(item as unknown as Record<string, unknown>),
+      });
+    }
+    return { size, quantity: targetQty, addedIds, deletedIds: [] as number[] };
+  }
+
+  const toRemove = currentQty - targetQty;
+  // Prefer deleting free units first; never delete rented.
+  const removable = [...sizeUnits]
+    .filter((u) => u.status !== "rented")
+    .sort((a, b) => {
+      const rank = (s: string) => (s === "available" ? 0 : s === "maintenance" ? 1 : 2);
+      const d = rank(a.status) - rank(b.status);
+      if (d !== 0) return d;
+      return b.id - a.id;
+    });
+
+  if (removable.length < toRemove) {
+    const rented = sizeUnits.filter((u) => u.status === "rented").length;
+    throw new Error(
+      `Cannot reduce size ${size} to ${targetQty}: only ${removable.length} unit(s) can be removed` +
+        (rented ? ` (${rented} rented)` : "") +
+        `.`,
+    );
+  }
+
+  const deleteList = removable.slice(0, toRemove);
+  const deletedIds: number[] = [];
+  for (const item of deleteList) {
+    await deleteInventoryItem(item.id, opts.by);
+    deletedIds.push(item.id);
+  }
+  return { size, quantity: targetQty, addedIds: [] as number[], deletedIds };
+}
+
 /**
  * Remove one size from a men's product (all units of that size).
  */
