@@ -306,32 +306,34 @@ export default function WhatsAppBroadcastClient() {
             {loadingTemplates ? (
               <div style={{ fontSize: 13, color: "#9ca3af" }}>Loading templates...</div>
             ) : (
-              <select
-                value={form.templateName}
-                onChange={(e) => {
-                  const name = e.target.value;
-                  const t = templates.find((x) => x.name === name);
-                  setForm((f) => ({
-                    ...f,
-                    templateName: name,
-                    templateLanguage: t?.language || f.templateLanguage || "en",
-                  }));
-                }}
-                style={inputStyle}
-              >
-                <option value="">Select approved marketing template...</option>
-                {templates.map((t) => (
-                  <option key={t.id} value={t.name}>
-                    {t.name} ({t.language})
-                  </option>
-                ))}
-              </select>
-              {!loadingTemplates && templates.length === 0 && (
-                <p style={{ fontSize: 12, color: "#9ca3af", margin: "6px 0 0 0" }}>
-                  No approved marketing templates yet. Create one under WhatsApp → Templates, wait for
-                  APPROVED, then Refresh.
-                </p>
-              )}
+              <>
+                <select
+                  value={form.templateName}
+                  onChange={(e) => {
+                    const name = e.target.value;
+                    const t = templates.find((x) => x.name === name);
+                    setForm((f) => ({
+                      ...f,
+                      templateName: name,
+                      templateLanguage: t?.language || f.templateLanguage || "en",
+                    }));
+                  }}
+                  style={inputStyle}
+                >
+                  <option value="">Select approved marketing template...</option>
+                  {templates.map((t) => (
+                    <option key={t.id} value={t.name}>
+                      {t.name} ({t.language})
+                    </option>
+                  ))}
+                </select>
+                {templates.length === 0 && (
+                  <p style={{ fontSize: 12, color: "#9ca3af", margin: "6px 0 0 0" }}>
+                    No approved marketing templates yet. Create one under WhatsApp → Templates, wait for
+                    APPROVED, then Refresh.
+                  </p>
+                )}
+              </>
             )}
           </div>
 
