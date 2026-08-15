@@ -976,10 +976,14 @@ async function runSaveDeliveryInTx(
 
     const totalRemaining = refreshed.bookingItems.reduce((s, bi) => s + bi.itemRemainingCollected, 0);
     const totalSecurity = refreshed.bookingItems.reduce((s, bi) => s + bi.itemSecurityCollected, 0);
-    const newNotes = refreshed.bookingItems
+    const itemNotesJoined = refreshed.bookingItems
       .map((bi) => (bi.itemDeliveryNotes ? `${bi.dressName}: ${bi.itemDeliveryNotes}` : null))
       .filter(Boolean)
       .join(" | ");
+    const commonNote = (data.delivery_notes || "").trim();
+    // Prefer explicit common note for the booking (shown on return); keep per-dress notes on items.
+    const mergedDeliveryNotes =
+      commonNote || itemNotesJoined || locked.deliveryNotes;
 
     const dressIsOut =
       refreshed.bookingItems.some((bi) => bi.isDelivered && !bi.isCancelled) ||
@@ -1009,7 +1013,7 @@ async function runSaveDeliveryInTx(
           remainingCollected: totalRemaining,
           securityCollected: totalSecurity,
           securityHeld: nextSecurityHeld,
-          deliveryNotes: newNotes || data.delivery_notes || locked.deliveryNotes,
+          deliveryNotes: mergedDeliveryNotes,
           remainingPaymentMode: resolveRemainingPaymentMode(totalRemaining),
           securityPaymentMode: resolveSecurityPaymentMode(totalSecurity),
           ...(allActiveDelivered

@@ -88,22 +88,30 @@ export async function GET(_req: NextRequest) {
   if (!creds) return jsonError("WhatsApp credentials not configured", 500);
 
   try {
-    const res = await fetch(
+    const templates: MetaTemplate[] = [];
+    let url: string | null =
       `https://graph.facebook.com/${creds.apiVersion}/${creds.wabaid}/message_templates` +
-        `?fields=name,status,category,language,components&limit=100`,
-      { headers: { Authorization: `Bearer ${creds.token}` } },
-    );
+      `?fields=name,status,category,language,components&limit=100`;
 
-    const data = (await res.json()) as {
-      data?: MetaTemplate[];
-      error?: { message: string };
-    };
-
-    if (!res.ok) {
-      return jsonError(data.error?.message || "Meta API error", 500);
+    while (url) {
+      const res = await fetch(url, {
+        headers: { Authorization: `Bearer ${creds.token}` },
+      });
+      const data = (await res.json()) as {
+        data?: MetaTemplate[];
+        paging?: { next?: string };
+        error?: { message: string };
+      };
+      if (!res.ok) {
+        return jsonError(data.error?.message || "Meta API error", 500);
+      }
+      templates.push(...(data.data || []));
+      url = data.paging?.next || null;
+      // Safety: don't follow more than 10 pages
+      if (templates.length >= 1000) break;
     }
 
-    return jsonOk({ templates: data.data || [] });
+    return jsonOk({ templates });
   } catch (e) {
     return jsonError(e instanceof Error ? e.message : "Failed to fetch templates", 500);
   }

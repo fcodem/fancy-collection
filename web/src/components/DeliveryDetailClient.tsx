@@ -165,6 +165,10 @@ export default function DeliveryDetailClient({
   });
   const [cancellingId, setCancellingId] = useState<number | null>(null);
   const [cancelBusy, setCancelBusy] = useState(false);
+  const [commonDeliveryNote, setCommonDeliveryNote] = useState(booking.deliveryNotes || "");
+  const [showSplitDialog, setShowSplitDialog] = useState(false);
+  const [splitRemaining, setSplitRemaining] = useState("");
+  const [splitSecurity, setSplitSecurity] = useState("");
 
   useEffect(() => {
     setLocalItems(initialItems);
@@ -203,6 +207,56 @@ export default function DeliveryDetailClient({
   const pendingItems = localItems.filter((it) => !it.isDelivered && !it.isCancelled);
   const selectedPendingIds = pendingItems.filter((it) => selectedToDeliver[it.id]).map((it) => it.id);
   const selectedPendingCount = selectedPendingIds.length;
+  const formTotals = selectedPendingIds.reduce(
+    (acc, id) => {
+      acc.remaining += Number(itemForms[id]?.remaining) || 0;
+      acc.security += Number(itemForms[id]?.security) || 0;
+      return acc;
+    },
+    { remaining: 0, security: 0 },
+  );
+  const bookingRemainingDue = Math.max(
+    0,
+    Number(booking.totalRemaining ?? booking.remaining ?? 0) - Number(booking.remainingCollected || 0),
+  );
+
+  function applySplitTotals() {
+    const ids = selectedPendingIds.length ? selectedPendingIds : pendingItems.map((it) => it.id);
+    if (!ids.length) {
+      setError("Select at least one dress to divide amounts.");
+      return;
+    }
+    const remTotal = Math.max(0, Math.round(Number(splitRemaining) || 0));
+    const secTotal = Math.max(0, Math.round(Number(splitSecurity) || 0));
+    const n = ids.length;
+    const remBase = Math.floor(remTotal / n);
+    const remExtra = remTotal - remBase * n;
+    const secBase = Math.floor(secTotal / n);
+    const secExtra = secTotal - secBase * n;
+    setItemForms((prev) => {
+      const next = { ...prev };
+      ids.forEach((id, i) => {
+        next[id] = {
+          remaining: String(remBase + (i < remExtra ? 1 : 0)),
+          security: String(secBase + (i < secExtra ? 1 : 0)),
+          notes: next[id]?.notes || "",
+        };
+      });
+      return next;
+    });
+    if (!selectedPendingIds.length) {
+      setSelectedToDeliver((prev) => {
+        const next = { ...prev };
+        for (const id of ids) next[id] = true;
+        return next;
+      });
+    }
+    setShowSplitDialog(false);
+    toast(
+      `Divided ₹${remTotal} remaining + ₹${secTotal} security across ${n} dress${n === 1 ? "" : "es"}`,
+      "success",
+    );
+  }
   const cancelledItems = localItems.filter((it) => it.isCancelled);
 
   function toggleDeliverSelect(id: number, selected: boolean) {
@@ -320,11 +374,12 @@ export default function DeliveryDetailClient({
       operation_id: operationId,
       payment_mode: paymentMode,
       security_payment_mode: securityPaymentMode,
+      delivery_notes: commonDeliveryNote.trim(),
       items: [{
         booking_item_id: itemId,
         remaining_collected: Number(itemForms[itemId]?.remaining) || 0,
         security_collected: Number(itemForms[itemId]?.security) || 0,
-        delivery_notes: itemForms[itemId]?.notes || "",
+        delivery_notes: (itemForms[itemId]?.notes || "").trim() || commonDeliveryNote.trim(),
         mark_delivered: !it.isDelivered,
         update_only: it.isDelivered && editingDelivered[itemId],
       }],
@@ -395,11 +450,12 @@ export default function DeliveryDetailClient({
       slip_finalize: true,
       payment_mode: paymentMode,
       security_payment_mode: securityPaymentMode,
+      delivery_notes: commonDeliveryNote.trim(),
       items: ids.map((id) => ({
         booking_item_id: id,
         remaining_collected: Number(itemForms[id]?.remaining) || 0,
         security_collected: Number(itemForms[id]?.security) || 0,
-        delivery_notes: itemForms[id]?.notes || "",
+        delivery_notes: (itemForms[id]?.notes || "").trim() || commonDeliveryNote.trim(),
         mark_delivered: true,
       })),
     };
@@ -468,11 +524,12 @@ export default function DeliveryDetailClient({
       operation_id: operationId,
       payment_mode: paymentMode,
       security_payment_mode: securityPaymentMode,
+      delivery_notes: commonDeliveryNote.trim(),
       items: ids.map((id) => ({
         booking_item_id: id,
         remaining_collected: Number(itemForms[id]?.remaining) || 0,
         security_collected: Number(itemForms[id]?.security) || 0,
-        delivery_notes: itemForms[id]?.notes || "",
+        delivery_notes: (itemForms[id]?.notes || "").trim() || commonDeliveryNote.trim(),
         mark_delivered: false,
       })),
     };
@@ -933,8 +990,163 @@ export default function DeliveryDetailClient({
                 label="Security Deposit Payment Mode *"
                 name="deliverySecurityPaymentMode"
               />
+              {pendingItems.length > 1 && (
+                <div
+                  style={{
+                    display: "grid",
+                    gridTemplateColumns: "1fr 1fr",
+                    gap: 12,
+                    padding: 12,
+                    background: "#fff",
+                    borderRadius: 8,
+                    border: "1px solid var(--border, #e5e7eb)",
+                  }}
+                >
+                  <div>
+                    <div style={{ fontSize: 11, fontWeight: 700, color: "var(--text-muted)", letterSpacing: "0.04em" }}>
+                      TOTAL PAYMENT (SELECTED)
+                    </div>
+                    <div style={{ fontSize: 18, fontWeight: 700, color: "var(--text)" }}>
+                      ₹{formatInr(formTotals.remaining)}
+                    </div>
+                    <div style={{ fontSize: 11, color: "var(--text-muted)", marginTop: 2 }}>
+                      Booking remaining due ≈ ₹{formatInr(bookingRemainingDue)}
+                    </div>
+                  </div>
+                  <div>
+                    <div style={{ fontSize: 11, fontWeight: 700, color: "var(--text-muted)", letterSpacing: "0.04em" }}>
+                      TOTAL SECURITY (SELECTED)
+                    </div>
+                    <div style={{ fontSize: 18, fontWeight: 700, color: "var(--text)" }}>
+                      ₹{formatInr(formTotals.security)}
+                    </div>
+                    <div style={{ fontSize: 11, color: "var(--text-muted)", marginTop: 2 }}>
+                      Deposit on booking ₹{formatInr(booking.securityDeposit ?? 0)}
+                    </div>
+                  </div>
+                  <div style={{ gridColumn: "1 / -1" }}>
+                    <button
+                      type="button"
+                      className="btn btn-outline btn-sm"
+                      disabled={saving}
+                      onClick={() => {
+                        const ids = selectedPendingIds.length
+                          ? selectedPendingIds
+                          : pendingItems.map((it) => it.id);
+                        const remHint =
+                          formTotals.remaining > 0
+                            ? formTotals.remaining
+                            : Math.round(bookingRemainingDue);
+                        const secHint =
+                          formTotals.security > 0
+                            ? formTotals.security
+                            : Math.round(Number(booking.securityDeposit ?? 0));
+                        setSplitRemaining(String(remHint || ""));
+                        setSplitSecurity(String(secHint || ""));
+                        if (!selectedPendingIds.length && ids.length) {
+                          setSelectedToDeliver((prev) => {
+                            const next = { ...prev };
+                            for (const id of ids) next[id] = true;
+                            return next;
+                          });
+                        }
+                        setShowSplitDialog(true);
+                      }}
+                    >
+                      <i className="fa-solid fa-divide" style={{ marginRight: 6 }} />
+                      Enter totals &amp; divide across dresses
+                    </button>
+                  </div>
+                </div>
+              )}
+              <div>
+                <label className="form-label">Common delivery note (all dresses)</label>
+                <textarea
+                  className="form-control"
+                  rows={2}
+                  value={commonDeliveryNote}
+                  onChange={(e) => setCommonDeliveryNote(e.target.value)}
+                  placeholder="Shown on return record for this booking…"
+                  disabled={saving}
+                />
+                <div style={{ fontSize: 11, color: "var(--text-muted)", marginTop: 4 }}>
+                  Saved on the booking and each delivered dress. Visible on the return page.
+                </div>
+              </div>
             </div>
           )}
+
+          {showSplitDialog && !allDelivered && (
+            <div
+              role="dialog"
+              aria-modal="true"
+              style={{
+                position: "fixed",
+                inset: 0,
+                zIndex: 80,
+                background: "rgba(0,0,0,0.45)",
+                display: "flex",
+                alignItems: "center",
+                justifyContent: "center",
+                padding: 16,
+              }}
+              onClick={() => setShowSplitDialog(false)}
+            >
+              <div
+                className="card"
+                style={{ width: "100%", maxWidth: 420, margin: 0 }}
+                onClick={(e) => e.stopPropagation()}
+              >
+                <div className="card-header">
+                  <h3 className="card-title" style={{ margin: 0 }}>
+                    Divide totals across dresses
+                  </h3>
+                </div>
+                <div className="card-body" style={{ display: "flex", flexDirection: "column", gap: 12 }}>
+                  <p style={{ fontSize: 13, color: "var(--text-muted)", margin: 0 }}>
+                    Enter the total cash/online amounts collected once. They will be split evenly across{" "}
+                    <strong>
+                      {(selectedPendingIds.length || pendingItems.length)} selected dress
+                      {(selectedPendingIds.length || pendingItems.length) === 1 ? "" : "es"}
+                    </strong>
+                    . You can still adjust each dress afterward.
+                  </p>
+                  <div>
+                    <label className="form-label">Total remaining / payment (₹)</label>
+                    <input
+                      className="form-control"
+                      type="number"
+                      min={0}
+                      inputMode="numeric"
+                      value={splitRemaining}
+                      onChange={(e) => setSplitRemaining(e.target.value)}
+                      autoFocus
+                    />
+                  </div>
+                  <div>
+                    <label className="form-label">Total security (₹)</label>
+                    <input
+                      className="form-control"
+                      type="number"
+                      min={0}
+                      inputMode="numeric"
+                      value={splitSecurity}
+                      onChange={(e) => setSplitSecurity(e.target.value)}
+                    />
+                  </div>
+                  <div style={{ display: "flex", gap: 8, justifyContent: "flex-end", flexWrap: "wrap" }}>
+                    <button type="button" className="btn btn-outline" onClick={() => setShowSplitDialog(false)}>
+                      Cancel
+                    </button>
+                    <button type="button" className="btn btn-primary" onClick={applySplitTotals}>
+                      Divide &amp; fill dresses
+                    </button>
+                  </div>
+                </div>
+              </div>
+            </div>
+          )}
+
           {!allDelivered && (
             <p style={{ fontSize: 13, color: "var(--text-muted)", marginBottom: 14 }}>
               Tick each dress you are handing over now. Enter remaining and security for each dress,

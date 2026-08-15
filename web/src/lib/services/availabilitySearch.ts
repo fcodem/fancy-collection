@@ -648,10 +648,11 @@ export async function searchAvailableItems(
   const groupIds = [
     ...new Set(visible.map((r) => r.inventoryGroupId).filter((id): id is string => Boolean(id))),
   ];
-  const totalByGroupId = new Map<string, number>();
+  /** Per group+size — legacy men's stock may share one inventory_group_id across sizes. */
+  const totalByGroupSize = new Map<string, number>();
   if (groupIds.length) {
     const totals = await prisma.clothingItem.groupBy({
-      by: ["inventoryGroupId"],
+      by: ["inventoryGroupId", "size"],
       where: {
         inventoryGroupId: { in: groupIds },
         status: { notIn: ["maintenance", "repair", "cleaning"] },
@@ -659,7 +660,9 @@ export async function searchAvailableItems(
       _count: { _all: true },
     });
     for (const row of totals) {
-      if (row.inventoryGroupId) totalByGroupId.set(row.inventoryGroupId, row._count._all);
+      if (row.inventoryGroupId) {
+        totalByGroupSize.set(`${row.inventoryGroupId}|${row.size || ""}`, row._count._all);
+      }
     }
   }
 
@@ -704,7 +707,7 @@ export async function searchAvailableItems(
     const key = freeItemGroupKey(row);
     const freeQty = freeCountByGroup.get(key) || 1;
     const totalQty = row.inventoryGroupId
-      ? totalByGroupId.get(row.inventoryGroupId) || freeQty
+      ? totalByGroupSize.get(`${row.inventoryGroupId}|${row.size || ""}`) || freeQty
       : totalByLegacyKey.get(key) || freeQty;
     return {
       id: row.id,

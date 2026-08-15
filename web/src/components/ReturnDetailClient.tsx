@@ -1053,7 +1053,7 @@ export default function ReturnDetailClient({
                 )}
                 {booking.deliveryNotes && (
                   <div style={{ marginTop: 8, fontSize: 13, padding: "8px 12px", background: "var(--info-bg, #e8f4fd)", borderRadius: 8 }}>
-                    <span style={{ fontSize: 11, color: "var(--text-muted)", fontWeight: 700 }}>DELIVERY NOTES </span>
+                    <span style={{ fontSize: 11, color: "var(--text-muted)", fontWeight: 700 }}>COMMON DELIVERY NOTE </span>
                     {booking.deliveryNotes}
                   </div>
                 )}
