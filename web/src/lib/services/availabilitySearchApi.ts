@@ -10,7 +10,7 @@ export type AvailableItemsCacheStatus = "hit" | "miss" | "coalesced";
 /** Stable cache key for identical date/filter/cursor searches (no PII). */
 export function availableItemsCacheKey(opts: AvailabilitySearchOpts): string {
   return [
-    "available-items",
+    "available-items-v2",
     opts.deliveryDate,
     opts.returnDate,
     opts.category?.trim() || "",

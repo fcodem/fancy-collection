@@ -648,22 +648,66 @@ export async function searchAvailableItems(
   const groupIds = [
     ...new Set(visible.map((r) => r.inventoryGroupId).filter((id): id is string => Boolean(id))),
   ];
-  /** Per group+size — legacy men's stock may share one inventory_group_id across sizes. */
+
+  /** Normalize size so "36" / "36 " / null never merge wrongly across sizes. */
+  const normSize = (sz?: string | null) => String(sz || "").trim();
+
+  /**
+   * Totals must be per size — never product-wide across sizes.
+   * Legacy men's stock sometimes shares one inventory_group_id across sizes 36/38/40…
+   * Count siblings in JS (more reliable than Prisma groupBy on nullable size).
+   */
   const totalByGroupSize = new Map<string, number>();
   if (groupIds.length) {
-    const totals = await prisma.clothingItem.groupBy({
-      by: ["inventoryGroupId", "size"],
+    const siblings = await prisma.clothingItem.findMany({
       where: {
         inventoryGroupId: { in: groupIds },
         status: { notIn: ["maintenance", "repair", "cleaning"] },
       },
-      _count: { _all: true },
+      select: { inventoryGroupId: true, size: true },
     });
-    for (const row of totals) {
-      if (row.inventoryGroupId) {
-        totalByGroupSize.set(`${row.inventoryGroupId}|${row.size || ""}`, row._count._all);
-      }
+    for (const s of siblings) {
+      if (!s.inventoryGroupId) continue;
+      const key = `${s.inventoryGroupId}|${normSize(s.size)}`;
+      totalByGroupSize.set(key, (totalByGroupSize.get(key) || 0) + 1);
     }
+  }
+
+  /**
+   * Men's: each size is its own dress. Authoritative total = same base name + category + size,
+   * regardless of whether inventory_group_id is shared or split per size.
+   */
+  const mensSizeTotal = new Map<string, number>();
+  const mensVisible = visible.filter((r) =>
+    BASE_MENS.some((c) => c.toLowerCase() === (r.category || "").toLowerCase()),
+  );
+  if (mensVisible.length) {
+    const needed = new Map<string, { base: string; category: string; size: string }>();
+    for (const row of mensVisible) {
+      const base = stripUnitSuffix(row.name);
+      const size = normSize(row.size);
+      const key = `${base.toLowerCase()}|${(row.category || "").toLowerCase()}|${size.toLowerCase()}`;
+      if (!needed.has(key)) needed.set(key, { base, category: row.category, size });
+    }
+    await Promise.all(
+      [...needed.entries()].map(async ([key, spec]) => {
+        const candidates = await prisma.clothingItem.findMany({
+          where: {
+            category: spec.category,
+            status: { notIn: ["maintenance", "repair", "cleaning"] },
+            OR: [{ name: spec.base }, { name: { startsWith: `${spec.base} #` } }],
+          },
+          select: { name: true, size: true },
+          take: 200,
+        });
+        const matched = candidates.filter(
+          (c) =>
+            stripUnitSuffix(c.name).toLowerCase() === spec.base.toLowerCase() &&
+            normSize(c.size).toLowerCase() === spec.size.toLowerCase(),
+        ).length;
+        mensSizeTotal.set(key, Math.max(matched, 1));
+      }),
+    );
   }
 
   // Legacy multi-unit rows (no inventory_group_id): count siblings by base name + attrs.
@@ -688,15 +732,18 @@ export async function searchAvailableItems(
         where: {
           inventoryGroupId: null,
           category: sample.category,
-          size: sample.size || "",
-          color: sample.color || "",
           status: { notIn: ["maintenance", "repair", "cleaning"] },
           OR: [{ name: base }, { name: { startsWith: `${base} #` } }],
         },
-        select: { name: true },
+        select: { name: true, size: true, color: true },
         take: 100,
       });
-      const matched = siblings.filter((s) => stripUnitSuffix(s.name) === base).length;
+      const matched = siblings.filter(
+        (s) =>
+          stripUnitSuffix(s.name) === base &&
+          normSize(s.size) === normSize(sample.size) &&
+          (s.color || "") === (sample.color || ""),
+      ).length;
       totalByLegacyKey.set(key, Math.max(matched || freeInPage, freeInPage));
     }
   }
@@ -706,9 +753,17 @@ export async function searchAvailableItems(
     const thumb = row.thumbnail ? photoUrl(row.thumbnail) : null;
     const key = freeItemGroupKey(row);
     const freeQty = freeCountByGroup.get(key) || 1;
-    const totalQty = row.inventoryGroupId
-      ? totalByGroupSize.get(`${row.inventoryGroupId}|${row.size || ""}`) || freeQty
-      : totalByLegacyKey.get(key) || freeQty;
+    const isMens = BASE_MENS.some((c) => c.toLowerCase() === (row.category || "").toLowerCase());
+    let totalQty = freeQty;
+    if (isMens) {
+      const mensKey = `${stripUnitSuffix(row.name).toLowerCase()}|${(row.category || "").toLowerCase()}|${normSize(row.size).toLowerCase()}`;
+      totalQty = mensSizeTotal.get(mensKey) || freeQty;
+    } else if (row.inventoryGroupId) {
+      totalQty =
+        totalByGroupSize.get(`${row.inventoryGroupId}|${normSize(row.size)}`) || freeQty;
+    } else {
+      totalQty = totalByLegacyKey.get(key) || freeQty;
+    }
     return {
       id: row.id,
       name: row.name,

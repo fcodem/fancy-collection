@@ -61,7 +61,7 @@ describe("available items cache key", () => {
     };
     const key = availableItemsCacheKey(opts);
     assert.equal(key, availableItemsCacheKey(opts));
-    assert.ok(key.startsWith("available-items|"));
+    assert.ok(key.startsWith("available-items-v2|"));
     assert.ok(!key.includes("9800000000"));
     assert.ok(!key.includes("customer"));
     assert.match(apiSource, /export function availableItemsCacheKey/);

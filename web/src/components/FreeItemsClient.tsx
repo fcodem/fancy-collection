@@ -60,8 +60,8 @@ function hasBookedParts(item: FreeItem): boolean {
 }
 
 function freeItemGroupKey(item: FreeItem): string {
-  if (item.inventory_group_id) return `g:${item.inventory_group_id}|${item.size || ""}`;
-  return `legacy:${stripUnitSuffix(item.name)}|${item.category}|${item.size || ""}|${item.color || ""}`;
+  if (item.inventory_group_id) return `g:${item.inventory_group_id}|${(item.size || "").trim()}`;
+  return `legacy:${stripUnitSuffix(item.name)}|${item.category}|${(item.size || "").trim()}|${item.color || ""}`;
 }
 
 /** Collapse multi-unit free rows into one dress with free quantity. */
