@@ -12,6 +12,27 @@ type Template = {
   components: Array<{ type: string; text?: string }>;
 };
 
+function isSaleTemplateName(name: string): boolean {
+  const n = name.trim().toLowerCase().replace(/[^a-z0-9]+/g, "");
+  return n === "sale1" || n === "saleproject" || n.startsWith("sale");
+}
+
+function isBroadcastTemplate(t: Template): boolean {
+  const status = String(t.status || "").toUpperCase();
+  const category = String(t.category || "").toUpperCase();
+  // Marketing broadcasts + any sale_* template (Meta may re-categorize).
+  if (status !== "APPROVED" && status !== "PENDING") return false;
+  if (category === "MARKETING") return true;
+  if (isSaleTemplateName(t.name)) return true;
+  return false;
+}
+
+function templateOptionLabel(t: Template): string {
+  const status = String(t.status || "").toUpperCase();
+  const pending = status === "PENDING" ? " — PENDING Meta approval" : "";
+  return `${t.name} (${t.language})${pending}`;
+}
+
 type Broadcast = {
   id: number;
   name: string;
@@ -125,13 +146,15 @@ export default function WhatsAppBroadcastClient() {
     try {
       const res = await fetch("/api/whatsapp/templates");
       const data = (await res.json()) as { templates?: Template[] };
-      setTemplates(
-        (data.templates || []).filter(
-          (t) =>
-            t.status === "APPROVED" &&
-            String(t.category || "").toUpperCase() === "MARKETING",
-        ),
-      );
+      const list = (data.templates || [])
+        .filter(isBroadcastTemplate)
+        .sort((a, b) => {
+          const aOk = a.status === "APPROVED" ? 0 : 1;
+          const bOk = b.status === "APPROVED" ? 0 : 1;
+          if (aOk !== bOk) return aOk - bOk;
+          return a.name.localeCompare(b.name);
+        });
+      setTemplates(list);
     } catch (e) {
       if (!isTransientNetworkError(e)) console.error(e);
     } finally {
@@ -182,6 +205,13 @@ export default function WhatsAppBroadcastClient() {
   const handleSend = async () => {
     if (!form.broadcastName || !form.templateName) {
       alert("Please fill in broadcast name and select a template.");
+      return;
+    }
+    const selectedTpl = templates.find((t) => t.name === form.templateName);
+    if (!selectedTpl || String(selectedTpl.status).toUpperCase() !== "APPROVED") {
+      alert(
+        "That template is not APPROVED on Meta yet. Open WhatsApp → Templates, wait for APPROVED, then Refresh.",
+      );
       return;
     }
     if (form.recipientType === "excel_sheet" && excelRecipients.length === 0) {
@@ -264,8 +294,8 @@ export default function WhatsAppBroadcastClient() {
         <div>
           <h1 style={{ fontSize: 22, fontWeight: 700, color: "#1f2937", margin: 0 }}>Broadcast Messages</h1>
           <p style={{ fontSize: 13, color: "#6b7280", margin: "2px 0 0 0" }}>
-            Send approved <strong>marketing</strong> templates to customers — including from an Excel sheet.
-            New templates appear here only after Meta marks them APPROVED (use Refresh).
+            Send approved <strong>marketing</strong> templates (including sale_1 / sale_project). Templates still
+            PENDING on Meta appear greyed out — approve them under WhatsApp → Templates, then Refresh.
           </p>
         </div>
       </div>
@@ -322,15 +352,24 @@ export default function WhatsAppBroadcastClient() {
                 >
                   <option value="">Select approved marketing template...</option>
                   {templates.map((t) => (
-                    <option key={t.id} value={t.name}>
-                      {t.name} ({t.language})
+                    <option
+                      key={t.id}
+                      value={t.name}
+                      disabled={String(t.status).toUpperCase() !== "APPROVED"}
+                    >
+                      {templateOptionLabel(t)}
                     </option>
                   ))}
                 </select>
                 {templates.length === 0 && (
                   <p style={{ fontSize: 12, color: "#9ca3af", margin: "6px 0 0 0" }}>
-                    No approved marketing templates yet. Create one under WhatsApp → Templates, wait for
-                    APPROVED, then Refresh.
+                    No marketing / sale templates found. Open WhatsApp → Templates, use the SALE 1 preset or
+                    Add Template, submit to Meta, wait for APPROVED, then Refresh here.
+                  </p>
+                )}
+                {templates.some((t) => String(t.status).toUpperCase() === "PENDING") && (
+                  <p style={{ fontSize: 12, color: "#b45309", margin: "6px 0 0 0" }}>
+                    Some templates are still PENDING Meta approval and cannot be sent yet.
                   </p>
                 )}
               </>

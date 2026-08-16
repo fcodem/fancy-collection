@@ -399,6 +399,10 @@ function buildAvailabilityQuery(opts: {
           ${search} = ''
           OR ci.name ILIKE ('%' || ${search} || '%')
           OR ci.sku = ${search}
+          OR regexp_replace(lower(ci.name), '[^a-z0-9]', '', 'g')
+               LIKE ('%' || regexp_replace(lower(${search}), '[^a-z0-9]', '', 'g') || '%')
+          OR regexp_replace(lower(ci.sku), '[^a-z0-9]', '', 'g')
+               LIKE ('%' || regexp_replace(lower(${search}), '[^a-z0-9]', '', 'g') || '%')
         )
         ${cursorSql}
       ORDER BY ci.category, ci.name, COALESCE(ci.size, ''), ci.id

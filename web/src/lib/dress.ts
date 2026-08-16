@@ -1,12 +1,26 @@
+/** Compact key for space/punctuation-insensitive matching ("High Light" ≈ "highlight"). */
+export function normalizeDressSearchKey(text?: string | null): string {
+  return (text || "").toLowerCase().replace(/[^a-z0-9]+/g, "");
+}
+
 export function dressNameWords(q: string): string[] {
-  return (q || "").split(/\s+/).map((w) => w.trim().toLowerCase()).filter(Boolean);
+  return (q || "")
+    .toLowerCase()
+    .split(/[^a-z0-9]+/)
+    .map((w) => w.trim())
+    .filter(Boolean);
 }
 
 export function dressNameMatches(text: string, q: string): boolean {
-  const textL = (text || "").toLowerCase();
   const words = dressNameWords(q);
   if (!words.length) return true;
-  return words.every((w) => textL.includes(w));
+  const textL = (text || "").toLowerCase();
+  if (words.every((w) => textL.includes(w))) return true;
+  // Also match with spaces/punctuation ignored: "highlightcutwork" ↔ "HIGHLIGHT CUTWORK"
+  const compactText = normalizeDressSearchKey(text);
+  const compactQuery = normalizeDressSearchKey(q);
+  if (compactQuery && compactText.includes(compactQuery)) return true;
+  return words.every((w) => compactText.includes(w));
 }
 
 /** Client-side inventory filter — name, display label, or SKU/item code. */

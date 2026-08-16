@@ -2,6 +2,7 @@
 
 import { useCallback, useEffect, useRef, useState } from "react";
 import CategorySelect from "./CategorySelect";
+import DressNameSuggestInput from "@/components/DressNameSuggestInput";
 import { BookingWarningPanel } from "@/components/BookingDetailsColumns";
 import { WARNING_BOOKED_ON_RETURN, WARNING_RETURNING_ON_DELIVERY } from "@/lib/bookingDetails";
 import type { BookingWarningRecord } from "@/lib/bookingDetails";
@@ -286,6 +287,7 @@ export default function FreeItemsClient({ today }: { today: string }) {
   const [category, setCategory] = useState("");
   const [size, setSize] = useState("");
   const [subCat, setSubCat] = useState("");
+  const [dressSearch, setDressSearch] = useState("");
   const [subCategoryOptions, setSubCategoryOptions] = useState<string[]>([]);
   const [free, setFree] = useState<FreeItem[]>([]);
   const [loaded, setLoaded] = useState(false);
@@ -337,6 +339,7 @@ export default function FreeItemsClient({ today }: { today: string }) {
         subcategory: subCat,
         limit: String(pageLimit),
       });
+      if (dressSearch.trim()) params.set("search", dressSearch.trim());
       if (append && nextCursor) params.set("cursor", nextCursor);
       const res = await fetch(
         `/api/booking/available-items?${params.toString()}`,
@@ -357,7 +360,7 @@ export default function FreeItemsClient({ today }: { today: string }) {
     } finally {
       if (seq === requestSeqRef.current) setLoading(false);
     }
-  }, [deliveryDate, returnDate, group, category, size, subCat, nextCursor, pageLimit]);
+  }, [deliveryDate, returnDate, group, category, size, subCat, dressSearch, nextCursor, pageLimit]);
 
   useEffect(() => {
     const timer = setTimeout(() => void search(false), 300);
@@ -365,7 +368,7 @@ export default function FreeItemsClient({ today }: { today: string }) {
       clearTimeout(timer);
       abortRef.current?.abort();
     };
-  }, [deliveryDate, returnDate, group, category, size, subCat]); // eslint-disable-line react-hooks/exhaustive-deps
+  }, [deliveryDate, returnDate, group, category, size, subCat, dressSearch]); // eslint-disable-line react-hooks/exhaustive-deps
 
   useRealtimeRefresh([...BOOKING_EVENTS, ...INVENTORY_EVENTS], () => {
     if (loaded) void search(false);
@@ -425,6 +428,25 @@ export default function FreeItemsClient({ today }: { today: string }) {
           />
         </div>
         <div className="card-body">
+          <div style={{ marginBottom: 14 }}>
+            <label className="form-label">Dress name search</label>
+            <DressNameSuggestInput
+              className="form-control"
+              value={dressSearch}
+              category={category || undefined}
+              placeholder="Type dress name in any style (e.g. highlight cutwork)…"
+              showPhotos
+              minChars={1}
+              onChange={(e) => setDressSearch(e.target.value)}
+              onSuggestSelect={(item) => {
+                setDressSearch(item.name);
+                if (item.category) setCategory(item.category);
+              }}
+            />
+            <div style={{ fontSize: 11, color: "var(--text-muted)", marginTop: 4 }}>
+              Suggestions appear as you type. Spaces and punctuation are ignored (HIGHLIGHT = highlight cutwork).
+            </div>
+          </div>
           <div className="filter-grid-5">
             <div>
               <label className="form-label">Pickup Date</label>

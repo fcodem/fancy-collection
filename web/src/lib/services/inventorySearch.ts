@@ -5,7 +5,7 @@
  *   1 exact SKU, 2 exact name, 3 SKU prefix, 4 name prefix, 5 contains/trigram, 6 condition notes
  */
 import prisma, { isSqliteDb } from "@/lib/prisma";
-import { dressDisplayName, stripUnitSuffix } from "@/lib/dress";
+import { dressDisplayName, normalizeDressSearchKey, stripUnitSuffix } from "@/lib/dress";
 import { photoUrl } from "@/lib/photoUrl";
 
 export type InventorySearchRow = {
@@ -105,19 +105,39 @@ function rankItem(
   item: Omit<RawItem, "rank">,
   qLower: string,
   qNorm: string,
+  qCompact: string,
 ): number | null {
   const sku = (item.sku || "").toLowerCase();
   const name = (item.name || "").toLowerCase();
   const baseName = stripUnitSuffix(item.name).toLowerCase();
   const notes = (item.conditionNotes || "").toLowerCase();
+  const nameCompact = normalizeDressSearchKey(item.name);
+  const baseCompact = normalizeDressSearchKey(baseName);
+  const skuCompact = normalizeDressSearchKey(sku);
 
-  if (sku === qLower) return 1;
-  if (name === qLower || baseName === qLower) return 2;
-  if (qNorm.length >= MIN_FUZZY_LEN) {
-    if (sku.startsWith(qLower)) return 3;
-    if (name.startsWith(qLower) || baseName.startsWith(qLower)) return 4;
-    if (sku.includes(qLower) || name.includes(qLower) || baseName.includes(qLower)) return 5;
-    if (notes.includes(qLower)) return 6;
+  if (sku === qLower || skuCompact === qCompact) return 1;
+  if (name === qLower || baseName === qLower || nameCompact === qCompact || baseCompact === qCompact) return 2;
+  if (qNorm.length >= MIN_FUZZY_LEN || qCompact.length >= MIN_FUZZY_LEN) {
+    if (sku.startsWith(qLower) || skuCompact.startsWith(qCompact)) return 3;
+    if (
+      name.startsWith(qLower) ||
+      baseName.startsWith(qLower) ||
+      nameCompact.startsWith(qCompact) ||
+      baseCompact.startsWith(qCompact)
+    ) {
+      return 4;
+    }
+    if (
+      sku.includes(qLower) ||
+      name.includes(qLower) ||
+      baseName.includes(qLower) ||
+      nameCompact.includes(qCompact) ||
+      baseCompact.includes(qCompact) ||
+      skuCompact.includes(qCompact)
+    ) {
+      return 5;
+    }
+    if (notes.includes(qLower) || normalizeDressSearchKey(notes).includes(qCompact)) return 6;
   }
   return null;
 }
@@ -137,12 +157,13 @@ function mergeRanked(items: RawItem[], limit: number): InventorySearchRow[] {
 async function searchInventoryTextPrisma(opts: {
   q: string;
   qLower: string;
+  qCompact: string;
   category: string;
   itemType: string;
   limit: number;
 }): Promise<InventorySearchRow[]> {
-  const { q, qLower, category, itemType, limit } = opts;
-  if (q.length < MIN_FUZZY_LEN) {
+  const { q, qLower, qCompact, category, itemType, limit } = opts;
+  if (q.length < MIN_FUZZY_LEN && qCompact.length < MIN_FUZZY_LEN) {
     const exact = await prisma.clothingItem.findFirst({
       where: {
         sku: { equals: q, mode: "insensitive" },
@@ -152,11 +173,12 @@ async function searchInventoryTextPrisma(opts: {
       select: { ...SEARCH_SELECT, conditionNotes: true },
     });
     if (!exact) return [];
-    const rank = rankItem(exact, qLower, q);
+    const rank = rankItem(exact, qLower, q, qCompact);
     if (rank == null) return [];
     return [serializeRow({ ...exact, rank })];
   }
 
+  const tokens = qLower.split(/[^a-z0-9]+/).filter(Boolean);
   const where = {
     ...(category ? { category } : {}),
     ...(itemType ? { itemType } : {}),
@@ -168,19 +190,23 @@ async function searchInventoryTextPrisma(opts: {
       { sku: { contains: q, mode: "insensitive" as const } },
       { name: { contains: q, mode: "insensitive" as const } },
       { conditionNotes: { contains: q, mode: "insensitive" as const } },
+      ...tokens.flatMap((token) => [
+        { name: { contains: token, mode: "insensitive" as const } },
+        { sku: { contains: token, mode: "insensitive" as const } },
+      ]),
     ],
   };
 
   const rows = await prisma.clothingItem.findMany({
     where,
     select: { ...SEARCH_SELECT, conditionNotes: true },
-    take: Math.min(limit * 4, 80),
+    take: Math.min(limit * 8, 120),
     orderBy: [{ name: "asc" }, { id: "asc" }],
   });
 
   const ranked: RawItem[] = [];
   for (const row of rows) {
-    const rank = rankItem(row, qLower, q);
+    const rank = rankItem(row, qLower, q, qCompact);
     if (rank != null) ranked.push({ ...row, rank });
   }
   return mergeRanked(ranked, limit);
@@ -189,12 +215,13 @@ async function searchInventoryTextPrisma(opts: {
 async function searchInventoryTextPostgres(opts: {
   q: string;
   qLower: string;
+  qCompact: string;
   category: string;
   itemType: string;
   limit: number;
 }): Promise<InventorySearchRow[]> {
-  const { q, qLower, category, itemType, limit } = opts;
-  const allowFuzzy = q.length >= MIN_FUZZY_LEN;
+  const { qLower, qCompact, category, itemType, limit } = opts;
+  const allowFuzzy = qLower.length >= MIN_FUZZY_LEN || qCompact.length >= MIN_FUZZY_LEN;
 
   const rows = await prisma.$queryRaw<
     Array<{
@@ -227,19 +254,36 @@ async function searchInventoryTextPostgres(opts: {
       thumbnail_photo,
       photo,
       CASE
-        WHEN lower(sku) = ${qLower} THEN 1
-        WHEN lower(name) = ${qLower} OR lower(regexp_replace(name, '\\s+#\\d+$', '')) = ${qLower} THEN 2
-        WHEN ${allowFuzzy} AND lower(sku) LIKE ${qLower + "%"} THEN 3
+        WHEN lower(sku) = ${qLower}
+          OR regexp_replace(lower(sku), '[^a-z0-9]', '', 'g') = ${qCompact}
+          THEN 1
+        WHEN lower(name) = ${qLower}
+          OR lower(regexp_replace(name, '\\s+#\\d+$', '')) = ${qLower}
+          OR regexp_replace(lower(name), '[^a-z0-9]', '', 'g') = ${qCompact}
+          OR regexp_replace(lower(regexp_replace(name, '\\s+#\\d+$', '')), '[^a-z0-9]', '', 'g') = ${qCompact}
+          THEN 2
+        WHEN ${allowFuzzy} AND (
+          lower(sku) LIKE ${qLower + "%"}
+          OR regexp_replace(lower(sku), '[^a-z0-9]', '', 'g') LIKE ${qCompact + "%"}
+        ) THEN 3
         WHEN ${allowFuzzy} AND (
           lower(name) LIKE ${qLower + "%"}
           OR lower(regexp_replace(name, '\\s+#\\d+$', '')) LIKE ${qLower + "%"}
+          OR regexp_replace(lower(name), '[^a-z0-9]', '', 'g') LIKE ${qCompact + "%"}
+          OR regexp_replace(lower(regexp_replace(name, '\\s+#\\d+$', '')), '[^a-z0-9]', '', 'g') LIKE ${qCompact + "%"}
         ) THEN 4
         WHEN ${allowFuzzy} AND (
           lower(name) LIKE ${"%" + qLower + "%"}
           OR lower(sku) LIKE ${"%" + qLower + "%"}
           OR lower(regexp_replace(name, '\\s+#\\d+$', '')) LIKE ${"%" + qLower + "%"}
+          OR regexp_replace(lower(name), '[^a-z0-9]', '', 'g') LIKE ${"%" + qCompact + "%"}
+          OR regexp_replace(lower(regexp_replace(name, '\\s+#\\d+$', '')), '[^a-z0-9]', '', 'g') LIKE ${"%" + qCompact + "%"}
+          OR regexp_replace(lower(sku), '[^a-z0-9]', '', 'g') LIKE ${"%" + qCompact + "%"}
         ) THEN 5
-        WHEN ${allowFuzzy} AND lower(coalesce(condition_notes, '')) LIKE ${"%" + qLower + "%"} THEN 6
+        WHEN ${allowFuzzy} AND (
+          lower(coalesce(condition_notes, '')) LIKE ${"%" + qLower + "%"}
+          OR regexp_replace(lower(coalesce(condition_notes, '')), '[^a-z0-9]', '', 'g') LIKE ${"%" + qCompact + "%"}
+        ) THEN 6
         ELSE 99
       END AS rank
     FROM clothing_items
@@ -248,16 +292,22 @@ async function searchInventoryTextPostgres(opts: {
       AND (${itemType} = '' OR item_type = ${itemType})
       AND (
         lower(sku) = ${qLower}
+        OR regexp_replace(lower(sku), '[^a-z0-9]', '', 'g') = ${qCompact}
         OR (
           ${allowFuzzy}
           AND (
             lower(name) = ${qLower}
             OR lower(regexp_replace(name, '\\s+#\\d+$', '')) = ${qLower}
+            OR regexp_replace(lower(name), '[^a-z0-9]', '', 'g') = ${qCompact}
+            OR regexp_replace(lower(regexp_replace(name, '\\s+#\\d+$', '')), '[^a-z0-9]', '', 'g') = ${qCompact}
             OR lower(sku) LIKE ${qLower + "%"}
             OR lower(name) LIKE ${qLower + "%"}
             OR lower(regexp_replace(name, '\\s+#\\d+$', '')) LIKE ${qLower + "%"}
             OR lower(name) LIKE ${"%" + qLower + "%"}
             OR lower(sku) LIKE ${"%" + qLower + "%"}
+            OR regexp_replace(lower(name), '[^a-z0-9]', '', 'g') LIKE ${"%" + qCompact + "%"}
+            OR regexp_replace(lower(regexp_replace(name, '\\s+#\\d+$', '')), '[^a-z0-9]', '', 'g') LIKE ${"%" + qCompact + "%"}
+            OR regexp_replace(lower(sku), '[^a-z0-9]', '', 'g') LIKE ${"%" + qCompact + "%"}
             OR lower(coalesce(condition_notes, '')) LIKE ${"%" + qLower + "%"}
           )
         )
@@ -297,11 +347,12 @@ export async function searchInventoryText(
   const category = (params.category || "").trim();
   const itemType = (params.itemType || "").trim();
   const qLower = q.toLowerCase();
+  const qCompact = normalizeDressSearchKey(q);
 
   if (isSqliteDb()) {
-    return searchInventoryTextPrisma({ q, qLower, category, itemType, limit });
+    return searchInventoryTextPrisma({ q, qLower, qCompact, category, itemType, limit });
   }
-  return searchInventoryTextPostgres({ q, qLower, category, itemType, limit });
+  return searchInventoryTextPostgres({ q, qLower, qCompact, category, itemType, limit });
 }
 
 /** Serialize rows for legacy inventory search API (category split handled by route). */
