@@ -156,7 +156,6 @@ export default function AppShell({
   >(null);
   const [navigating, setNavigating] = useState(false);
   const skipNavProgress = useRef(true);
-  const skipMenuRefresh = useRef(true);
   const lastFocusRefreshAt = useRef(0);
 
   const title = useMemo(() => pageTitle(pathname), [pathname]);
@@ -178,18 +177,8 @@ export default function AppShell({
     }
   }
 
-  /** Soft-nav reuses cached RSC/client data — refresh whenever a menu opens. */
-  useEffect(() => {
-    if (!mounted) return;
-    if (skipMenuRefresh.current) {
-      skipMenuRefresh.current = false;
-      return;
-    }
-    router.refresh();
-    // Let the new route mount listeners, then ask client lists to refetch.
-    const t = window.setTimeout(() => dispatchPageOpenRefresh("navigate"), 50);
-    return () => window.clearTimeout(t);
-  }, [pathname, mounted, router]);
+  /** Soft navigation should use cached RSC/client data (see next.config staleTimes).
+   * Do not router.refresh() on every menu change — that made menus feel slow. */
 
   /** Returning to the app (any device) should show latest data. */
   useEffect(() => {
@@ -197,7 +186,7 @@ export default function AppShell({
     function refreshIfVisible(reason: "focus" | "visible") {
       if (document.hidden) return;
       const now = Date.now();
-      if (now - lastFocusRefreshAt.current < 8_000) return;
+      if (now - lastFocusRefreshAt.current < 30_000) return;
       lastFocusRefreshAt.current = now;
       router.refresh();
       dispatchPageOpenRefresh(reason);
@@ -480,6 +469,13 @@ function AppLayoutInner({
     "/return",
     "/inventory",
     "/packing-list",
+    "/booking-list",
+    "/free-items",
+    "/search-booking",
+    "/returning-today",
+    "/late-return",
+    "/jewellery-selection",
+    "/inventory/search",
   ]);
 
   const [navSearch, setNavSearch] = useState("");

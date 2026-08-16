@@ -1,6 +1,7 @@
 "use client";
 
 import { useCallback, useEffect, useRef, useState } from "react";
+import dynamic from "next/dynamic";
 import CategorySelect from "./CategorySelect";
 import DressNameSuggestInput from "@/components/DressNameSuggestInput";
 import { BookingWarningPanel } from "@/components/BookingDetailsColumns";
@@ -14,8 +15,19 @@ import { formatJewelleryPartsLabel, type JewelleryPartKey } from "@/lib/jeweller
 import { addDaysIso } from "@/lib/dateInput";
 import { photoUrl } from "@/lib/photoUrl";
 import ZoomableImage from "@/components/ZoomableImage";
-import DressAvailabilityScanner from "@/components/DressAvailabilityScanner";
 import { dressDisplayName, stripUnitSuffix } from "@/lib/dress";
+
+const DressAvailabilityScanner = dynamic(
+  () => import("@/components/DressAvailabilityScanner"),
+  {
+    ssr: false,
+    loading: () => (
+      <div className="card" style={{ padding: 16, color: "var(--text-muted)", fontSize: 13 }}>
+        Opening scanner…
+      </div>
+    ),
+  },
+);
 
 const REMOVED_SUB_SET = new Set(REMOVED_SUB_CATEGORIES.map((s) => s.toLowerCase()));
 

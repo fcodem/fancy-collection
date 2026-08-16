@@ -18,17 +18,22 @@ function safeRefresh(refresh: () => void) {
 /**
  * Re-fetch list/search data when:
  * - RealtimeProvider receives matching shop events, or
- * - the user opens a menu / returns to the tab (PAGE_OPEN_REFRESH_EVENT).
+ * - (optional) the user opens a menu / returns to the tab (PAGE_OPEN_REFRESH_EVENT).
  *
  * `nav.refresh` is intentionally ignored here — it is reserved for the shell
  * nav-badge path. List refreshes only happen on matching domain events,
- * polling-mode `shop.changed`, or explicit page-open refresh.
+ * polling-mode `shop.changed`, or explicit page-open refresh when enabled.
  */
-export function useRealtimeRefresh(types: ShopEventType[], refresh: () => void) {
+export function useRealtimeRefresh(
+  types: ShopEventType[],
+  refresh: () => void,
+  opts?: { refreshOnPageOpen?: boolean },
+) {
   const refreshRef = useRef(refresh);
   refreshRef.current = refresh;
   const typesRef = useRef(types);
   typesRef.current = types;
+  const refreshOnPageOpen = opts?.refreshOnPageOpen !== false;
 
   useEffect(() => {
     const onShopEvent = (e: Event) => {
@@ -42,6 +47,7 @@ export function useRealtimeRefresh(types: ShopEventType[], refresh: () => void) 
     };
 
     const onPageOpen = () => {
+      if (!refreshOnPageOpen) return;
       if (typeof document !== "undefined" && document.hidden) return;
       safeRefresh(() => refreshRef.current());
     };
@@ -52,5 +58,5 @@ export function useRealtimeRefresh(types: ShopEventType[], refresh: () => void) 
       window.removeEventListener("shop-realtime", onShopEvent);
       window.removeEventListener(PAGE_OPEN_REFRESH_EVENT, onPageOpen);
     };
-  }, []);
+  }, [refreshOnPageOpen]);
 }

@@ -47,29 +47,26 @@ function InventoryListFallback() {
   );
 }
 
-export default async function InventoryPage({
-  searchParams,
+type InventorySearch = {
+  q?: string;
+  category?: string;
+  status?: string;
+  sub_category?: string;
+  subcategory?: string;
+};
+
+async function InventoryListLoader({
+  sp,
+  isOwnerUser,
 }: {
-  searchParams: Promise<{
-    q?: string;
-    category?: string;
-    status?: string;
-    sub_category?: string;
-    subcategory?: string;
-  }>;
+  sp: InventorySearch;
+  isOwnerUser: boolean;
 }) {
   const perf = createPerfTimer("GET /inventory");
-  perf.mark("auth");
-  const user = await getCurrentUserForLayout();
-  perf.endStage("authMs", "auth");
-  if (!user) redirect("/login");
-
-  const sp = await searchParams;
   const q = sp.q?.trim() || "";
   const category = sp.category || "";
   const subCategory = sp.sub_category || sp.subcategory || "";
   const status = sp.status || "";
-  // First page: 40 desktop default; client may request 20 on mobile via API
   const pageSize = 40;
 
   perf.mark("query");
@@ -86,17 +83,35 @@ export default async function InventoryPage({
   perf.finish({ kind: "read" });
 
   return (
+    <InventoryListClient
+      initialGroups={result.groups}
+      initialNextCursor={result.nextCursor}
+      initialQ={q}
+      initialStatus={status}
+      initialCategory={category}
+      initialSubCategory={subCategory}
+      isOwner={isOwnerUser}
+      pageSize={pageSize}
+    />
+  );
+}
+
+export default async function InventoryPage({
+  searchParams,
+}: {
+  searchParams: Promise<InventorySearch>;
+}) {
+  const perf = createPerfTimer("GET /inventory");
+  perf.mark("auth");
+  const user = await getCurrentUserForLayout();
+  perf.endStage("authMs", "auth");
+  if (!user) redirect("/login");
+
+  const sp = await searchParams;
+
+  return (
     <Suspense fallback={<InventoryListFallback />}>
-      <InventoryListClient
-        initialGroups={result.groups}
-        initialNextCursor={result.nextCursor}
-        initialQ={q}
-        initialStatus={status}
-        initialCategory={category}
-        initialSubCategory={subCategory}
-        isOwner={isOwner(user)}
-        pageSize={pageSize}
-      />
+      <InventoryListLoader sp={sp} isOwnerUser={isOwner(user)} />
     </Suspense>
   );
 }

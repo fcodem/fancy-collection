@@ -1,5 +1,5 @@
 import Link from "next/link";
-import type { ReactNode } from "react";
+import { Suspense, type ReactNode } from "react";
 import RealtimePageRefresher from "@/components/RealtimePageRefresher";
 import BookingPanelFilters from "@/components/BookingPanelFilters";
 import { bookingPanelDateRange, parseBookingPanelFilters } from "@/lib/bookingPanelFilter";
@@ -25,18 +25,66 @@ function fmtDate(d: Date) {
   return d.toISOString().slice(0, 10);
 }
 
-export default async function BookingPanelPage({
-  searchParams,
-}: {
-  searchParams: Promise<{ year?: string; month?: string; page?: string }>;
-}) {
-  const sp = await searchParams;
-  const todayReal = localTodayStart();
-  const currentYear = Number(todayIso().slice(0, 4));
-  const { year, month } = parseBookingPanelFilters(sp, currentYear);
-  const { from: panelFrom, to: panelTo, label: panelLabel } = bookingPanelDateRange(year, month);
-  const page = Math.max(1, Number(sp.page || "1") || 1);
+function BookingPanelFallback() {
+  return (
+    <div className="card" style={{ padding: 24 }}>
+      <div
+        style={{
+          height: 24,
+          width: 220,
+          background: "var(--border-color)",
+          borderRadius: 4,
+          marginBottom: 16,
+          opacity: 0.4,
+        }}
+      />
+      <div className="stats-grid" style={{ marginBottom: 24 }}>
+        {[1, 2, 3, 4].map((i) => (
+          <div
+            key={i}
+            style={{
+              height: 88,
+              background: "var(--border-color)",
+              borderRadius: 12,
+              opacity: 0.2,
+            }}
+          />
+        ))}
+      </div>
+      {[1, 2, 3, 4, 5].map((i) => (
+        <div
+          key={i}
+          style={{
+            height: 44,
+            background: "var(--border-color)",
+            borderRadius: 4,
+            marginBottom: 8,
+            opacity: 0.18,
+          }}
+        />
+      ))}
+    </div>
+  );
+}
 
+async function BookingPanelBody({
+  year,
+  month,
+  page,
+  currentYear,
+  panelFrom,
+  panelTo,
+  panelLabel,
+}: {
+  year: number;
+  month: number | null;
+  page: number;
+  currentYear: number;
+  panelFrom: string;
+  panelTo: string;
+  panelLabel: string;
+}) {
+  const todayReal = localTodayStart();
   const { yearBounds, bookings, returnedBookings, statusCounts, totalCount, pageSize, totalPages } =
     await loadBookingPanelPage({
       year,
@@ -63,17 +111,12 @@ export default async function BookingPanelPage({
 
   const monthQs = month == null ? "all" : String(month);
   const prevHref =
-    page > 1
-      ? `/booking?year=${year}&month=${monthQs}&page=${page - 1}`
-      : null;
+    page > 1 ? `/booking?year=${year}&month=${monthQs}&page=${page - 1}` : null;
   const nextHref =
-    page < totalPages
-      ? `/booking?year=${year}&month=${monthQs}&page=${page + 1}`
-      : null;
+    page < totalPages ? `/booking?year=${year}&month=${monthQs}&page=${page + 1}` : null;
 
   return (
     <>
-      <RealtimePageRefresher />
       <div style={{ display: "flex", justifyContent: "flex-end", gap: 8, marginBottom: 16 }}>
         <BookingPanelPdfButton year={year} month={month} />
         <Link href="/booking/new" className="btn btn-primary" prefetch>
@@ -118,14 +161,20 @@ export default async function BookingPanelPage({
           </span>
         </div>
         <div className="card-body" style={{ paddingBottom: 0 }}>
-          <BookingPanelFilters year={year} month={month} yearOptions={yearOptions.length ? yearOptions : [currentYear]} />
+          <BookingPanelFilters
+            year={year}
+            month={month}
+            yearOptions={yearOptions.length ? yearOptions : [currentYear]}
+          />
         </div>
         {bookings.length === 0 ? (
           <div className="empty-state">
             <div className="empty-icon"><i className="fa-solid fa-calendar-xmark" /></div>
             <h3>No bookings for {panelLabel}</h3>
             <p>Try another month or year, or create a new booking.</p>
-            <Link href="/booking/new" className="btn btn-primary mt-16"><i className="fa-solid fa-plus" /> New Booking</Link>
+            <Link href="/booking/new" className="btn btn-primary mt-16">
+              <i className="fa-solid fa-plus" /> New Booking
+            </Link>
           </div>
         ) : (
           <div className="table-wrapper">
@@ -178,7 +227,9 @@ export default async function BookingPanelPage({
                           </span>
                         </td>
                         <StandardBookingTableCells d={serializeStandardBookingDetails(b)} />
-                        <td className="booking-col-money" style={{ color: "var(--success)", fontWeight: 600 }}>₹{formatInr(b.totalAdvance || b.advance)}</td>
+                        <td className="booking-col-money" style={{ color: "var(--success)", fontWeight: 600 }}>
+                          ₹{formatInr(b.totalAdvance || b.advance)}
+                        </td>
                         <td className="booking-col-money">
                           {rem > 0 ? (
                             <span style={{ fontWeight: 800, color: "var(--danger)" }}>₹{formatInr(rem)}</span>
@@ -189,15 +240,32 @@ export default async function BookingPanelPage({
                         <td className="booking-col-date">
                           <span className={`badge badge-${status}`}>{status}</span>
                           {status === "delivered" && (
-                            <span className="badge badge-success" style={{ marginLeft: 4, fontSize: 9 }}>DELIVERED</span>
+                            <span className="badge badge-success" style={{ marginLeft: 4, fontSize: 9 }}>
+                              DELIVERED
+                            </span>
                           )}
                         </td>
                         <td className="booking-col-actions">
                           <div className="booking-col-actions-inner">
-                            <PrefetchOnIntentLink href={`/booking/${b.id}`} className="btn btn-outline btn-sm"><i className="fa-solid fa-eye" /></PrefetchOnIntentLink>
-                            <PrefetchOnIntentLink href={`/jewellery-selection/${b.id}`} className="btn btn-outline btn-sm" title="Jewellery Selection" style={{ color: "#b8860b", borderColor: "#c9a84c" }}><i className="fa-solid fa-gem" /></PrefetchOnIntentLink>
+                            <PrefetchOnIntentLink href={`/booking/${b.id}`} className="btn btn-outline btn-sm">
+                              <i className="fa-solid fa-eye" />
+                            </PrefetchOnIntentLink>
+                            <PrefetchOnIntentLink
+                              href={`/jewellery-selection/${b.id}`}
+                              className="btn btn-outline btn-sm"
+                              title="Jewellery Selection"
+                              style={{ color: "#b8860b", borderColor: "#c9a84c" }}
+                            >
+                              <i className="fa-solid fa-gem" />
+                            </PrefetchOnIntentLink>
                             {status === "delivered" && (
-                              <PrefetchOnIntentLink href={`/booking-delivery/${b.id}`} className="btn btn-outline btn-sm" title="Edit Delivered"><i className="fa-solid fa-pen" /></PrefetchOnIntentLink>
+                              <PrefetchOnIntentLink
+                                href={`/booking-delivery/${b.id}`}
+                                className="btn btn-outline btn-sm"
+                                title="Edit Delivered"
+                              >
+                                <i className="fa-solid fa-pen" />
+                              </PrefetchOnIntentLink>
                             )}
                           </div>
                         </td>
@@ -273,7 +341,9 @@ export default async function BookingPanelPage({
                         </span>
                       </td>
                       <StandardBookingTableCells d={serializeStandardBookingDetails(b)} />
-                      <td className="booking-col-money" style={{ color: "var(--success)", fontWeight: 600 }}>₹{formatInr(b.totalAdvance || b.advance)}</td>
+                      <td className="booking-col-money" style={{ color: "var(--success)", fontWeight: 600 }}>
+                        ₹{formatInr(b.totalAdvance || b.advance)}
+                      </td>
                       <td className="booking-col-money">
                         {rem > 0 ? (
                           <span style={{ fontWeight: 800, color: "var(--danger)" }}>₹{formatInr(rem)}</span>
@@ -286,7 +356,9 @@ export default async function BookingPanelPage({
                       </td>
                       <td className="booking-col-actions">
                         <div className="booking-col-actions-inner">
-                          <PrefetchOnIntentLink href={`/booking/${b.id}`} className="btn btn-outline btn-sm"><i className="fa-solid fa-eye" /></PrefetchOnIntentLink>
+                          <PrefetchOnIntentLink href={`/booking/${b.id}`} className="btn btn-outline btn-sm">
+                            <i className="fa-solid fa-eye" />
+                          </PrefetchOnIntentLink>
                         </div>
                       </td>
                     </tr>
@@ -297,6 +369,35 @@ export default async function BookingPanelPage({
           </div>
         </div>
       )}
+    </>
+  );
+}
+
+export default async function BookingPanelPage({
+  searchParams,
+}: {
+  searchParams: Promise<{ year?: string; month?: string; page?: string }>;
+}) {
+  const sp = await searchParams;
+  const currentYear = Number(todayIso().slice(0, 4));
+  const { year, month } = parseBookingPanelFilters(sp, currentYear);
+  const { from: panelFrom, to: panelTo, label: panelLabel } = bookingPanelDateRange(year, month);
+  const page = Math.max(1, Number(sp.page || "1") || 1);
+
+  return (
+    <>
+      <RealtimePageRefresher />
+      <Suspense fallback={<BookingPanelFallback />}>
+        <BookingPanelBody
+          year={year}
+          month={month}
+          page={page}
+          currentYear={currentYear}
+          panelFrom={panelFrom}
+          panelTo={panelTo}
+          panelLabel={panelLabel}
+        />
+      </Suspense>
     </>
   );
 }
