@@ -2,20 +2,16 @@ import { NextRequest, after } from "next/server";
 import { jsonOk, jsonError, requireOwner, isResponse, requireJsonContentType } from "@/lib/api";
 import prisma from "@/lib/prisma";
 import { normalizeIndianPhone } from "@/lib/phone";
+import { graphApiVersion } from "@/lib/services/whatsapp/metaApi";
 import {
-  graphApiVersion,
-  sendWhatsAppImageHeaderTemplate,
-  sendWhatsAppTemplate,
-  uploadWhatsAppMedia,
-} from "@/lib/services/whatsapp/metaApi";
-import {
-  loadSale1FlyerBuffer,
-  SALE_1_FLYER_FILENAME,
-} from "@/lib/services/whatsapp/sale1TemplateCopy";
+  drainBroadcastQueue,
+  failOrphanBroadcasts,
+  processBroadcastBatch,
+  type BroadcastRecipient,
+} from "@/lib/services/whatsapp/broadcastSend";
+import { loadSale1FlyerBuffer } from "@/lib/services/whatsapp/sale1TemplateCopy";
 
 export const maxDuration = 300;
-
-type Recipient = { phone: string; name: string };
 
 type MetaTemplateLite = {
   name: string;
@@ -28,10 +24,23 @@ export async function GET(_req: NextRequest) {
   const user = await requireOwner();
   if (isResponse(user)) return user;
 
+  await failOrphanBroadcasts().catch(() => 0);
+
   const broadcasts = await prisma.whatsAppBroadcast.findMany({
     orderBy: { createdAt: "desc" },
     take: 50,
   });
+
+  const active = broadcasts.find((b) => b.status === "sending");
+  if (active) {
+    try {
+      after(() => {
+        void processBroadcastBatch({ broadcastId: active.id, limit: 35 });
+      });
+    } catch {
+      void processBroadcastBatch({ broadcastId: active.id, limit: 20 }).catch(() => undefined);
+    }
+  }
 
   return jsonOk({ broadcasts });
 }
@@ -82,14 +91,6 @@ async function fetchMetaTemplate(
   return null;
 }
 
-async function loadBroadcastFlyerBuffer(templateName: string): Promise<Buffer | null> {
-  const n = templateName.trim().toLowerCase();
-  if (n === "sale_1" || n === "sale1") {
-    return loadSale1FlyerBuffer();
-  }
-  return null;
-}
-
 export async function POST(req: NextRequest) {
   const _ct = requireJsonContentType(req);
   if (_ct) return _ct;
@@ -103,7 +104,6 @@ export async function POST(req: NextRequest) {
     recipientType: "all_customers" | "pending_returns" | "custom_phones" | "excel_sheet";
     customPhones?: string[];
     excelRecipients?: Array<{ phone?: string; name?: string }>;
-    /** When true, send customer name as template body {{1}}. */
     injectNameAsBodyVar?: boolean;
     components?: unknown[];
     broadcastName: string;
@@ -123,7 +123,7 @@ export async function POST(req: NextRequest) {
     return jsonError("templateName and broadcastName are required", 400);
   }
 
-  let phones: Recipient[] = [];
+  let phones: BroadcastRecipient[] = [];
 
   if (recipientType === "excel_sheet") {
     if (!excelRecipients?.length) {
@@ -147,9 +147,8 @@ export async function POST(req: NextRequest) {
         const phone = normalizeIndianPhone(p) || p.trim();
         return phone ? { phone, name: "Customer" } : null;
       })
-      .filter((p): p is Recipient => Boolean(p));
+      .filter((p): p is BroadcastRecipient => Boolean(p));
   } else if (recipientType === "all_customers") {
-    // Prefer the Customers directory (bulk-imported contacts), then merge booking phones.
     const [customers, bookings] = await Promise.all([
       prisma.customer.findMany({
         select: { name: true, phone: true },
@@ -165,7 +164,7 @@ export async function POST(req: NextRequest) {
       }),
     ]);
 
-    const byPhone = new Map<string, Recipient>();
+    const byPhone = new Map<string, BroadcastRecipient>();
     const addRecipient = (rawPhone: string, rawName: string) => {
       const phone = normalizeIndianPhone(rawPhone) || rawPhone.trim();
       if (!phone) return;
@@ -222,37 +221,24 @@ export async function POST(req: NextRequest) {
     injectNameAsBodyVar ||
     recipientType === "excel_sheet" ||
     templateHasBodyVar(metaTpl.components);
-
-  if (needsBodyName && !templateHasBodyVar(metaTpl.components)) {
-    // Template has no {{1}} — do not send body params (Meta rejects extras).
-  }
   const sendBodyName = needsBodyName && templateHasBodyVar(metaTpl.components);
 
-  let imageMediaId: string | null = null;
-  let flyerBuffer: Buffer | null = null;
   if (headerFormat === "IMAGE") {
-    flyerBuffer = await loadBroadcastFlyerBuffer(templateName);
-    if (!flyerBuffer?.length) {
+    const flyer = await loadSale1FlyerBuffer();
+    if (!flyer?.length) {
       return jsonError(
         `Template "${templateName}" needs an IMAGE header, but the flyer file was not found on the server.`,
         500,
       );
     }
-    const uploaded = await uploadWhatsAppMedia(
-      flyerBuffer,
-      SALE_1_FLYER_FILENAME,
-      "image/png",
-    );
-    if (!uploaded.ok) {
-      return jsonError(`Could not upload flyer image for broadcast: ${uploaded.error}`, 500);
-    }
-    imageMediaId = uploaded.mediaId;
   } else if (headerFormat === "VIDEO" || headerFormat === "DOCUMENT") {
     return jsonError(
       `Broadcast does not yet support ${headerFormat} header templates. Use a text or image marketing template.`,
       400,
     );
   }
+
+  const language = metaTpl.language || templateLanguage;
 
   const broadcast = await prisma.whatsAppBroadcast.create({
     data: {
@@ -262,140 +248,39 @@ export async function POST(req: NextRequest) {
       totalCount: phones.length,
       sentCount: 0,
       failedCount: 0,
+      nextIndex: 0,
+      language,
+      sendBodyName,
+      headerFormat,
+      recipientsJson: phones,
       createdBy: user.username,
     },
   });
 
-  const runSend = () =>
-    sendBroadcastMessages({
-      broadcastId: broadcast.id,
-      phones,
-      templateName,
-      language: metaTpl.language || templateLanguage,
-      imageMediaId,
-      flyerBuffer,
-      sendBodyName,
-    });
+  const kick = async () => {
+    try {
+      // First chunk immediately so history moves off "0 sent".
+      await processBroadcastBatch({ broadcastId: broadcast.id, limit: 25 });
+      // Keep draining while this invocation is alive.
+      await drainBroadcastQueue({ runtimeBudgetMs: 240_000, batchSize: 40 });
+    } catch (e) {
+      console.error(`[broadcast ${broadcast.id}] kick failed:`, e);
+    }
+  };
 
   try {
     after(() => {
-      void runSend();
+      void kick();
     });
   } catch {
-    // Local / environments without after() — still attempt send in background.
-    void runSend();
+    void kick();
   }
 
   return jsonOk({
     ok: true,
     broadcastId: broadcast.id,
     totalRecipients: phones.length,
-    message: `Broadcast started to ${phones.length} recipients. Refresh history for progress.`,
+    message: `Broadcast queued to ${phones.length} recipients. Progress updates automatically — keep Refreshing history.`,
     headerFormat,
   });
-}
-
-async function sendBroadcastMessages(opts: {
-  broadcastId: number;
-  phones: Recipient[];
-  templateName: string;
-  language: string;
-  imageMediaId: string | null;
-  flyerBuffer: Buffer | null;
-  sendBodyName: boolean;
-}) {
-  let sent = 0;
-  let failed = 0;
-  let lastError: string | null = null;
-  let imageMediaId = opts.imageMediaId;
-  let sinceMediaUpload = 0;
-
-  for (const recipient of opts.phones) {
-    try {
-      // WhatsApp media IDs expire; refresh periodically on large broadcasts.
-      if (opts.flyerBuffer && (sinceMediaUpload >= 40 || !imageMediaId)) {
-        const uploaded = await uploadWhatsAppMedia(
-          opts.flyerBuffer,
-          SALE_1_FLYER_FILENAME,
-          "image/png",
-        );
-        if (!uploaded.ok) {
-          failed++;
-          lastError = uploaded.error || "Flyer re-upload failed";
-          continue;
-        }
-        imageMediaId = uploaded.mediaId;
-        sinceMediaUpload = 0;
-      }
-
-      const bodyParams = opts.sendBodyName
-        ? [(recipient.name || "Customer").slice(0, 1024)]
-        : [];
-      const result = imageMediaId
-        ? await sendWhatsAppImageHeaderTemplate({
-            phone: recipient.phone,
-            templateName: opts.templateName,
-            languageCode: opts.language,
-            mediaId: imageMediaId,
-            bodyParams,
-          })
-        : await sendWhatsAppTemplate(
-            recipient.phone,
-            opts.templateName,
-            opts.language,
-            bodyParams.length
-              ? [
-                  {
-                    type: "body",
-                    parameters: bodyParams.map((text) => ({ type: "text", text })),
-                  },
-                ]
-              : [],
-          );
-      if (result.ok) {
-        sent++;
-        sinceMediaUpload++;
-      } else {
-        failed++;
-        lastError = result.error || "Send failed";
-        console.error(
-          `[broadcast ${opts.broadcastId}] fail ${recipient.phone}: ${lastError}`,
-        );
-        // If media expired mid-run, force re-upload on next recipient.
-        if (/media|header|image/i.test(lastError)) {
-          imageMediaId = null;
-        }
-      }
-    } catch (e) {
-      failed++;
-      lastError = e instanceof Error ? e.message : "Send failed";
-      console.error(`[broadcast ${opts.broadcastId}] exception ${recipient.phone}:`, e);
-    }
-
-    // Persist progress every 25 sends so history updates during long runs.
-    if ((sent + failed) % 25 === 0) {
-      await prisma.whatsAppBroadcast.update({
-        where: { id: opts.broadcastId },
-        data: {
-          sentCount: sent,
-          failedCount: failed,
-          lastError: lastError ? lastError.slice(0, 2000) : null,
-        },
-      });
-    }
-    await new Promise((r) => setTimeout(r, 150));
-  }
-
-  await prisma.whatsAppBroadcast.update({
-    where: { id: opts.broadcastId },
-    data: {
-      status: "completed",
-      sentCount: sent,
-      failedCount: failed,
-      lastError: lastError ? lastError.slice(0, 2000) : null,
-      completedAt: new Date(),
-    },
-  });
-
-  console.log(`[broadcast ${opts.broadcastId}] Done: ${sent} sent, ${failed} failed`, lastError || "");
 }

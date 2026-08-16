@@ -20,6 +20,10 @@
       "schedule": "*/5 * * * *"
     },
     {
+      "path": "/api/cron/whatsapp-broadcast",
+      "schedule": "*/2 * * * *"
+    },
+    {
       "path": "/api/cron/dress-checker-repair",
       "schedule": "0 */6 * * *"
     }

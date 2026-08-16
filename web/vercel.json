@@ -37,6 +37,10 @@
     {
       "path": "/api/cron/whatsapp-webhook-queue",
       "schedule": "*/2 * * * *"
+    },
+    {
+      "path": "/api/cron/whatsapp-broadcast",
+      "schedule": "*/2 * * * *"
     }
   ]
 }

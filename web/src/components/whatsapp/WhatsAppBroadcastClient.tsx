@@ -41,6 +41,7 @@ type Broadcast = {
   totalCount: number;
   sentCount: number;
   failedCount: number;
+  nextIndex?: number;
   lastError?: string | null;
   createdAt: string;
   completedAt: string | null;
@@ -177,6 +178,16 @@ export default function WhatsAppBroadcastClient() {
     loadTemplates();
     loadBroadcasts();
   }, []);
+
+  // Auto-refresh history while any broadcast is still sending.
+  useEffect(() => {
+    const active = broadcasts.some((b) => b.status === "sending");
+    if (!active) return;
+    const timer = setInterval(() => {
+      void loadBroadcasts();
+    }, 4000);
+    return () => clearInterval(timer);
+  }, [broadcasts]);
 
   const onExcelSelected = async (file: File | null) => {
     if (!file) {
@@ -590,7 +601,17 @@ function BroadcastCard({ broadcast: b }: { broadcast: Broadcast }) {
         </span>
         <span style={{ color: "#16a34a" }}>✓ {b.sentCount} sent</span>
         {b.failedCount > 0 && <span style={{ color: "#ef4444" }}>✗ {b.failedCount} failed</span>}
+        {b.status === "sending" && (
+          <span style={{ color: "#d97706" }}>
+            sending… {Math.min(b.totalCount, (b.sentCount || 0) + (b.failedCount || 0))}/{b.totalCount}
+          </span>
+        )}
       </div>
+      {b.status === "sending" && (
+        <div style={{ marginTop: 8, fontSize: 11, color: "#92400e" }}>
+          Large broadcasts continue in the background. This list refreshes automatically.
+        </div>
+      )}
       {b.lastError && (
         <div
           style={{
