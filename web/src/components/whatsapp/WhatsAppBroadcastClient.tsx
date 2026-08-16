@@ -413,11 +413,17 @@ export default function WhatsAppBroadcastClient() {
               }
               style={inputStyle}
             >
-              <option value="all_customers">All Customers (from bookings)</option>
+              <option value="all_customers">All Customers (customers list + bookings)</option>
               <option value="pending_returns">Pending Returns (next 7 days)</option>
               <option value="custom_phones">Custom Phone Numbers</option>
               <option value="excel_sheet">Excel sheet (Name + Number)</option>
             </select>
+            {form.recipientType === "all_customers" && (
+              <p style={{ margin: "6px 0 0", fontSize: 12, color: "#6b7280" }}>
+                Sends to everyone in <strong>Customers</strong> (your imported contacts) plus booking
+                WhatsApp numbers, with duplicates removed.
+              </p>
+            )}
           </div>
 
           {form.recipientType === "custom_phones" && (
