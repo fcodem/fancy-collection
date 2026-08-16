@@ -1,3 +1,4 @@
+import { Prisma } from "@prisma/client";
 import prisma from "@/lib/prisma";
 import {
   sendWhatsAppImageHeaderTemplate,
@@ -228,7 +229,11 @@ export async function processBroadcastBatch(opts?: {
       failedCount: failed,
       lastError: lastError ? lastError.slice(0, 2000) : null,
       ...(done
-        ? { status: "completed", completedAt: new Date(), recipientsJson: null }
+        ? {
+            status: "completed",
+            completedAt: new Date(),
+            recipientsJson: Prisma.DbNull,
+          }
         : {}),
     },
   });
