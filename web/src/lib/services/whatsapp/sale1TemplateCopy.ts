@@ -1,4 +1,4 @@
-import { readFileSync } from "node:fs";
+import { existsSync, readFileSync } from "node:fs";
 import path from "node:path";
 
 import {
@@ -12,6 +12,8 @@ import {
 export const SALE_1_TEMPLATE_NAME_DEFAULT = "sale_1";
 
 export const SALE_1_FLYER_RELATIVE_PATH = "public/images/whatsapp/sale-1-flyer.png";
+export const SALE_1_FLYER_PUBLIC_PATH = "/images/whatsapp/sale-1-flyer.png";
+export const SALE_1_FLYER_FILENAME = "sale-1-flyer.png";
 
 export function sale1TemplateName(): string {
   return (
@@ -26,6 +28,54 @@ export function loadWebRelativeFile(relativePath: string): Buffer {
 
 export function sale1FlyerBuffer(): Buffer {
   return loadWebRelativeFile(SALE_1_FLYER_RELATIVE_PATH);
+}
+
+function appOrigin(): string {
+  const fromEnv =
+    process.env.NEXT_PUBLIC_APP_URL?.replace(/\/$/, "") ||
+    process.env.BASE_URL?.replace(/\/$/, "") ||
+    "";
+  if (fromEnv) return fromEnv;
+  if (process.env.VERCEL_URL) {
+    return `https://${process.env.VERCEL_URL.replace(/\/$/, "")}`;
+  }
+  return "https://fcmanage.vercel.app";
+}
+
+/** Candidate filesystem paths (local + Vercel traced layouts). */
+export function sale1FlyerPathCandidates(): string[] {
+  const cwd = process.cwd();
+  return [
+    path.join(cwd, SALE_1_FLYER_RELATIVE_PATH),
+    path.join(cwd, "images", "whatsapp", SALE_1_FLYER_FILENAME),
+    path.join(cwd, "public", "images", "whatsapp", SALE_1_FLYER_FILENAME),
+    path.join(cwd, "web", SALE_1_FLYER_RELATIVE_PATH),
+  ];
+}
+
+/**
+ * Load the SALE 1 flyer for Meta media upload.
+ * On Vercel, `public/` is often not on the serverless disk — fall back to the CDN URL.
+ */
+export async function loadSale1FlyerBuffer(): Promise<Buffer | null> {
+  for (const candidate of sale1FlyerPathCandidates()) {
+    if (existsSync(candidate)) {
+      try {
+        return readFileSync(candidate);
+      } catch {
+        // try next candidate
+      }
+    }
+  }
+
+  const url = `${appOrigin()}${SALE_1_FLYER_PUBLIC_PATH}`;
+  try {
+    const res = await fetch(url, { cache: "no-store" });
+    if (!res.ok) return null;
+    return Buffer.from(await res.arrayBuffer());
+  } catch {
+    return null;
+  }
 }
 
 export function buildSale1TemplateComponents(headerHandle: string) {

@@ -1,5 +1,3 @@
-import { readFileSync, existsSync } from "node:fs";
-import path from "node:path";
 import { NextRequest, after } from "next/server";
 import { jsonOk, jsonError, requireOwner, isResponse, requireJsonContentType } from "@/lib/api";
 import prisma from "@/lib/prisma";
@@ -10,7 +8,10 @@ import {
   sendWhatsAppTemplate,
   uploadWhatsAppMedia,
 } from "@/lib/services/whatsapp/metaApi";
-import { SALE_1_FLYER_RELATIVE_PATH } from "@/lib/services/whatsapp/sale1TemplateCopy";
+import {
+  loadSale1FlyerBuffer,
+  SALE_1_FLYER_FILENAME,
+} from "@/lib/services/whatsapp/sale1TemplateCopy";
 
 export const maxDuration = 300;
 
@@ -81,10 +82,10 @@ async function fetchMetaTemplate(
   return null;
 }
 
-function resolveBroadcastFlyerPath(templateName: string): string | null {
+async function loadBroadcastFlyerBuffer(templateName: string): Promise<Buffer | null> {
   const n = templateName.trim().toLowerCase();
   if (n === "sale_1" || n === "sale1") {
-    return path.join(process.cwd(), SALE_1_FLYER_RELATIVE_PATH);
+    return loadSale1FlyerBuffer();
   }
   return null;
 }
@@ -228,17 +229,18 @@ export async function POST(req: NextRequest) {
   const sendBodyName = needsBodyName && templateHasBodyVar(metaTpl.components);
 
   let imageMediaId: string | null = null;
+  let flyerBuffer: Buffer | null = null;
   if (headerFormat === "IMAGE") {
-    const flyerPath = resolveBroadcastFlyerPath(templateName);
-    if (!flyerPath || !existsSync(flyerPath)) {
+    flyerBuffer = await loadBroadcastFlyerBuffer(templateName);
+    if (!flyerBuffer?.length) {
       return jsonError(
         `Template "${templateName}" needs an IMAGE header, but the flyer file was not found on the server.`,
         500,
       );
     }
     const uploaded = await uploadWhatsAppMedia(
-      readFileSync(flyerPath),
-      path.basename(flyerPath),
+      flyerBuffer,
+      SALE_1_FLYER_FILENAME,
       "image/png",
     );
     if (!uploaded.ok) {
@@ -271,7 +273,7 @@ export async function POST(req: NextRequest) {
       templateName,
       language: metaTpl.language || templateLanguage,
       imageMediaId,
-      flyerPath: headerFormat === "IMAGE" ? resolveBroadcastFlyerPath(templateName) : null,
+      flyerBuffer,
       sendBodyName,
     });
 
@@ -299,7 +301,7 @@ async function sendBroadcastMessages(opts: {
   templateName: string;
   language: string;
   imageMediaId: string | null;
-  flyerPath: string | null;
+  flyerBuffer: Buffer | null;
   sendBodyName: boolean;
 }) {
   let sent = 0;
@@ -311,10 +313,10 @@ async function sendBroadcastMessages(opts: {
   for (const recipient of opts.phones) {
     try {
       // WhatsApp media IDs expire; refresh periodically on large broadcasts.
-      if (opts.flyerPath && (sinceMediaUpload >= 40 || !imageMediaId)) {
+      if (opts.flyerBuffer && (sinceMediaUpload >= 40 || !imageMediaId)) {
         const uploaded = await uploadWhatsAppMedia(
-          readFileSync(opts.flyerPath),
-          path.basename(opts.flyerPath),
+          opts.flyerBuffer,
+          SALE_1_FLYER_FILENAME,
           "image/png",
         );
         if (!uploaded.ok) {

@@ -60,6 +60,8 @@ const nextConfig: NextConfig = {
   // routes that use it. Do not force the full client into every page and API.
   outputFileTracingIncludes: {
     "/api/internal/slip/render": [CHROMIUM_TRACE],
+    // SALE 1 flyer must be readable by the broadcast API for IMAGE header uploads.
+    "/api/whatsapp/broadcast": ["./public/images/whatsapp/sale-1-flyer.png"],
   },
   // Runtime/customer/generated data may exist in a developer's public folder,
   // but must never be copied into any serverless function trace.
