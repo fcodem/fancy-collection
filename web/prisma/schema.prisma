@@ -805,6 +805,8 @@ model WhatsAppBroadcast {
   totalCount   Int       @default(0) @map("total_count")
   sentCount    Int       @default(0) @map("sent_count")
   failedCount  Int       @default(0) @map("failed_count")
+  /** First / last Meta error summary for failed sends */
+  lastError    String?   @map("last_error") @db.Text
   createdBy    String?   @map("created_by")
   completedAt  DateTime? @map("completed_at")
   createdAt    DateTime  @default(now()) @map("created_at")

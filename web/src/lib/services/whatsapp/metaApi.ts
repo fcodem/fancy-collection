@@ -545,6 +545,48 @@ export async function sendWhatsAppDocumentTemplate(opts: {
   });
 }
 
+/** Send an approved template whose HEADER is an IMAGE (marketing flyer, etc.). */
+export async function sendWhatsAppImageHeaderTemplate(opts: {
+  phone: string;
+  templateName: string;
+  languageCode?: string;
+  mediaId: string;
+  bodyParams?: string[];
+}): Promise<WhatsAppSendResult> {
+  const to = whatsAppApiPhone(opts.phone);
+  if (!to) return { ok: false, error: `Invalid phone number: ${opts.phone}` };
+
+  const bodyParams = opts.bodyParams || [];
+  return postWhatsAppMessage({
+    recipient_type: "individual",
+    to,
+    type: "template",
+    template: {
+      name: opts.templateName,
+      language: { code: opts.languageCode || "en" },
+      components: [
+        {
+          type: "header",
+          parameters: [
+            {
+              type: "image",
+              image: { id: opts.mediaId },
+            },
+          ],
+        },
+        ...(bodyParams.length
+          ? [
+              {
+                type: "body",
+                parameters: bodyParams.map((text) => ({ type: "text", text })),
+              },
+            ]
+          : []),
+      ],
+    },
+  });
+}
+
 /**
  * Upload a sample file via Meta Resumable Upload API and return a header_handle
  * for creating message templates with IMAGE/VIDEO/DOCUMENT headers.

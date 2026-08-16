@@ -41,6 +41,7 @@ type Broadcast = {
   totalCount: number;
   sentCount: number;
   failedCount: number;
+  lastError?: string | null;
   createdAt: string;
   completedAt: string | null;
 };
@@ -584,6 +585,22 @@ function BroadcastCard({ broadcast: b }: { broadcast: Broadcast }) {
         <span style={{ color: "#16a34a" }}>✓ {b.sentCount} sent</span>
         {b.failedCount > 0 && <span style={{ color: "#ef4444" }}>✗ {b.failedCount} failed</span>}
       </div>
+      {b.lastError && (
+        <div
+          style={{
+            marginTop: 8,
+            fontSize: 11,
+            color: "#b91c1c",
+            background: "#fef2f2",
+            border: "1px solid #fecaca",
+            borderRadius: 8,
+            padding: "6px 8px",
+            wordBreak: "break-word",
+          }}
+        >
+          Error: {b.lastError}
+        </div>
+      )}
       <div style={{ fontSize: 11, color: "#9ca3af", marginTop: 4 }}>
         {new Date(b.createdAt).toLocaleString("en-IN")}
       </div>
