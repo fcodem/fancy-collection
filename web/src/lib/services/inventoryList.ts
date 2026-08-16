@@ -2,7 +2,7 @@
  * Cursor-paginated inventory group summaries — DB aggregation, slim payloads.
  */
 import prisma, { isSqliteDb } from "@/lib/prisma";
-import { photoUrl } from "@/lib/photoUrl";
+import { photoUrl, pickInventoryFullRef, pickInventoryThumbRef } from "@/lib/photoUrl";
 import { stripUnitSuffix } from "@/lib/dress";
 import { MENS_CATEGORIES } from "@/lib/constants";
 
@@ -276,11 +276,26 @@ function summarizeGroup(
     createdAt: Date;
   }>,
 ): InventoryGroupSummary {
-  const primary = [...items].sort(
-    (a, b) => b.createdAt.getTime() - a.createdAt.getTime() || b.id - a.id,
-  )[0]!;
-  const thumb = primary.thumbnailPhoto || primary.photo;
-  const full = primary.photo || primary.thumbnailPhoto;
+  const ranked = [...items].sort((a, b) => {
+    const score = (item: (typeof items)[number]) => {
+      const thumb = item.thumbnailPhoto?.trim() || "";
+      const full = item.photo?.trim() || "";
+      let s = 0;
+      if (full.startsWith("http")) s += 8;
+      if (thumb.startsWith("http")) s += 4;
+      if (full) s += 2;
+      if (thumb) s += 1;
+      return s;
+    };
+    return (
+      score(b) - score(a) ||
+      b.createdAt.getTime() - a.createdAt.getTime() ||
+      b.id - a.id
+    );
+  });
+  const primary = ranked[0]!;
+  const thumb = pickInventoryThumbRef(primary.thumbnailPhoto, primary.photo);
+  const full = pickInventoryFullRef(primary.photo, primary.thumbnailPhoto);
   return {
     groupKey,
     inventoryGroupId: primary.inventoryGroupId,
@@ -506,10 +521,53 @@ async function listInventoryGroupsPostgres(opts: {
         MAX(daily_rate)::float AS daily_rate,
         MAX(created_at) AS newest_created_at,
         BOOL_OR(status = ${status}) AS status_match,
-        (ARRAY_AGG(id ORDER BY created_at DESC, id DESC))[1]::int AS primary_id,
-        (ARRAY_AGG(sku ORDER BY created_at DESC, id DESC))[1] AS primary_sku,
-        (ARRAY_AGG(COALESCE(thumbnail_photo, photo) ORDER BY created_at DESC, id DESC))[1] AS thumb_ref,
-        (ARRAY_AGG(COALESCE(photo, thumbnail_photo) ORDER BY created_at DESC, id DESC))[1] AS photo_ref
+        (ARRAY_AGG(id ORDER BY
+          CASE
+            WHEN photo LIKE 'http%' THEN 0
+            WHEN thumbnail_photo LIKE 'http%' THEN 1
+            WHEN NULLIF(photo, '') IS NOT NULL THEN 2
+            WHEN NULLIF(thumbnail_photo, '') IS NOT NULL THEN 3
+            ELSE 4
+          END,
+          created_at DESC, id DESC))[1]::int AS primary_id,
+        (ARRAY_AGG(sku ORDER BY
+          CASE
+            WHEN photo LIKE 'http%' THEN 0
+            WHEN thumbnail_photo LIKE 'http%' THEN 1
+            WHEN NULLIF(photo, '') IS NOT NULL THEN 2
+            WHEN NULLIF(thumbnail_photo, '') IS NOT NULL THEN 3
+            ELSE 4
+          END,
+          created_at DESC, id DESC))[1] AS primary_sku,
+        (ARRAY_AGG(
+          CASE
+            WHEN thumbnail_photo LIKE 'http%' THEN thumbnail_photo
+            WHEN photo LIKE 'http%' THEN photo
+            WHEN NULLIF(photo, '') IS NOT NULL THEN photo
+            ELSE thumbnail_photo
+          END
+          ORDER BY
+            CASE
+              WHEN thumbnail_photo LIKE 'http%' THEN 0
+              WHEN photo LIKE 'http%' THEN 1
+              WHEN NULLIF(photo, '') IS NOT NULL THEN 2
+              WHEN NULLIF(thumbnail_photo, '') IS NOT NULL THEN 3
+              ELSE 4
+            END,
+            created_at DESC, id DESC
+        ))[1] AS thumb_ref,
+        (ARRAY_AGG(
+          COALESCE(NULLIF(photo, ''), thumbnail_photo)
+          ORDER BY
+            CASE
+              WHEN photo LIKE 'http%' THEN 0
+              WHEN thumbnail_photo LIKE 'http%' THEN 1
+              WHEN NULLIF(photo, '') IS NOT NULL THEN 2
+              WHEN NULLIF(thumbnail_photo, '') IS NOT NULL THEN 3
+              ELSE 4
+            END,
+            created_at DESC, id DESC
+        ))[1] AS photo_ref
       FROM base
       GROUP BY list_group_key, size
     ),
@@ -537,10 +595,18 @@ async function listInventoryGroupsPostgres(opts: {
         MAX(daily_rate)::float AS daily_rate,
         MAX(newest_created_at) AS newest_created_at,
         BOOL_OR(status_match) AS status_match,
-        (ARRAY_AGG(primary_id ORDER BY newest_created_at DESC, primary_id DESC))[1]::int AS primary_id,
-        (ARRAY_AGG(primary_sku ORDER BY newest_created_at DESC, primary_id DESC))[1] AS primary_sku,
-        (ARRAY_AGG(thumb_ref ORDER BY newest_created_at DESC, primary_id DESC))[1] AS thumb_ref,
-        (ARRAY_AGG(photo_ref ORDER BY newest_created_at DESC, primary_id DESC))[1] AS photo_ref,
+        (ARRAY_AGG(primary_id ORDER BY
+          CASE WHEN NULLIF(photo_ref, '') IS NOT NULL OR NULLIF(thumb_ref, '') IS NOT NULL THEN 0 ELSE 1 END,
+          newest_created_at DESC, primary_id DESC))[1]::int AS primary_id,
+        (ARRAY_AGG(primary_sku ORDER BY
+          CASE WHEN NULLIF(photo_ref, '') IS NOT NULL OR NULLIF(thumb_ref, '') IS NOT NULL THEN 0 ELSE 1 END,
+          newest_created_at DESC, primary_id DESC))[1] AS primary_sku,
+        (ARRAY_AGG(thumb_ref ORDER BY
+          CASE WHEN NULLIF(thumb_ref, '') IS NOT NULL THEN 0 ELSE 1 END,
+          newest_created_at DESC, primary_id DESC))[1] AS thumb_ref,
+        (ARRAY_AGG(photo_ref ORDER BY
+          CASE WHEN NULLIF(photo_ref, '') IS NOT NULL THEN 0 ELSE 1 END,
+          newest_created_at DESC, primary_id DESC))[1] AS photo_ref,
         CASE
           WHEN BOOL_OR(list_group_key LIKE 'mens:%') THEN
             json_agg(
@@ -641,8 +707,14 @@ async function listInventoryGroupsPostgres(opts: {
       rentedQuantity: r.rented_qty,
       maintenanceQuantity: r.maintenance_qty,
       dailyRate: Number(r.daily_rate) || 0,
-      thumbnailUrl: r.thumb_ref ? photoUrl(r.thumb_ref) : null,
-      photoUrl: r.photo_ref ? photoUrl(r.photo_ref) : null,
+      thumbnailUrl: (() => {
+        const ref = pickInventoryThumbRef(r.thumb_ref, r.photo_ref);
+        return ref ? photoUrl(ref) : null;
+      })(),
+      photoUrl: (() => {
+        const ref = pickInventoryFullRef(r.photo_ref, r.thumb_ref);
+        return ref ? photoUrl(ref) : null;
+      })(),
       newestCreatedAt: new Date(r.newest_created_at).toISOString(),
       ...(r.is_mens
         ? {

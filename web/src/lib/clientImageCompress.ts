@@ -42,9 +42,9 @@ export async function compressImageFile(
   }
 }
 
-/** Alias for inventory / catalog uploads (same pipeline as compressImageFile). */
+/** Alias for inventory / catalog uploads (customer-display quality). */
 export async function compressImageForUpload(file: File): Promise<File> {
-  return compressImageFile(file, { maxEdge: 720, quality: 0.55 });
+  return compressImageFile(file, { maxEdge: 1600, quality: 0.85 });
 }
 
 /** Upload with concurrency limit (default 2). */

@@ -688,9 +688,9 @@ export default function InventoryListClient({
                 className="inv-card-main"
                 onClick={() => (isMens ? void toggleMensSizes(g) : openRow(g))}
               >
-                {g.thumbnailUrl ? (
+                {(g.photoUrl || g.thumbnailUrl) ? (
                   <ZoomableImage
-                    src={g.thumbnailUrl}
+                    src={g.photoUrl || g.thumbnailUrl!}
                     fullSrc={g.photoUrl || g.thumbnailUrl}
                     alt=""
                     overlayCaption={caption}
@@ -1039,9 +1039,9 @@ export default function InventoryListClient({
               </button>
             </header>
             <div className="inv-drawer-body">
-              {drawer.thumbnailUrl ? (
+              {(drawer.photoUrl || drawer.thumbnailUrl) ? (
                 <ZoomableImage
-                  src={drawer.thumbnailUrl}
+                  src={drawer.photoUrl || drawer.thumbnailUrl!}
                   fullSrc={
                     drawerDetail?.original_photo_url ||
                     drawerDetail?.photo_url ||

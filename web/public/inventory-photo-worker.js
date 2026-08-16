@@ -13,9 +13,10 @@ self.onmessage = async (event) => {
       context.drawImage(bitmap, 0, 0, width, height);
       return canvas.convertToBlob({ type, quality });
     };
+    // Customer-facing catalog quality: sharp enough to show on phone / zoom.
     const [original, thumbnail] = await Promise.all([
-      render(720, "image/jpeg", 0.55),
-      render(180, "image/webp", 0.55),
+      render(1600, "image/jpeg", 0.85),
+      render(360, "image/webp", 0.72),
     ]);
     bitmap.close();
     const hashBuffer = await crypto.subtle.digest("SHA-256", await original.arrayBuffer());

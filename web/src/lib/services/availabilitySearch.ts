@@ -7,7 +7,7 @@ import {
 } from "@/lib/availabilityCursor";
 import type { JewelleryPartKey } from "@/lib/jewelleryParts";
 import { BASE_JEWELLERY, BASE_MENS, BASE_WOMENS } from "@/lib/constants";
-import { photoUrl } from "@/lib/photoUrl";
+import { photoUrl, pickInventoryFullRef, pickInventoryThumbRef } from "@/lib/photoUrl";
 
 function freeItemGroupKey(item: {
   inventoryGroupId?: string | null;
@@ -94,7 +94,8 @@ type AvailabilityRow = {
   color: string | null;
   status: string;
   itemType: string;
-  thumbnail: string | null;
+  photo: string | null;
+  thumbnailPhoto: string | null;
   inventoryGroupId: string | null;
   hasNecklace: boolean;
   hasEarrings: boolean;
@@ -375,7 +376,8 @@ function buildAvailabilityQuery(opts: {
         ci.color,
         ci.status,
         ci.item_type AS "itemType",
-        COALESCE(ci.thumbnail_photo, ci.photo) AS thumbnail,
+        ci.photo AS photo,
+        ci.thumbnail_photo AS "thumbnailPhoto",
         ci.inventory_group_id AS "inventoryGroupId",
         ci.has_necklace AS "hasNecklace",
         ci.has_earrings AS "hasEarrings",
@@ -754,7 +756,10 @@ export async function searchAvailableItems(
 
   const free_items = visible.map((row) => {
     const isJewellery = jewelleryChecks && row.itemType === "jewellery";
-    const thumb = row.thumbnail ? photoUrl(row.thumbnail) : null;
+    const thumbRef = pickInventoryThumbRef(row.thumbnailPhoto, row.photo);
+    const fullRef = pickInventoryFullRef(row.photo, row.thumbnailPhoto);
+    const thumb = thumbRef ? photoUrl(thumbRef) : null;
+    const full = fullRef ? photoUrl(fullRef) : null;
     const key = freeItemGroupKey(row);
     const freeQty = freeCountByGroup.get(key) || 1;
     const isMens = BASE_MENS.some((c) => c.toLowerCase() === (row.category || "").toLowerCase());
@@ -779,7 +784,7 @@ export async function searchAvailableItems(
       status: row.status,
       item_type: row.itemType,
       thumbnail: thumb,
-      photo: thumb,
+      photo: full || thumb,
       inventory_group_id: row.inventoryGroupId,
       free_quantity: freeQty,
       total_quantity: totalQty,

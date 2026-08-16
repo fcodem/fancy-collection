@@ -29,11 +29,11 @@ export {
   APPROVED_PRIVATE_MEDIA_FOLDERS,
 } from "./storage/privateBookingMedia";
 
-const MAX_IMAGE_EDGE = 720;
-const JPEG_QUALITY = 55;
-const ORIGINAL_JPEG_QUALITY = 58;
-const THUMBNAIL_EDGE = 180;
-const THUMBNAIL_WEBP_QUALITY = 55;
+const MAX_IMAGE_EDGE = 1600;
+const JPEG_QUALITY = 85;
+const ORIGINAL_JPEG_QUALITY = 88;
+const THUMBNAIL_EDGE = 360;
+const THUMBNAIL_WEBP_QUALITY = 72;
 
 function extFromName(name: string) {
   const parts = name.split(".");

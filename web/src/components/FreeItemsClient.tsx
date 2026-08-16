@@ -14,6 +14,7 @@ import { formatJewelleryPartsLabel, type JewelleryPartKey } from "@/lib/jeweller
 import { addDaysIso } from "@/lib/dateInput";
 import { photoUrl } from "@/lib/photoUrl";
 import ZoomableImage from "@/components/ZoomableImage";
+import DressAvailabilityScanner from "@/components/DressAvailabilityScanner";
 import { dressDisplayName, stripUnitSuffix } from "@/lib/dress";
 
 const REMOVED_SUB_SET = new Set(REMOVED_SUB_CATEGORIES.map((s) => s.toLowerCase()));
@@ -506,6 +507,26 @@ export default function FreeItemsClient({ today }: { today: string }) {
             {loading ? "Searching…" : "Search"}
           </button>
         </div>
+      </div>
+
+      <div style={{ marginBottom: 24 }}>
+        <div className="card" style={{ marginBottom: 0 }}>
+          <div className="card-header">
+            <h3 className="card-title">Scan QR to check a dress</h3>
+          </div>
+          <div className="card-body" style={{ paddingBottom: 8 }}>
+            <p style={{ fontSize: 13, color: "var(--text-muted)", margin: 0 }}>
+              Uses the Pickup / Return dates above. Camera and results stay on this page.
+            </p>
+          </div>
+        </div>
+        <DressAvailabilityScanner
+          embedded
+          lockedDeliveryDate={deliveryDate}
+          lockedReturnDate={returnDate}
+          lockedDeliveryTime="12:00"
+          lockedReturnTime="12:00"
+        />
       </div>
 
       {loaded && (

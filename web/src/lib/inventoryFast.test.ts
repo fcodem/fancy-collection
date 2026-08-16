@@ -39,7 +39,7 @@ describe("inventory keyset and filtering contracts", () => {
   it("returns thumbnails in summaries and loads originals only in detail", () => {
     const service = read("src/lib/services/inventoryList.ts");
     const listClient = read("src/components/InventoryListClient.tsx");
-    assert.match(service, /ARRAY_AGG\(COALESCE\(thumbnail_photo, photo\)/);
+    assert.match(service, /ARRAY_AGG\([\s\S]*photo LIKE 'http%'/);
     assert.doesNotMatch(service.slice(service.indexOf("WITH base AS"), service.indexOf("async function listInventoryGroupsPrismaFallback")), /original_photo/);
     assert.match(listClient, /fetch\(`\/api\/inventory\/\$\{g\.primaryId\}`/);
     assert.match(listClient, /original_photo_url/);
@@ -56,7 +56,7 @@ describe("one-click inventory save contracts", () => {
     assert.doesNotMatch(form, /Image is still being prepared/);
     assert.match(worker, /OffscreenCanvas/);
     assert.match(worker, /crypto\.subtle\.digest/);
-    assert.match(worker, /720/);
+    assert.match(worker, /1600/);
   });
 
   it("uploads prepared files in one save request and defers AI work until after commit", () => {

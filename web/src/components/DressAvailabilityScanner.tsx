@@ -253,18 +253,53 @@ function formatDateDmy(dateStr: string): string {
 
 export default function DressAvailabilityScanner({
   canManageScanCodes = false,
+  embedded = false,
+  lockedDeliveryDate,
+  lockedReturnDate,
+  lockedDeliveryTime = "12:00",
+  lockedReturnTime = "12:00",
 }: {
   canManageScanCodes?: boolean;
+  /** When true, stay on the host page (e.g. Free Items) and use locked dates. */
+  embedded?: boolean;
+  lockedDeliveryDate?: string;
+  lockedReturnDate?: string;
+  lockedDeliveryTime?: string;
+  lockedReturnTime?: string;
 }) {
+  const cameraElementId = embedded
+    ? "dress-availability-camera-free-items"
+    : "dress-availability-camera";
   const restoredRef = useRef(false);
-  const [deliveryDate, setDeliveryDate] = useState(() => todayIst());
-  const [deliveryTime, setDeliveryTime] = useState("12:00");
-  const [returnDate, setReturnDate] = useState(() => nextDayIst(todayIst()));
-  const [returnTime, setReturnTime] = useState("12:00");
-  const [activeWindow, setActiveWindow] = useState<ValidatedScanWindow | null>(
-    null,
+  const [deliveryDate, setDeliveryDate] = useState(
+    () => lockedDeliveryDate || todayIst(),
   );
-  const [phase, setPhase] = useState<"dates" | "scanning">("dates");
+  const [deliveryTime, setDeliveryTime] = useState(lockedDeliveryTime);
+  const [returnDate, setReturnDate] = useState(
+    () => lockedReturnDate || nextDayIst(todayIst()),
+  );
+  const [returnTime, setReturnTime] = useState(lockedReturnTime);
+  const [activeWindow, setActiveWindow] = useState<ValidatedScanWindow | null>(() => {
+    if (!embedded || !lockedDeliveryDate || !lockedReturnDate) return null;
+    try {
+      return validateScanWindow({
+        deliveryDate: lockedDeliveryDate,
+        deliveryTime: lockedDeliveryTime,
+        returnDate: lockedReturnDate,
+        returnTime: lockedReturnTime,
+      });
+    } catch {
+      return null;
+    }
+  });
+  const [phase, setPhase] = useState<"dates" | "scanning">(() =>
+    embedded && lockedDeliveryDate && lockedReturnDate ? "scanning" : "dates",
+  );
+  const lockedWindowKeyRef = useRef(
+    embedded && lockedDeliveryDate && lockedReturnDate
+      ? `${lockedDeliveryDate}|${lockedDeliveryTime}|${lockedReturnDate}|${lockedReturnTime}`
+      : "",
+  );
   const [windowError, setWindowError] = useState("");
   const [cameraError, setCameraError] = useState("");
   const [cameraStatus, setCameraStatus] = useState<ScannerStatus | null>(null);
@@ -309,6 +344,7 @@ export default function DressAvailabilityScanner({
   }, []);
 
   useEffect(() => {
+    if (embedded) return;
     if (restoredRef.current) return;
     restoredRef.current = true;
     const saved = readPersistedScanSession();
@@ -346,9 +382,10 @@ export default function DressAvailabilityScanner({
         dedupeRef.current.claim(row.scannedCode, Date.now(), true);
       }
     }
-  }, [rebuildIndexes]);
+  }, [embedded, rebuildIndexes]);
 
   useEffect(() => {
+    if (embedded) return;
     writePersistedScanSession({
       deliveryDate,
       deliveryTime,
@@ -357,7 +394,56 @@ export default function DressAvailabilityScanner({
       phase,
       rows,
     });
-  }, [deliveryDate, deliveryTime, returnDate, returnTime, phase, rows]);
+  }, [embedded, deliveryDate, deliveryTime, returnDate, returnTime, phase, rows]);
+
+  // Free Items (and other hosts): lock the booking window to the dates already on the page.
+  useEffect(() => {
+    if (!embedded || !lockedDeliveryDate || !lockedReturnDate) return;
+    const key = `${lockedDeliveryDate}|${lockedDeliveryTime}|${lockedReturnDate}|${lockedReturnTime}`;
+    const datesChanged = lockedWindowKeyRef.current !== key;
+    lockedWindowKeyRef.current = key;
+    setDeliveryDate(lockedDeliveryDate);
+    setReturnDate(lockedReturnDate);
+    setDeliveryTime(lockedDeliveryTime);
+    setReturnTime(lockedReturnTime);
+    try {
+      const window = validateScanWindow({
+        deliveryDate: lockedDeliveryDate,
+        deliveryTime: lockedDeliveryTime,
+        returnDate: lockedReturnDate,
+        returnTime: lockedReturnTime,
+      });
+      if (datesChanged) {
+        generationRef.current += 1;
+        abortRef.current?.abort();
+        abortRef.current = null;
+        requestActiveRef.current = false;
+        queueRef.current = [];
+        dedupeRef.current.clear();
+        codeResultRef.current.clear();
+        dressResultRef.current.clear();
+        setRows([]);
+        setHighlightId(null);
+        setScanSuccess(false);
+        setFeedback("Ready to scan for the Free Items dates above.");
+      }
+      setActiveWindow(window);
+      setWindowError("");
+      setPhase("scanning");
+    } catch (error) {
+      setActiveWindow(null);
+      setPhase("dates");
+      setWindowError(
+        error instanceof Error ? error.message : "Enter a valid booking window.",
+      );
+    }
+  }, [
+    embedded,
+    lockedDeliveryDate,
+    lockedReturnDate,
+    lockedDeliveryTime,
+    lockedReturnTime,
+  ]);
 
   const drainQueue = useCallback(async function drainQueueInner() {
     if (requestActiveRef.current || !activeWindow) return;
@@ -516,7 +602,7 @@ export default function DressAvailabilityScanner({
       try {
         const { QrCameraSession } = await import("@/lib/cameraScanner");
         if (cancelled) return;
-        const session = new QrCameraSession("dress-availability-camera", { qrOnly: true });
+        const session = new QrCameraSession(cameraElementId, { qrOnly: true });
         sessionRef.current = session;
         scanLockedRef.current = false;
         const status = await session.start(decode);
@@ -550,7 +636,7 @@ export default function DressAvailabilityScanner({
       setCameraActive(false);
       if (session) void session.stop();
     };
-  }, [phase]);
+  }, [phase, cameraElementId]);
 
   useEffect(
     () => () => {
@@ -658,6 +744,22 @@ export default function DressAvailabilityScanner({
   }
 
   if (phase === "dates") {
+    if (embedded) {
+      return (
+        <div className="card">
+          <div className="card-body">
+            <p style={{ color: "var(--text-muted)", fontSize: 13, margin: 0 }}>
+              Set Pickup and Return dates above, then scan here. Checking stays on this page.
+            </p>
+            {windowError ? (
+              <div role="alert" style={{ color: "#b42318", marginTop: 12 }}>
+                {windowError}
+              </div>
+            ) : null}
+          </div>
+        </div>
+      );
+    }
     return (
       <div>
         <div className="card">
@@ -763,13 +865,13 @@ export default function DressAvailabilityScanner({
   return (
     <div>
       <style>{`
-        #dress-availability-camera {
+        #${cameraElementId} {
           position: relative;
         }
-        #dress-availability-camera video {
+        #${cameraElementId} video {
           object-fit: cover !important;
         }
-        #dress-availability-camera #qr-shaded-region {
+        #${cameraElementId} #qr-shaded-region {
           border-width: 0 !important;
           border-radius: 10px !important;
         }
@@ -780,10 +882,10 @@ export default function DressAvailabilityScanner({
       `}</style>
       <div
         className="card"
-        style={{ marginBottom: 14, border: "2px solid var(--gold)" }}
+        style={{ marginBottom: 14, border: embedded ? "1px solid var(--border)" : "2px solid var(--gold)" }}
       >
         <div className="card-header">
-          <h2 className="card-title">2. Scan dress</h2>
+          <h2 className="card-title">{embedded ? "Scan dress QR" : "2. Scan dress"}</h2>
           <span style={{ fontSize: 12, color: "var(--text-muted)" }}>
             {formatDateDmy(activeWindow?.deliveryDate ?? "")} {activeWindow?.deliveryTime} →{" "}
             {formatDateDmy(activeWindow?.returnDate ?? "")} {activeWindow?.returnTime} IST
@@ -792,8 +894,8 @@ export default function DressAvailabilityScanner({
         <div className="card-body">
           <div style={{ position: "relative", maxWidth: 420, margin: "0 auto" }}>
             <div
-              id="dress-availability-camera"
-              data-testid="dress-availability-camera"
+              id={cameraElementId}
+              data-testid={cameraElementId}
               style={{
                 width: "100%",
                 minHeight: 280,
@@ -964,9 +1066,11 @@ export default function DressAvailabilityScanner({
                 </button>
               </>
             )}
-            <button type="button" className="btn btn-outline btn-sm" onClick={changeDates}>
-              Change Dates
-            </button>
+            {!embedded && (
+              <button type="button" className="btn btn-outline btn-sm" onClick={changeDates}>
+                Change Dates
+              </button>
+            )}
             <button type="button" className="btn btn-outline btn-sm" onClick={clearRows}>
               Clear Scanned List
             </button>
@@ -983,7 +1087,7 @@ export default function DressAvailabilityScanner({
                   void (async () => {
                     try {
                       const { QrCameraSession } = await import("@/lib/cameraScanner");
-                      const session = new QrCameraSession("dress-availability-camera", { qrOnly: true });
+                      const session = new QrCameraSession(cameraElementId, { qrOnly: true });
                       sessionRef.current = session;
                       const status = await session.start(decode);
                       setCameraStatus(status);
@@ -1185,6 +1289,7 @@ export default function DressAvailabilityScanner({
                       </div>
                       <BookingRecords records={records} />
                       {canManageScanCodes &&
+                      !embedded &&
                       (row.result.status === "CODE_NOT_FOUND" ||
                         row.result.status === "AMBIGUOUS_LEGACY_CODE") ? (
                         <div style={{ marginTop: 10 }}>
