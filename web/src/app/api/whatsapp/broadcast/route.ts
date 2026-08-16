@@ -9,7 +9,7 @@ import {
   processBroadcastBatch,
   type BroadcastRecipient,
 } from "@/lib/services/whatsapp/broadcastSend";
-import { loadSale1FlyerBuffer } from "@/lib/services/whatsapp/sale1TemplateCopy";
+import { loadSale1FlyerBuffer, isSale1FlyerTemplate } from "@/lib/services/whatsapp/sale1TemplateCopy";
 
 export const maxDuration = 300;
 
@@ -224,6 +224,12 @@ export async function POST(req: NextRequest) {
   const sendBodyName = needsBodyName && templateHasBodyVar(metaTpl.components);
 
   if (headerFormat === "IMAGE") {
+    if (!isSale1FlyerTemplate(templateName)) {
+      return jsonError(
+        `Image-header template "${templateName}" is not supported for broadcast yet. Use sale_1 or sale_1_image.`,
+        400,
+      );
+    }
     const flyer = await loadSale1FlyerBuffer();
     if (!flyer?.length) {
       return jsonError(

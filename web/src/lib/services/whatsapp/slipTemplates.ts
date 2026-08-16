@@ -41,6 +41,7 @@ import {
 } from "./saleProjectTemplateCopy";
 import {
   buildSale1TemplateComponents,
+  buildSale1ImageOnlyTemplateComponents,
   loadWebRelativeFile,
 } from "./sale1TemplateCopy";
 
@@ -244,6 +245,20 @@ export const SLIP_TEMPLATE_DEFS: SlipTemplateDef[] = [
       { text: "View on Instagram", url: SALE_PROJECT_INSTAGRAM_URL },
     ],
     description: "Marketing — SALE 1 (flyer image + men's ethnic wear message)",
+  },
+  {
+    key: "sale_1_image",
+    name: "sale_1_image",
+    envVar: "WA_TEMPLATE_MARKETING_SALE_1_IMAGE",
+    category: "MARKETING",
+    kind: "image",
+    imageRelativePath: "public/images/whatsapp/sale-1-flyer.png",
+    imageMime: "image/png",
+    body: SALE_PROJECT_TEMPLATE_BODY,
+    bodyExample: SALE_PROJECT_TEMPLATE_BODY_EXAMPLE,
+    footer: SALE_PROJECT_PHONES,
+    description:
+      "Marketing — SALE 1 image only (no Map/Instagram buttons — customer can open the flyer)",
   },
 ];
 
@@ -577,7 +592,10 @@ export async function ensureSlipTemplate(def: SlipTemplateDef): Promise<EnsureOn
       language,
       category: def.category,
       allow_category_change: true,
-      components: buildSale1TemplateComponents(handleResult.handle),
+      components:
+        def.key === "sale_1_image" || !def.staticUrlButtons?.length
+          ? buildSale1ImageOnlyTemplateComponents(handleResult.handle)
+          : buildSale1TemplateComponents(handleResult.handle),
     });
     if (!created.ok) return { key: def.key, name, ok: false, error: created.error };
     return {
@@ -586,7 +604,10 @@ export async function ensureSlipTemplate(def: SlipTemplateDef): Promise<EnsureOn
       ok: true,
       status: created.status,
       created: true,
-      message: "SALE 1 image template submitted to Meta for approval",
+      message:
+        def.key === "sale_1_image"
+          ? "SALE 1 IMAGE (no buttons) template submitted to Meta for approval"
+          : "SALE 1 image template submitted to Meta for approval",
     };
   }
 

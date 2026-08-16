@@ -306,7 +306,7 @@ export default function WhatsAppBroadcastClient() {
         <div>
           <h1 style={{ fontSize: 22, fontWeight: 700, color: "#1f2937", margin: 0 }}>Broadcast Messages</h1>
           <p style={{ fontSize: 13, color: "#6b7280", margin: "2px 0 0 0" }}>
-            Send approved <strong>marketing</strong> templates (including sale_1 / sale_project). Templates still
+            Send approved <strong>marketing</strong> templates (including sale_1 / sale_1_image / sale_project). Templates still
             PENDING on Meta appear greyed out — approve them under WhatsApp → Templates, then Refresh.
           </p>
         </div>

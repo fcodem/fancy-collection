@@ -124,7 +124,7 @@ const STARTER_PRESETS: Array<{
   },
   {
     id: "sale_1",
-    label: "SALE 1 — Flyer image + men's sale message",
+    label: "SALE 1 — Flyer + Map / Instagram buttons",
     apply: () => ({
       ...EMPTY_FORM,
       name: "sale_1",
@@ -147,6 +147,30 @@ const STARTER_PRESETS: Array<{
       urlButton1Url: "https://maps.app.goo.gl/5LajH7MJcqKfkiQj9",
       urlButton2Text: "View on Instagram",
       urlButton2Url: "https://www.instagram.com/fancycollection_renuagarwal",
+      exampleName: "",
+    }),
+  },
+  {
+    id: "sale_1_image",
+    label: "SALE 1 IMAGE — Flyer only (no Map link)",
+    apply: () => ({
+      ...EMPTY_FORM,
+      name: "sale_1_image",
+      category: "MARKETING",
+      headerFormat: "IMAGE",
+      bodyText:
+        "Dear Customer,\n\n" +
+        "Aapke pyaar aur bharose ke liye dil se dhanyavaad!\n\n" +
+        "1995 se Fancy Collection by Renu Agarwal ki Rental Collection ko aapne jo pyaar aur bharosa diya hai, wahi hamari sabse badi pehchaan hai.\n\n" +
+        "Ab usi bharose, quality aur dedication ke saath hum aapke liye lekar aaye hain:\n\n" +
+        "COMPLETE MEN'S ETHNIC WEAR FOR PURCHASE\n\n" +
+        "Sherwani | Jodhpuri | Coat Pant & Suits | Handwork Tuxedo | Indo-Western | Kurta Pajama | Kurta Koti | Marriage Accessories & More\n\n" +
+        "Jis tarah aapne hamari Rental Variety ko pasand kiya, usi tarah Men's Sale Collection mein bhi aapko exclusive variety, latest designs aur premium quality milegi.\n\n" +
+        "New Collection dekhne ke liye showroom zaroor visit karein.\n\n" +
+        "Near Balaji Mandir, Court Road, Moradabad\n\n" +
+        "Wahi Bharosa. Wahi Quality. Ab Sale Collection Ke Saath Bhi.",
+      footerText: "8126095836 | 8077843874",
+      buttonMode: "none",
       exampleName: "",
     }),
   },
@@ -343,7 +367,7 @@ export default function WhatsAppTemplatesClient() {
 
   const applyPreset = async (preset: (typeof STARTER_PRESETS)[number]) => {
     setForm(preset.apply());
-    if (preset.id === "sale_1") {
+    if (preset.id === "sale_1" || preset.id === "sale_1_image") {
       try {
         const res = await fetch("/images/whatsapp/sale-1-flyer.png");
         if (res.ok) {

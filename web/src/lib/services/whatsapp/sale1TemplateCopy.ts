@@ -110,3 +110,35 @@ export function buildSale1TemplateComponents(headerHandle: string) {
     },
   ];
 }
+
+/** IMAGE flyer + message only — no Map/Instagram URL buttons (tap opens the photo). */
+export function buildSale1ImageOnlyTemplateComponents(headerHandle: string) {
+  return [
+    {
+      type: "HEADER",
+      format: "IMAGE",
+      example: { header_handle: [headerHandle] },
+    },
+    {
+      type: "BODY",
+      text: SALE_PROJECT_TEMPLATE_BODY.slice(0, 1024),
+    },
+    {
+      type: "FOOTER",
+      text: SALE_PROJECT_PHONES.slice(0, 60),
+    },
+  ];
+}
+
+/** Templates that need the SALE 1 flyer attached on send. */
+export function isSale1FlyerTemplate(templateName: string): boolean {
+  const n = templateName.trim().toLowerCase().replace(/[^a-z0-9_]+/g, "");
+  return (
+    n === "sale_1" ||
+    n === "sale1" ||
+    n === "sale_1_image" ||
+    n === "sale1image" ||
+    n === "sale_flyer" ||
+    n === "saleflyer"
+  );
+}

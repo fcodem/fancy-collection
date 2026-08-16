@@ -6,6 +6,7 @@ import {
   uploadWhatsAppMedia,
 } from "@/lib/services/whatsapp/metaApi";
 import {
+  isSale1FlyerTemplate,
   loadSale1FlyerBuffer,
   SALE_1_FLYER_FILENAME,
 } from "@/lib/services/whatsapp/sale1TemplateCopy";
@@ -27,8 +28,7 @@ function parseRecipients(raw: unknown): BroadcastRecipient[] {
 }
 
 async function loadFlyerForTemplate(templateName: string): Promise<Buffer | null> {
-  const n = templateName.trim().toLowerCase();
-  if (n === "sale_1" || n === "sale1") return loadSale1FlyerBuffer();
+  if (isSale1FlyerTemplate(templateName)) return loadSale1FlyerBuffer();
   return null;
 }
 
