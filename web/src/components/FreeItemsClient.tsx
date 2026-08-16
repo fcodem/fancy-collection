@@ -289,6 +289,7 @@ export default function FreeItemsClient({ today }: { today: string }) {
   const [size, setSize] = useState("");
   const [subCat, setSubCat] = useState("");
   const [dressSearch, setDressSearch] = useState("");
+  const [showQrScan, setShowQrScan] = useState(false);
   const [subCategoryOptions, setSubCategoryOptions] = useState<string[]>([]);
   const [free, setFree] = useState<FreeItem[]>([]);
   const [loaded, setLoaded] = useState(false);
@@ -503,31 +504,57 @@ export default function FreeItemsClient({ today }: { today: string }) {
               </select>
             </div>
           </div>
-          <button className="btn btn-primary" style={{ marginTop: 16 }} onClick={() => void search(false)} disabled={loading}>
-            {loading ? "Searching…" : "Search"}
-          </button>
+          <div style={{ display: "flex", flexWrap: "wrap", gap: 10, alignItems: "center", marginTop: 16 }}>
+            <button className="btn btn-primary" onClick={() => void search(false)} disabled={loading}>
+              {loading ? "Searching…" : "Search"}
+            </button>
+            {!showQrScan ? (
+              <button
+                type="button"
+                className="btn btn-outline btn-sm"
+                onClick={() => setShowQrScan(true)}
+                title="Scan a dress QR to check availability for these dates"
+              >
+                <i className="fa-solid fa-qrcode" style={{ marginRight: 6 }} />
+                Scan QR
+              </button>
+            ) : (
+              <button
+                type="button"
+                className="btn btn-outline btn-sm"
+                onClick={() => setShowQrScan(false)}
+              >
+                Hide QR scan
+              </button>
+            )}
+          </div>
         </div>
       </div>
 
-      <div style={{ marginBottom: 24 }}>
-        <div className="card" style={{ marginBottom: 0 }}>
-          <div className="card-header">
-            <h3 className="card-title">Scan QR to check a dress</h3>
+      {showQrScan && (
+        <div style={{ marginBottom: 24 }}>
+          <div className="card" style={{ marginBottom: 0 }}>
+            <div className="card-header" style={{ display: "flex", alignItems: "center", justifyContent: "space-between", gap: 12 }}>
+              <h3 className="card-title" style={{ margin: 0 }}>Scan QR to check a dress</h3>
+              <button type="button" className="btn btn-outline btn-sm" onClick={() => setShowQrScan(false)}>
+                Close
+              </button>
+            </div>
+            <div className="card-body" style={{ paddingBottom: 8 }}>
+              <p style={{ fontSize: 13, color: "var(--text-muted)", margin: 0 }}>
+                Uses the Pickup / Return dates above. Stays on this page.
+              </p>
+            </div>
           </div>
-          <div className="card-body" style={{ paddingBottom: 8 }}>
-            <p style={{ fontSize: 13, color: "var(--text-muted)", margin: 0 }}>
-              Uses the Pickup / Return dates above. Camera and results stay on this page.
-            </p>
-          </div>
+          <DressAvailabilityScanner
+            embedded
+            lockedDeliveryDate={deliveryDate}
+            lockedReturnDate={returnDate}
+            lockedDeliveryTime="12:00"
+            lockedReturnTime="12:00"
+          />
         </div>
-        <DressAvailabilityScanner
-          embedded
-          lockedDeliveryDate={deliveryDate}
-          lockedReturnDate={returnDate}
-          lockedDeliveryTime="12:00"
-          lockedReturnTime="12:00"
-        />
-      </div>
+      )}
 
       {loaded && (
         <>
