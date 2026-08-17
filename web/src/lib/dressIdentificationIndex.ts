@@ -48,6 +48,15 @@ function textureFromFingerprint(fp: ImageFingerprint): TextureFingerprint {
 }
 
 async function buildRegionEmbeddings(master: Buffer): Promise<RegionEmbeddings> {
+  const { preferOpenAiImageEmbeddings } = await import(
+    "@/lib/ai/imageEmbedding/openaiVisionEmbedding"
+  );
+  if (preferOpenAiImageEmbeddings()) {
+    const global = await generateImageEmbedding(master);
+    const embeddings = {} as RegionEmbeddings;
+    for (const region of REGION_KINDS) embeddings[region] = global;
+    return embeddings;
+  }
   const embeddings: Partial<RegionEmbeddings> = {};
   for (const region of REGION_KINDS) {
     const crop = await extractRegionBuffer(master, region);
@@ -96,6 +105,23 @@ export async function buildIdentificationIndex(
   const references: StoredReferenceFingerprint[] = [];
 
   if (buffers.length === 1) {
+    const { preferOpenAiImageEmbeddings, OPENAI_VISION_EMBEDDING_MODEL } = await import(
+      "@/lib/ai/imageEmbedding/openaiVisionEmbedding"
+    );
+    if (preferOpenAiImageEmbeddings()) {
+      const master = await prepareSiglipMasterImage(primary);
+      references.push(await buildStoredReference(master, "primary", "primary", inventoryName, inventoryColor));
+      return {
+        version: IDENTIFICATION_INDEX_VERSION,
+        modelId: OPENAI_VISION_EMBEDDING_MODEL,
+        preprocessingVersion: PREPROCESSING_VERSION,
+        embeddingDimension: SIGLIP_EMBEDDING_DIM,
+        contentHash: computeContentHash(primary),
+        indexedAt: new Date().toISOString(),
+        category,
+        references,
+      };
+    }
     const master = await prepareSiglipMasterImage(primary);
     for (const spec of REFERENCE_VIEW_SPECS) {
       const viewMaster = await extractSiglipCrop(master, spec);
@@ -124,7 +150,7 @@ export function parseIdentificationIndex(raw: unknown): IdentificationIndex | nu
   if (!raw || typeof raw !== "object") return null;
   const idx = raw as Partial<IdentificationIndex>;
   if (idx.version !== IDENTIFICATION_INDEX_VERSION) return null;
-  if (idx.modelId !== SIGLIP_MODEL_ID) return null;
+  if (!idx.modelId) return null;
   if (idx.preprocessingVersion !== PREPROCESSING_VERSION) return null;
   if (!Array.isArray(idx.references) || !idx.references.length) return null;
   if (!idx.contentHash || !idx.indexedAt) return null;
@@ -137,7 +163,7 @@ export function needsIndexRefresh(
 ): boolean {
   if (!stored) return true;
   if (stored.version !== IDENTIFICATION_INDEX_VERSION) return true;
-  if (stored.modelId !== SIGLIP_MODEL_ID) return true;
+  if (!stored.modelId) return true;
   if (stored.preprocessingVersion !== PREPROCESSING_VERSION) return true;
   return stored.contentHash !== contentHash;
 }

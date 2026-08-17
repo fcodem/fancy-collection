@@ -7,15 +7,18 @@ import {
 } from "./constants";
 
 describe("imageEmbedding constants", () => {
-  it("defaults to fashionclip then siglip then openclip", () => {
-    assert.deepEqual(DEFAULT_EMBEDDING_MODEL_ORDER, ["fashionclip", "siglip", "openclip"]);
+  it("defaults to siglip then openai (768-d models only)", () => {
+    assert.deepEqual(DEFAULT_EMBEDDING_MODEL_ORDER, ["siglip", "openai"]);
   });
 
   it("parses custom model order from env", () => {
     const prev = process.env.IMAGE_EMBEDDING_MODELS;
     process.env.IMAGE_EMBEDDING_MODELS = "siglip,openclip";
     assert.deepEqual(parseEmbeddingModelOrder(), ["siglip", "openclip"]);
-    process.env.IMAGE_EMBEDDING_MODELS = prev;
+    process.env.IMAGE_EMBEDDING_MODELS = "openai";
+    assert.deepEqual(parseEmbeddingModelOrder(), ["openai"]);
+    if (prev === undefined) delete process.env.IMAGE_EMBEDDING_MODELS;
+    else process.env.IMAGE_EMBEDDING_MODELS = prev;
   });
 
   it("inventory embedding dimension is 768 for pgvector column", () => {

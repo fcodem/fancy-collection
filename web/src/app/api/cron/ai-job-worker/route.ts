@@ -6,7 +6,12 @@ import {
   resolveAiCronDrainLimit,
 } from "@/lib/dressChecker/aiJobWorker";
 import { recoverStuckAiJobs } from "@/lib/dressChecker/deploymentSafety";
-import { resumeFailedAiJobs, enqueueRepairJobs } from "@/lib/dressChecker/aiJobQueue";
+import {
+  resumeFailedAiJobs,
+  resumeDeadLetterAiJobs,
+  enqueueRepairJobs,
+  getAiJobQueueStats,
+} from "@/lib/dressChecker/aiJobQueue";
 
 export const dynamic = "force-dynamic";
 /** Allow enough time for SigLIP + multi-view fingerprint on Vercel Pro. */
@@ -35,8 +40,12 @@ export async function GET(req: NextRequest) {
       itemIds: [] as number[],
     }));
     const resumed = await resumeFailedAiJobs().catch(() => 0);
-    const repairEnqueued = await enqueueRepairJobs(80).catch(() => 0);
-    const drainLimit = resolveAiCronDrainLimit(8);
+    const deadLetterResumed = await resumeDeadLetterAiJobs().catch(() => 0);
+    const stats = await getAiJobQueueStats().catch(() => ({ pending: 0, processing: 0, retrying: 0 }));
+    const openQueue = (stats.pending || 0) + (stats.processing || 0) + (stats.retrying || 0);
+    const repairEnqueued =
+      openQueue > 80 ? 0 : await enqueueRepairJobs(40).catch(() => 0);
+    const drainLimit = resolveAiCronDrainLimit(3);
     const result = await drainAiJobQueue(drainLimit, { source: "cron" });
     const totalMs = Date.now() - started;
     if (totalMs > 2_000) {
@@ -48,6 +57,7 @@ export async function GET(req: NextRequest) {
       ok: true,
       recovered: stuck.recovered,
       resumed,
+      deadLetterResumed,
       repairEnqueued,
       drainLimit,
       ...result,

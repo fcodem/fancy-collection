@@ -1,6 +1,6 @@
 /**
- * Dress Checker indexing — perceptual hashes + vision embeddings (no OpenAI).
- * Embeddings use FashionCLIP → SigLIP → OpenCLIP cascade (768-d for pgvector).
+ * Dress Checker indexing — perceptual hashes + vision embeddings.
+ * Embeddings use SigLIP, then OpenAI 768-d (vision description) when native models fail.
  */
 import type { ImageFingerprint } from "@/lib/photoHash";
 import {

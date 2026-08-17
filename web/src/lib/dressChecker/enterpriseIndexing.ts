@@ -129,7 +129,10 @@ export async function buildEnterpriseIndex(
   // When staff have not uploaded many angles yet, synthesize orientation views
   // from the primary photo so hanger / side / inverted queries still match.
   const realRefCount = referencePhotos.length;
-  if (realRefCount < 3) {
+  const { preferOpenAiImageEmbeddings } = await import(
+    "@/lib/ai/imageEmbedding/openaiVisionEmbedding"
+  );
+  if (realRefCount < 3 && !preferOpenAiImageEmbeddings()) {
     const synthetics = await buildSyntheticOrientationBuffers(garment.buffer);
     indexBuffers.push(...synthetics);
   }

@@ -6,6 +6,7 @@ import {
   type ImageEmbeddingResult,
 } from "./constants";
 import { embedWithClipVisionModel, embedWithSiglipVisionModel } from "./backends";
+import { embedImageWithOpenAi768 } from "./openaiVisionEmbedding";
 
 export type EmbeddingAttempt = {
   tier: EmbeddingModelTier;
@@ -18,6 +19,9 @@ async function embedWithTier(
   tier: EmbeddingModelTier,
 ): Promise<number[]> {
   const config = EMBEDDING_MODELS[tier];
+  if (tier === "openai") {
+    return embedImageWithOpenAi768(buffer);
+  }
   if (tier === "siglip") {
     return embedWithSiglipVisionModel(buffer, config.modelId);
   }
@@ -26,8 +30,8 @@ async function embedWithTier(
 
 /**
  * Generate a normalized inventory image embedding using the configured model cascade.
- * Order: FashionCLIP → SigLIP → OpenCLIP (no OpenAI embeddings).
- * Only vectors matching INVENTORY_EMBEDDING_DIM (768) are accepted for pgvector storage.
+ * Order: SigLIP → OpenAI (768-d). FashionCLIP/OpenCLIP are 512-d and skipped unless requested.
+ * On Vercel, OpenAI runs first so indexing does not wait for ONNX model download.
  */
 export async function generateInventoryImageEmbedding(
   buffer: Buffer,

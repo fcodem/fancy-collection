@@ -139,7 +139,10 @@ Context: category="${hint.category}", itemType="${hint.itemType}"`;
   return value;
 }
 
-export async function generateTextEmbedding(text: string): Promise<number[]> {
+export async function generateTextEmbedding(
+  text: string,
+  dimensions?: number,
+): Promise<number[]> {
   const settings = await readAiRuntimeSettings();
   const model = settings.embeddingModel || "text-embedding-3-large";
   const timeoutMs = settings.timeoutMs || 30000;
@@ -150,6 +153,7 @@ export async function generateTextEmbedding(text: string): Promise<number[]> {
       client.embeddings.create({
         model,
         input: text.slice(0, 7000),
+        ...(dimensions ? { dimensions } : {}),
       }),
     retries,
   );

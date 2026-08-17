@@ -44,20 +44,40 @@ function tensorToVector(output: { data: Float32Array | number[] }): number[] {
   return vector.map((v) => v / norm);
 }
 
-/** Generate a L2-normalized SigLIP embedding from a prepared image buffer. */
+/** Generate a L2-normalized image embedding (SigLIP, or OpenAI 768-d fallback). */
 export async function generateImageEmbedding(buffer: Buffer): Promise<number[]> {
-  const prepared = await prepareSiglipEmbeddingInput(buffer);
-  const { RawImage } = await import("@xenova/transformers");
-  const tmpPath = join(tmpdir(), `siglip-${process.pid}-${Date.now()}.jpg`);
-  await writeFile(tmpPath, prepared);
+  const { parseEmbeddingModelOrder } = await import("@/lib/ai/imageEmbedding/constants");
+  const { generateInventoryImageEmbedding } = await import(
+    "@/lib/ai/imageEmbedding/imageEmbeddingService"
+  );
+  const order = parseEmbeddingModelOrder();
+  if (order[0] === "openai") {
+    const { embedImageWithOpenAi768 } = await import(
+      "@/lib/ai/imageEmbedding/openaiVisionEmbedding"
+    );
+    return embedImageWithOpenAi768(buffer);
+  }
   try {
-    const { processor, visionModel } = await getModel();
-    const image = await RawImage.read(tmpPath);
-    const inputs = await processor(image);
-    const { pooler_output } = await visionModel(inputs);
-    return tensorToVector(pooler_output);
-  } finally {
-    await unlink(tmpPath).catch(() => undefined);
+    const prepared = await prepareSiglipEmbeddingInput(buffer);
+    const { RawImage } = await import("@xenova/transformers");
+    const tmpPath = join(tmpdir(), `siglip-${process.pid}-${Date.now()}.jpg`);
+    await writeFile(tmpPath, prepared);
+    try {
+      const { processor, visionModel } = await getModel();
+      const image = await RawImage.read(tmpPath);
+      const inputs = await processor(image);
+      const { pooler_output } = await visionModel(inputs);
+      return tensorToVector(pooler_output);
+    } finally {
+      await unlink(tmpPath).catch(() => undefined);
+    }
+  } catch (err) {
+    console.warn(
+      "[siglip] native embed failed, using OpenAI 768-d fallback:",
+      err instanceof Error ? err.message : err,
+    );
+    const result = await generateInventoryImageEmbedding(buffer);
+    return result.vector;
   }
 }
 

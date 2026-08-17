@@ -20,11 +20,11 @@ export const DEFAULT_MAX_RETRIES = 3;
 
 /** Hard cap per job invocation (cron maxDuration is 60s; leave headroom). */
 /** Per-job timeout — allow longer on serverless for SigLIP + multi-view index. */
-export const AI_JOB_TIMEOUT_MS = Number(process.env.AI_JOB_TIMEOUT_MS || 120_000);
+export const AI_JOB_TIMEOUT_MS = Number(process.env.AI_JOB_TIMEOUT_MS || 180_000);
 
-/** Native/OOM/size failures — dead-letter immediately, never retry forever. */
+/** Native/OOM/size failures — dead-letter immediately, never retry forever. Timeouts retry. */
 export const DETERMINISTIC_FAILURE_RE =
-  /invalid size|SIGABRT|heap|out of memory|ENOMEM|ENOSPC|no space left|Input image exceeds|limitInputPixels|corrupted size vs prev_size|timed out after/i;
+  /invalid size|SIGABRT|heap|out of memory|ENOMEM|ENOSPC|no space left|Input image exceeds|limitInputPixels|corrupted size vs prev_size/i;
 
 export function nextRetryAt(retryCount: number): Date | null {
   const delay = RETRY_DELAYS_MS[retryCount];

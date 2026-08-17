@@ -1,13 +1,9 @@
 /** Target dimension for inventory_ai_profiles.embedding_vector (SigLIP / pgvector). */
 export const INVENTORY_EMBEDDING_DIM = 768;
 
-export type EmbeddingModelTier = "fashionclip" | "siglip" | "openclip";
+export type EmbeddingModelTier = "fashionclip" | "siglip" | "openclip" | "openai";
 
-export const DEFAULT_EMBEDDING_MODEL_ORDER: EmbeddingModelTier[] = [
-  "fashionclip",
-  "siglip",
-  "openclip",
-];
+export const DEFAULT_EMBEDDING_MODEL_ORDER: EmbeddingModelTier[] = ["siglip", "openai"];
 
 export type EmbeddingModelConfig = {
   tier: EmbeddingModelTier;
@@ -31,18 +27,28 @@ export const EMBEDDING_MODELS: Record<EmbeddingModelTier, EmbeddingModelConfig> 
     modelId: "Xenova/clip-vit-base-patch16",
     expectedDim: 512,
   },
+  openai: {
+    tier: "openai",
+    modelId: "openai-vision-text-embedding-3-large-768",
+    expectedDim: 768,
+  },
 };
 
 export function parseEmbeddingModelOrder(): EmbeddingModelTier[] {
   const raw = process.env.IMAGE_EMBEDDING_MODELS?.trim();
-  if (!raw) return DEFAULT_EMBEDDING_MODEL_ORDER;
-  const tiers = raw
-    .split(",")
-    .map((s) => s.trim().toLowerCase())
-    .filter((t): t is EmbeddingModelTier =>
-      t === "fashionclip" || t === "siglip" || t === "openclip",
-    );
-  return tiers.length ? tiers : DEFAULT_EMBEDDING_MODEL_ORDER;
+  if (raw) {
+    const tiers = raw
+      .split(",")
+      .map((s) => s.trim().toLowerCase())
+      .filter((t): t is EmbeddingModelTier =>
+        t === "fashionclip" || t === "siglip" || t === "openclip" || t === "openai",
+      );
+    if (tiers.length) return tiers;
+  }
+  if (process.env.VERCEL === "1" || (process.env.AI_INDEX_BACKEND || "").trim().toLowerCase() === "openai") {
+    return ["openai", "siglip"];
+  }
+  return DEFAULT_EMBEDDING_MODEL_ORDER;
 }
 
 export type ImageEmbeddingResult = {
