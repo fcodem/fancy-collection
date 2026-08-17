@@ -9,9 +9,10 @@ import { blockWheelOnValueFields } from "@/lib/preventInputWheel";
  */
 export function useBlockWheelValueChange(containerRef?: { current: HTMLElement | null }) {
   useEffect(() => {
-    const root: HTMLElement | Document = containerRef?.current ?? document;
+    const root = containerRef?.current ?? document;
 
-    function onWheel(e: WheelEvent) {
+    function onWheel(e: Event) {
+      if (!(e instanceof WheelEvent)) return;
       blockWheelOnValueFields(e);
     }
 
