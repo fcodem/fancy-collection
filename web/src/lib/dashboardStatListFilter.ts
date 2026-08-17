@@ -9,7 +9,13 @@ export type StatListBooking = {
   whatsappNo?: string | null;
   status: string;
   dressName?: string | null;
-  bookingItems: Array<{ dressName: string; category?: string | null; size?: string | null; notes?: string | null }>;
+  bookingItems: Array<{
+    dressName: string;
+    category?: string | null;
+    size?: string | null;
+    notes?: string | null;
+    itemRemainingCollected?: number | null;
+  }>;
   legacyItem?: { category?: string | null; size?: string | null } | null;
 };
 

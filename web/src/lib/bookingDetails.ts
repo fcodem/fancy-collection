@@ -150,7 +150,7 @@ export const WARNING_BOOKED_ON_RETURN = "Booked on the return date";
 
 /** Sum of per-dress remaining collected at delivery. */
 export function sumItemRemainingCollected(
-  items: Array<{ itemRemainingCollected?: number | null }>,
+  items: ReadonlyArray<{ itemRemainingCollected?: number | null }>,
 ): number {
   return items.reduce((s, row) => s + (row.itemRemainingCollected || 0), 0);
 }
@@ -158,7 +158,7 @@ export function sumItemRemainingCollected(
 /** Booking-level collected amount, or item sum if higher (covers partial sync). */
 export function effectiveRemainingCollected(
   bookingCollected: number | null | undefined,
-  items: Array<{ itemRemainingCollected?: number | null }> = [],
+  items: ReadonlyArray<{ itemRemainingCollected?: number | null }> = [],
 ): number {
   return Math.max(bookingCollected || 0, sumItemRemainingCollected(items));
 }
@@ -176,7 +176,7 @@ export function unpaidBalanceAfterDelivery(booking: {
   totalRemaining?: number | null;
   remaining?: number | null;
   remainingCollected?: number | null;
-  bookingItems?: Array<{ itemRemainingCollected?: number | null }>;
+  bookingItems?: ReadonlyArray<{ itemRemainingCollected?: number | null }> | null;
 }): number {
   return balanceLeftToCollect(
     booking.totalRemaining ?? booking.remaining,
