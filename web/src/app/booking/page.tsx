@@ -7,7 +7,7 @@ import {
   StandardBookingTableCells,
   StandardBookingTableHead,
 } from "@/components/BookingDetailsColumns";
-import { serializeStandardBookingDetails } from "@/lib/bookingDetails";
+import { serializeStandardBookingDetails, unpaidBalanceAfterDelivery } from "@/lib/bookingDetails";
 import { localTodayStart, todayIso } from "@/lib/constants";
 import { formatInr } from "@/lib/format";
 import { resolveBookingStatus } from "@/lib/bookingStatus";
@@ -217,7 +217,7 @@ async function BookingPanelBody({
                       );
                     }
                     const status = resolveBookingStatus(b);
-                    const rem = b.totalRemaining ?? b.remaining;
+                    const rem = unpaidBalanceAfterDelivery(b);
                     const overdue = status === "delivered" && fmtDate(b.returnDate) < fmtDate(todayReal);
                     rows.push(
                       <tr key={b.id} style={overdue ? { background: "rgba(192,57,43,0.04)" } : undefined}>
@@ -332,7 +332,7 @@ async function BookingPanelBody({
               </thead>
               <tbody>
                 {returnedBookings.map((b) => {
-                  const rem = b.totalRemaining ?? b.remaining;
+                  const rem = unpaidBalanceAfterDelivery(b);
                   return (
                     <tr key={`returned-${b.id}`}>
                       <td className="booking-col-serial">

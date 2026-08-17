@@ -85,3 +85,22 @@ export function mergeAvailabilityItemsById<T extends { id: number }>(
   }
   return merged;
 }
+
+/** Keep one row per dress name + size so searches show every size, not 20 copies of 40. */
+export function preferDistinctDressSizes<
+  T extends { name: string; category: string; size?: string | null },
+>(rows: T[], limit: number): T[] {
+  const seen = new Set<string>();
+  const unique: T[] = [];
+  const extras: T[] = [];
+  for (const row of rows) {
+    const key = mensSizeAvailabilityKey(row);
+    if (seen.has(key)) {
+      extras.push(row);
+      continue;
+    }
+    seen.add(key);
+    unique.push(row);
+  }
+  return [...unique, ...extras].slice(0, Math.max(1, limit));
+}

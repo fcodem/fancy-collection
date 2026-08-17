@@ -78,6 +78,10 @@ export default function BookingTimeSelect({
         inputMode="text"
         value={open ? query : value}
         placeholder={value || "Select time"}
+        onWheel={(e) => {
+          e.preventDefault();
+          e.currentTarget.blur();
+        }}
         onFocus={() => {
           setOpen(true);
           setQuery("");
@@ -119,7 +123,11 @@ export default function BookingTimeSelect({
         }}
       />
       {open && (
-        <div className="booking-time-dropdown" role="listbox">
+        <div
+          className="booking-time-dropdown"
+          role="listbox"
+          onWheel={(e) => e.stopPropagation()}
+        >
           {filtered.length === 0 ? (
             <div className="booking-time-empty">No matching time</div>
           ) : (

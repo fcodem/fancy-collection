@@ -44,6 +44,8 @@ import { isAbortError } from "@/lib/bookingQrClient";
 import { useToast } from "@/components/ui/Toast";
 import { downloadBookingSlipPdf } from "@/lib/bookingSlipClient";
 import { useRealtimeRefresh } from "@/hooks/useRealtimeRefresh";
+import { useBlockWheelValueChange } from "@/hooks/useBlockWheelValueChange";
+import { preventInputWheel } from "@/lib/preventInputWheel";
 import { BOOKING_EVENTS, INVENTORY_EVENTS } from "@/lib/realtime/types";
 import { cachedFetchJson, yearMonthKey, invalidateClientCache } from "@/lib/clientRequestCache";
 import BookingSelectedDressRow from "@/components/booking/BookingSelectedDressRow";
@@ -415,6 +417,8 @@ export default function BookingFormClient(props: Props) {
   const dateCheckVersionRef = useRef(0);
   const lastSerialYmRef = useRef<string>("");
   const lastRealtimeRefreshRef = useRef(0);
+  const formRootRef = useRef<HTMLFieldSetElement>(null);
+  useBlockWheelValueChange(formRootRef);
 
   /** True when date-check reports a hard double-booking (blocks save unless prospect). */
   const hasHardBlock = useMemo(
@@ -513,56 +517,62 @@ export default function BookingFormClient(props: Props) {
     const version = ++availabilityVersionRef.current;
 
     setLoading(true);
-    const cursor = append ? availabilityCursorRef.current : null;
-    const pageLimit =
-      nameSearch.trim().length >= 2
-        ? Math.max(availabilityPageLimit, 50)
-        : availabilityPageLimit;
-    const params = new URLSearchParams({
-      delivery_date: deliveryDate,
-      return_date: returnDate,
-      category: categoryFilter,
-      size: sizeFilter,
-      search: nameSearch.trim(),
-      limit: String(pageLimit),
-    });
-    if (props.editId) params.set("exclude_booking", String(props.editId));
-    if (cursor) params.set("cursor", cursor);
-    const cacheKey = `avail:${params.toString()}`;
+    const searching = nameSearch.trim().length >= 2;
+    const pageLimit = searching ? Math.max(availabilityPageLimit, 50) : availabilityPageLimit;
+    const maxPages = searching ? 8 : 1;
+    let nextAppend = append;
 
     try {
-      const data = await cachedFetchJson<{
-        free_items?: FreeItem[];
-        error?: string;
-        nextCursor?: string | null;
-        hasMore?: boolean;
-      }>(
-        cacheKey,
-        async (signal) => {
-          const res = await fetch(
-            `/api/booking/available-items?${params.toString()}`,
-            { credentials: "same-origin", signal, cache: "no-store" },
-          );
-          const json = await res.json();
-          if (!res.ok) {
-            const err = new Error(String(json?.error || res.status)) as Error & { status?: number };
-            err.status = res.status;
-            throw err;
-          }
-          return json;
-        },
-        { ttlMs: 20_000, signal: controller.signal },
-      );
+      for (let page = 0; page < maxPages; page += 1) {
+        const cursor = nextAppend ? availabilityCursorRef.current : null;
+        const params = new URLSearchParams({
+          delivery_date: deliveryDate,
+          return_date: returnDate,
+          category: categoryFilter,
+          size: sizeFilter,
+          search: nameSearch.trim(),
+          limit: String(pageLimit),
+        });
+        if (props.editId) params.set("exclude_booking", String(props.editId));
+        if (cursor) params.set("cursor", cursor);
+        const cacheKey = `avail:${params.toString()}`;
 
-      if (controller.signal.aborted || version !== availabilityVersionRef.current) return;
-      setAllFreeItems((previous) =>
-        append
-          ? mergeAvailabilityItemsById(previous, data.free_items || [])
-          : (data.free_items || []),
-      );
-      availabilityCursorRef.current =
-        typeof data.nextCursor === "string" ? data.nextCursor : null;
-      setAvailabilityHasMore(Boolean(data.hasMore));
+        const data = await cachedFetchJson<{
+          free_items?: FreeItem[];
+          error?: string;
+          nextCursor?: string | null;
+          hasMore?: boolean;
+        }>(
+          cacheKey,
+          async (signal) => {
+            const res = await fetch(
+              `/api/booking/available-items?${params.toString()}`,
+              { credentials: "same-origin", signal, cache: "no-store" },
+            );
+            const json = await res.json();
+            if (!res.ok) {
+              const err = new Error(String(json?.error || res.status)) as Error & { status?: number };
+              err.status = res.status;
+              throw err;
+            }
+            return json;
+          },
+          { ttlMs: 20_000, signal: controller.signal },
+        );
+
+        if (controller.signal.aborted || version !== availabilityVersionRef.current) return;
+        setAllFreeItems((previous) =>
+          nextAppend
+            ? mergeAvailabilityItemsById(previous, data.free_items || [])
+            : (data.free_items || []),
+        );
+        availabilityCursorRef.current =
+          typeof data.nextCursor === "string" ? data.nextCursor : null;
+        const more = Boolean(data.hasMore);
+        setAvailabilityHasMore(more);
+        if (!searching || !more) break;
+        nextAppend = true;
+      }
     } catch (e) {
       if (controller.signal.aborted || isAbortError(e) || version !== availabilityVersionRef.current) {
         return;
@@ -1202,7 +1212,7 @@ export default function BookingFormClient(props: Props) {
         </div>
       )}
 
-      <fieldset disabled={readOnly} style={{ border: "none", margin: 0, padding: 0, minWidth: 0 }}>
+      <fieldset ref={formRootRef} disabled={readOnly} style={{ border: "none", margin: 0, padding: 0, minWidth: 0 }}>
 
       <div className="card" style={{ marginBottom: 20, background: "linear-gradient(135deg, var(--primary-dark), var(--primary))", color: "white" }}>
 
@@ -1281,19 +1291,23 @@ export default function BookingFormClient(props: Props) {
 
             </div>
 
-            <div className="form-group">
+            <div className="form-group full-width" style={{ display: "grid", gap: 16 }}>
 
-              <label className="form-label">Contact *</label>
+              <div>
+                <label className="form-label">
+                  <i className="fa-brands fa-whatsapp" style={{ marginRight: 6 }} />
+                  WhatsApp *
+                </label>
+                <input className="form-control" inputMode="tel" value={whatsapp} onChange={(e) => setWhatsapp(e.target.value)} required />
+              </div>
 
-              <input className="form-control" inputMode="tel" value={contact1} onChange={(e) => setContact1(e.target.value)} required />
-
-            </div>
-
-            <div className="form-group">
-
-              <label className="form-label">WhatsApp *</label>
-
-              <input className="form-control" inputMode="tel" value={whatsapp} onChange={(e) => setWhatsapp(e.target.value)} required />
+              <div>
+                <label className="form-label">
+                  <i className="fa-solid fa-phone" style={{ marginRight: 6 }} />
+                  Contact *
+                </label>
+                <input className="form-control" inputMode="tel" value={contact1} onChange={(e) => setContact1(e.target.value)} required />
+              </div>
 
             </div>
 
@@ -1310,7 +1324,7 @@ export default function BookingFormClient(props: Props) {
 
               <label className="form-label">Security Deposit (₹)</label>
 
-              <input type="number" className="form-control" inputMode="numeric" value={securityDeposit} onChange={(e) => setSecurityDeposit(Number(e.target.value))} min={0} />
+              <input type="number" className="form-control" inputMode="numeric" value={securityDeposit} onChange={(e) => setSecurityDeposit(Number(e.target.value))} onWheel={preventInputWheel} min={0} />
 
             </div>
             )}
@@ -1472,26 +1486,14 @@ export default function BookingFormClient(props: Props) {
               value={nameSearch}
               category={categoryFilter}
               showPhotos
-              clearOnSelect
+              clearOnSelect={false}
               minChars={2}
               onChange={(e) => setNameSearch(e.target.value)}
               onSuggestSelect={(item) => {
-                const found =
-                  item.id != null
-                    ? allFreeItems.find((i) => i.id === item.id)
-                    : allFreeItems.find(
-                        (i) =>
-                          i.name === item.name ||
-                          i.display_name === item.name ||
-                          i.display_name === item.display_name,
-                      );
-                if (found) {
-                  const already = selectedDresses.some((d) => d.id === found.id);
-                  if (!already) toggleDress(found);
-                  setNameSearch("");
-                } else {
-                  setNameSearch(item.name);
-                }
+                const base = stripUnitSuffix(item.name || item.display_name || "");
+                if (item.category) setCategoryFilter(item.category);
+                setSizeFilter("");
+                setNameSearch(base || item.name);
               }}
             />
 
@@ -1518,7 +1520,10 @@ export default function BookingFormClient(props: Props) {
           ) : (
 
             <>
-            <div className="dress-picker-scroll">
+            <div
+              className={`dress-picker-scroll${filtered.length > 8 ? " dress-picker-scroll--long" : ""}`}
+              onWheel={(e) => e.stopPropagation()}
+            >
 
               {filtered.map((item) => {
 
@@ -1695,14 +1700,14 @@ export default function BookingFormClient(props: Props) {
                   <div className="payment-grid-3">
                     <div>
                       <label className="form-label">Total Cost (₹)</label>
-                      <input type="number" className="form-control" inputMode="numeric" value={o.cost} min={0} onChange={(e) => updateOrderField(i, "cost", Number(e.target.value))} />
+                      <input type="number" className="form-control" inputMode="numeric" value={o.cost} min={0} onWheel={preventInputWheel} onChange={(e) => updateOrderField(i, "cost", Number(e.target.value))} />
                       {o.cost === 0 && (
                         <span className="form-hint" style={{ color: "var(--gold, #c9a846)" }}>Included in rent</span>
                       )}
                     </div>
                     <div>
                       <label className="form-label">Advance (₹)</label>
-                      <input type="number" className="form-control" inputMode="numeric" value={o.advance} min={0} onChange={(e) => updateOrderField(i, "advance", Number(e.target.value))} />
+                      <input type="number" className="form-control" inputMode="numeric" value={o.advance} min={0} onWheel={preventInputWheel} onChange={(e) => updateOrderField(i, "advance", Number(e.target.value))} />
                     </div>
                     <div>
                       <label className="form-label">Balance</label>
@@ -1861,6 +1866,7 @@ export default function BookingFormClient(props: Props) {
                 className="form-control"
                 value={securityDeposit}
                 onChange={(e) => setSecurityDeposit(Number(e.target.value))}
+                onWheel={preventInputWheel}
                 min={0}
               />
             </div>

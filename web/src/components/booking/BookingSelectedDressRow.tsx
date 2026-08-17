@@ -2,6 +2,7 @@
 
 import { memo } from "react";
 import { formatInr } from "@/lib/format";
+import { preventInputWheel } from "@/lib/preventInputWheel";
 import BookingPhotoThumb from "@/components/BookingPhotoThumb";
 
 type DressWarning = {
@@ -157,6 +158,7 @@ function BookingSelectedDressRow({
             inputMode="numeric"
             value={d.price}
             min={0}
+            onWheel={preventInputWheel}
             onChange={(e) => onUpdateField(i, "price", Number(e.target.value))}
           />
         </div>
@@ -169,6 +171,7 @@ function BookingSelectedDressRow({
             inputMode="numeric"
             value={d.advance}
             min={0}
+            onWheel={preventInputWheel}
             onChange={(e) => onUpdateField(i, "advance", Number(e.target.value))}
           />
         </div>

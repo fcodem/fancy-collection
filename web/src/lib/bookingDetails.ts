@@ -171,6 +171,19 @@ export function balanceLeftToCollect(
   return Math.max(0, (totalRemaining || 0) - (collectedAtDelivery || 0));
 }
 
+/** Unpaid leftover after booking-time remaining minus amounts collected at delivery. */
+export function unpaidBalanceAfterDelivery(booking: {
+  totalRemaining?: number | null;
+  remaining?: number | null;
+  remainingCollected?: number | null;
+  bookingItems?: Array<{ itemRemainingCollected?: number | null }>;
+}): number {
+  return balanceLeftToCollect(
+    booking.totalRemaining ?? booking.remaining,
+    effectiveRemainingCollected(booking.remainingCollected, booking.bookingItems || []),
+  );
+}
+
 /** Sum of per-dress security collected at delivery. */
 export function sumItemSecurityCollected(
   items: Array<{ itemSecurityCollected?: number | null }>,

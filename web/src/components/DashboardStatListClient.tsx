@@ -13,6 +13,7 @@ import { formatDate } from "@/lib/constants";
 import { filterStatListBookings } from "@/lib/dashboardStatListFilter";
 import type { DashboardStatBookingRow, DashboardStatListType } from "@/lib/services/dashboardStatLists";
 import { formatInr } from "@/lib/format";
+import { unpaidBalanceAfterDelivery } from "@/lib/bookingDetails";
 import DownloadPdfButton from "@/components/DownloadPdfButton";
 import StarBookingBadge from "@/components/StarBookingBadge";
 import {
@@ -298,7 +299,7 @@ function StandardTable({
         </thead>
         <tbody>
           {rows.map((b) => {
-            const rem = b.totalRemaining || 0;
+            const rem = unpaidBalanceAfterDelivery(b);
             return (
               <tr key={b.id}>
                 <td className="booking-col-serial"><strong>{String(b.monthlySerial).padStart(2, "0")}</strong></td>
@@ -338,7 +339,7 @@ function RemainingTable({ rows, todayIso }: { rows: DashboardStatBookingRow[]; t
         const overdue = dateKey(b.deliveryDateIso) < todayIso;
         const showHeader =
           idx === 0 || dateKey(rows[idx - 1].deliveryDateIso) !== dateKey(b.deliveryDateIso);
-        const rem = b.totalRemaining || 0;
+        const rem = unpaidBalanceAfterDelivery(b);
         return (
           <div key={b.id}>
             {showHeader && (

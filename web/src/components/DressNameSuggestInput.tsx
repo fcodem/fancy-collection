@@ -108,7 +108,7 @@ export default function DressNameSuggestInput({
       (categorySelect ? (document.querySelector(categorySelect) as HTMLSelectElement | null)?.value : "") ||
       "";
 
-    const params = new URLSearchParams({ q, limit: "24" });
+    const params = new URLSearchParams({ q, limit: "48" });
     if (cat) params.set("category", cat);
     if (itemTypeRef.current) params.set("item_type", itemTypeRef.current);
 
@@ -269,6 +269,7 @@ export default function DressNameSuggestInput({
             ref={listRef}
             className="dress-suggest-dropdown"
             onScroll={updateScrollButtons}
+            onWheel={(e) => e.stopPropagation()}
             onTouchMove={(e) => e.stopPropagation()}
           >
             {items.map((item, idx) => {

@@ -16,7 +16,7 @@ export async function GET(req: NextRequest) {
   const q = req.nextUrl.searchParams.get("q")?.trim() || "";
   const category = req.nextUrl.searchParams.get("category")?.trim() || "";
   const itemType = req.nextUrl.searchParams.get("item_type")?.trim() || "";
-  const limit = Math.min(parseInt(req.nextUrl.searchParams.get("limit") || "12", 10), 20);
+  const limit = Math.min(parseInt(req.nextUrl.searchParams.get("limit") || "12", 10), 48);
   perf.endStage("parseMs", "parse");
 
   if (!q) {
@@ -25,7 +25,7 @@ export async function GET(req: NextRequest) {
   }
 
   perf.mark("query");
-  const items = await searchInventoryText({ q, category, itemType, limit });
+  const items = await searchInventoryText({ q, category, itemType, limit, distinctSizes: true });
   perf.endStage("queryMs", "query");
   perf.addQueries(1);
   perf.setItemCount(items.length);

@@ -6,6 +6,7 @@
  */
 import prisma, { isSqliteDb } from "@/lib/prisma";
 import { dressDisplayName, normalizeDressSearchKey, stripUnitSuffix } from "@/lib/dress";
+import { preferDistinctDressSizes } from "@/lib/mensAvailabilityCollapse";
 import { photoUrl } from "@/lib/photoUrl";
 
 export type InventorySearchRow = {
@@ -32,6 +33,8 @@ export type InventorySearchParams = {
   category?: string;
   itemType?: string;
   limit?: number;
+  /** Prefer one hit per name+size so size variants are not crowded out. */
+  distinctSizes?: boolean;
 };
 
 const SEARCH_SELECT = {
@@ -68,7 +71,7 @@ type RawItem = {
 
 const MIN_FUZZY_LEN = 2;
 const DEFAULT_LIMIT = 16;
-const MAX_LIMIT = 20;
+const MAX_LIMIT = 48;
 
 function clampLimit(n?: number) {
   const v = Math.floor(Number(n) || DEFAULT_LIMIT);
@@ -160,9 +163,9 @@ async function searchInventoryTextPrisma(opts: {
   qCompact: string;
   category: string;
   itemType: string;
-  limit: number;
+  fetchCap: number;
 }): Promise<InventorySearchRow[]> {
-  const { q, qLower, qCompact, category, itemType, limit } = opts;
+  const { q, qLower, qCompact, category, itemType, fetchCap } = opts;
   if (q.length < MIN_FUZZY_LEN && qCompact.length < MIN_FUZZY_LEN) {
     const exact = await prisma.clothingItem.findFirst({
       where: {
@@ -200,7 +203,7 @@ async function searchInventoryTextPrisma(opts: {
   const rows = await prisma.clothingItem.findMany({
     where,
     select: { ...SEARCH_SELECT, conditionNotes: true },
-    take: Math.min(limit * 8, 120),
+    take: fetchCap,
     orderBy: [{ name: "asc" }, { id: "asc" }],
   });
 
@@ -209,7 +212,7 @@ async function searchInventoryTextPrisma(opts: {
     const rank = rankItem(row, qLower, q, qCompact);
     if (rank != null) ranked.push({ ...row, rank });
   }
-  return mergeRanked(ranked, limit);
+  return mergeRanked(ranked, fetchCap);
 }
 
 async function searchInventoryTextPostgres(opts: {
@@ -218,9 +221,9 @@ async function searchInventoryTextPostgres(opts: {
   qCompact: string;
   category: string;
   itemType: string;
-  limit: number;
+  fetchCap: number;
 }): Promise<InventorySearchRow[]> {
-  const { qLower, qCompact, category, itemType, limit } = opts;
+  const { qLower, qCompact, category, itemType, fetchCap } = opts;
   const allowFuzzy = qLower.length >= MIN_FUZZY_LEN || qCompact.length >= MIN_FUZZY_LEN;
 
   const rows = await prisma.$queryRaw<
@@ -312,8 +315,8 @@ async function searchInventoryTextPostgres(opts: {
           )
         )
       )
-    ORDER BY rank ASC, name ASC, id ASC
-    LIMIT ${limit}
+    ORDER BY rank ASC, name ASC, COALESCE(size, ''), id ASC
+    LIMIT ${fetchCap}
   `;
 
   const ranked: RawItem[] = rows
@@ -334,7 +337,7 @@ async function searchInventoryTextPostgres(opts: {
       rank: r.rank,
     }));
 
-  return mergeRanked(ranked, limit);
+  return mergeRanked(ranked, fetchCap);
 }
 
 export async function searchInventoryText(
@@ -348,11 +351,12 @@ export async function searchInventoryText(
   const itemType = (params.itemType || "").trim();
   const qLower = q.toLowerCase();
   const qCompact = normalizeDressSearchKey(q);
+  const fetchCap = params.distinctSizes ? Math.min(Math.max(limit * 8, 80), 160) : Math.min(limit * 8, 120);
 
-  if (isSqliteDb()) {
-    return searchInventoryTextPrisma({ q, qLower, qCompact, category, itemType, limit });
-  }
-  return searchInventoryTextPostgres({ q, qLower, qCompact, category, itemType, limit });
+  const rows = isSqliteDb()
+    ? await searchInventoryTextPrisma({ q, qLower, qCompact, category, itemType, fetchCap })
+    : await searchInventoryTextPostgres({ q, qLower, qCompact, category, itemType, fetchCap });
+  return params.distinctSizes ? preferDistinctDressSizes(rows, limit) : rows.slice(0, limit);
 }
 
 /** Serialize rows for legacy inventory search API (category split handled by route). */

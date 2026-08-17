@@ -69,6 +69,7 @@ const bookingInclude = {
       price: true,
       advance: true,
       remaining: true,
+      itemRemainingCollected: true,
       isCancelled: true,
       isDelivered: true,
       isReturned: true,
