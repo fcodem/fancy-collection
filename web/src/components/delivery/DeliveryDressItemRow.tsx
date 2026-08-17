@@ -8,6 +8,7 @@ import BookingItemWarningsBlock, {
 import type { ItemWarningSource } from "@/lib/bookingWarningPdf";
 import ZoomableImage from "@/components/ZoomableImage";
 import { formatInr } from "@/lib/format";
+import { preventInputWheel } from "@/lib/preventInputWheel";
 import { photoUrl } from "@/lib/photoUrl";
 
 export type DeliveryDressItem = {
@@ -205,6 +206,7 @@ function DeliveryDressItemRow({
                 className="form-control"
                 value={form?.remaining ?? ""}
                 onChange={(e) => onUpdateField(it.id, "remaining", e.target.value)}
+                onWheel={preventInputWheel}
                 disabled={it.isDelivered && !editing}
               />
             </div>
@@ -216,6 +218,7 @@ function DeliveryDressItemRow({
                 className="form-control"
                 value={form?.security ?? ""}
                 onChange={(e) => onUpdateField(it.id, "security", e.target.value)}
+                onWheel={preventInputWheel}
                 disabled={it.isDelivered && !editing}
               />
             </div>

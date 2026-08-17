@@ -1,32 +1,21 @@
 "use client";
 
-import { useEffect, type RefObject } from "react";
+import { useEffect } from "react";
+import { blockWheelOnValueFields } from "@/lib/preventInputWheel";
 
 /**
- * Prevents mouse-wheel from changing number fields or time-picker values
- * while the pointer is over those inputs.
+ * Prevents mouse-wheel / trackpad from changing number, date, time, and select values.
+ * Use without a ref to cover the whole document (delivery, return, booking, etc.).
  */
-export function useBlockWheelValueChange(containerRef: RefObject<HTMLElement | null>) {
+export function useBlockWheelValueChange(containerRef?: { current: HTMLElement | null }) {
   useEffect(() => {
-    const root = containerRef.current;
-    if (!root) return;
+    const root: HTMLElement | Document = containerRef?.current ?? document;
 
     function onWheel(e: WheelEvent) {
-      const target = e.target as HTMLElement | null;
-      if (!target) return;
-      if (target.closest(".booking-time-dropdown") || target.closest(".dress-picker-scroll") || target.closest(".dress-suggest-dropdown")) {
-        return;
-      }
-      const input = target.closest("input");
-      if (!input) return;
-      const type = (input as HTMLInputElement).type;
-      const isTimeField = Boolean(input.closest(".booking-time-select"));
-      if (type !== "number" && !isTimeField) return;
-      e.preventDefault();
-      input.blur();
+      blockWheelOnValueFields(e);
     }
 
-    root.addEventListener("wheel", onWheel, { passive: false });
-    return () => root.removeEventListener("wheel", onWheel);
+    root.addEventListener("wheel", onWheel, { capture: true, passive: false });
+    return () => root.removeEventListener("wheel", onWheel, { capture: true });
   }, [containerRef]);
 }

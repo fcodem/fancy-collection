@@ -2,6 +2,7 @@
 
 import { useEffect, useRef, useState } from "react";
 import { isoToDisplay, isIsoDate, parsePartialDateEdit } from "@/lib/dateInput";
+import { preventInputWheel } from "@/lib/preventInputWheel";
 
 type Props = {
   value: string;
@@ -206,6 +207,7 @@ export default function TypeableDateInput({
         spellCheck={false}
         value={text}
         disabled={disabled}
+        onWheel={preventInputWheel}
         onFocus={() => {
           focused.current = true;
           baseIsoRef.current = isIsoDate(value) ? value : baseIsoRef.current;
@@ -340,6 +342,7 @@ export default function TypeableDateInput({
         value={isIsoDate(value) ? value : ""}
         min={min}
         disabled={disabled}
+        onWheel={preventInputWheel}
         onChange={(e) => applyPickerValue(e.target.value)}
         onClick={(e) => {
           // Ensure calendar opens on touch browsers that ignore opacity-0 controls.

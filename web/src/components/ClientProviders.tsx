@@ -2,11 +2,13 @@
 
 import { useEffect } from "react";
 import { ToastProvider } from "@/components/ui/Toast";
+import { useBlockWheelValueChange } from "@/hooks/useBlockWheelValueChange";
 import { useGlobalUppercaseInputs } from "@/hooks/useGlobalUppercaseInputs";
 import { installChunkLoadRecovery } from "@/lib/chunkLoadRecovery";
 
 function GlobalInputBehavior() {
   useGlobalUppercaseInputs();
+  useBlockWheelValueChange();
   return null;
 }
 

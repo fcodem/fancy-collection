@@ -259,6 +259,16 @@ html {
   }
 }
 
+/* Amounts and dates are typed; hide native spinners that also change on scroll. */
+input[type="number"] {
+  -moz-appearance: textfield;
+}
+input[type="number"]::-webkit-outer-spin-button,
+input[type="number"]::-webkit-inner-spin-button {
+  -webkit-appearance: none;
+  margin: 0;
+}
+
 input.form-control:not([type="password"]):not([type="number"]):not([type="email"]):not([type="date"]),
 textarea.form-control,
 select.form-control {
