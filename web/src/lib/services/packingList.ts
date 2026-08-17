@@ -95,7 +95,7 @@ export async function getPackingListPage(opts: {
           checkedBy: true,
           isPackedReady: true,
           packingNote: true,
-          item: { select: { size: true } },
+          item: { select: { size: true, category: true, subCategory: true } },
         },
       },
       orders: {
@@ -196,7 +196,8 @@ export async function getPackingListPage(opts: {
               item.category,
               bookingItemSize(item),
             ),
-            category: item.category || "",
+            category: item.category || item.item?.category || "",
+            sub_category: item.item?.subCategory || "",
             size: bookingItemSize(item),
             prepared_by: item.preparedBy || "",
             checked_by: item.checkedBy || "",

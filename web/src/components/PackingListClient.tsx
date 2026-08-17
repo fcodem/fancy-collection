@@ -28,6 +28,7 @@ type PackingItem = {
   checked_by: string;
   packing_note: string;
   category?: string;
+  sub_category?: string;
   /** Per-dress note entered on the booking (shown highlighted for staff). */
   dress_note?: string;
   returning_warning?: PackingReturningWarning | null;
@@ -318,7 +319,10 @@ export default function PackingListClient({
         PACKING_DIVISIONS.map((div) => {
           const sectionRows = rows
             .map((b) => {
-              const items = b.items.filter((item) => packingDivision(item.category) === div.key);
+              const items = b.items.filter(
+                (item) =>
+                  packingDivision(item.category, item.dress_name, item.sub_category) === div.key,
+              );
               if (!items.length) return null;
               return { ...b, items };
             })
@@ -462,7 +466,10 @@ export default function PackingListClient({
           {(() => {
             const original = rows.find((r) => r.id === b.id);
             const firstKey = PACKING_DIVISIONS.find((d) =>
-              (original?.items || []).some((item) => packingDivision(item.category) === d.key),
+              (original?.items || []).some(
+                (item) =>
+                  packingDivision(item.category, item.dress_name, item.sub_category) === d.key,
+              ),
             )?.key;
             return firstKey === div.key && b.orders && b.orders.length > 0;
           })() && (

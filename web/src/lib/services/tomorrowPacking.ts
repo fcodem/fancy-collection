@@ -11,6 +11,7 @@ export type TomorrowPackingItem = {
   dressName: string;
   displayName: string;
   category: string;
+  inventorySubCategory: string;
   size: string;
   isPackedReady: boolean;
   preparedBy: string;
@@ -94,7 +95,7 @@ export async function getTomorrowPackingPageData(): Promise<TomorrowPackingPageD
           checkedBy: true,
           isPackedReady: true,
           packingNote: true,
-          item: { select: { size: true, name: true } },
+          item: { select: { size: true, name: true, category: true, subCategory: true } },
         },
       },
       legacyItem: { select: { size: true, category: true, name: true } },
@@ -106,11 +107,14 @@ export async function getTomorrowPackingPageData(): Promise<TomorrowPackingPageD
       ? b.bookingItems.map((item) => {
           const size = bookingItemSize(item);
           const name = item.dressName || item.item?.name || "Item";
+          const inventorySubCategory = item.item?.subCategory || "";
+          const category = item.category || item.item?.category || "";
           return {
             biId: item.id,
             dressName: name,
-            displayName: dressDisplayName(name, item.category, size),
-            category: item.category || "",
+            displayName: dressDisplayName(name, category, size),
+            category,
+            inventorySubCategory,
             size,
             isPackedReady: item.isPackedReady,
             preparedBy: item.preparedBy || "",
@@ -127,6 +131,7 @@ export async function getTomorrowPackingPageData(): Promise<TomorrowPackingPageD
               dressName: name,
               displayName: dressDisplayName(name, b.legacyItem?.category, size),
               category: b.legacyItem?.category || "",
+              inventorySubCategory: "",
               size,
               isPackedReady: false,
               preparedBy: "",
@@ -161,7 +166,10 @@ export async function getTomorrowPackingPageData(): Promise<TomorrowPackingPageD
   const splitForDivision = (list: TomorrowPackingBooking[], key: string) =>
     list
       .map((booking) => {
-        const items = booking.items.filter((item) => packingDivision(item.category) === key);
+        const items = booking.items.filter(
+          (item) =>
+            packingDivision(item.category, item.dressName, item.inventorySubCategory) === key,
+        );
         if (!items.length) return null;
         const packedCount = items.filter((i) => i.isPackedReady).length;
         return {
