@@ -20,6 +20,8 @@ type Message = {
   isAutomated: boolean;
   createdAt: string;
   receivedAt?: string | null;
+  reactionEmoji?: string | null;
+  reactedAt?: string | null;
 };
 
 type BotState = {
@@ -676,18 +678,20 @@ function ConversationItem({
               )}
             </div>
             <div style={{ fontSize: 12, color: "#6b7280", overflow: "hidden", textOverflow: "ellipsis", whiteSpace: "nowrap" }}>
-              {lastMsg?.body ||
-                (lastMsg?.messageType === "image"
-                  ? "📷 Image"
-                  : lastMsg?.messageType === "video"
-                  ? "🎬 Video"
-                  : lastMsg?.messageType === "document"
-                  ? "📄 Document"
-                  : lastMsg?.messageType === "audio"
-                  ? "🎵 Audio"
-                  : lastMsg?.messageType === "location"
-                  ? "📍 Location"
-                  : "No messages yet")}
+              {lastMsg?.reactionEmoji
+                ? `${lastMsg.reactionEmoji} Reacted`
+                : lastMsg?.body ||
+                  (lastMsg?.messageType === "image"
+                    ? "📷 Image"
+                    : lastMsg?.messageType === "video"
+                    ? "🎬 Video"
+                    : lastMsg?.messageType === "document"
+                    ? "📄 Document"
+                    : lastMsg?.messageType === "audio"
+                    ? "🎵 Audio"
+                    : lastMsg?.messageType === "location"
+                    ? "📍 Location"
+                    : "No messages yet")}
             </div>
           </div>
         </div>
@@ -716,8 +720,8 @@ function MessageBubble({ msg }: { msg: Message }) {
 
   return (
     <div style={{ display: "flex", justifyContent: isOutbound ? "flex-end" : "flex-start" }}>
+      <div style={{ position: "relative", maxWidth: "60%", marginBottom: msg.reactionEmoji ? 12 : 0 }}>
       <div style={{
-        maxWidth: "60%",
         padding: "8px 12px",
         borderRadius: isOutbound ? "16px 16px 4px 16px" : "16px 16px 16px 4px",
         background: isOutbound ? "#16a34a" : "#fff",
@@ -795,6 +799,26 @@ function MessageBubble({ msg }: { msg: Message }) {
               : <i className="fa-solid fa-check" style={{ fontSize: 10 }} />
           )}
         </div>
+      </div>
+      {msg.reactionEmoji ? (
+        <div
+          title="Customer reaction"
+          style={{
+            position: "absolute",
+            bottom: -10,
+            ...(isOutbound ? { left: 8 } : { right: 8 }),
+            background: "#fff",
+            border: "1px solid #e5e7eb",
+            borderRadius: 12,
+            padding: "1px 6px",
+            fontSize: 14,
+            lineHeight: 1.2,
+            boxShadow: "0 1px 3px rgba(0,0,0,0.12)",
+          }}
+        >
+          {msg.reactionEmoji}
+        </div>
+      ) : null}
       </div>
     </div>
   );

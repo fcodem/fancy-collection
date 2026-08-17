@@ -23,6 +23,7 @@ export async function GET(req: NextRequest) {
       where,
       include: {
         messages: {
+          where: { messageType: { not: "reaction" } },
           orderBy: { createdAt: "desc" },
           take: 1,
         },

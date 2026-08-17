@@ -130,6 +130,70 @@ export async function enqueueWebhookFollowUp(
   }
 }
 
+export async function persistWhatsAppReaction(parsed: ParsedInboundMessage): Promise<{
+  applied: boolean;
+  missingTarget: boolean;
+}> {
+  const targetId = parsed.reactedToMetaId?.trim();
+  if (!targetId) {
+    return { applied: false, missingTarget: true };
+  }
+
+  const emoji = parsed.reactionEmoji?.trim() || null;
+  let target = await prisma.whatsAppMessage.findUnique({
+    where: { metaMessageId: targetId },
+    select: { id: true, conversationId: true },
+  });
+
+  if (!target) {
+    const conversation = await prisma.whatsAppConversation.findUnique({
+      where: { customerPhone: parsed.phone },
+      select: { id: true },
+    });
+    if (conversation) {
+      const fallback = await prisma.whatsAppMessage.findFirst({
+        where: { conversationId: conversation.id, direction: "outbound" },
+        orderBy: { createdAt: "desc" },
+        select: { id: true, conversationId: true },
+      });
+      if (fallback) target = fallback;
+    }
+  }
+
+  if (!target) {
+    return { applied: false, missingTarget: true };
+  }
+
+  const conversation =
+    target.conversationId != null
+      ? { id: target.conversationId }
+      : await prisma.whatsAppConversation.findUnique({
+          where: { customerPhone: parsed.phone },
+          select: { id: true },
+        });
+
+  await prisma.whatsAppMessage.update({
+    where: { id: target.id },
+    data: {
+      reactionEmoji: emoji,
+      reactedAt: emoji ? parsed.receivedAt : null,
+      ...(conversation && !target.conversationId ? { conversationId: conversation.id } : {}),
+    },
+  });
+
+  if (conversation) {
+    await prisma.whatsAppConversation.update({
+      where: { id: conversation.id },
+      data: {
+        lastMessageAt: parsed.receivedAt,
+        unreadCount: { increment: 1 },
+      },
+    });
+  }
+
+  return { applied: true, missingTarget: false };
+}
+
 export async function persistStatusUpdate(status: WhatsAppMessageStatus): Promise<boolean> {
   const deliveryError =
     status.status === "failed" && status.errors?.length
@@ -175,6 +239,21 @@ export async function acceptWhatsAppWebhookPayload(
   if (value.messages) {
     for (const message of value.messages) {
       const parsed = parseIncomingWhatsAppMessage(message, value.contacts?.[0]);
+      if (parsed.messageType === "reaction") {
+        const reaction = await persistWhatsAppReaction(parsed);
+        result.accepted += 1;
+        logWebhookProcessingResult({
+          phone: parsed.phone,
+          metaMessageId: parsed.metaMessageId,
+          messageType: "reaction",
+          result: reaction.applied
+            ? parsed.reactionEmoji
+              ? "reaction_applied"
+              : "reaction_cleared"
+            : "reaction_target_missing",
+        });
+        continue;
+      }
       const persisted = await persistInboundWhatsAppMessage(parsed);
       if (persisted.duplicate) {
         result.duplicates += 1;
@@ -215,6 +294,7 @@ export async function acceptWhatsAppWebhookPayload(
 }
 
 export async function processInboundFollowUp(payload: InboundFollowUpPayload): Promise<void> {
+  if (payload.messageType === "reaction") return;
   if (payload.media) {
     const privateUrl = await storeWhatsAppInboundMedia(payload.media);
     if (privateUrl) {

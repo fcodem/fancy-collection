@@ -120,39 +120,57 @@ export default function TomorrowPackingClient({ data }: { data: TomorrowPackingP
         </div>
       </div>
 
-      <section style={{ marginBottom: 32 }}>
-        <div className="card-header" style={{ paddingLeft: 0, paddingRight: 0 }}>
-          <h2 className="card-title" style={{ margin: 0 }}>
-            Total packing left ({data.leftCount})
-          </h2>
-        </div>
-        {data.packingLeft.length ? (
-          data.packingLeft.map((b) => <BookingCard key={b.id} booking={b} tone="left" />)
-        ) : (
-          <div className="card">
-            <div className="card-body" style={{ color: "var(--text-muted)" }}>
-              No packing left for tomorrow — all booked deliveries are packed.
+      {(data.divisions || []).map((div) => {
+        if (!div.packingLeft.length && !div.packingDone.length) return null;
+        return (
+          <section key={div.key} style={{ marginBottom: 36 }}>
+            <div
+              className="card-header"
+              style={{
+                paddingLeft: 0,
+                paddingRight: 0,
+                borderBottom: "2px solid var(--gold, #c9a84c)",
+                marginBottom: 16,
+              }}
+            >
+              <h2 className="card-title" style={{ margin: 0, fontSize: 20 }}>
+                {div.label}
+                <span style={{ fontWeight: 500, fontSize: 13, color: "var(--text-muted)", marginLeft: 8 }}>
+                  {div.packingLeft.length} left · {div.packingDone.length} done
+                </span>
+              </h2>
             </div>
-          </div>
-        )}
-      </section>
-
-      <section>
-        <div className="card-header" style={{ paddingLeft: 0, paddingRight: 0 }}>
-          <h2 className="card-title" style={{ margin: 0 }}>
-            Total packing done ({data.doneCount})
-          </h2>
-        </div>
-        {data.packingDone.length ? (
-          data.packingDone.map((b) => <BookingCard key={b.id} booking={b} tone="done" />)
-        ) : (
-          <div className="card">
-            <div className="card-body" style={{ color: "var(--text-muted)" }}>
-              No packing completed yet for tomorrow&apos;s deliveries.
+            <div style={{ marginBottom: 20 }}>
+              <h3 style={{ margin: "0 0 10px", fontSize: 15 }}>Packing left ({div.packingLeft.length})</h3>
+              {div.packingLeft.length ? (
+                div.packingLeft.map((b) => (
+                  <BookingCard key={`${div.key}-left-${b.id}`} booking={b} tone="left" />
+                ))
+              ) : (
+                <div className="card">
+                  <div className="card-body" style={{ color: "var(--text-muted)" }}>
+                    No {div.label.toLowerCase()} packing left.
+                  </div>
+                </div>
+              )}
             </div>
-          </div>
-        )}
-      </section>
+            <div>
+              <h3 style={{ margin: "0 0 10px", fontSize: 15 }}>Packing done ({div.packingDone.length})</h3>
+              {div.packingDone.length ? (
+                div.packingDone.map((b) => (
+                  <BookingCard key={`${div.key}-done-${b.id}`} booking={b} tone="done" />
+                ))
+              ) : (
+                <div className="card">
+                  <div className="card-body" style={{ color: "var(--text-muted)" }}>
+                    No {div.label.toLowerCase()} packing completed yet.
+                  </div>
+                </div>
+              )}
+            </div>
+          </section>
+        );
+      })}
     </div>
   );
 }

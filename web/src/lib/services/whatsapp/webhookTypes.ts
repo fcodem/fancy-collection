@@ -30,6 +30,7 @@ export type IncomingWhatsAppMessage = {
     button_reply?: { id: string; title: string };
     list_reply?: { id: string; title: string };
   };
+  reaction?: { message_id?: string; emoji?: string };
 };
 
 export type WhatsAppMessageStatus = {
@@ -50,6 +51,8 @@ export type ParsedInboundMessage = {
   receivedAt: Date;
   media: { metaMediaId: string; mimeType: string; filename?: string } | null;
   isTextLike: boolean;
+  reactedToMetaId?: string | null;
+  reactionEmoji?: string | null;
 };
 
 export type InboundFollowUpPayload = {
@@ -140,6 +143,24 @@ export function parseIncomingWhatsAppMessage(
         message.interactive?.list_reply?.title ||
         "[Interactive reply]";
       break;
+    case "reaction": {
+      const emoji = String(message.reaction?.emoji || "").trim();
+      const target = String(message.reaction?.message_id || "").trim();
+      body = emoji ? `${emoji} Reacted` : "Reaction removed";
+      return {
+        metaMessageId: message.id,
+        phone,
+        customerName,
+        messageType: "reaction",
+        body,
+        filename: null,
+        receivedAt: new Date(parseInt(message.timestamp, 10) * 1000),
+        media: null,
+        isTextLike: false,
+        reactedToMetaId: target || null,
+        reactionEmoji: emoji || null,
+      };
+    }
     default:
       body = `[${message.type} message]`;
   }

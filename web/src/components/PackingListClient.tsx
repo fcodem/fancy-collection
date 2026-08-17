@@ -17,6 +17,7 @@ import { panelsForItemWarnings } from "@/lib/bookingWarningPdf";
 import { STANDARD_BOOKING_HEADERS, flattenBookingPdfRows, standardBookingPdfRow } from "@/lib/standardBookingPdfRows";
 import StarBookingBadge from "@/components/StarBookingBadge";
 import { addDaysIso } from "@/lib/dateInput";
+import { packingDivision, PACKING_DIVISIONS } from "@/lib/packingDivision";
 
 type PackingItem = {
   bi_id: number | null;
@@ -26,6 +27,7 @@ type PackingItem = {
   prepared_by: string;
   checked_by: string;
   packing_note: string;
+  category?: string;
   /** Per-dress note entered on the booking (shown highlighted for staff). */
   dress_note?: string;
   returning_warning?: PackingReturningWarning | null;
@@ -312,8 +314,42 @@ export default function PackingListClient({
         </div>
       )}
 
-      {rows.map((b) => (
-        <div key={b.id} className="card" style={{ marginBottom: 16 }}>
+      {loaded &&
+        PACKING_DIVISIONS.map((div) => {
+          const sectionRows = rows
+            .map((b) => {
+              const items = b.items.filter((item) => packingDivision(item.category) === div.key);
+              if (!items.length) return null;
+              return { ...b, items };
+            })
+            .filter((b): b is PackingBooking => Boolean(b));
+          if (!sectionRows.length && div.key === "other") return null;
+          if (!loaded) return null;
+          return (
+            <section key={div.key} style={{ marginBottom: 28 }}>
+              <h2
+                className="card-title"
+                style={{
+                  margin: "0 0 12px",
+                  paddingBottom: 8,
+                  borderBottom: "2px solid var(--gold, #c9a84c)",
+                  fontSize: 18,
+                }}
+              >
+                {div.label}
+                <span style={{ fontWeight: 500, fontSize: 13, color: "var(--text-muted)", marginLeft: 8 }}>
+                  {sectionRows.length} booking{sectionRows.length === 1 ? "" : "s"}
+                </span>
+              </h2>
+              {!sectionRows.length ? (
+                <div className="card" style={{ marginBottom: 16 }}>
+                  <div className="card-body" style={{ color: "var(--text-muted)" }}>
+                    No {div.label.toLowerCase()} items in this range.
+                  </div>
+                </div>
+              ) : (
+                sectionRows.map((b) => (
+        <div key={`${div.key}-${b.id}`} className="card" style={{ marginBottom: 16 }}>
           <div className="card-header" style={{ flexWrap: "wrap", gap: 12 }}>
             <h3 className="card-title" style={{ display: "inline-flex", alignItems: "center", flexWrap: "wrap", gap: 4 }}>
               #{String(b.serial_no).padStart(2, "0")} — {b.customer_name}
@@ -423,13 +459,40 @@ export default function PackingListClient({
               </div>
             ))}
           </div>
-          {b.orders && b.orders.length > 0 && (
+          {(() => {
+            const original = rows.find((r) => r.id === b.id);
+            const firstKey = PACKING_DIVISIONS.find((d) =>
+              (original?.items || []).some((item) => packingDivision(item.category) === d.key),
+            )?.key;
+            return firstKey === div.key && b.orders && b.orders.length > 0;
+          })() && (
             <div className="card-body" style={{ paddingTop: 0 }}>
-              <CustomOrdersSection orders={b.orders} showPhoto={false} />
+              <CustomOrdersSection orders={b.orders || []} showPhoto={false} />
             </div>
           )}
         </div>
-      ))}
+                ))
+              )}
+            </section>
+          );
+        })}
+
+      {loaded &&
+        rows
+          .filter((b) => !b.items.length && (b.orders?.length || 0) > 0)
+          .map((b) => (
+            <div key={`orders-${b.id}`} className="card" style={{ marginBottom: 16 }}>
+              <div className="card-header" style={{ flexWrap: "wrap", gap: 12 }}>
+                <h3 className="card-title">
+                  #{String(b.serial_no).padStart(2, "0")} — {b.customer_name}
+                </h3>
+                <BookingCardHeaderDates d={b} />
+              </div>
+              <div className="card-body" style={{ paddingTop: 0 }}>
+                <CustomOrdersSection orders={b.orders || []} showPhoto={false} />
+              </div>
+            </div>
+          ))}
 
       {hasMore && (
         <div style={{ textAlign: "center", margin: "8px 0 24px" }}>

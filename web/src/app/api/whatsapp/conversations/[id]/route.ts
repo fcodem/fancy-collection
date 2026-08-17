@@ -18,7 +18,7 @@ export async function GET(
   const conversation = await prisma.whatsAppConversation.findUnique({
     where: { id: convId },
     include: {
-      messages: { orderBy: { createdAt: "asc" }, take: 150 },
+      messages: { where: { messageType: { not: "reaction" } }, orderBy: { createdAt: "asc" }, take: 150 },
       booking: {
         select: {
           id: true,
@@ -39,7 +39,7 @@ export async function GET(
   await repairMissingInboundMedia({ conversationId: convId, limit: 10 });
 
   const messages = await prisma.whatsAppMessage.findMany({
-    where: { conversationId: convId },
+    where: { conversationId: convId, messageType: { not: "reaction" } },
     orderBy: { createdAt: "asc" },
     take: 150,
   });

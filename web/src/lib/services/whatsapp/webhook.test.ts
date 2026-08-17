@@ -124,6 +124,20 @@ describe("webhook message parsing", () => {
     assert.equal(parsed.messageType, "video");
     assert.equal(parsed.media?.mimeType, "video/mp4");
   });
+
+  it("parses customer reaction onto the original message id", () => {
+    const parsed = parseIncomingWhatsAppMessage({
+      id: "wamid.REACT123",
+      from: "919876543210",
+      timestamp: "1700000005",
+      type: "reaction",
+      reaction: { message_id: "wamid.OUTBOUND1", emoji: "👍" },
+    });
+    assert.equal(parsed.messageType, "reaction");
+    assert.equal(parsed.reactedToMetaId, "wamid.OUTBOUND1");
+    assert.equal(parsed.reactionEmoji, "👍");
+    assert.equal(parsed.body, "👍 Reacted");
+  });
 });
 
 describe("webhook logging hygiene", () => {
@@ -251,6 +265,17 @@ describe("webhook durable queue and idempotency contracts", () => {
     const inbound = read("src/lib/services/whatsapp/webhookInbound.ts");
     assert.match(inbound, /persistStatusUpdate/);
     assert.match(inbound, /deliveryStatus/);
+  });
+
+  it("applies customer reactions onto the original outbound message", () => {
+    const inbound = read("src/lib/services/whatsapp/webhookInbound.ts");
+    assert.match(inbound, /persistWhatsAppReaction/);
+    assert.match(inbound, /messageType === "reaction"/);
+    assert.match(inbound, /reactionEmoji/);
+    assert.doesNotMatch(
+      inbound.slice(inbound.indexOf("if (parsed.messageType === \"reaction\")"), inbound.indexOf("const persisted = await persistInboundWhatsAppMessage")),
+      /enqueueWebhookFollowUp/,
+    );
   });
 
   it("duplicate delivery does not increment unread in duplicate branch", () => {

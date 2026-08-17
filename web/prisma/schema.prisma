@@ -770,6 +770,9 @@ model WhatsAppMessage {
   readAt         DateTime?             @map("read_at")
   receivedAt     DateTime?             @map("received_at")
   error          String?
+  /** Customer emoji reaction on this message (WhatsApp reaction webhook). */
+  reactionEmoji  String?               @map("reaction_emoji")
+  reactedAt      DateTime?             @map("reacted_at")
   createdAt      DateTime              @default(now()) @map("created_at")
 
   booking      Booking?              @relation(fields: [bookingId], references: [id], onDelete: SetNull)

@@ -4,6 +4,7 @@ import { addDaysIso } from "@/lib/dateInput";
 import { formatDate, todayIso } from "@/lib/constants";
 import { bookingItemSize, dressDisplayName } from "@/lib/dress";
 import { isStarBooking } from "@/lib/starBooking";
+import { packingDivision, PACKING_DIVISIONS } from "@/lib/packingDivision";
 
 export type TomorrowPackingItem = {
   biId: number | null;
@@ -43,6 +44,12 @@ export type TomorrowPackingPageData = {
   doneCount: number;
   leftItemCount: number;
   doneItemCount: number;
+  divisions: Array<{
+    key: "mens" | "womens" | "jewellery" | "other";
+    label: string;
+    packingLeft: TomorrowPackingBooking[];
+    packingDone: TomorrowPackingBooking[];
+  }>;
 };
 
 function isBookingPackingDone(items: TomorrowPackingItem[]): boolean {
@@ -151,6 +158,32 @@ export async function getTomorrowPackingPageData(): Promise<TomorrowPackingPageD
   const packingLeft = mapped.filter((b) => !isBookingPackingDone(b.items));
   const packingDone = mapped.filter((b) => isBookingPackingDone(b.items));
 
+  const splitForDivision = (list: TomorrowPackingBooking[], key: string) =>
+    list
+      .map((booking) => {
+        const items = booking.items.filter((item) => packingDivision(item.category) === key);
+        if (!items.length) return null;
+        const packedCount = items.filter((i) => i.isPackedReady).length;
+        return {
+          ...booking,
+          items,
+          packedCount,
+          pendingCount: items.length - packedCount,
+        };
+      })
+      .filter((b): b is TomorrowPackingBooking => Boolean(b));
+
+  const divisions = PACKING_DIVISIONS.map((div) => {
+    const left = splitForDivision(packingLeft, div.key).filter((b) => !isBookingPackingDone(b.items));
+    const done = splitForDivision(mapped, div.key).filter((b) => isBookingPackingDone(b.items));
+    return {
+      key: div.key,
+      label: div.label,
+      packingLeft: left,
+      packingDone: done,
+    };
+  }).filter((div) => div.key !== "other" || div.packingLeft.length + div.packingDone.length > 0);
+
   return {
     tomorrowIso,
     tomorrowDisplay: formatDate(tomorrowIso, "display"),
@@ -160,5 +193,6 @@ export async function getTomorrowPackingPageData(): Promise<TomorrowPackingPageD
     doneCount: packingDone.length,
     leftItemCount: packingLeft.reduce((n, b) => n + b.pendingCount, 0),
     doneItemCount: packingDone.reduce((n, b) => n + b.packedCount, 0),
+    divisions,
   };
 }

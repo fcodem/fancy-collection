@@ -90,6 +90,7 @@ export async function handleInboundAutoReply(args: {
 }): Promise<void> {
   try {
     if (!isWhatsAppConfigured()) return;
+    if (args.messageType === "reaction") return;
     if (await isBotDisabled()) return;
 
     const settings = await loadWhatsAppBotSettings();
