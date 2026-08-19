@@ -26,6 +26,7 @@ import {
   MutationIdempotencyError,
   claimMutationReceipt,
   completeMutationReceiptInTx,
+  IDEMPOTENT_TX_OPTIONS,
   readMutationStaging,
   runIdempotentMutationInTx,
   storeMutationStaging,
@@ -410,7 +411,7 @@ export async function POST(req: NextRequest, { params }: { params: Promise<{ id:
             ...(slips.slipDisabled ? { slip_disabled: true } : {}),
           });
           return payload;
-        });
+        }, IDEMPOTENT_TX_OPTIONS);
 
         if (result._deferredPaths.length || result._status === "returned") {
           await runPostCommitReturnSideEffects(

@@ -3,7 +3,6 @@ import PremiumSlipMarker from "@/components/PremiumSlipMarker";
 import SlipBrandTitle from "@/components/SlipBrandTitle";
 import SlipLogo from "@/components/SlipLogo";
 import SlipMottoBanner from "@/components/SlipMottoBanner";
-import SlipOutfitPhoto from "@/components/SlipOutfitPhoto";
 import {
   SLIP_AMBER,
   SLIP_BORDER,
@@ -91,7 +90,6 @@ export default function ReturnSlip(props: ReturnSlipProps) {
   const slipNo = slipPadSerial(b.monthlySerial);
   const displayPhone = businessPhone?.trim() || SLIP_DEFAULT_PHONE;
   const displayAddress = businessAddress?.trim() || SLIP_DEFAULT_ADDRESS;
-  const outfitItems = items.filter((it) => it.photoUrl);
 
   const remainingCollected = b.remainingCollected ?? 0;
   const securityRefunded = b.securityRefunded ?? 0;
@@ -626,42 +624,6 @@ export default function ReturnSlip(props: ReturnSlipProps) {
           </div>
         </footer>
       </div>
-
-      {outfitItems.map((it, idx) => (
-        <div
-          key={`${it.dressName}-${idx}`}
-          className="slip-outfit-page no-break"
-          style={{
-            background: "#fff",
-            fontFamily: "system-ui, -apple-system, sans-serif",
-            marginTop: 16,
-            borderRadius: 12,
-            overflow: "hidden",
-            border: `1px solid ${SLIP_BORDER}`,
-          }}
-        >
-          <div style={{ background: SLIP_LIGHT_GREEN, padding: "12px 16px", borderBottom: `1px solid ${SLIP_BORDER}` }}>
-            <div style={{ fontWeight: 800, color: SLIP_GREEN, fontSize: 13, textTransform: "uppercase" }}>
-              Returned Item Reference
-            </div>
-            <div style={{ fontWeight: 700, fontSize: 16, marginTop: 4 }}>
-              {it.dressName}
-              {it.sku ? ` · ${it.sku}` : ""}
-            </div>
-            <div style={{ fontSize: 12, color: SLIP_GREY, marginTop: 2 }}>
-              {it.category || "—"} · Size {it.size || "—"}
-            </div>
-          </div>
-          <div style={{ padding: 16, textAlign: "center" }}>
-            <SlipOutfitPhoto
-              src={it.photoUrl!}
-              alt={it.dressName}
-              caption={it.dressName}
-              imgStyle={{ maxWidth: "100%", maxHeight: 420, objectFit: "contain", borderRadius: 8 }}
-            />
-          </div>
-        </div>
-      ))}
     </>
   );
 }

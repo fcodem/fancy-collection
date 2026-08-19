@@ -27,6 +27,9 @@ export type IdempotentMutationOpts = {
 
 const DEFAULT_LEASE_MS = 120_000;
 
+/** Interactive tx options for claim+mutate+receipt (Neon/Vercel need more than Prisma's 5s default). */
+export const IDEMPOTENT_TX_OPTIONS = { maxWait: 10_000, timeout: 55_000 } as const;
+
 function requireOperationId(operationId: string | undefined | null): string {
   const id = typeof operationId === "string" ? operationId.trim() : "";
   if (!id || id.length < 8) {
@@ -444,7 +447,7 @@ export async function runIdempotentMutationInTx<T>(
         await completeMutationReceiptInTx(tx, operationId, result);
         return { result, reused: false };
       },
-      { maxWait: 10_000, timeout: 55_000 },
+      IDEMPOTENT_TX_OPTIONS,
     );
   } catch (e) {
     if (e instanceof MutationIdempotencyError) throw e;

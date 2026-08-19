@@ -1271,7 +1271,7 @@ async function runInReturnTx<T>(
   fn: (client: Prisma.TransactionClient) => Promise<T>,
 ): Promise<T> {
   if (tx) return fn(tx);
-  return prisma.$transaction(fn);
+  return prisma.$transaction(fn, { maxWait: 10_000, timeout: 55_000 });
 }
 
 function validateReturnableItem(
@@ -1671,7 +1671,7 @@ export async function saveReturn(
         throw new Error("Select at least one dress for incomplete return.");
       }
 
-      await runInReturnTx(options?.tx, async (tx) => {
+      newlyReturnedItemIds = await runInReturnTx(options?.tx, async (tx) => {
         await tx.$executeRaw`SELECT id FROM bookings WHERE id = ${bookingId} FOR UPDATE`;
         const locked = await tx.booking.findUnique({
           where: { id: bookingId },
@@ -1764,6 +1764,7 @@ export async function saveReturn(
             returnedAt: new Date(),
           },
         });
+        return returnedIds;
       });
     }
   }

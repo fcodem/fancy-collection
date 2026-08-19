@@ -19,6 +19,29 @@ import { useMutationOperationId } from "@/lib/useMutationOperationId";
 import { useToast } from "@/components/ui/Toast";
 import DeliveryDressItemRow from "@/components/delivery/DeliveryDressItemRow";
 
+/** Split rupees by weights (remaining due), using largest remainder so the total matches. */
+function allocateRupeesByWeights(total: number, weights: number[]): number[] {
+  const n = weights.length;
+  if (n === 0) return [];
+  const safeTotal = Math.max(0, Math.round(total));
+  const w = weights.map((x) => Math.max(0, Number(x) || 0));
+  const sum = w.reduce((a, b) => a + b, 0);
+  if (sum <= 0) {
+    const base = Math.floor(safeTotal / n);
+    const extra = safeTotal - base * n;
+    return w.map((_, i) => base + (i < extra ? 1 : 0));
+  }
+  const exact = w.map((x) => (x / sum) * safeTotal);
+  const floors = exact.map((x) => Math.floor(x));
+  let left = safeTotal - floors.reduce((a, b) => a + b, 0);
+  const order = exact
+    .map((x, i) => ({ i, frac: x - Math.floor(x) }))
+    .sort((a, b) => b.frac - a.frac || a.i - b.i);
+  const out = floors.slice();
+  for (let k = 0; k < left; k++) out[order[k]!.i] += 1;
+  return out;
+}
+
 type ItemRow = {
   id: number;
   itemId?: number | null;
@@ -228,17 +251,18 @@ export default function DeliveryDetailClient({
     }
     const remTotal = Math.max(0, Math.round(Number(splitRemaining) || 0));
     const secTotal = Math.max(0, Math.round(Number(splitSecurity) || 0));
-    const n = ids.length;
-    const remBase = Math.floor(remTotal / n);
-    const remExtra = remTotal - remBase * n;
-    const secBase = Math.floor(secTotal / n);
-    const secExtra = secTotal - secBase * n;
+    const weights = ids.map((id) => {
+      const it = localItems.find((row) => row.id === id);
+      return Math.max(0, Number(it?.remaining) || 0);
+    });
+    const remParts = allocateRupeesByWeights(remTotal, weights);
+    const secParts = allocateRupeesByWeights(secTotal, weights);
     setItemForms((prev) => {
       const next = { ...prev };
       ids.forEach((id, i) => {
         next[id] = {
-          remaining: String(remBase + (i < remExtra ? 1 : 0)),
-          security: String(secBase + (i < secExtra ? 1 : 0)),
+          remaining: String(remParts[i] ?? 0),
+          security: String(secParts[i] ?? 0),
           notes: next[id]?.notes || "",
         };
       });
@@ -253,7 +277,7 @@ export default function DeliveryDetailClient({
     }
     setShowSplitDialog(false);
     toast(
-      `Divided ₹${remTotal} remaining + ₹${secTotal} security across ${n} dress${n === 1 ? "" : "es"}`,
+      `Divided ₹${remTotal} remaining + ₹${secTotal} security across ${ids.length} dress${ids.length === 1 ? "" : "es"}`,
       "success",
     );
   }
@@ -1104,7 +1128,8 @@ export default function DeliveryDetailClient({
                 </div>
                 <div className="card-body" style={{ display: "flex", flexDirection: "column", gap: 12 }}>
                   <p style={{ fontSize: 13, color: "var(--text-muted)", margin: 0 }}>
-                    Enter the total cash/online amounts collected once. They will be split evenly across{" "}
+                    Enter the total cash/online amounts collected once. They will be split by each
+                    dress’s remaining balance across{" "}
                     <strong>
                       {(selectedPendingIds.length || pendingItems.length)} selected dress
                       {(selectedPendingIds.length || pendingItems.length) === 1 ? "" : "es"}
