@@ -4,9 +4,13 @@ import { useEffect, useMemo, useState } from "react";
 import { isTransientNetworkError } from "@/lib/fetchJson";
 import {
   countBodyTemplateVars,
+  isEditableBroadcastTemplate,
+  renderTemplateBodyPreview,
   templateBodyText,
   templateHeaderFormat,
 } from "@/lib/whatsappTemplateVars";
+
+const EDITABLE_TEMPLATE_NAME = "marketing_broadcast_v1";
 
 type Template = {
   id: string;
@@ -35,7 +39,10 @@ function isBroadcastTemplate(t: Template): boolean {
 function templateOptionLabel(t: Template): string {
   const status = String(t.status || "").toUpperCase();
   const pending = status === "PENDING" ? " — PENDING Meta approval" : "";
-  return `${t.name} (${t.language})${pending}`;
+  const body = templateBodyText(t.components);
+  const editable = isEditableBroadcastTemplate(body);
+  const tag = editable ? " ✏️ editable" : body.includes("{{") ? "" : " 🔒 fixed text";
+  return `${t.name} (${t.language})${tag}${pending}`;
 }
 
 type Broadcast = {
@@ -163,6 +170,9 @@ export default function WhatsAppBroadcastClient() {
       const list = (data.templates || [])
         .filter(isBroadcastTemplate)
         .sort((a, b) => {
+          const aEditable = isEditableBroadcastTemplate(templateBodyText(a.components)) ? 0 : 1;
+          const bEditable = isEditableBroadcastTemplate(templateBodyText(b.components)) ? 0 : 1;
+          if (aEditable !== bEditable) return aEditable - bEditable;
           const aOk = a.status === "APPROVED" ? 0 : 1;
           const bOk = b.status === "APPROVED" ? 0 : 1;
           if (aOk !== bOk) return aOk - bOk;
@@ -234,6 +244,19 @@ export default function WhatsAppBroadcastClient() {
   );
   const needsCustomHeaderImage =
     headerFormat === "IMAGE" && !isSaleTemplateName(form.templateName);
+  const templateBody = templateBodyText(selectedTemplate?.components);
+  const isEditableTemplate = isEditableBroadcastTemplate(templateBody);
+  const editableTemplateAvailable = templates.some(
+    (t) => t.name === EDITABLE_TEMPLATE_NAME && String(t.status).toUpperCase() === "APPROVED",
+  );
+  const previewText = selectedTemplate
+    ? renderTemplateBodyPreview(
+        templateBody,
+        bodyVariables,
+        "Priya",
+        templateHasNameVar(selectedTemplate),
+      )
+    : "";
 
   useEffect(() => {
     if (!selectedTemplate) {
@@ -265,6 +288,16 @@ export default function WhatsAppBroadcastClient() {
     if (needsCustomHeaderImage && !headerImageFile) {
       alert("This template needs a poster image. Upload one below before sending.");
       return;
+    }
+    if (isEditableTemplate) {
+      const missing = Array.from({ length: bodyVarCount }, (_, i) => i + 1).filter((slot) => {
+        if (slot === 1 && templateHasNameVar(selectedTpl)) return false;
+        return !(bodyVariables[slot - 1] || "").trim();
+      });
+      if (missing.length) {
+        alert(`Fill in message text for ${missing.map((n) => `{{${n}}}`).join(", ")} before sending.`);
+        return;
+      }
     }
     setSending(true);
     try {
@@ -446,44 +479,23 @@ export default function WhatsAppBroadcastClient() {
             )}
           </div>
 
-          {selectedTemplate && (
-            <div
-              style={{
-                background: "#f0fdf4",
-                border: "1px solid #bbf7d0",
-                borderRadius: 8,
-                padding: 12,
-                marginBottom: 12,
-                fontSize: 13,
-              }}
-            >
-              <div style={{ fontWeight: 600, color: "#15803d", marginBottom: 4 }}>Preview:</div>
-              {selectedTemplate.components
-                .filter((c) => c.type === "BODY")
-                .map((c, i) => (
-                  <p key={i} style={{ margin: 0, color: "#374151", whiteSpace: "pre-wrap" }}>
-                    {c.text}
-                  </p>
-                ))}
-              {templateHasNameVar(selectedTemplate) && (
-                <p style={{ margin: "8px 0 0", fontSize: 11, color: "#15803d" }}>
-                  {"{{1}}"} will be filled with each customer&apos;s name from the recipient list / Excel.
-                </p>
-              )}
-            </div>
-          )}
-
-          {selectedTemplate && bodyVarCount > 0 && (
+          {selectedTemplate && isEditableTemplate && (
             <div style={{ marginBottom: 12 }}>
-              <label style={labelStyle}>Message variables (change each broadcast)</label>
+              <label style={labelStyle}>Edit message text (sent to each customer)</label>
               {Array.from({ length: bodyVarCount }, (_, i) => {
                 const slot = i + 1;
                 const isNameSlot = slot === 1 && templateHasNameVar(selectedTemplate);
-                if (isNameSlot) return null;
+                if (isNameSlot) {
+                  return (
+                    <p key={slot} style={{ fontSize: 12, color: "#15803d", margin: "8px 0 0" }}>
+                      <strong>{"{{1}}"}</strong> = customer name (filled automatically from your recipient list)
+                    </p>
+                  );
+                }
                 return (
-                  <div key={slot} style={{ marginTop: 8 }}>
-                    <label style={{ fontSize: 12, color: "#6b7280" }}>
-                      {"{{" + slot + "}}"} text
+                  <div key={slot} style={{ marginTop: 10 }}>
+                    <label style={{ fontSize: 12, fontWeight: 600, color: "#374151" }}>
+                      Message part {"{{" + slot + "}}"}
                     </label>
                     <textarea
                       value={bodyVariables[i] || ""}
@@ -494,13 +506,85 @@ export default function WhatsAppBroadcastClient() {
                           return next;
                         })
                       }
-                      rows={3}
-                      style={{ ...inputStyle, resize: "vertical" }}
-                      placeholder={`Text for variable {{${slot}}}`}
+                      rows={slot === 2 ? 8 : 3}
+                      style={{ ...inputStyle, resize: "vertical", minHeight: slot === 2 ? 140 : 72 }}
+                      placeholder={
+                        slot === 2
+                          ? "Main offer / sale message (paste your full text here)"
+                          : slot === 3
+                            ? "Closing line, e.g. Visit showroom this week"
+                            : `Text for {{${slot}}}`
+                      }
                     />
                   </div>
                 );
               })}
+            </div>
+          )}
+
+          {selectedTemplate && !isEditableTemplate && (
+            <div
+              style={{
+                background: "#fffbeb",
+                border: "1px solid #fcd34d",
+                borderRadius: 8,
+                padding: 12,
+                marginBottom: 12,
+                fontSize: 13,
+                color: "#92400e",
+              }}
+            >
+              <strong>Message text cannot be edited</strong> for <code>{selectedTemplate.name}</code> — Meta
+              approved this as fixed text. You can only change the poster image below.
+              <div style={{ marginTop: 10, fontSize: 12, lineHeight: 1.5 }}>
+                To edit message text each broadcast, use template{" "}
+                <strong>{EDITABLE_TEMPLATE_NAME}</strong> (submit once under WhatsApp → Templates → preset
+                &quot;Reusable broadcast&quot;).
+              </div>
+              {editableTemplateAvailable && (
+                <button
+                  type="button"
+                  style={{
+                    marginTop: 10,
+                    background: "#16a34a",
+                    color: "#fff",
+                    border: "none",
+                    borderRadius: 8,
+                    padding: "8px 14px",
+                    fontSize: 13,
+                    fontWeight: 600,
+                    cursor: "pointer",
+                  }}
+                  onClick={() => {
+                    const t = templates.find((x) => x.name === EDITABLE_TEMPLATE_NAME);
+                    setForm((f) => ({
+                      ...f,
+                      templateName: EDITABLE_TEMPLATE_NAME,
+                      templateLanguage: t?.language || f.templateLanguage,
+                    }));
+                  }}
+                >
+                  Switch to editable template
+                </button>
+              )}
+            </div>
+          )}
+
+          {selectedTemplate && (
+            <div
+              style={{
+                background: isEditableTemplate ? "#f8fafc" : "#f0fdf4",
+                border: `1px solid ${isEditableTemplate ? "#cbd5e1" : "#bbf7d0"}`,
+                borderRadius: 8,
+                padding: 12,
+                marginBottom: 12,
+                fontSize: 13,
+              }}
+            >
+              <div style={{ fontWeight: 600, color: isEditableTemplate ? "#475569" : "#15803d", marginBottom: 4 }}>
+                {isEditableTemplate ? "Live preview:" : "Preview (fixed text):"}
+              </div>
+              <p style={{ margin: 0, color: "#374151", whiteSpace: "pre-wrap" }}>{previewText}</p>
             </div>
           )}
 

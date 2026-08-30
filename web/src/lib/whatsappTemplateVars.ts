@@ -45,3 +45,31 @@ export function buildBodyParamsForSlots(
   }
   return params;
 }
+
+/** Fill {{n}} placeholders for live preview (sample name for {{1}}). */
+export function renderTemplateBodyPreview(
+  bodyText: string,
+  bodyVariables: string[],
+  sampleName = "Priya",
+  useNameForVar1 = true,
+): string {
+  let out = bodyText;
+  if (useNameForVar1 && /\{\{\s*1\s*\}\}/.test(out)) {
+    out = out.replace(/\{\{\s*1\s*\}\}/g, sampleName);
+  }
+  const maxSlot = countBodyTemplateVars(bodyText);
+  for (let slot = 1; slot <= maxSlot; slot++) {
+    const value = bodyVariables[slot - 1]?.trim();
+    if (!value) continue;
+    if (slot === 1 && useNameForVar1) continue;
+    out = out.replace(new RegExp(`\\{\\{\\s*${slot}\\s*\\}\\}`, "g"), value);
+  }
+  return out;
+}
+
+export function isEditableBroadcastTemplate(bodyText: string): boolean {
+  const count = countBodyTemplateVars(bodyText);
+  if (count === 0) return false;
+  if (count === 1 && /\{\{\s*1\s*\}\}/.test(bodyText)) return false;
+  return count >= 2;
+}
