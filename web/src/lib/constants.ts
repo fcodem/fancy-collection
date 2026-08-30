@@ -32,7 +32,8 @@ export const JEWELLERY_CATEGORIES = BASE_JEWELLERY;
 export const ACCESSORY_CATEGORIES = BASE_ACCESSORY;
 
 export function formatDate(d: Date | string, style: "iso" | "display" = "iso"): string {
-  const date = typeof d === "string" ? parseDate(d.slice(0, 10)) : d;
+  const date = typeof d === "string" ? parseDate(d) : d;
+  if (Number.isNaN(date.getTime())) return "—";
   if (style === "iso") {
     const y = date.getUTCFullYear();
     const m = String(date.getUTCMonth() + 1).padStart(2, "0");
@@ -117,7 +118,16 @@ export function monthStartIso(fromToday?: string): string {
 }
 
 export function parseDate(s: string): Date {
-  const [y, m, d] = s.split("-").map(Number);
+  const trimmed = s.trim();
+  const ddmmyyyy = trimmed.match(/^(\d{1,2})\/(\d{1,2})\/(\d{4})/);
+  if (ddmmyyyy) {
+    const day = Number(ddmmyyyy[1]);
+    const m = Number(ddmmyyyy[2]);
+    const y = Number(ddmmyyyy[3]);
+    return new Date(Date.UTC(y, m - 1, day));
+  }
+  const iso = trimmed.slice(0, 10);
+  const [y, m, d] = iso.split("-").map(Number);
   return new Date(Date.UTC(y, (m || 1) - 1, d || 1));
 }
 

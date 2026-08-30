@@ -1,7 +1,6 @@
 import "server-only";
 
 import prisma from "@/lib/prisma";
-import { formatDate } from "@/lib/constants";
 import { serializeActiveOrders } from "@/lib/slipBookingData";
 import {
   loadWarningItemsForBooking,
@@ -108,15 +107,11 @@ export async function loadBookingRecordWarnings(
   return loadWarningItemsForBooking(booking);
 }
 
-/** Serialized shape passed to BookingViewClient (dates as display strings). */
+/** Serialized shape passed to BookingViewClient (dates stay as Date / ISO for one format pass in UI). */
 export function serializeBookingRecordForView(
   core: NonNullable<Awaited<ReturnType<typeof loadBookingRecordCore>>>,
 ) {
-  return {
-    ...core,
-    deliveryDate: formatDate(core.deliveryDate, "display"),
-    returnDate: formatDate(core.returnDate, "display"),
-  };
+  return { ...core };
 }
 
 export function serializeBookingRecordOrders(
