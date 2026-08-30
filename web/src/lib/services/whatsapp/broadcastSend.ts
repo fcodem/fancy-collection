@@ -1,3 +1,6 @@
+import { existsSync, readFileSync } from "node:fs";
+import path from "node:path";
+
 import { Prisma } from "@prisma/client";
 import prisma from "@/lib/prisma";
 import {
@@ -10,25 +13,61 @@ import {
   loadSale1FlyerBuffer,
   SALE_1_FLYER_FILENAME,
 } from "@/lib/services/whatsapp/sale1TemplateCopy";
+import {
+  parseBroadcastRecipientsPayload,
+  type BroadcastRecipient,
+} from "@/lib/services/whatsapp/broadcastPayload";
+import { buildBodyParamsForSlots } from "@/lib/whatsappTemplateVars";
 
-export type BroadcastRecipient = { phone: string; name: string };
+export type { BroadcastRecipient };
 
 const SEND_GAP_MS = 80;
 
-function parseRecipients(raw: unknown): BroadcastRecipient[] {
-  if (!Array.isArray(raw)) return [];
-  return raw
-    .map((row) => {
-      if (!row || typeof row !== "object") return null;
-      const phone = String((row as { phone?: unknown }).phone || "").trim();
-      const name = String((row as { name?: unknown }).name || "Customer").trim() || "Customer";
-      return phone ? { phone, name } : null;
-    })
-    .filter((r): r is BroadcastRecipient => Boolean(r));
-}
+async function loadHeaderImageBuffer(
+  templateName: string,
+  headerImagePath?: string | null,
+): Promise<{ buffer: Buffer; filename: string; mimeType: string } | null> {
+  if (headerImagePath) {
+    if (headerImagePath.startsWith("http://") || headerImagePath.startsWith("https://")) {
+      try {
+        const res = await fetch(headerImagePath, { cache: "no-store" });
+        if (res.ok) {
+          const buffer = Buffer.from(await res.arrayBuffer());
+          if (buffer.length) {
+            const mimeType = (res.headers.get("content-type") || "image/jpeg").split(";")[0]!;
+            const ext = mimeType.includes("png") ? "png" : mimeType.includes("webp") ? "webp" : "jpg";
+            return { buffer, filename: `broadcast-header.${ext}`, mimeType };
+          }
+        }
+      } catch {
+        /* fall through */
+      }
+    }
+    const localCandidates = [
+      path.join(process.cwd(), headerImagePath.replace(/^\//, "")),
+      path.join(process.cwd(), "public", headerImagePath.replace(/^\//, "")),
+      path.join(process.cwd(), "web", headerImagePath.replace(/^\//, "")),
+    ];
+    for (const candidate of localCandidates) {
+      if (!existsSync(candidate)) continue;
+      try {
+        const buffer = readFileSync(candidate);
+        const ext = path.extname(candidate).slice(1) || "jpg";
+        const mimeType =
+          ext === "png" ? "image/png" : ext === "webp" ? "image/webp" : "image/jpeg";
+        return { buffer, filename: path.basename(candidate), mimeType };
+      } catch {
+        /* try next */
+      }
+    }
+  }
 
-async function loadFlyerForTemplate(templateName: string): Promise<Buffer | null> {
-  if (isSale1FlyerTemplate(templateName)) return loadSale1FlyerBuffer();
+  if (isSale1FlyerTemplate(templateName)) {
+    const buffer = await loadSale1FlyerBuffer();
+    if (buffer?.length) {
+      return { buffer, filename: SALE_1_FLYER_FILENAME, mimeType: "image/png" };
+    }
+  }
   return null;
 }
 
@@ -47,7 +86,7 @@ export async function failOrphanBroadcasts(): Promise<number> {
   });
   let n = 0;
   for (const row of stuck) {
-    const recipients = parseRecipients(row.recipientsJson);
+    const recipients = parseBroadcastRecipientsPayload(row.recipientsJson).recipients;
     if (recipients.length > 0) continue;
     await prisma.whatsAppBroadcast.update({
       where: { id: row.id },
@@ -91,14 +130,14 @@ export async function processBroadcastBatch(opts?: {
     return { broadcastId: null, processed: 0, sent: 0, failed: 0, done: false, message: "none" };
   }
 
-  const recipients = parseRecipients(broadcast.recipientsJson);
+  const payload = parseBroadcastRecipientsPayload(broadcast.recipientsJson);
+  const recipients = payload.recipients;
   if (!recipients.length) {
     await prisma.whatsAppBroadcast.update({
       where: { id: broadcast.id },
       data: {
         status: "failed",
-        lastError:
-          "No saved recipient list for this broadcast. Please start a new broadcast.",
+        lastError: "No saved recipient list for this broadcast. Please start a new broadcast.",
         completedAt: new Date(),
       },
     });
@@ -112,22 +151,28 @@ export async function processBroadcastBatch(opts?: {
     };
   }
 
+  const bodyVarCount = Math.max(
+    payload.bodyVariables?.length ?? 0,
+    broadcast.sendBodyName ? 1 : 0,
+  );
+  const useNameForVar1 = broadcast.sendBodyName || payload.useNameForVar1 === true;
+
   let index = Math.max(0, broadcast.nextIndex || 0);
   let sent = broadcast.sentCount || 0;
   let failed = broadcast.failedCount || 0;
   let lastError = broadcast.lastError;
-  let imageMediaId: string | null = null;
+  let imageMediaId: string | null = payload.headerMediaId || null;
   let sinceMediaUpload = 999;
   const needsImage = String(broadcast.headerFormat || "").toUpperCase() === "IMAGE";
-  let flyerBuffer: Buffer | null = null;
+  let headerFile: { buffer: Buffer; filename: string; mimeType: string } | null = null;
   if (needsImage) {
-    flyerBuffer = await loadFlyerForTemplate(broadcast.templateName);
-    if (!flyerBuffer?.length) {
+    headerFile = await loadHeaderImageBuffer(broadcast.templateName, payload.headerImagePath);
+    if (!headerFile?.buffer.length) {
       await prisma.whatsAppBroadcast.update({
         where: { id: broadcast.id },
         data: {
           status: "failed",
-          lastError: `Template "${broadcast.templateName}" needs an IMAGE header, but the flyer was not found.`,
+          lastError: `Template "${broadcast.templateName}" needs an IMAGE header, but no image was found.`,
           completedAt: new Date(),
         },
       });
@@ -137,7 +182,7 @@ export async function processBroadcastBatch(opts?: {
         sent,
         failed,
         done: true,
-        message: "flyer_missing",
+        message: "header_missing",
       };
     }
   }
@@ -149,24 +194,28 @@ export async function processBroadcastBatch(opts?: {
     processed++;
 
     try {
-      if (needsImage && flyerBuffer && (sinceMediaUpload >= 35 || !imageMediaId)) {
+      if (needsImage && headerFile && (sinceMediaUpload >= 35 || !imageMediaId)) {
         const uploaded = await uploadWhatsAppMedia(
-          flyerBuffer,
-          SALE_1_FLYER_FILENAME,
-          "image/png",
+          headerFile.buffer,
+          headerFile.filename,
+          headerFile.mimeType,
         );
         if (!uploaded.ok) {
           failed++;
-          lastError = uploaded.error || "Flyer re-upload failed";
+          lastError = uploaded.error || "Header image re-upload failed";
           continue;
         }
         imageMediaId = uploaded.mediaId;
         sinceMediaUpload = 0;
       }
 
-      const bodyParams = broadcast.sendBodyName
-        ? [(recipient.name || "Customer").slice(0, 1024)]
-        : [];
+      const bodyParams = buildBodyParamsForSlots(
+        bodyVarCount,
+        payload.bodyVariables || [],
+        recipient.name,
+        useNameForVar1,
+      );
+
       const result = imageMediaId
         ? await sendWhatsAppImageHeaderTemplate({
             phone: recipient.phone,
@@ -204,7 +253,6 @@ export async function processBroadcastBatch(opts?: {
       console.error(`[broadcast ${broadcast.id}] exception ${recipient.phone}:`, e);
     }
 
-    // Persist often so history shows live progress.
     if (processed % 5 === 0 || index >= recipients.length) {
       await prisma.whatsAppBroadcast.update({
         where: { id: broadcast.id },
@@ -261,7 +309,6 @@ export async function drainBroadcastQueue(opts?: {
     if (!result.broadcastId || result.processed === 0) break;
     batches++;
     if (result.done) continue;
-    // Keep going on same / next broadcast while budget remains.
   }
 
   return { batches, orphanFailed };

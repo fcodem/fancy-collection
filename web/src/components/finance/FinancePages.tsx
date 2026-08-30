@@ -197,6 +197,7 @@ export function FinanceDailyBooking({ todayIso }: { todayIso: string }) {
     mens_total?: number;
     womens_total?: number;
     jewellery_total?: number;
+    other_total?: number;
     dresses_booked?: number;
     dresses_delivered_balance?: number;
     dresses_by_category?: Record<string, number>;
@@ -264,6 +265,13 @@ export function FinanceDailyBooking({ todayIso }: { todayIso: string }) {
                 <div className="stat-label">Jewellery Total</div>
                 <div style={{ fontSize: 12, color: "var(--text-muted)", marginTop: 6 }}>Dress booking value</div>
               </div>
+              {(data.other_total ?? 0) > 0 && (
+                <div className="stat-card" style={{ padding: 20 }}>
+                  <div className="stat-value">₹{formatInr(data.other_total || 0)}</div>
+                  <div className="stat-label">Other / Accessories</div>
+                  <div style={{ fontSize: 12, color: "var(--text-muted)", marginTop: 6 }}>Not in Men / Women / Jewellery</div>
+                </div>
+              )}
             </div>
             <FinanceInactiveStats data={data} />
             {labels.length > 0 ? (

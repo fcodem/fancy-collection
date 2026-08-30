@@ -79,6 +79,26 @@ const STARTER_PRESETS: Array<{
     }),
   },
   {
+    id: "marketing_broadcast",
+    label: "Reusable broadcast — poster + {{1}} name + {{2}} message + {{3}} CTA",
+    apply: () => ({
+      ...EMPTY_FORM,
+      name: "marketing_broadcast_v1",
+      category: "MARKETING",
+      headerFormat: "IMAGE",
+      bodyText:
+        "Dear {{1}},\n\n{{2}}\n\n{{3}}\n\nVisit our showroom for the latest bridal & party wear collection.",
+      footerText: "8077843874 • 8630834711",
+      buttonMode: "url",
+      urlButton1Text: "Shop Location",
+      urlButton1Url: "https://maps.app.goo.gl/5LajH7MJcqKfkiQj9",
+      urlButton2Text: "Instagram",
+      urlButton2Url: "https://www.instagram.com/fancycollection_renuagarwal",
+      exampleName: "Priya",
+      exampleDetail: "Eid sale ends Sunday — up to 30% off on bridal lehengas.",
+    }),
+  },
+  {
     id: "offer",
     label: "Festive offer (marketing)",
     apply: () => ({

@@ -1,7 +1,12 @@
 "use client";
 
-import { useEffect, useState } from "react";
+import { useEffect, useMemo, useState } from "react";
 import { isTransientNetworkError } from "@/lib/fetchJson";
+import {
+  countBodyTemplateVars,
+  templateBodyText,
+  templateHeaderFormat,
+} from "@/lib/whatsappTemplateVars";
 
 type Template = {
   id: string;
@@ -9,7 +14,7 @@ type Template = {
   status: string;
   category: string;
   language: string;
-  components: Array<{ type: string; text?: string }>;
+  components: Array<{ type: string; text?: string; format?: string }>;
 };
 
 function isSaleTemplateName(name: string): boolean {
@@ -53,8 +58,12 @@ type RecipientType = "all_customers" | "pending_returns" | "custom_phones" | "ex
 
 function templateHasNameVar(t: Template | undefined): boolean {
   if (!t) return false;
-  const body = t.components.find((c) => c.type === "BODY")?.text || "";
-  return /\{\{\s*1\s*\}\}/.test(body);
+  return /\{\{\s*1\s*\}\}/.test(templateBodyText(t.components));
+}
+
+function templateVarCount(t: Template | undefined): number {
+  if (!t) return 0;
+  return countBodyTemplateVars(templateBodyText(t.components));
 }
 
 async function parseExcelFile(file: File): Promise<{ recipients: ExcelRecipient[]; errors: string[] }> {
@@ -134,6 +143,9 @@ export default function WhatsAppBroadcastClient() {
   const [excelErrors, setExcelErrors] = useState<string[]>([]);
   const [excelFileName, setExcelFileName] = useState("");
   const [parsingExcel, setParsingExcel] = useState(false);
+  const [bodyVariables, setBodyVariables] = useState<string[]>([]);
+  const [headerImageFile, setHeaderImageFile] = useState<File | null>(null);
+  const [headerImagePreview, setHeaderImagePreview] = useState("");
 
   const [form, setForm] = useState({
     broadcastName: "",
@@ -214,6 +226,26 @@ export default function WhatsAppBroadcastClient() {
     }
   };
 
+  const selectedTemplate = templates.find((t) => t.name === form.templateName);
+  const bodyVarCount = useMemo(() => templateVarCount(selectedTemplate), [selectedTemplate]);
+  const headerFormat = useMemo(
+    () => templateHeaderFormat(selectedTemplate?.components),
+    [selectedTemplate],
+  );
+  const needsCustomHeaderImage =
+    headerFormat === "IMAGE" && !isSaleTemplateName(form.templateName);
+
+  useEffect(() => {
+    if (!selectedTemplate) {
+      setBodyVariables([]);
+      return;
+    }
+    const count = templateVarCount(selectedTemplate);
+    setBodyVariables((prev) =>
+      Array.from({ length: count }, (_, i) => prev[i] ?? ""),
+    );
+  }, [selectedTemplate?.id, bodyVarCount]);
+
   const handleSend = async () => {
     if (!form.broadcastName || !form.templateName) {
       alert("Please fill in broadcast name and select a template.");
@@ -230,23 +262,48 @@ export default function WhatsAppBroadcastClient() {
       alert("Upload an Excel sheet with customer Name and Phone / WhatsApp columns first.");
       return;
     }
+    if (needsCustomHeaderImage && !headerImageFile) {
+      alert("This template needs a poster image. Upload one below before sending.");
+      return;
+    }
     setSending(true);
     try {
-      const selected = templates.find((t) => t.name === form.templateName);
-      const res = await fetch("/api/whatsapp/broadcast", {
-        method: "POST",
-        headers: { "Content-Type": "application/json" },
-        body: JSON.stringify({
-          ...form,
-          customPhones: form.customPhones
-            .split("\n")
-            .map((p) => p.trim())
-            .filter(Boolean),
-          excelRecipients: form.recipientType === "excel_sheet" ? excelRecipients : undefined,
-          injectNameAsBodyVar:
-            form.recipientType === "excel_sheet" || templateHasNameVar(selected),
-        }),
-      });
+      const injectName =
+        form.recipientType === "excel_sheet" || templateHasNameVar(selectedTpl);
+      const payload = {
+        ...form,
+        customPhones: form.customPhones
+          .split("\n")
+          .map((p) => p.trim())
+          .filter(Boolean),
+        excelRecipients: form.recipientType === "excel_sheet" ? excelRecipients : undefined,
+        injectNameAsBodyVar: injectName,
+        bodyVariables,
+      };
+
+      const useMultipart = Boolean(headerImageFile) || bodyVarCount > 0;
+      let res: Response;
+      if (useMultipart) {
+        const fd = new FormData();
+        fd.append("templateName", payload.templateName);
+        fd.append("templateLanguage", payload.templateLanguage);
+        fd.append("recipientType", payload.recipientType);
+        fd.append("broadcastName", payload.broadcastName);
+        fd.append("injectNameAsBodyVar", String(payload.injectNameAsBodyVar));
+        fd.append("customPhones", payload.customPhones.join("\n"));
+        fd.append("bodyVariables", JSON.stringify(bodyVariables));
+        if (form.recipientType === "excel_sheet" && excelRecipients.length) {
+          fd.append("excelRecipients", JSON.stringify(excelRecipients));
+        }
+        if (headerImageFile) fd.append("headerImage", headerImageFile);
+        res = await fetch("/api/whatsapp/broadcast", { method: "POST", body: fd });
+      } else {
+        res = await fetch("/api/whatsapp/broadcast", {
+          method: "POST",
+          headers: { "Content-Type": "application/json" },
+          body: JSON.stringify(payload),
+        });
+      }
       const data = (await res.json()) as { ok?: boolean; totalRecipients?: number; error?: string };
       if (data.ok) {
         alert(`Broadcast started! Sending to ${data.totalRecipients} recipients.`);
@@ -260,6 +317,9 @@ export default function WhatsAppBroadcastClient() {
         setExcelRecipients([]);
         setExcelErrors([]);
         setExcelFileName("");
+        setHeaderImageFile(null);
+        setHeaderImagePreview("");
+        setBodyVariables([]);
         loadBroadcasts();
       } else {
         alert(data.error || "Failed to send broadcast");
@@ -271,8 +331,6 @@ export default function WhatsAppBroadcastClient() {
       setSending(false);
     }
   };
-
-  const selectedTemplate = templates.find((t) => t.name === form.templateName);
 
   const cardStyle: React.CSSProperties = {
     background: "#fff",
@@ -306,8 +364,8 @@ export default function WhatsAppBroadcastClient() {
         <div>
           <h1 style={{ fontSize: 22, fontWeight: 700, color: "#1f2937", margin: 0 }}>Broadcast Messages</h1>
           <p style={{ fontSize: 13, color: "#6b7280", margin: "2px 0 0 0" }}>
-            Send approved <strong>marketing</strong> templates (including sale_1 / sale_1_image / sale_project). Templates still
-            PENDING on Meta appear greyed out — approve them under WhatsApp → Templates, then Refresh.
+            Send approved <strong>marketing</strong> templates. Change poster image and message text each
+            time using the reusable <strong>marketing_broadcast_v1</strong> template (submit once in Templates).
           </p>
         </div>
       </div>
@@ -411,6 +469,62 @@ export default function WhatsAppBroadcastClient() {
                 <p style={{ margin: "8px 0 0", fontSize: 11, color: "#15803d" }}>
                   {"{{1}}"} will be filled with each customer&apos;s name from the recipient list / Excel.
                 </p>
+              )}
+            </div>
+          )}
+
+          {selectedTemplate && bodyVarCount > 0 && (
+            <div style={{ marginBottom: 12 }}>
+              <label style={labelStyle}>Message variables (change each broadcast)</label>
+              {Array.from({ length: bodyVarCount }, (_, i) => {
+                const slot = i + 1;
+                const isNameSlot = slot === 1 && templateHasNameVar(selectedTemplate);
+                if (isNameSlot) return null;
+                return (
+                  <div key={slot} style={{ marginTop: 8 }}>
+                    <label style={{ fontSize: 12, color: "#6b7280" }}>
+                      {"{{" + slot + "}}"} text
+                    </label>
+                    <textarea
+                      value={bodyVariables[i] || ""}
+                      onChange={(e) =>
+                        setBodyVariables((prev) => {
+                          const next = [...prev];
+                          next[i] = e.target.value;
+                          return next;
+                        })
+                      }
+                      rows={3}
+                      style={{ ...inputStyle, resize: "vertical" }}
+                      placeholder={`Text for variable {{${slot}}}`}
+                    />
+                  </div>
+                );
+              })}
+            </div>
+          )}
+
+          {selectedTemplate && headerFormat === "IMAGE" && (
+            <div style={{ marginBottom: 12 }}>
+              <label style={labelStyle}>
+                Poster image {needsCustomHeaderImage ? "(required)" : "(optional — uses SALE 1 flyer if empty)"}
+              </label>
+              <input
+                type="file"
+                accept="image/jpeg,image/png,image/webp"
+                onChange={(e) => {
+                  const file = e.target.files?.[0] || null;
+                  setHeaderImageFile(file);
+                  setHeaderImagePreview(file ? URL.createObjectURL(file) : "");
+                }}
+                style={{ ...inputStyle, padding: 8 }}
+              />
+              {headerImagePreview && (
+                <img
+                  src={headerImagePreview}
+                  alt="Poster preview"
+                  style={{ marginTop: 8, maxWidth: "100%", maxHeight: 180, borderRadius: 8 }}
+                />
               )}
             </div>
           )}

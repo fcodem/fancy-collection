@@ -1,5 +1,4 @@
 import prisma from "./prisma";
-import { BASE_JEWELLERY, BASE_MENS, BASE_WOMENS } from "./constants";
 
 type BookingWithItems = {
   refundAmount: number | null;
@@ -59,16 +58,21 @@ export function refundByCategory(bookings: BookingWithItems[]): Record<string, n
   return byCat;
 }
 
+import { financeItemDivision } from "./financeGenderTotals";
+
 export function refundGenderTotals(refundCats: Record<string, number>) {
   let mens = 0;
   let womens = 0;
   let jewellery = 0;
+  let other = 0;
   for (const [cat, amt] of Object.entries(refundCats)) {
-    if (BASE_MENS.includes(cat)) mens += amt;
-    else if (BASE_WOMENS.includes(cat)) womens += amt;
-    else if (BASE_JEWELLERY.includes(cat)) jewellery += amt;
+    const div = financeItemDivision(cat);
+    if (div === "mens") mens += amt;
+    else if (div === "womens") womens += amt;
+    else if (div === "jewellery") jewellery += amt;
+    else other += amt;
   }
-  return { mens, womens, jewellery };
+  return { mens, womens, jewellery, other };
 }
 
 /** Subtract refund map from a category totals map (mutates nothing). */

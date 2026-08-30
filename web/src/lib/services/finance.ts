@@ -16,6 +16,10 @@ import {
   totalRefundAmount,
 } from "../financeRefunds";
 import {
+  refundAmountsByFinanceDivision,
+  sumPricesByFinanceDivision,
+} from "../financeGenderTotals";
+import {
   allocateAdvanceByCategory,
   allocateBalanceByCategory,
   balanceCollectedAtDelivery,
@@ -67,6 +71,7 @@ const financeBookingInclude = {
       itemId: true,
       dressName: true,
       size: true,
+      isCancelled: true,
     },
   },
   orders: financeOrderSelect,
@@ -401,24 +406,28 @@ export async function getDailyBooking(targetDateStr: string) {
 
   const total_by_category: Record<string, number> = {};
   const dresses_by_category: Record<string, number> = {};
-  let mens_total = 0, womens_total = 0, jewellery_total = 0;
+  let divisionTotals = { mens: 0, womens: 0, jewellery: 0, other: 0 };
   let dresses_booked = 0;
 
   for (const b of bookings) {
     if (b.bookingItems.length) {
-      dresses_booked += b.bookingItems.length;
       for (const bi of b.bookingItems) {
+        if (bi.isCancelled) continue;
+        dresses_booked += 1;
         const cat = bi.category || "Other";
         dresses_by_category[cat] = (dresses_by_category[cat] || 0) + 1;
         total_by_category[cat] = (total_by_category[cat] || 0) + bi.price;
-        if (BASE_MENS.includes(cat)) mens_total += bi.price;
-        else if (BASE_WOMENS.includes(cat)) womens_total += bi.price;
-        else if (BASE_JEWELLERY.includes(cat)) jewellery_total += bi.price;
       }
+      const div = sumPricesByFinanceDivision(b.bookingItems);
+      divisionTotals.mens += div.mens;
+      divisionTotals.womens += div.womens;
+      divisionTotals.jewellery += div.jewellery;
+      divisionTotals.other += div.other;
     } else {
       dresses_booked += 1;
       dresses_by_category["Other"] = (dresses_by_category["Other"] || 0) + 1;
       total_by_category["Other"] = (total_by_category["Other"] || 0) + (b.totalPrice || b.price);
+      divisionTotals.other += b.totalPrice || b.price;
     }
   }
 
@@ -442,7 +451,7 @@ export async function getDailyBooking(targetDateStr: string) {
   const refundsToday = await getRefundsBetween(dayStartQ, dayEndQ);
   const refund_total = totalRefundAmount(refundsToday);
   const refundCats = refundByCategory(refundsToday);
-  const refundGender = refundGenderTotals(refundCats);
+  const refundGender = refundAmountsByFinanceDivision(refundCats);
   const inactive = await getInactiveBookingStats(dayStartQ, dayEndQ);
 
   const booking_amount = dressGrand - refund_total;
@@ -459,9 +468,10 @@ export async function getDailyBooking(targetDateStr: string) {
     dresses_booked,
     dresses_delivered_balance,
     dresses_by_category,
-    mens_total: mens_total - refundGender.mens,
-    womens_total: womens_total - refundGender.womens,
-    jewellery_total: jewellery_total - refundGender.jewellery,
+    mens_total: divisionTotals.mens - refundGender.mens,
+    womens_total: divisionTotals.womens - refundGender.womens,
+    jewellery_total: divisionTotals.jewellery - refundGender.jewellery,
+    other_total: divisionTotals.other - refundGender.other,
     ...inactive,
   };
 }

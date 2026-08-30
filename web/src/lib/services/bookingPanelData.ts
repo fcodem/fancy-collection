@@ -3,9 +3,11 @@ import "server-only";
 import prisma from "@/lib/prisma";
 import { activeBookingWhere } from "@/lib/bookingActiveStatus";
 import { whereDeliveryInRange } from "@/lib/bookingDateQuery";
+import { bookingMonthKey } from "@/lib/bookingMonth";
 import { AsyncSemaphore } from "@/lib/asyncSemaphore";
 import { memoryCachedQuery } from "@/lib/perfCache";
 import { getFreshShopRevision } from "@/lib/realtime/revision";
+import type { Prisma } from "@prisma/client";
 
 import { BOOKING_PANEL_PAGE_SIZE } from "@/lib/bookingPanelConstants";
 
@@ -77,6 +79,61 @@ export async function loadBookingPanelYearBounds() {
   );
 }
 
+type PanelSortRow = { id: number; monthlySerial: number; deliveryDate: Date };
+
+function comparePanelSerialOrder(a: PanelSortRow, b: PanelSortRow): number {
+  const monthCmp = bookingMonthKey(a.deliveryDate).localeCompare(bookingMonthKey(b.deliveryDate));
+  if (monthCmp !== 0) return monthCmp;
+  if (a.monthlySerial !== b.monthlySerial) return a.monthlySerial - b.monthlySerial;
+  return a.id - b.id;
+}
+
+async function fetchBookingsByOrderedIds(ids: number[]) {
+  if (!ids.length) return [];
+  const rows = await prisma.booking.findMany({
+    where: { id: { in: ids } },
+    select: bookingPanelSelect,
+  });
+  const byId = new Map(rows.map((r) => [r.id, r]));
+  return ids.map((id) => byId.get(id)).filter((r): r is NonNullable<typeof r> => Boolean(r));
+}
+
+async function loadBookingsPanelOrdered(opts: {
+  where: Prisma.BookingWhereInput;
+  month: number | null;
+  skip: number;
+  take: number;
+  returned?: boolean;
+}) {
+  if (opts.returned) {
+    return prisma.booking.findMany({
+      where: opts.where,
+      select: bookingPanelSelect,
+      orderBy: [{ returnDate: "desc" }, { monthlySerial: "asc" }, { id: "asc" }],
+      skip: opts.skip,
+      take: opts.take,
+    });
+  }
+
+  if (opts.month != null) {
+    return prisma.booking.findMany({
+      where: opts.where,
+      select: bookingPanelSelect,
+      orderBy: [{ monthlySerial: "asc" }, { id: "asc" }],
+      skip: opts.skip,
+      take: opts.take,
+    });
+  }
+
+  const rows = await prisma.booking.findMany({
+    where: opts.where,
+    select: { id: true, monthlySerial: true, deliveryDate: true },
+  });
+  rows.sort(comparePanelSerialOrder);
+  const pageIds = rows.slice(opts.skip, opts.skip + opts.take).map((r) => r.id);
+  return fetchBookingsByOrderedIds(pageIds);
+}
+
 async function loadBookingPanelPageUncached(opts: {
   year: number;
   month: number | null;
@@ -110,21 +167,20 @@ async function loadBookingPanelPageUncached(opts: {
       }),
     ),
     limitedRead(() =>
-      prisma.booking.findMany({
+      loadBookingsPanelOrdered({
         where: activeWhere,
-        select: bookingPanelSelect,
-        orderBy: [{ deliveryDate: "asc" }, { monthlySerial: "asc" }],
+        month: opts.month,
         skip: (page - 1) * pageSize,
         take: pageSize,
       }),
     ),
-    // Returned bookings shown in a separate bottom section (not paginated with active).
     limitedRead(() =>
-      prisma.booking.findMany({
+      loadBookingsPanelOrdered({
         where: returnedWhere,
-        select: bookingPanelSelect,
-        orderBy: [{ returnDate: "desc" }, { monthlySerial: "asc" }],
+        month: opts.month,
+        skip: 0,
         take: 80,
+        returned: true,
       }),
     ),
   ]);
@@ -171,14 +227,16 @@ export async function loadBookingPanelPage(opts: {
 export async function loadBookingPanelForPdf(opts: {
   panelFrom: string;
   panelTo: string;
+  month?: number | null;
 }) {
   const panelDeliveryWhere = await whereDeliveryInRange(opts.panelFrom, opts.panelTo);
   const where = { ...activeBookingWhere(), ...panelDeliveryWhere };
   return limitedRead(() =>
-    prisma.booking.findMany({
+    loadBookingsPanelOrdered({
       where,
-      select: bookingPanelSelect,
-      orderBy: [{ deliveryDate: "asc" }, { monthlySerial: "asc" }],
+      month: opts.month ?? null,
+      skip: 0,
+      take: 10_000,
     }),
   );
 }

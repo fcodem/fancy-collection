@@ -24,7 +24,7 @@ export async function GET(req: NextRequest) {
   const { year, month } = parseBookingPanelFilters(sp, currentYear);
   const { from: panelFrom, to: panelTo, label: panelLabel } = bookingPanelDateRange(year, month);
 
-  const bookings = await loadBookingPanelForPdf({ panelFrom, panelTo });
+  const bookings = await loadBookingPanelForPdf({ panelFrom, panelTo, month });
   const pdfHeaders = recordBookingPdfHeaders("Status");
   const { returning: returningMap, booked: bookedMap } = buildWarningMaps(bookings);
   const pdfResults = bookings.map((b) =>
