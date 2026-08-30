@@ -10,7 +10,7 @@ import {
   templateHeaderFormat,
 } from "@/lib/whatsappTemplateVars";
 
-const EDITABLE_TEMPLATE_NAME = "marketing_broadcast_v1";
+const EDITABLE_TEMPLATE_NAME = "fc_reusable_broadcast";
 
 type Template = {
   id: string;
@@ -398,7 +398,7 @@ export default function WhatsAppBroadcastClient() {
           <h1 style={{ fontSize: 22, fontWeight: 700, color: "#1f2937", margin: 0 }}>Broadcast Messages</h1>
           <p style={{ fontSize: 13, color: "#6b7280", margin: "2px 0 0 0" }}>
             Send approved <strong>marketing</strong> templates. Change poster image and message text each
-            time using the reusable <strong>marketing_broadcast_v1</strong> template (submit once in Templates).
+            time using the reusable <strong>fc_reusable_broadcast</strong> template (submit once in Templates).
           </p>
         </div>
       </div>
@@ -539,7 +539,7 @@ export default function WhatsAppBroadcastClient() {
               <div style={{ marginTop: 10, fontSize: 12, lineHeight: 1.5 }}>
                 To edit message text each broadcast, use template{" "}
                 <strong>{EDITABLE_TEMPLATE_NAME}</strong> (submit once under WhatsApp → Templates → preset
-                &quot;Reusable broadcast&quot;).
+                &quot;Poster + message + Location &amp; Instagram&quot;).
               </div>
               {editableTemplateAvailable && (
                 <button

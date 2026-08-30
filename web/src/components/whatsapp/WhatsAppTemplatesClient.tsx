@@ -79,8 +79,30 @@ const STARTER_PRESETS: Array<{
     }),
   },
   {
+    id: "fc_reusable_broadcast",
+    label: "⭐ Poster + message + Location & Instagram (reusable broadcast)",
+    apply: () => ({
+      ...EMPTY_FORM,
+      name: "fc_reusable_broadcast",
+      category: "MARKETING",
+      headerFormat: "IMAGE",
+      bodyText: "Dear {{1}},\n\n{{2}}",
+      footerText: "8077843874 • 8630834711",
+      buttonMode: "url",
+      urlButton1Text: "Shop Location",
+      urlButton1Url: "https://maps.app.goo.gl/5LajH7MJcqKfkiQj9",
+      urlButton2Text: "Instagram",
+      urlButton2Url: "https://www.instagram.com/fancycollection_renuagarwal",
+      exampleName: "Priya",
+      exampleDetail:
+        "Eid collection sale is live at Fancy Collection!\n\n" +
+        "New bridal lehengas, sherwanis & party wear.\n\n" +
+        "Visit: Near Balaji Mandir, Court Road, Moradabad.",
+    }),
+  },
+  {
     id: "marketing_broadcast",
-    label: "Reusable broadcast — poster + {{1}} name + {{2}} message + {{3}} CTA",
+    label: "Reusable broadcast (3-part message) — poster + {{1}} + {{2}} + {{3}}",
     apply: () => ({
       ...EMPTY_FORM,
       name: "marketing_broadcast_v1",
@@ -352,6 +374,7 @@ export default function WhatsAppTemplatesClient() {
   const [ensuringBookingBill, setEnsuringBookingBill] = useState(false);
   const [ensuringWelcome, setEnsuringWelcome] = useState(false);
   const [ensuringAll, setEnsuringAll] = useState(false);
+  const [ensuringReusable, setEnsuringReusable] = useState(false);
   const [cleaningLegacy, setCleaningLegacy] = useState(false);
   const [headerFile, setHeaderFile] = useState<File | null>(null);
   const [headerPreview, setHeaderPreview] = useState<string | null>(null);
@@ -466,6 +489,33 @@ export default function WhatsAppTemplatesClient() {
       if (!isTransientNetworkError(e)) alert("Failed to submit customer welcome template");
     } finally {
       setEnsuringWelcome(false);
+    }
+  };
+
+  const ensureReusableBroadcastTemplate = async () => {
+    setEnsuringReusable(true);
+    try {
+      const res = await fetch("/api/whatsapp/templates/reusable-broadcast", { method: "POST" });
+      const data = (await res.json()) as {
+        ok?: boolean;
+        status?: string;
+        template?: string;
+        message?: string;
+        error?: string;
+      };
+      if (!res.ok || data.error) {
+        alert(data.error || "Failed to submit reusable broadcast template");
+        return;
+      }
+      alert(
+        data.message ||
+          `Template "${data.template}" status: ${data.status || "PENDING"}. Wait for APPROVED on Meta.`,
+      );
+      await load();
+    } catch (e) {
+      if (!isTransientNetworkError(e)) alert("Failed to submit reusable broadcast template");
+    } finally {
+      setEnsuringReusable(false);
     }
   };
 
@@ -740,6 +790,28 @@ export default function WhatsAppTemplatesClient() {
           >
             <i className="fa-solid fa-broom" style={{ fontSize: 12 }} />
             {cleaningLegacy ? "Cleaning…" : "Remove obsolete templates"}
+          </button>
+          <button
+            type="button"
+            onClick={ensureReusableBroadcastTemplate}
+            disabled={ensuringReusable}
+            style={{
+              display: "flex",
+              alignItems: "center",
+              gap: 8,
+              background: "#16a34a",
+              color: "#fff",
+              border: "none",
+              borderRadius: 12,
+              padding: "8px 16px",
+              fontSize: 13,
+              cursor: ensuringReusable ? "wait" : "pointer",
+              fontWeight: 600,
+              opacity: ensuringReusable ? 0.7 : 1,
+            }}
+          >
+            <i className="fa-solid fa-bullhorn" style={{ fontSize: 12 }} />
+            {ensuringReusable ? "Submitting…" : "Submit reusable broadcast template"}
           </button>
           <button
             type="button"

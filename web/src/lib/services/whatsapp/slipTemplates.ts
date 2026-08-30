@@ -44,6 +44,11 @@ import {
   buildSale1ImageOnlyTemplateComponents,
   loadWebRelativeFile,
 } from "./sale1TemplateCopy";
+import {
+  buildReusableBroadcastTemplateComponents,
+  REUSABLE_BROADCAST_BODY,
+  REUSABLE_BROADCAST_BODY_EXAMPLE,
+} from "./reusableBroadcastTemplate";
 
 export type SlipTemplateDef = {
   key: string;
@@ -228,6 +233,24 @@ export const SLIP_TEMPLATE_DEFS: SlipTemplateDef[] = [
       { text: "View on Instagram", url: SALE_PROJECT_INSTAGRAM_URL },
     ],
     description: "Marketing — SALE PROJECT (Men's ethnic wear for purchase)",
+  },
+  {
+    key: "fc_reusable_broadcast",
+    name: "fc_reusable_broadcast",
+    envVar: "WA_TEMPLATE_MARKETING_REUSABLE",
+    category: "MARKETING",
+    kind: "image",
+    imageRelativePath: "public/images/whatsapp/sale-1-flyer.png",
+    imageMime: "image/png",
+    body: REUSABLE_BROADCAST_BODY,
+    bodyExample: REUSABLE_BROADCAST_BODY_EXAMPLE,
+    footer: SALE_PROJECT_PHONES,
+    staticUrlButtons: [
+      { text: "Shop Location", url: SALE_PROJECT_MAPS_URL },
+      { text: "Instagram", url: SALE_PROJECT_INSTAGRAM_URL },
+    ],
+    description:
+      "Marketing — reusable broadcast (poster image + {{1}} name + {{2}} message + Location & Instagram)",
   },
   {
     key: "sale_1",
@@ -587,6 +610,27 @@ export async function ensureSlipTemplate(def: SlipTemplateDef): Promise<EnsureOn
         error: `Could not upload flyer for IMAGE template: ${handleResult.error}`,
       };
     }
+
+    if (def.key === "fc_reusable_broadcast") {
+      const created = await createTemplate({
+        name,
+        language,
+        category: def.category,
+        allow_category_change: true,
+        components: buildReusableBroadcastTemplateComponents(handleResult.handle),
+      });
+      if (!created.ok) return { key: def.key, name, ok: false, error: created.error };
+      return {
+        key: def.key,
+        name,
+        ok: true,
+        status: created.status,
+        created: true,
+        message:
+          "Reusable broadcast template submitted — poster + editable message + Location & Instagram",
+      };
+    }
+
     const created = await createTemplate({
       name,
       language,
@@ -665,6 +709,20 @@ export async function ensureAllSlipTemplates(opts?: {
     await new Promise((r) => setTimeout(r, 400));
   }
   return { results, ok: results.every((r) => r.ok) };
+}
+
+/** Submit the reusable poster + message + Location/Instagram broadcast template to Meta. */
+export async function ensureReusableBroadcastTemplate(): Promise<EnsureOneResult> {
+  const def = SLIP_TEMPLATE_DEFS.find((d) => d.key === "fc_reusable_broadcast");
+  if (!def) {
+    return {
+      key: "fc_reusable_broadcast",
+      name: "fc_reusable_broadcast",
+      ok: false,
+      error: "Template definition missing",
+    };
+  }
+  return ensureSlipTemplate(def);
 }
 
 export async function isSlipTemplateApproved(key: string): Promise<boolean> {
