@@ -135,6 +135,12 @@ export function BookingRecordDetails({
           />
         </div>
         <Field label="Total Rent" value={<span style={{ fontWeight: 700, color: "var(--primary)" }}>₹{formatInr(d.total_rent)}</span>} />
+        {(d.total_fitting_charges ?? 0) > 0 && (
+          <Field
+            label="Fitting Charges"
+            value={<span style={{ fontWeight: 700, color: "var(--primary)" }}>₹{formatInr(d.total_fitting_charges ?? 0)}</span>}
+          />
+        )}
         <Field label="Advance" value={<span style={{ color: "var(--success)", fontWeight: 600 }}>₹{formatInr(d.total_advance)}</span>} />
         <Field
           label="Remaining"
@@ -196,10 +202,10 @@ export function BookingRecordDetails({
             }
           />
           <Field
-            label="Grand Total (Rent + Orders)"
+            label={(d.total_fitting_charges ?? 0) > 0 ? "Grand Total (Rent + Fitting + Orders)" : "Grand Total (Rent + Orders)"}
             value={
               <strong style={{ color: "var(--primary)", fontSize: compact ? 15 : 16 }}>
-                ₹{formatInr(d.total_rent + ordersCost)}
+                ₹{formatInr(d.total_rent + (d.total_fitting_charges ?? 0) + ordersCost)}
               </strong>
             }
           />

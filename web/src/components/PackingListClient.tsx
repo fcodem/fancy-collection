@@ -18,6 +18,7 @@ import { STANDARD_BOOKING_HEADERS, flattenBookingPdfRows, standardBookingPdfRow 
 import StarBookingBadge from "@/components/StarBookingBadge";
 import { addDaysIso } from "@/lib/dateInput";
 import { packingDivision, PACKING_DIVISIONS } from "@/lib/packingDivision";
+import { sortByDeliverySchedule } from "@/lib/bookingDeliverySort";
 
 type PackingItem = {
   bi_id: number | null;
@@ -106,7 +107,9 @@ export default function PackingListClient({
           ...b,
           items: Array.isArray(b.items) ? b.items : [],
         }));
-      setRows((previous) => append ? [...previous, ...normalized] : normalized);
+      setRows((previous) =>
+        sortByDeliverySchedule(append ? [...previous, ...normalized] : normalized),
+      );
       nextCursorRef.current = typeof data?.nextCursor === "string" ? data.nextCursor : null;
       setHasMore(Boolean(data?.hasMore));
     } catch (e) {
@@ -317,16 +320,18 @@ export default function PackingListClient({
 
       {loaded &&
         PACKING_DIVISIONS.map((div) => {
-          const sectionRows = rows
-            .map((b) => {
-              const items = b.items.filter(
-                (item) =>
-                  packingDivision(item.category, item.dress_name, item.sub_category) === div.key,
-              );
-              if (!items.length) return null;
-              return { ...b, items };
-            })
-            .filter((b): b is PackingBooking => Boolean(b));
+          const sectionRows = sortByDeliverySchedule(
+            rows
+              .map((b) => {
+                const items = b.items.filter(
+                  (item) =>
+                    packingDivision(item.category, item.dress_name, item.sub_category) === div.key,
+                );
+                if (!items.length) return null;
+                return { ...b, items };
+              })
+              .filter((b): b is PackingBooking => Boolean(b)),
+          );
           if (!sectionRows.length && div.key === "other") return null;
           if (!loaded) return null;
           return (

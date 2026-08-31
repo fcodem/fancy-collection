@@ -92,6 +92,15 @@ function FinanceSaleStatsSection({ data }: { data: Record<string, unknown> }) {
           <div className="stat-value">{Number(data.dresses_delivered ?? 0)}</div>
           <div className="stat-label">Dresses Delivered</div>
         </div>
+        {numberValue(data.fitting_charges) > 0 && (
+          <div className="stat-card">
+            <div className="stat-value">₹{formatInr(numberValue(data.fitting_charges))}</div>
+            <div className="stat-label">Fitting Charges</div>
+            <div style={{ fontSize: 12, color: "var(--text-muted)", marginTop: 6 }}>
+              From delivered dresses
+            </div>
+          </div>
+        )}
         {(Number(data.dresses_delivered ?? 0) > 0 || Number(data.orders_delivered ?? 0) > 0) && (
           <div className="stat-card success">
             <div className="stat-value">

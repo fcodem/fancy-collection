@@ -5,6 +5,7 @@ import { formatDate, todayIso } from "@/lib/constants";
 import { bookingItemSize, dressDisplayName } from "@/lib/dress";
 import { isStarBooking } from "@/lib/starBooking";
 import { packingDivision, PACKING_DIVISIONS } from "@/lib/packingDivision";
+import { sortByDeliverySchedule } from "@/lib/bookingDeliverySort";
 
 export type TomorrowPackingItem = {
   biId: number | null;
@@ -66,7 +67,7 @@ export async function getTomorrowPackingPageData(): Promise<TomorrowPackingPageD
     where: {
       AND: [{ status: "booked" }, dateWhere],
     },
-    orderBy: [{ deliveryTime: "asc" }, { id: "asc" }],
+    orderBy: [{ deliveryDate: "asc" }, { id: "asc" }],
     select: {
       id: true,
       monthlySerial: true,
@@ -160,8 +161,8 @@ export async function getTomorrowPackingPageData(): Promise<TomorrowPackingPageD
     };
   });
 
-  const packingLeft = mapped.filter((b) => !isBookingPackingDone(b.items));
-  const packingDone = mapped.filter((b) => isBookingPackingDone(b.items));
+  const packingLeft = sortByDeliverySchedule(mapped.filter((b) => !isBookingPackingDone(b.items)));
+  const packingDone = sortByDeliverySchedule(mapped.filter((b) => isBookingPackingDone(b.items)));
 
   const splitForDivision = (list: TomorrowPackingBooking[], key: string) =>
     list
@@ -182,8 +183,12 @@ export async function getTomorrowPackingPageData(): Promise<TomorrowPackingPageD
       .filter((b): b is TomorrowPackingBooking => Boolean(b));
 
   const divisions = PACKING_DIVISIONS.map((div) => {
-    const left = splitForDivision(packingLeft, div.key).filter((b) => !isBookingPackingDone(b.items));
-    const done = splitForDivision(mapped, div.key).filter((b) => isBookingPackingDone(b.items));
+    const left = sortByDeliverySchedule(
+      splitForDivision(packingLeft, div.key).filter((b) => !isBookingPackingDone(b.items)),
+    );
+    const done = sortByDeliverySchedule(
+      splitForDivision(mapped, div.key).filter((b) => isBookingPackingDone(b.items)),
+    );
     return {
       key: div.key,
       label: div.label,

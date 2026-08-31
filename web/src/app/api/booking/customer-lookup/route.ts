@@ -8,6 +8,38 @@ export async function GET(req: NextRequest) {
   if (isResponse(user)) return user;
 
   const q = req.nextUrl.searchParams.get("q")?.trim() || "";
+
+  if (!q) {
+    const bookings = await prisma.booking.findMany({
+      select: {
+        customerName: true,
+        customerAddress: true,
+        contact1: true,
+        whatsappNo: true,
+        venue: true,
+        createdAt: true,
+      },
+      orderBy: { createdAt: "desc" },
+      take: 100,
+    });
+
+    const seen = new Map<string, typeof bookings[0]>();
+    for (const b of bookings) {
+      const key = b.contact1.replace(/\D/g, "").slice(-10) || b.contact1.trim().toLowerCase();
+      if (!seen.has(key)) seen.set(key, b);
+    }
+
+    const customers = [...seen.values()].slice(0, 20).map((b) => ({
+      customer_name: b.customerName,
+      customer_address: b.customerAddress,
+      contact_1: b.contact1,
+      whatsapp_no: b.whatsappNo || "",
+      venue: b.venue || "",
+    }));
+
+    return jsonOk({ customers });
+  }
+
   if (q.length < 2) return jsonOk({ customers: [] });
 
   const isDigits = /^\d+$/.test(q);

@@ -7,6 +7,7 @@ export type StandardBookingDetails = {
   customer_name: string;
   customer_address: string;
   total_rent: number;
+  total_fitting_charges?: number;
   security_deposit: number;
   dress_names: string;
   item_notes: string;
@@ -36,6 +37,7 @@ export type BookingForStandardDetails = Parameters<typeof serializeBookingItems>
   whatsappNo?: string | null;
   venue?: string | null;
   totalPrice?: number;
+  totalFittingCharges?: number;
   price?: number;
   totalAdvance?: number;
   advance?: number;
@@ -83,6 +85,7 @@ export function serializeStandardBookingDetails(b: BookingForStandardDetails): S
     customer_name: b.customerName,
     customer_address: b.customerAddress || "",
     total_rent: b.totalPrice || b.price || 0,
+    total_fitting_charges: b.totalFittingCharges || 0,
     security_deposit: bookingSecurityDisplayAmount({
       status: b.status,
       securityDeposit: b.securityDeposit,

@@ -63,6 +63,7 @@ export default function FinanceDailySalePage({ todayIso }: { todayIso: string })
     order_advance?: number;
     order_balance_collected?: number;
     order_refund?: number;
+    fitting_charges?: number;
   } | null;
 
   const advanceByCategory = numberMap(d?.advance_by_category);
@@ -116,6 +117,15 @@ export default function FinanceDailySalePage({ todayIso }: { todayIso: string })
                   Advance + Balance (delivery &amp; return) + Custom Orders
                 </div>
               </div>
+              {(d.fitting_charges ?? 0) > 0 && (
+                <div className="stat-card">
+                  <div className="stat-value">₹{formatInr(d.fitting_charges || 0)}</div>
+                  <div className="stat-label">Fitting Charges</div>
+                  <div style={{ fontSize: 12, color: "var(--text-muted)", marginTop: 6 }}>
+                    From dresses delivered today
+                  </div>
+                </div>
+              )}
               <div className="stat-card primary"><div className="stat-value">₹{formatInr(d.payment_collected_cash || 0)}</div><div className="stat-label">Cash Collected</div></div>
               <div className="stat-card"><div className="stat-value">₹{formatInr(d.payment_collected_online || 0)}</div><div className="stat-label">Online Collected</div></div>
             </div>

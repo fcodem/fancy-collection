@@ -101,15 +101,16 @@ export const BookingItemSchema = z.object({
   item_id: z.preprocess(positiveInt, z.number().int().positive()),
   dress_name: z.string().min(1).max(200).transform(upper),
   price: z.preprocess(optionalNonNegativeNumber, z.number().nonnegative()),
+  fitting_charges: z.preprocess(optionalNonNegativeNumber, z.number().nonnegative().optional()),
   advance: z.preprocess(optionalNonNegativeNumber, z.number().nonnegative()),
   notes: z
     .preprocess(optionalString, z.string().max(500))
     .optional()
     .transform((s) => (s ? upper(s) : s)),
 }).refine(
-  (data) => data.advance <= data.price,
+  (data) => data.advance <= data.price + (data.fitting_charges || 0),
   {
-    message: "Advance amount cannot exceed the total rental price",
+    message: "Advance amount cannot exceed rental price plus fitting charges",
     path: ["advance"],
   },
 );

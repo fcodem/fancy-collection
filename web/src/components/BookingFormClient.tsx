@@ -49,6 +49,10 @@ import { preventInputWheel } from "@/lib/preventInputWheel";
 import { BOOKING_EVENTS, INVENTORY_EVENTS } from "@/lib/realtime/types";
 import { cachedFetchJson, yearMonthKey, invalidateClientCache } from "@/lib/clientRequestCache";
 import BookingSelectedDressRow from "@/components/booking/BookingSelectedDressRow";
+import {
+  bookingItemRemaining,
+  sumBookingFittingCharges,
+} from "@/lib/bookingLineTotals";
 
 const TIMES = [
 
@@ -175,9 +179,15 @@ type SelectedDress = {
 
   price: number;
 
+  fittingCharges: number;
+
   advance: number;
 
   notes: string;
+
+  returning_warning?: WarningInfo | null;
+
+  booked_warning?: WarningInfo | null;
 
 };
 
@@ -773,6 +783,8 @@ export default function BookingFormClient(props: Props) {
 
         price: 0,
 
+        fittingCharges: 0,
+
         advance: 0,
 
         notes: "",
@@ -808,6 +820,8 @@ export default function BookingFormClient(props: Props) {
           code: trimmed,
           delivery_date: deliveryDate,
           return_date: returnDate,
+          delivery_time: deliveryTime,
+          return_time: returnTime,
           exclude_booking: props.editId || undefined,
         }),
       });
@@ -816,8 +830,8 @@ export default function BookingFormClient(props: Props) {
         error?: string;
         item?: { id: number; name: string; category: string; size: string; color: string; photo: string } | null;
         free_quantity?: number;
-        blockingRecords?: Array<{ customerName: string; bookingNumber: string }>;
-        warningRecords?: Array<{ customerName: string; bookingNumber: string; reason: string }>;
+        blockingRecords?: ScanConflictRecord[];
+        warningRecords?: ScanConflictRecord[];
       };
       if (!res.ok) {
         alert(data.error || "Failed to check scanned dress availability.");
@@ -839,7 +853,14 @@ export default function BookingFormClient(props: Props) {
         alert("This dress is inactive and cannot be booked.");
         return;
       }
-      if (data.status === "BOOKED" || (data.free_quantity != null && data.free_quantity <= 0)) {
+      if (selectedDresses.some((d) => d.id === data.item!.id)) {
+        toast?.("This dress is already added to the booking.", "info");
+        return;
+      }
+      if (data.status.startsWith("WARNING_")) {
+        const records = data.warningRecords || [];
+        if (!window.confirm(formatScanAlternateConfirm(data.status, records))) return;
+      } else if (data.status === "BOOKED" || (data.free_quantity != null && data.free_quantity <= 0)) {
         const who = (data.blockingRecords || [])
           .map((r) => `${r.customerName} (${r.bookingNumber})`)
           .join(", ");
@@ -850,20 +871,10 @@ export default function BookingFormClient(props: Props) {
         );
         return;
       }
-      if (selectedDresses.some((d) => d.id === data.item!.id)) {
-        toast?.("This dress is already added to the booking.", "info");
-        return;
-      }
-      if (data.status.startsWith("WARNING_")) {
-        const warns = (data.warningRecords || []).map((r) => `${r.customerName} (${r.bookingNumber})`).join(", ");
-        const msg = data.status === "WARNING_RETURNING_ON_DELIVERY_DAY"
-          ? `Another customer is returning this dress on your delivery day (${warns}). Add anyway?`
-          : data.status === "WARNING_BOOKED_ON_RETURN_DAY"
-          ? `Another booking starts on your return day (${warns}). Add anyway?`
-          : `Boundary conflict with ${warns}. Add anyway?`;
-        if (!window.confirm(msg)) return;
-      }
       const item = data.item;
+      const scanWarnings = data.status.startsWith("WARNING_")
+        ? warningsFromScanRecords(data.warningRecords || [])
+        : { returning_warning: null, booked_warning: null };
       setSelectedDresses((prev) => [...prev, {
         id: item.id,
         name: item.name,
@@ -872,8 +883,10 @@ export default function BookingFormClient(props: Props) {
         color: item.color || "",
         photo: item.photo || "",
         price: 0,
+        fittingCharges: 0,
         advance: 0,
         notes: "",
+        ...scanWarnings,
       }]);
       setNameSearch("");
       toast?.(`${item.name} added to booking`, "success");
@@ -882,7 +895,7 @@ export default function BookingFormClient(props: Props) {
     } finally {
       setScanBusy(false);
     }
-  }, [scanBusy, deliveryDate, returnDate, props.editId, selectedDresses, toast]);
+  }, [scanBusy, deliveryDate, returnDate, deliveryTime, returnTime, props.editId, selectedDresses, toast]);
 
   const handleDressSearchKeyDown = useCallback((e: React.KeyboardEvent<HTMLInputElement>) => {
     if (scanTimer.current) clearTimeout(scanTimer.current);
@@ -983,9 +996,16 @@ export default function BookingFormClient(props: Props) {
 
   const totalPrice = selectedDresses.reduce((s, d) => s + (d.price || 0), 0);
 
+  const totalFittingCharges = sumBookingFittingCharges(
+    selectedDresses.map((d) => ({ fittingCharges: d.fittingCharges })),
+  );
+
   const totalAdvance = selectedDresses.reduce((s, d) => s + (d.advance || 0), 0);
 
-  const totalRemaining = Math.max(0, totalPrice - totalAdvance);
+  const totalRemaining = selectedDresses.reduce(
+    (s, d) => s + bookingItemRemaining(d.price, d.advance, d.fittingCharges),
+    0,
+  );
 
   const ordersCost = orders.reduce((s, o) => s + (o.cost || 0), 0);
 
@@ -993,7 +1013,7 @@ export default function BookingFormClient(props: Props) {
 
   const ordersRemaining = orders.reduce((s, o) => s + Math.max(0, (o.cost || 0) - (o.advance || 0)), 0);
 
-  const grandTotalCost = totalPrice + ordersCost;
+  const grandTotalCost = totalPrice + totalFittingCharges + ordersCost;
 
   const grandTotalAdvance = totalAdvance + ordersAdvance;
 
@@ -1122,6 +1142,8 @@ export default function BookingFormClient(props: Props) {
         dress_name: d.name,
 
         price: d.price,
+
+        fitting_charges: d.fittingCharges || 0,
 
         advance: d.advance,
 
@@ -1793,8 +1815,8 @@ export default function BookingFormClient(props: Props) {
                 key={d.id}
                 dress={d}
                 index={i}
-                returningWarning={warn?.returning_warning}
-                bookedWarning={warn?.booked_warning}
+                returningWarning={warn?.returning_warning || d.returning_warning}
+                bookedWarning={warn?.booked_warning || d.booked_warning}
                 onRemove={removeDress}
                 onUpdateField={updateDressField}
               />
@@ -1974,12 +1996,16 @@ export default function BookingFormClient(props: Props) {
 
             <div style={{ textAlign: "center", padding: 14, background: "var(--cream-dark)", borderRadius: 10 }}>
 
-              <div style={{ fontSize: 11, fontWeight: 600, color: "var(--text-muted)", textTransform: "uppercase" }}>Total {ordersCost > 0 ? "(Rent + Orders)" : "Rent"}</div>
+              <div style={{ fontSize: 11, fontWeight: 600, color: "var(--text-muted)", textTransform: "uppercase" }}>Total {ordersCost > 0 ? "(Rent + Fitting + Orders)" : "(Rent + Fitting)"}</div>
 
               <div style={{ fontSize: 22, fontWeight: 800, color: "var(--primary)" }}>₹{formatInr(grandTotalCost)}</div>
 
-              {ordersCost > 0 && (
-                <div style={{ fontSize: 10, color: "var(--text-muted)", marginTop: 2 }}>Rent ₹{formatInr(totalPrice)} · Orders ₹{formatInr(ordersCost)}</div>
+              {(totalFittingCharges > 0 || ordersCost > 0) && (
+                <div style={{ fontSize: 10, color: "var(--text-muted)", marginTop: 2 }}>
+                  Rent ₹{formatInr(totalPrice)}
+                  {totalFittingCharges > 0 ? ` · Fitting ₹${formatInr(totalFittingCharges)}` : ""}
+                  {ordersCost > 0 ? ` · Orders ₹${formatInr(ordersCost)}` : ""}
+                </div>
               )}
 
             </div>
@@ -2242,6 +2268,99 @@ type PreviousCustomer = {
   venue: string;
 };
 
+type ScanConflictRecord = {
+  customerName: string;
+  bookingNumber: string;
+  monthlySerial?: number;
+  deliveryDate?: string;
+  deliveryTime?: string;
+  returnDate?: string;
+  returnTime?: string;
+  contact?: string;
+  reason?: string;
+};
+
+function scanRecordToWarningInfo(record: ScanConflictRecord): WarningInfo {
+  return {
+    customer_name: record.customerName,
+    serial_no: record.monthlySerial ?? 0,
+    contact_1: record.contact,
+    delivery_date: record.deliveryDate,
+    delivery_time: record.deliveryTime,
+    return_date: record.returnDate,
+    return_time: record.returnTime,
+    booking_number: record.bookingNumber,
+  };
+}
+
+function warningsFromScanRecords(records: ScanConflictRecord[]) {
+  const returning = records.find((r) => r.reason === "RETURNING_ON_DELIVERY_DAY");
+  const booked = records.find((r) => r.reason === "BOOKED_ON_RETURN_DAY");
+  return {
+    returning_warning: returning ? scanRecordToWarningInfo(returning) : null,
+    booked_warning: booked ? scanRecordToWarningInfo(booked) : null,
+  };
+}
+
+function formatScanRecordBlock(record: ScanConflictRecord): string {
+  const serial =
+    record.monthlySerial != null ? ` #${String(record.monthlySerial).padStart(2, "0")}` : "";
+  if (record.reason === "RETURNING_ON_DELIVERY_DAY") {
+    return [
+      `• ${record.customerName}${serial} (${record.bookingNumber})`,
+      `  Returning ${record.returnDate || "—"} by ${record.returnTime || "—"}`,
+      record.contact ? `  Contact: ${record.contact}` : "",
+    ]
+      .filter(Boolean)
+      .join("\n");
+  }
+  if (record.reason === "BOOKED_ON_RETURN_DAY") {
+    return [
+      `• ${record.customerName}${serial} (${record.bookingNumber})`,
+      `  Delivery ${record.deliveryDate || "—"} at ${record.deliveryTime || "—"}`,
+      record.contact ? `  Contact: ${record.contact}` : "",
+    ]
+      .filter(Boolean)
+      .join("\n");
+  }
+  return `• ${record.customerName}${serial} (${record.bookingNumber})`;
+}
+
+function formatScanAlternateConfirm(status: string, records: ScanConflictRecord[]): string {
+  const returning = records.filter((r) => r.reason === "RETURNING_ON_DELIVERY_DAY");
+  const booked = records.filter((r) => r.reason === "BOOKED_ON_RETURN_DAY");
+  const other = records.filter(
+    (r) => r.reason !== "RETURNING_ON_DELIVERY_DAY" && r.reason !== "BOOKED_ON_RETURN_DAY",
+  );
+
+  const sections: string[] = [];
+  if (status === "WARNING_BOTH_BOUNDARIES" || returning.length) {
+    sections.push(
+      ["Returning on your delivery day:", ...returning.map(formatScanRecordBlock)].join("\n"),
+    );
+  }
+  if (status === "WARNING_BOTH_BOUNDARIES" || booked.length) {
+    sections.push(
+      ["Booked on your return day:", ...booked.map(formatScanRecordBlock)].join("\n"),
+    );
+  }
+  if (other.length) {
+    sections.push(other.map(formatScanRecordBlock).join("\n\n"));
+  }
+
+  const header =
+    status === "WARNING_BOTH_BOUNDARIES"
+      ? "Alternate booking — both boundary handovers apply:"
+      : status === "WARNING_RETURNING_ON_DELIVERY_DAY"
+        ? "Alternate booking — this dress is returning on your delivery day:"
+        : status === "WARNING_BOOKED_ON_RETURN_DAY"
+          ? "Alternate booking — another customer is booked on your return day:"
+          : "Alternate booking — boundary handover warning:";
+
+  const body = sections.filter(Boolean).join("\n\n");
+  return `${header}\n\n${body}\n\nAdd this dress to the booking anyway?`;
+}
+
 function PreviousCustomerModal({ onSelect, onClose }: { onSelect: (c: PreviousCustomer) => void; onClose: () => void }) {
   const [query, setQuery] = useState("");
   const [results, setResults] = useState<PreviousCustomer[]>([]);
@@ -2249,10 +2368,13 @@ function PreviousCustomerModal({ onSelect, onClose }: { onSelect: (c: PreviousCu
   const timerRef = useRef<ReturnType<typeof setTimeout> | null>(null);
 
   const search = useCallback(async (q: string) => {
-    if (q.length < 2) { setResults([]); return; }
     setLoading(true);
     try {
-      const res = await fetch(`/api/booking/customer-lookup?q=${encodeURIComponent(q)}`);
+      const trimmed = q.trim();
+      const url = trimmed.length >= 2
+        ? `/api/booking/customer-lookup?q=${encodeURIComponent(trimmed)}`
+        : "/api/booking/customer-lookup";
+      const res = await fetch(url);
       const data = await res.json() as { customers?: PreviousCustomer[] };
       setResults(data.customers || []);
     } catch {
@@ -2261,6 +2383,10 @@ function PreviousCustomerModal({ onSelect, onClose }: { onSelect: (c: PreviousCu
       setLoading(false);
     }
   }, []);
+
+  useEffect(() => {
+    void search("");
+  }, [search]);
 
   useEffect(() => {
     if (timerRef.current) clearTimeout(timerRef.current);
@@ -2308,14 +2434,20 @@ function PreviousCustomerModal({ onSelect, onClose }: { onSelect: (c: PreviousCu
             <div style={{ textAlign: "center", padding: 30, color: "#9ca3af" }}>
               <i className="fa-solid fa-spinner fa-spin" /> Searching…
             </div>
-          ) : results.length === 0 && query.length >= 2 ? (
+          ) : results.length === 0 && query.trim().length >= 2 ? (
             <div style={{ textAlign: "center", padding: 30, color: "#9ca3af", fontSize: 13 }}>No previous customers found.</div>
           ) : results.length === 0 ? (
             <div style={{ textAlign: "center", padding: 30, color: "#9ca3af", fontSize: 13 }}>
-              Type a name or phone number to search previous customers.
+              No previous customers yet.
             </div>
           ) : (
-            results.map((c, i) => (
+            <>
+              {!query.trim() && (
+                <div style={{ padding: "8px 20px 4px", fontSize: 11, fontWeight: 700, color: "#9ca3af", textTransform: "uppercase" }}>
+                  Recent customers
+                </div>
+              )}
+              {results.map((c, i) => (
               <div
                 key={`${c.contact_1}-${i}`}
                 onClick={() => onSelect(c)}
@@ -2349,7 +2481,8 @@ function PreviousCustomerModal({ onSelect, onClose }: { onSelect: (c: PreviousCu
                   </div>
                 )}
               </div>
-            ))
+              ))}
+            </>
           )}
         </div>
       </div>

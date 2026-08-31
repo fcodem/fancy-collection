@@ -49,6 +49,7 @@ type ItemRow = {
   category?: string | null;
   size?: string | null;
   price: number;
+  fittingCharges?: number;
   remaining: number;
   advance?: number;
   photo?: string;
@@ -71,6 +72,7 @@ type BookingData = BookingForStandardDetails & {
   securityCollected: number;
   deliveryNotes?: string | null;
   totalPrice?: number;
+  totalFittingCharges?: number;
   price?: number;
   totalAdvance?: number;
   advance?: number;
@@ -808,7 +810,9 @@ export default function DeliveryDetailClient({
     includedInRent: o.includedInRent,
   }));
 
-  const dressTotal = booking.totalPrice ?? booking.price ?? 0;
+  const dressRent = booking.totalPrice ?? booking.price ?? 0;
+  const dressFitting = booking.totalFittingCharges ?? 0;
+  const dressTotal = dressRent + dressFitting;
   const dressAdvance = booking.totalAdvance ?? booking.advance ?? 0;
   const ordersCostSum = localOrders.reduce((s, o) => s + (o.cost || 0), 0);
   const ordersAdvanceSum = localOrders.reduce((s, o) => s + (o.advance || 0), 0);
@@ -1436,8 +1440,15 @@ export default function DeliveryDetailClient({
         <div className="card-body">
           <div style={{ display: "grid", gridTemplateColumns: "repeat(auto-fit, minmax(160px, 1fr))", gap: 14, fontSize: 14 }}>
             <div>
-              <div style={{ fontSize: 11, color: "var(--text-muted)", fontWeight: 700 }}>TOTAL AMOUNT (RENT + ORDERS)</div>
+              <div style={{ fontSize: 11, color: "var(--text-muted)", fontWeight: 700 }}>TOTAL AMOUNT (RENT + FITTING + ORDERS)</div>
               <div style={{ fontWeight: 800, color: "var(--primary)", fontSize: 18 }}>₹{formatInr(grandTotal)}</div>
+              {(dressFitting > 0 || ordersCostSum > 0) && (
+                <div style={{ fontSize: 10, color: "var(--text-muted)", marginTop: 4 }}>
+                  Rent ₹{formatInr(dressRent)}
+                  {dressFitting > 0 ? ` · Fitting ₹${formatInr(dressFitting)}` : ""}
+                  {ordersCostSum > 0 ? ` · Orders ₹${formatInr(ordersCostSum)}` : ""}
+                </div>
+              )}
             </div>
             <div>
               <div style={{ fontSize: 11, color: "var(--text-muted)", fontWeight: 700 }}>TOTAL ADVANCE</div>

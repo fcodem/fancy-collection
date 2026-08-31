@@ -218,6 +218,20 @@ export function parseBookingTimeToMinutes(raw: string | null | undefined): numbe
   return hours * 60 + minutes;
 }
 
+/** Combine booking-form date + time into a value parseKolkataDateTime accepts. */
+export function buildKolkataDateTimeFromBookingForm(
+  date: string,
+  time: string | undefined,
+): string {
+  const dateOnly = date.trim().slice(0, 10);
+  if (!DATE_ONLY_RE.test(dateOnly)) return date.trim();
+  const minutes = parseBookingTimeToMinutes(time);
+  if (minutes == null) return dateOnly;
+  const hours = Math.floor(minutes / 60);
+  const mins = minutes % 60;
+  return `${dateOnly}T${String(hours).padStart(2, "0")}:${String(mins).padStart(2, "0")}`;
+}
+
 const CONFLICT_BOOKING_SELECT = {
   id: true,
   bookingNumber: true,

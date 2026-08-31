@@ -2,6 +2,7 @@ import { describe, it } from "node:test";
 import assert from "node:assert/strict";
 import {
   createScannedDressAvailabilityService,
+  buildKolkataDateTimeFromBookingForm,
   parseBookingTimeToMinutes,
   parseKolkataDateTime,
   ScannedDressAvailabilityError,
@@ -284,6 +285,14 @@ describe("Asia/Kolkata date-time parsing", () => {
     );
   });
 
+  it("builds a Kolkata datetime from booking-form date and time", () => {
+    assert.equal(
+      buildKolkataDateTimeFromBookingForm("2026-09-01", "12:00 Noon"),
+      "2026-09-01T12:00",
+    );
+    assert.equal(buildKolkataDateTimeFromBookingForm("2026-09-01", ""), "2026-09-01");
+  });
+
   it("rejects invalid or missing dates", () => {
     for (const bad of ["", "  ", undefined, null]) {
       assert.throws(
@@ -390,6 +399,28 @@ describe("checkScannedDressAvailability", () => {
     assert.equal(result.warningRecords[0].reason, "RETURNING_ON_DELIVERY_DAY");
   });
 
+  it("warns on adjacent alternate booking when form times are supplied (31→1 then 1→2)", async () => {
+    const { service } = serviceWith([
+      booking({
+        customerName: "DEV",
+        deliveryDate: "2026-08-31",
+        returnDate: "2026-09-01",
+        returnTime: "12:00 Noon",
+        bookingItems: [activeItem(DRESS.id)],
+      }),
+    ]);
+    const result = await service.checkScannedDressAvailability({
+      rawCode: "fc-d-7k4p9x2m",
+      deliveryDateTime: buildKolkataDateTimeFromBookingForm("2026-09-01", "12:00 Noon"),
+      returnDateTime: buildKolkataDateTimeFromBookingForm("2026-09-02", "12:00 Noon"),
+    });
+    assert.equal(result.status, "WARNING_RETURNING_ON_DELIVERY_DAY");
+    assert.equal(result.blockingRecords.length, 0);
+    assert.equal(result.warningRecords.length, 1);
+    assert.equal(result.warningRecords[0].customerName, "DEV");
+    assert.equal(result.warningRecords[0].reason, "RETURNING_ON_DELIVERY_DAY");
+  });
+
   it("warns when the next booking starts on the requested return day", async () => {
     const { service } = serviceWith([
       booking({
@@ -423,6 +454,45 @@ describe("checkScannedDressAvailability", () => {
     const result = await service.checkScannedDressAvailability(REQUEST);
     assert.equal(result.status, "WARNING_BOTH_BOUNDARIES");
     assert.equal(result.warningRecords.length, 2);
+  });
+
+  it("warns with both boundaries when booking fits between two others (01-02 and 03-04, new 02-03)", async () => {
+    const { service } = serviceWith([
+      booking({
+        customerName: "Customer A",
+        deliveryDate: "2026-08-01",
+        returnDate: "2026-08-02",
+        returnTime: "12:00 Noon",
+        bookingItems: [activeItem(DRESS.id)],
+      }),
+      booking({
+        customerName: "Customer B",
+        deliveryDate: "2026-08-03",
+        returnDate: "2026-08-04",
+        deliveryTime: "12:00 Noon",
+        bookingItems: [activeItem(DRESS.id)],
+      }),
+    ]);
+    const result = await service.checkScannedDressAvailability({
+      rawCode: "fc-d-7k4p9x2m",
+      deliveryDateTime: buildKolkataDateTimeFromBookingForm("2026-08-02", "12:00 Noon"),
+      returnDateTime: buildKolkataDateTimeFromBookingForm("2026-08-03", "12:00 Noon"),
+    });
+    assert.equal(result.status, "WARNING_BOTH_BOUNDARIES");
+    assert.equal(result.blockingRecords.length, 0);
+    assert.equal(result.warningRecords.length, 2);
+    assert.deepEqual(
+      result.warningRecords.map((r) => r.reason).sort(),
+      ["BOOKED_ON_RETURN_DAY", "RETURNING_ON_DELIVERY_DAY"],
+    );
+    assert.equal(
+      result.warningRecords.find((r) => r.reason === "RETURNING_ON_DELIVERY_DAY")?.customerName,
+      "Customer A",
+    );
+    assert.equal(
+      result.warningRecords.find((r) => r.reason === "BOOKED_ON_RETURN_DAY")?.customerName,
+      "Customer B",
+    );
   });
 
   it("hard blocks a same-day handover with a genuine time overlap", async () => {

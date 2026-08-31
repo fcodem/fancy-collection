@@ -17,6 +17,10 @@ import { newPublicAccessToken } from "@/lib/publicRateLimit";
 import { generateBookingQrToken } from "../bookingQr";
 import { trackBookingPrivateMedia } from "../bookingPrivateMediaTracking";
 import { BOOKING_PRIVATE_MEDIA_TYPES } from "../bookingPrivateMediaTypes";
+import {
+  bookingItemRemaining,
+  sumBookingFittingCharges,
+} from "../bookingLineTotals";
 
 /** Interactive booking writes hold advisory locks — allow headroom on serverless + pooler. */
 const BOOKING_TX = { maxWait: 10_000, timeout: 30_000 } as const;
@@ -25,6 +29,7 @@ export type BookingItemInput = {
   item_id: number;
   dress_name: string;
   price: number;
+  fitting_charges?: number;
   advance: number;
   notes?: string;
 };
@@ -127,8 +132,14 @@ export async function createBooking(
 
     const monthlySerial = await allocateMonthlySerial(tx, deliveryDate);
     const totalPrice = input.items.reduce((s, i) => s + i.price, 0);
+    const totalFittingCharges = sumBookingFittingCharges(
+      input.items.map((i) => ({ fittingCharges: i.fitting_charges })),
+    );
     const totalAdvance = input.items.reduce((s, i) => s + i.advance, 0);
-    const totalRemaining = totalPrice - totalAdvance;
+    const totalRemaining = input.items.reduce(
+      (s, i) => s + bookingItemRemaining(i.price, i.advance, i.fitting_charges),
+      0,
+    );
     const staffNames = (input.staff_names || []).filter(Boolean).join(", ");
 
     const b = await tx.booking.create({
@@ -147,6 +158,7 @@ export async function createBooking(
         returnTime: input.return_time,
         securityDeposit: input.security_deposit || 0,
         totalPrice,
+        totalFittingCharges,
         totalAdvance,
         totalRemaining,
         advancePaymentMode: input.payment_mode === "online" ? "online" : "cash",
@@ -170,8 +182,9 @@ export async function createBooking(
         category: item.category,
         size: item.size || "",
         price: row.price,
+        fittingCharges: row.fitting_charges || 0,
         advance: row.advance,
-        remaining: row.price - row.advance,
+        remaining: bookingItemRemaining(row.price, row.advance, row.fitting_charges),
         notes: row.notes || null,
       })),
     });
@@ -294,8 +307,14 @@ export async function updateBooking(bookingId: number, input: BookingFormInput, 
   }
 
   const totalPrice = input.items.reduce((s, i) => s + i.price, 0);
+  const totalFittingCharges = sumBookingFittingCharges(
+    input.items.map((i) => ({ fittingCharges: i.fitting_charges })),
+  );
   const totalAdvance = input.items.reduce((s, i) => s + i.advance, 0);
-  const totalRemaining = totalPrice - totalAdvance;
+  const totalRemaining = input.items.reduce(
+    (s, i) => s + bookingItemRemaining(i.price, i.advance, i.fitting_charges),
+    0,
+  );
   const staffNames = (input.staff_names || []).filter(Boolean).join(", ");
 
   const oldItemsByItemId = new Map(
@@ -327,6 +346,7 @@ export async function updateBooking(bookingId: number, input: BookingFormInput, 
         securityDeposit: input.security_deposit || 0,
         commonNotes: input.common_notes?.trim() || null,
         totalPrice,
+        totalFittingCharges,
         totalAdvance,
         totalRemaining,
         itemId: itemsToBook[0].item.id,
@@ -349,8 +369,9 @@ export async function updateBooking(bookingId: number, input: BookingFormInput, 
           category: item.category,
           size: item.size || "",
           price: row.price,
+          fittingCharges: row.fitting_charges || 0,
           advance: row.advance,
-          remaining: row.price - row.advance,
+          remaining: bookingItemRemaining(row.price, row.advance, row.fitting_charges),
           notes: row.notes || null,
           ...(prev
             ? {

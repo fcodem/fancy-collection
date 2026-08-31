@@ -46,6 +46,7 @@ import { getInactiveBookingStats } from "../financeInactiveBookings";
 import { financeParallelLimit } from "../finance/financeApiRoute";
 import { cachedQuery } from "../perfCache";
 import { catalogPhotoRef } from "../catalogPhotoRef";
+import { sumDeliveredFittingCharges } from "../bookingLineTotals";
 
 const financeOrderSelect = {
   select: {
@@ -66,12 +67,14 @@ const financeBookingInclude = {
       advance: true,
       category: true,
       price: true,
+      fittingCharges: true,
       remaining: true,
       itemRemainingCollected: true,
       itemId: true,
       dressName: true,
       size: true,
       isCancelled: true,
+      isDelivered: true,
     },
   },
   orders: financeOrderSelect,
@@ -336,6 +339,7 @@ export async function getDailySale(targetDateStr: string) {
     orders_booked += (b.orders || []).filter((o) => o.status === "active").length;
   }
   const balance_by_category = remaining_by_category;
+  const fitting_charges = sumDeliveredFittingCharges(deliveredToday);
 
   return {
     date: target.toLocaleDateString("en-GB", { day: "2-digit", month: "short", year: "numeric" }),
@@ -368,6 +372,7 @@ export async function getDailySale(targetDateStr: string) {
     order_refund,
     orders_booked,
     total_sale: total_advance + total_remaining_collected - refund_total - order_refund,
+    fitting_charges,
     refund_total,
     refund_by_category: refundCats,
     advance_mens,
@@ -597,6 +602,7 @@ export async function getMonthlySale(monthStr: string) {
   const sale_by_category = mergeCategoryMaps(advance_by_category, balance_by_category);
   const saleGender = sumGenderFromCategories(sale_by_category);
   const inactive = await getInactiveBookingStats(monthStart, monthEnd);
+  const fitting_charges = sumDeliveredFittingCharges(deliveredInMonth);
 
   return {
     month: monthStr,
@@ -625,6 +631,7 @@ export async function getMonthlySale(monthStr: string) {
     balance_delivery_count,
     balance_return_count,
     total_sale: total_advance + total_balance_received - order_refund,
+    fitting_charges,
     refund_total,
     booking_count: bookings.length,
     advance_count,
@@ -780,6 +787,7 @@ export async function getYearlySale(fromStr?: string, toStr?: string) {
   const sale_by_category = mergeCategoryMaps(advance_by_category, balance_by_category);
   const saleGender = sumGenderFromCategories(sale_by_category);
   const inactive = await getInactiveBookingStats(rangeStart, rangeEnd);
+  const fitting_charges = sumDeliveredFittingCharges(deliveredInPeriod);
 
   return {
     from: dateOnly(fromDate),
@@ -809,6 +817,7 @@ export async function getYearlySale(fromStr?: string, toStr?: string) {
     payment_collected_cash: advanceSplit.cash + orderAdvanceSplit.cash + deliverySplit.cash + returnSplit.cash + orderCollectionSplit.cash,
     payment_collected_online: advanceSplit.online + orderAdvanceSplit.online + deliverySplit.online + returnSplit.online + orderCollectionSplit.online,
     total_sale: total_advance + total_balance_received - order_refund,
+    fitting_charges,
     refund_total,
     monthly_breakdown,
     category_totals,
@@ -1297,7 +1306,7 @@ export function getInventoryProfitabilityCached(fromStr?: string, toStr?: string
 }
 
 export function getDailySaleCached(targetDateStr: string) {
-  return cachedQuery(["finance-daily-sale", "v4", targetDateStr], () => getDailySale(targetDateStr), 300);
+  return cachedQuery(["finance-daily-sale", "v5", targetDateStr], () => getDailySale(targetDateStr), 300);
 }
 
 export function getDailyBookingCached(targetDateStr: string) {

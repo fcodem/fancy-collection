@@ -6,6 +6,7 @@ import { bookingItemSize, dressDisplayName } from "@/lib/dress";
 import { isStarBooking } from "@/lib/starBooking";
 import { serializeActiveOrders } from "@/lib/slipBookingData";
 import { decodePackingCursor, encodePackingCursor } from "@/lib/packingCursor";
+import { sortByDeliverySchedule } from "@/lib/bookingDeliverySort";
 import type { Prisma } from "@prisma/client";
 
 const DEFAULT_LIMIT = 20;
@@ -31,11 +32,6 @@ export async function getPackingListPage(opts: {
           { deliveryDate: { gt: new Date(cursor.deliveryDate) } },
           {
             deliveryDate: new Date(cursor.deliveryDate),
-            deliveryTime: { gt: cursor.deliveryTime },
-          },
-          {
-            deliveryDate: new Date(cursor.deliveryDate),
-            deliveryTime: cursor.deliveryTime,
             id: { gt: cursor.id },
           },
         ],
@@ -54,7 +50,7 @@ export async function getPackingListPage(opts: {
     where: {
       AND: [{ status: "booked" }, dateWhere, cursorWhere, categoryWhere],
     },
-    orderBy: [{ deliveryDate: "asc" }, { deliveryTime: "asc" }, { id: "asc" }],
+    orderBy: [{ deliveryDate: "asc" }, { id: "asc" }],
     take: limit + 1,
     select: {
       id: true,
@@ -182,7 +178,8 @@ export async function getPackingListPage(opts: {
     for (const itemId of ids) warningByDayItem.set(`${day}:${itemId}`, booking);
   }
 
-  const results = visible.flatMap((booking) => {
+  const results = sortByDeliverySchedule(
+    visible.flatMap((booking) => {
     const items = booking.bookingItems.length
       ? booking.bookingItems.map((item) => {
           const warning = item.itemId == null
@@ -258,7 +255,8 @@ export async function getPackingListPage(opts: {
         ? []
         : serializeActiveOrders(booking.orders as Parameters<typeof serializeActiveOrders>[0]),
     }];
-  });
+    }),
+  );
 
   const last = visible[visible.length - 1];
   return {

@@ -3,6 +3,7 @@ import { jsonOk, jsonError, requireOwner, isResponse, requireJsonContentType } f
 import { InventoryScanCodeError } from "@/lib/services/inventoryScanCode";
 import {
   checkScannedDressAvailability,
+  buildKolkataDateTimeFromBookingForm,
   ScannedDressAvailabilityError,
 } from "@/lib/services/scannedDressAvailability";
 import { photoUrl } from "@/lib/photoUrl";
@@ -17,6 +18,8 @@ export async function POST(req: NextRequest) {
     code?: string;
     delivery_date?: string;
     return_date?: string;
+    delivery_time?: string;
+    return_time?: string;
     exclude_booking?: number;
   };
 
@@ -33,8 +36,14 @@ export async function POST(req: NextRequest) {
   try {
     const result = await checkScannedDressAvailability({
       rawCode: code,
-      deliveryDateTime: deliveryDate,
-      returnDateTime: returnDate,
+      deliveryDateTime: buildKolkataDateTimeFromBookingForm(
+        deliveryDate,
+        body.delivery_time,
+      ),
+      returnDateTime: buildKolkataDateTimeFromBookingForm(
+        returnDate,
+        body.return_time,
+      ),
       excludeBookingId: body.exclude_booking ?? null,
     });
 

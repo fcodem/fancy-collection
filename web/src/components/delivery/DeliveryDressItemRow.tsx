@@ -18,6 +18,7 @@ export type DeliveryDressItem = {
   category?: string | null;
   size?: string | null;
   price: number;
+  fittingCharges?: number;
   remaining: number;
   advance?: number;
   photo?: string;
@@ -143,6 +144,7 @@ function DeliveryDressItemRow({
           <div style={{ fontSize: 12, color: "var(--text-muted)" }}>
             {it.category}
             {it.size ? ` · ${it.size}` : ""} · Rent ₹{formatInr(it.price)}
+            {(it.fittingCharges || 0) > 0 && <> · Fitting ₹{formatInr(it.fittingCharges || 0)}</>}
             {!it.isCancelled && <> · Remaining ₹{formatInr(it.remaining)}</>}
             {typeof it.advance === "number" && it.advance > 0 && (
               <> · Advance ₹{formatInr(it.advance)}</>

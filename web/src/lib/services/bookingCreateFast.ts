@@ -4,6 +4,10 @@ import prisma, { parseDateQ } from "@/lib/prisma";
 import { hashRequestPayload } from "@/lib/mutationIdempotency";
 import { buildWhatsAppIdempotencyKey } from "@/lib/mutationIdempotency";
 import { createBookingNumber, findFirstItemConflict, formatItemConflictError } from "@/lib/booking";
+import {
+  bookingItemRemaining,
+  sumBookingFittingCharges,
+} from "@/lib/bookingLineTotals";
 import { shouldSkipCustomerCreate } from "@/lib/services/customersOps";
 import { broadcastShopEvent } from "@/lib/realtime/broadcast";
 import { logActivity } from "@/lib/activityLog";
@@ -101,8 +105,14 @@ export async function createBookingFast(
   }
 
   const totalPrice = input.items.reduce((sum, item) => sum + item.price, 0);
+  const totalFittingCharges = sumBookingFittingCharges(
+    input.items.map((item) => ({ fittingCharges: item.fitting_charges })),
+  );
   const totalAdvance = input.items.reduce((sum, item) => sum + item.advance, 0);
-  const totalRemaining = totalPrice - totalAdvance;
+  const totalRemaining = input.items.reduce(
+    (sum, item) => sum + bookingItemRemaining(item.price, item.advance, item.fitting_charges),
+    0,
+  );
   const operationId = input.client_request_id?.trim() || "";
   const requestHash = hashRequestPayload(input);
   // Generate opaque values in memory before the write. Importing the QR module
@@ -120,8 +130,9 @@ export async function createBookingFast(
       category: item.category,
       size: item.size || "",
       price: row.price,
+      fitting_charges: row.fitting_charges || 0,
       advance: row.advance,
-      remaining: row.price - row.advance,
+      remaining: bookingItemRemaining(row.price, row.advance, row.fitting_charges),
       notes: row.notes || null,
     };
   });
@@ -249,7 +260,7 @@ export async function createBookingFast(
         id, booking_number, monthly_serial, customer_name, customer_address,
         contact_1, whatsapp_no, venue, staff_names, delivery_date,
         delivery_time, return_date, return_time, security_deposit,
-        total_price, total_advance, total_remaining, advance_payment_mode,
+        total_price, total_fitting_charges, total_advance, total_remaining, advance_payment_mode,
         common_notes, item_id, dress_name, price, advance, remaining,
         client_request_id, qr_token, public_booking_id, public_access_token,
         public_access_expires_at
@@ -260,7 +271,7 @@ export async function createBookingFast(
         ${input.contact_1.trim()}, ${input.whatsapp_no.trim()},
         ${input.venue?.trim() || null}, ${staffNames || null},
         ${deliveryDate}, ${input.delivery_time}, ${returnDate}, ${input.return_time},
-        ${input.security_deposit || 0}, ${totalPrice}, ${totalAdvance},
+        ${input.security_deposit || 0}, ${totalPrice}, ${totalFittingCharges}, ${totalAdvance},
         ${totalRemaining}, ${input.payment_mode === "online" ? "online" : "cash"},
         ${input.common_notes?.trim() || null}, ${itemRows[0]!.item_id},
         ${itemRows[0]!.dress_name}, ${totalPrice}, ${totalAdvance},
@@ -275,12 +286,12 @@ export async function createBookingFast(
     inserted_items AS (
       INSERT INTO booking_items (
         booking_id, item_id, dress_name, category, size,
-        price, advance, remaining, notes
+        price, fitting_charges, advance, remaining, notes
       )
       SELECT
         booking.id, input_item.item_id, input_item.dress_name,
         input_item.category, input_item.size, input_item.price,
-        input_item.advance, input_item.remaining, input_item.notes
+        input_item.fitting_charges, input_item.advance, input_item.remaining, input_item.notes
       FROM inserted_booking booking
       CROSS JOIN jsonb_to_recordset(${itemRowsJson}::jsonb) AS input_item(
         item_id integer,
@@ -288,6 +299,7 @@ export async function createBookingFast(
         category text,
         size text,
         price double precision,
+        fitting_charges double precision,
         advance double precision,
         remaining double precision,
         notes text

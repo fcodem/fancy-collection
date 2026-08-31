@@ -78,6 +78,7 @@ export default async function EditBookingPage({
             size: bi.size || bi.item?.size || "",
             photo: bi.item ? catalogPhotoRef(bi.item) : "",
             price: bi.price,
+            fittingCharges: bi.fittingCharges || 0,
             advance: bi.advance,
             notes: bi.notes || "",
           })),

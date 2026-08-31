@@ -3,6 +3,7 @@
 import { memo } from "react";
 import { formatInr } from "@/lib/format";
 import { preventInputWheel } from "@/lib/preventInputWheel";
+import { bookingItemRemaining } from "@/lib/bookingLineTotals";
 import BookingPhotoThumb from "@/components/BookingPhotoThumb";
 
 type DressWarning = {
@@ -27,6 +28,7 @@ export type BookingSelectedDress = {
   color?: string;
   photo: string;
   price: number;
+  fittingCharges: number;
   advance: number;
   notes: string;
 };
@@ -37,7 +39,7 @@ type BookingSelectedDressRowProps = {
   returningWarning?: DressWarning | null;
   bookedWarning?: DressWarning | null;
   onRemove: (index: number) => void;
-  onUpdateField: (index: number, field: "price" | "advance" | "notes", value: string | number) => void;
+  onUpdateField: (index: number, field: "price" | "fittingCharges" | "advance" | "notes", value: string | number) => void;
 };
 
 function warnCustomer(w: DressWarning) {
@@ -164,6 +166,19 @@ function BookingSelectedDressRow({
         </div>
 
         <div>
+          <label className="form-label">Fitting Charges (₹)</label>
+          <input
+            type="number"
+            className="form-control"
+            inputMode="numeric"
+            value={d.fittingCharges}
+            min={0}
+            onWheel={preventInputWheel}
+            onChange={(e) => onUpdateField(i, "fittingCharges", Number(e.target.value))}
+          />
+        </div>
+
+        <div>
           <label className="form-label">Advance Paid (₹)</label>
           <input
             type="number"
@@ -175,22 +190,22 @@ function BookingSelectedDressRow({
             onChange={(e) => onUpdateField(i, "advance", Number(e.target.value))}
           />
         </div>
+      </div>
 
-        <div>
-          <label className="form-label">Remaining</label>
-          <div
-            style={{
-              padding: "8px 12px",
-              background: "var(--danger-bg)",
-              borderRadius: 8,
-              textAlign: "center",
-              fontSize: 16,
-              fontWeight: 800,
-              color: "var(--danger)",
-            }}
-          >
-            ₹{formatInr(Math.max(0, d.price - d.advance))}
-          </div>
+      <div style={{ marginBottom: 12 }}>
+        <label className="form-label">Remaining</label>
+        <div
+          style={{
+            padding: "8px 12px",
+            background: "var(--danger-bg)",
+            borderRadius: 8,
+            textAlign: "center",
+            fontSize: 16,
+            fontWeight: 800,
+            color: "var(--danger)",
+          }}
+        >
+          ₹{formatInr(bookingItemRemaining(d.price, d.advance, d.fittingCharges))}
         </div>
       </div>
 

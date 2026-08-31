@@ -24,6 +24,7 @@ export default async function DeliveryDetailPage({ params }: { params: Promise<{
     category: bi.category,
     size: bi.size || bi.item?.size,
     price: bi.price,
+    fittingCharges: bi.fittingCharges || 0,
     remaining: bi.remaining,
     photo: bi.item ? catalogPhotoRef(bi.item) : "",
     isDelivered: bi.isDelivered,

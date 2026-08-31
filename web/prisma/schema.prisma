@@ -292,6 +292,7 @@ model Booking {
   venue              String?
   securityDeposit    Float     @default(0) @map("security_deposit")
   totalPrice         Float     @default(0) @map("total_price")
+  totalFittingCharges Float    @default(0) @map("total_fitting_charges")
   totalAdvance       Float     @default(0) @map("total_advance")
   totalRemaining     Float     @default(0) @map("total_remaining")
   advancePaymentMode String    @default("cash") @map("advance_payment_mode")
@@ -378,6 +379,7 @@ model BookingItem {
   dressName     String  @map("dress_name")
   category      String?
   price         Float   @default(0)
+  fittingCharges Float  @default(0) @map("fitting_charges")
   advance       Float   @default(0)
   remaining     Float   @default(0)
   size          String?
