@@ -163,6 +163,14 @@ export default function ReturnDetailClient({
     () => itemDelivery.filter((d) => (d.isDelivered || bookingIsDelivered) && !d.isCancelled),
     [itemDelivery, bookingIsDelivered],
   );
+  const commonDeliveryNote = booking.deliveryNotes?.trim() || "";
+  const dressDeliveryNotes = useMemo(() => {
+    const rows = deliveredItems
+      .map((d) => ({ dressName: d.dressName, note: d.itemDeliveryNotes?.trim() || "" }))
+      .filter((row) => row.note);
+    if (!commonDeliveryNote) return rows;
+    return rows.filter((row) => row.note !== commonDeliveryNote);
+  }, [deliveredItems, commonDeliveryNote]);
   const returnedItems = useMemo(
     () => deliveredItems.filter((d) => d.isReturned),
     [deliveredItems],
@@ -722,6 +730,8 @@ export default function ReturnDetailClient({
         idPhoto1={booking.idPhoto1}
         idPhoto2={booking.idPhoto2}
         variant="card"
+        commonDeliveryNote={commonDeliveryNote}
+        dressDeliveryNotes={dressDeliveryNotes}
       />
 
       <div className="card" style={{ marginBottom: 24 }}>
@@ -1051,12 +1061,6 @@ export default function ReturnDetailClient({
                     </span>
                   </div>
                 )}
-                {booking.deliveryNotes && (
-                  <div style={{ marginTop: 8, fontSize: 13, padding: "8px 12px", background: "var(--info-bg, #e8f4fd)", borderRadius: 8 }}>
-                    <span style={{ fontSize: 11, color: "var(--text-muted)", fontWeight: 700 }}>COMMON DELIVERY NOTE </span>
-                    {booking.deliveryNotes}
-                  </div>
-                )}
                 {deliveryStatusCards.map((d) => (
                   <div
                     key={d.id}
@@ -1127,11 +1131,6 @@ export default function ReturnDetailClient({
                             {securityPaymentLabel ? ` (${securityPaymentLabel})` : ""}
                           </span>
                         )}
-                      </div>
-                    )}
-                    {d.itemDeliveryNotes && (
-                      <div style={{ marginTop: 6, color: "var(--text-muted)", fontSize: 12 }}>
-                        <strong>Delivery note:</strong> {d.itemDeliveryNotes}
                       </div>
                     )}
                     {d.isReturned && (partialReturn || undeliveredItems.length > 0) && (

@@ -1,9 +1,7 @@
 import prisma, { dateQ } from "../prisma";
+import { getCategoryDivisionLists } from "@/lib/categories";
 import { activeBookingWhere } from "@/lib/bookingActiveStatus";
 import {
-  BASE_JEWELLERY,
-  BASE_MENS,
-  BASE_WOMENS,
   formatDate,
   parseDate,
 } from "../constants";
@@ -18,7 +16,10 @@ import {
 import {
   refundAmountsByFinanceDivision,
   sumPricesByFinanceDivision,
+  financeItemDivision,
+  financeItemDivisionForBookingItem,
 } from "../financeGenderTotals";
+import { type PackingDivision } from "../packingDivision";
 import {
   allocateAdvanceByCategory,
   allocateBalanceByCategory,
@@ -61,21 +62,24 @@ const financeOrderSelect = {
   },
 } as const;
 
+const financeBookingItemSelect = {
+  advance: true,
+  category: true,
+  price: true,
+  fittingCharges: true,
+  remaining: true,
+  itemRemainingCollected: true,
+  itemId: true,
+  dressName: true,
+  size: true,
+  isCancelled: true,
+  isDelivered: true,
+  item: { select: { category: true, subCategory: true } },
+} as const;
+
 const financeBookingInclude = {
   bookingItems: {
-    select: {
-      advance: true,
-      category: true,
-      price: true,
-      fittingCharges: true,
-      remaining: true,
-      itemRemainingCollected: true,
-      itemId: true,
-      dressName: true,
-      size: true,
-      isCancelled: true,
-      isDelivered: true,
-    },
+    select: financeBookingItemSelect,
   },
   orders: financeOrderSelect,
 } as const;
@@ -95,7 +99,7 @@ const financeBookingIncludeWithItem = {
       itemId: true,
       dressName: true,
       size: true,
-      item: { select: { size: true, photo: true } },
+      item: { select: { size: true, photo: true, category: true, subCategory: true } },
     },
   },
 } as const;
@@ -139,15 +143,11 @@ type BookingPaymentRow = {
 };
 
 function sumGenderFromCategories(byCat: Record<string, number>) {
-  let mens = 0;
-  let womens = 0;
-  let jewellery = 0;
-  for (const [cat, amt] of Object.entries(byCat)) {
-    if (BASE_MENS.includes(cat)) mens += amt;
-    else if (BASE_WOMENS.includes(cat)) womens += amt;
-    else if (BASE_JEWELLERY.includes(cat)) jewellery += amt;
-  }
-  return { mens, womens, jewellery };
+  return {
+    mens: byCat.mens || 0,
+    womens: byCat.womens || 0,
+    jewellery: byCat.jewellery || 0,
+  };
 }
 
 function mergeCategoryMaps(...maps: Record<string, number>[]) {
@@ -201,6 +201,7 @@ export async function getDailySale(targetDateStr: string) {
   const target = parseDate(targetDateStr);
   const dayStartQ = startOfDayQ(target);
   const dayEndQ = endOfDayQ(target);
+  const divisionLists = await getCategoryDivisionLists();
 
   const [
     bookingsToday,
@@ -256,15 +257,19 @@ export async function getDailySale(targetDateStr: string) {
     if (b.bookingItems.length) {
       for (const bi of b.bookingItems) {
         if (bi.advance > 0) advance_count += 1;
-        const cat = bi.category || "Other";
-        advance_by_category[cat] = (advance_by_category[cat] || 0) + bi.advance;
-        if (BASE_MENS.includes(cat)) advance_mens += bi.advance;
-        else if (BASE_WOMENS.includes(cat)) advance_womens += bi.advance;
-        else if (BASE_JEWELLERY.includes(cat)) advance_jewellery += bi.advance;
+        const div = financeItemDivisionForBookingItem(bi, divisionLists);
+        advance_by_category[div] = (advance_by_category[div] || 0) + bi.advance;
+        if (div === "mens") advance_mens += bi.advance;
+        else if (div === "womens") advance_womens += bi.advance;
+        else advance_jewellery += bi.advance;
       }
     } else {
       if ((b.totalAdvance || b.advance) > 0) advance_count += 1;
-      advance_by_category["Other"] = (advance_by_category["Other"] || 0) + (b.totalAdvance || b.advance);
+      const div = financeItemDivision(b.dressName, undefined, undefined, divisionLists);
+      advance_by_category[div] = (advance_by_category[div] || 0) + (b.totalAdvance || b.advance);
+      if (div === "mens") advance_mens += b.totalAdvance || b.advance || 0;
+      else if (div === "womens") advance_womens += b.totalAdvance || b.advance || 0;
+      else advance_jewellery += b.totalAdvance || b.advance || 0;
     }
   }
 
@@ -275,8 +280,8 @@ export async function getDailySale(targetDateStr: string) {
       (advance_by_category[CUSTOM_ORDERS_CATEGORY] || 0) + order_advance;
   }
 
-  const delivery_by_category = allocateBalanceByCategory(deliveredToday, "delivery");
-  const return_by_category = allocateBalanceByCategory(returnedToday, "return");
+  const delivery_by_category = allocateBalanceByCategory(deliveredToday, "delivery", divisionLists);
+  const return_by_category = allocateBalanceByCategory(returnedToday, "return", divisionLists);
   const remaining_by_category = mergeCategoryMaps(delivery_by_category, return_by_category);
   // Custom Orders: balance recognized when collected today.
   if (order_balance_collected > 0) {
@@ -300,8 +305,8 @@ export async function getDailySale(targetDateStr: string) {
   const payment_collected_online = advance_online + remaining_online;
 
   const refund_total = totalRefundAmount(refundsToday);
-  const refundCats = refundByCategory(refundsToday);
-  const refundGender = refundGenderTotals(refundCats);
+  const refundCats = refundByCategory(refundsToday, divisionLists);
+  const refundGender = refundGenderTotals(refundCats, divisionLists);
 
   advance_mens -= refundGender.mens;
   advance_womens -= refundGender.womens;
@@ -322,17 +327,18 @@ export async function getDailySale(targetDateStr: string) {
     if (b.bookingItems.length) {
       const catsInBooking = new Set<string>();
       for (const bi of b.bookingItems) {
-        catsInBooking.add(bi.category || "Other");
+        catsInBooking.add(financeItemDivisionForBookingItem(bi, divisionLists));
       }
       for (const cat of catsInBooking) {
         category_booking_counts[cat] = (category_booking_counts[cat] || 0) + 1;
       }
     } else {
-      category_booking_counts["Other"] = (category_booking_counts["Other"] || 0) + 1;
+      const div = financeItemDivision(b.dressName, undefined, undefined, divisionLists);
+      category_booking_counts[div] = (category_booking_counts[div] || 0) + 1;
     }
   }
-  const category_delivered_counts = countDeliveredByCategory(deliveredToday);
-  const dresses_by_category = countDressesBookedByCategory(bookingsToday);
+  const category_delivered_counts = countDeliveredByCategory(deliveredToday, divisionLists);
+  const dresses_by_category = countDressesBookedByCategory(bookingsToday, divisionLists);
   const dresses_booked = Object.values(dresses_by_category).reduce((a, b) => a + b, 0);
   let orders_booked = 0;
   for (const b of bookingsToday) {
@@ -389,6 +395,7 @@ export async function getDailyBooking(targetDateStr: string) {
   const target = parseDate(targetDateStr);
   const dayStartQ = startOfDayQ(target);
   const dayEndQ = endOfDayQ(target);
+  const divisionLists = await getCategoryDivisionLists();
 
   const [bookings, deliveredToday] = await financeParallelLimit(
     () =>
@@ -411,7 +418,7 @@ export async function getDailyBooking(targetDateStr: string) {
 
   const total_by_category: Record<string, number> = {};
   const dresses_by_category: Record<string, number> = {};
-  let divisionTotals = { mens: 0, womens: 0, jewellery: 0, other: 0 };
+  let divisionTotals: Record<PackingDivision, number> = { mens: 0, womens: 0, jewellery: 0 };
   let dresses_booked = 0;
 
   for (const b of bookings) {
@@ -419,20 +426,20 @@ export async function getDailyBooking(targetDateStr: string) {
       for (const bi of b.bookingItems) {
         if (bi.isCancelled) continue;
         dresses_booked += 1;
-        const cat = bi.category || "Other";
-        dresses_by_category[cat] = (dresses_by_category[cat] || 0) + 1;
-        total_by_category[cat] = (total_by_category[cat] || 0) + bi.price;
+        const div = financeItemDivisionForBookingItem(bi, divisionLists);
+        dresses_by_category[div] = (dresses_by_category[div] || 0) + 1;
+        total_by_category[div] = (total_by_category[div] || 0) + bi.price;
       }
-      const div = sumPricesByFinanceDivision(b.bookingItems);
+      const div = sumPricesByFinanceDivision(b.bookingItems, divisionLists);
       divisionTotals.mens += div.mens;
       divisionTotals.womens += div.womens;
       divisionTotals.jewellery += div.jewellery;
-      divisionTotals.other += div.other;
     } else {
       dresses_booked += 1;
-      dresses_by_category["Other"] = (dresses_by_category["Other"] || 0) + 1;
-      total_by_category["Other"] = (total_by_category["Other"] || 0) + (b.totalPrice || b.price);
-      divisionTotals.other += b.totalPrice || b.price;
+      const div = financeItemDivision(b.dressName, undefined, undefined, divisionLists);
+      dresses_by_category[div] = (dresses_by_category[div] || 0) + 1;
+      total_by_category[div] = (total_by_category[div] || 0) + (b.totalPrice || b.price);
+      divisionTotals[div] += b.totalPrice || b.price;
     }
   }
 
@@ -455,8 +462,8 @@ export async function getDailyBooking(targetDateStr: string) {
   const dressGrand = Object.values(total_by_category).reduce((a, b) => a + b, 0);
   const refundsToday = await getRefundsBetween(dayStartQ, dayEndQ);
   const refund_total = totalRefundAmount(refundsToday);
-  const refundCats = refundByCategory(refundsToday);
-  const refundGender = refundAmountsByFinanceDivision(refundCats);
+  const refundCats = refundByCategory(refundsToday, divisionLists);
+  const refundGender = refundAmountsByFinanceDivision(refundCats, divisionLists);
   const inactive = await getInactiveBookingStats(dayStartQ, dayEndQ);
 
   const booking_amount = dressGrand - refund_total;
@@ -476,7 +483,6 @@ export async function getDailyBooking(targetDateStr: string) {
     mens_total: divisionTotals.mens - refundGender.mens,
     womens_total: divisionTotals.womens - refundGender.womens,
     jewellery_total: divisionTotals.jewellery - refundGender.jewellery,
-    other_total: divisionTotals.other - refundGender.other,
     ...inactive,
   };
 }
@@ -485,6 +491,7 @@ export async function getMonthlySale(monthStr: string) {
   const [year, month] = monthStr.split("-").map(Number);
   const monthStart = dateQ(new Date(Date.UTC(year, month - 1, 1)));
   const monthEnd = dateQ(new Date(Date.UTC(year, month, 1)));
+  const divisionLists = await getCategoryDivisionLists();
 
   const [
     bookings,
@@ -560,35 +567,36 @@ export async function getMonthlySale(monthStr: string) {
     if (b.bookingItems.length) {
       const catsInBooking = new Set<string>();
       for (const bi of b.bookingItems) {
-        const cat = bi.category || "Other";
-        catsInBooking.add(cat);
-        category_totals[cat] = (category_totals[cat] || 0) + bi.price;
+        const div = financeItemDivisionForBookingItem(bi, divisionLists);
+        catsInBooking.add(div);
+        category_totals[div] = (category_totals[div] || 0) + bi.price;
         if (bi.advance > 0) advance_count += 1;
       }
       for (const cat of catsInBooking) {
         category_booking_counts[cat] = (category_booking_counts[cat] || 0) + 1;
       }
     } else {
-      category_booking_counts["Other"] = (category_booking_counts["Other"] || 0) + 1;
+      const div = financeItemDivision(b.dressName, undefined, undefined, divisionLists);
+      category_booking_counts[div] = (category_booking_counts[div] || 0) + 1;
       if ((b.totalAdvance || b.advance) > 0) advance_count += 1;
-      category_totals["Other"] = (category_totals["Other"] || 0) + (b.totalPrice || b.price);
+      category_totals[div] = (category_totals[div] || 0) + (b.totalPrice || b.price);
     }
   }
 
   const refund_total = advance_refunded;
-  const refundCats = refundByCategory(refundsMonth);
+  const refundCats = refundByCategory(refundsMonth, divisionLists);
   const category_totals_net = subtractRefundsFromCategories(category_totals, refundCats);
   const advance_by_category = subtractRefundsFromCategories(
-    allocateAdvanceByCategory(bookings),
+    allocateAdvanceByCategory(bookings, divisionLists),
     refundCats,
   );
-  const category_delivered_counts = countDeliveredByCategory(deliveredInMonth);
+  const category_delivered_counts = countDeliveredByCategory(deliveredInMonth, divisionLists);
   const dresses_delivered = Object.values(category_delivered_counts).reduce((a, b) => a + b, 0);
-  const dresses_by_category = countDressesBookedByCategory(bookings);
+  const dresses_by_category = countDressesBookedByCategory(bookings, divisionLists);
   const dresses_booked = Object.values(dresses_by_category).reduce((a, b) => a + b, 0);
   const balance_by_category = mergeCategoryMaps(
-    allocateBalanceByCategory(deliveredInMonth, "delivery"),
-    allocateBalanceByCategory(returnedInMonth, "return"),
+    allocateBalanceByCategory(deliveredInMonth, "delivery", divisionLists),
+    allocateBalanceByCategory(returnedInMonth, "return", divisionLists),
   );
   if (order_cost > 0) {
     category_totals_net[CUSTOM_ORDERS_CATEGORY] = (category_totals_net[CUSTOM_ORDERS_CATEGORY] || 0) + order_cost;
@@ -669,6 +677,7 @@ export async function getYearlySale(fromStr?: string, toStr?: string) {
 
   const rangeStart = dateQ(fromDate);
   const rangeEnd = endOfDayQ(toDate);
+  const divisionLists = await getCategoryDivisionLists();
 
   const [
     bookings,
@@ -746,18 +755,19 @@ export async function getYearlySale(fromStr?: string, toStr?: string) {
     if (b.bookingItems.length) {
       const catsInBooking = new Set<string>();
       for (const bi of b.bookingItems) {
-        const cat = bi.category || "Other";
-        catsInBooking.add(cat);
-        category_totals[cat] = (category_totals[cat] || 0) + bi.price;
+        const div = financeItemDivisionForBookingItem(bi, divisionLists);
+        catsInBooking.add(div);
+        category_totals[div] = (category_totals[div] || 0) + bi.price;
         if (bi.advance > 0) advance_count += 1;
       }
       for (const cat of catsInBooking) {
         category_booking_counts[cat] = (category_booking_counts[cat] || 0) + 1;
       }
     } else {
-      category_booking_counts["Other"] = (category_booking_counts["Other"] || 0) + 1;
+      const div = financeItemDivision(b.dressName, undefined, undefined, divisionLists);
+      category_booking_counts[div] = (category_booking_counts[div] || 0) + 1;
       if ((b.totalAdvance || b.advance) > 0) advance_count += 1;
-      category_totals["Other"] = (category_totals["Other"] || 0) + (b.totalPrice || b.price);
+      category_totals[div] = (category_totals[div] || 0) + (b.totalPrice || b.price);
     }
   }
 
@@ -1071,8 +1081,8 @@ export async function getCategoryAnalysis(fromStr: string, toStr: string) {
     include: financeBookingIncludeLite,
   });
 
-  const delivery_by_cat = allocateBalanceByCategory(delivered, "delivery", "Uncategorized");
-  const return_by_cat = allocateBalanceByCategory(returned, "return", "Uncategorized");
+  const delivery_by_cat = allocateBalanceByCategory(delivered, "delivery");
+  const return_by_cat = allocateBalanceByCategory(returned, "return");
   const remaining_by_cat = mergeCategoryMaps(delivery_by_cat, return_by_cat);
 
   // Custom Orders category: advance at booking, balance when collected.

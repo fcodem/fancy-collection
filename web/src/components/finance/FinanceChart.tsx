@@ -116,14 +116,23 @@ export function FinanceChart({
             },
             scales:
               type === "bar"
-                ? {
-                    x: {
-                      ticks: {
-                        callback: (v) => `₹${Number(v).toLocaleString("en-IN")}`,
+                ? horizontal
+                  ? {
+                      x: {
+                        ticks: {
+                          callback: (v) => `₹${Number(v).toLocaleString("en-IN")}`,
+                        },
                       },
-                    },
-                    y: { ticks: { font: { size: 11 } } },
-                  }
+                      y: { ticks: { font: { size: 11 } } },
+                    }
+                  : {
+                      x: { ticks: { font: { size: 11 }, maxRotation: 45, minRotation: 0 } },
+                      y: {
+                        ticks: {
+                          callback: (v) => `₹${Number(v).toLocaleString("en-IN")}`,
+                        },
+                      },
+                    }
                 : undefined,
           },
         }

@@ -1,4 +1,11 @@
+import { resolveEffectiveCategory } from "@/lib/categoryDivision";
+import { getCategoryDivisionLists } from "@/lib/categories";
 import prisma from "@/lib/prisma";
+import {
+  packingDivision,
+  parsePackingDivisionFilter,
+  type PackingDivision,
+} from "@/lib/packingDivision";
 import { whereDeliveryInRange, whereReturnOnAnyDates } from "@/lib/bookingDateQuery";
 import { formatDate } from "@/lib/constants";
 import { bookingListRecordFrom } from "@/lib/bookingDetails";
@@ -12,6 +19,31 @@ import type { Prisma } from "@prisma/client";
 const DEFAULT_LIMIT = 20;
 const MAX_LIMIT = 50;
 
+type PackingListItemRow = {
+  bi_id: number | null;
+  dress_name: string;
+  display_name: string;
+  category: string;
+  sub_category: string;
+  size: string;
+  prepared_by: string;
+  checked_by: string;
+  is_packed_ready: boolean;
+  packing_note: string;
+  dress_note: string;
+  returning_warning: unknown;
+};
+
+function itemMatchesDivision(
+  item: Pick<PackingListItemRow, "category" | "dress_name" | "sub_category">,
+  division: PackingDivision,
+  categoryLists: Awaited<ReturnType<typeof getCategoryDivisionLists>>,
+): boolean {
+  return (
+    packingDivision(item.category, item.dress_name, item.sub_category, categoryLists) === division
+  );
+}
+
 export async function getPackingListPage(opts: {
   deliveryFrom: string;
   deliveryTo?: string;
@@ -20,7 +52,10 @@ export async function getPackingListPage(opts: {
   limit?: number;
 }) {
   const limit = Math.min(MAX_LIMIT, Math.max(1, opts.limit || DEFAULT_LIMIT));
-  const category = opts.category?.trim() || "";
+  const rawCategory = opts.category?.trim() || "";
+  const division = parsePackingDivisionFilter(rawCategory);
+  const category = division ? "" : rawCategory;
+  const categoryLists = division ? await getCategoryDivisionLists() : null;
   const cursor = decodePackingCursor(opts.cursor);
   const dateWhere = await whereDeliveryInRange(
     opts.deliveryFrom,
@@ -193,7 +228,7 @@ export async function getPackingListPage(opts: {
               item.category,
               bookingItemSize(item),
             ),
-            category: item.category || item.item?.category || "",
+            category: resolveEffectiveCategory(item.category, item.item?.category, item.item?.subCategory),
             sub_category: item.item?.subCategory || "",
             size: bookingItemSize(item),
             prepared_by: item.preparedBy || "",
@@ -229,12 +264,13 @@ export async function getPackingListPage(opts: {
               : null,
           };
         })
-      : booking.dressName && !category
+      : booking.dressName && !category && !division
         ? [{
             bi_id: null,
             dress_name: booking.dressName,
             display_name: booking.dressName,
             category: booking.legacyItem?.category || "",
+            sub_category: "",
             size: booking.legacyItem?.size || "",
             prepared_by: "",
             checked_by: "",
@@ -244,23 +280,34 @@ export async function getPackingListPage(opts: {
             returning_warning: null,
           }]
         : [];
-    if (!items.length && (category || !booking.orders.length)) return [];
+    if (!items.length && ((category || division) || !booking.orders.length)) return [];
     return [{
       ...bookingListRecordFrom(booking),
       id: booking.id,
       serial_no: booking.monthlySerial,
       is_star: isStarBooking(booking),
       items,
-      orders: category
+      orders: category || division
         ? []
         : serializeActiveOrders(booking.orders as Parameters<typeof serializeActiveOrders>[0]),
     }];
     }),
   );
 
+  const filteredResults =
+    division && categoryLists
+      ? results
+          .map((booking) => ({
+            ...booking,
+            items: booking.items.filter((item) => itemMatchesDivision(item, division, categoryLists)),
+            orders: [],
+          }))
+          .filter((booking) => booking.items.length > 0)
+      : results;
+
   const last = visible[visible.length - 1];
   return {
-    results,
+    results: filteredResults,
     hasMore,
     nextCursor:
       hasMore && last

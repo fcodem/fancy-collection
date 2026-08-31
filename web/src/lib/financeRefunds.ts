@@ -1,4 +1,5 @@
 import prisma from "./prisma";
+import { financeItemDivision, financeItemDivisionForBookingItem, type CategoryDivisionLists } from "./financeGenderTotals";
 
 type BookingWithItems = {
   refundAmount: number | null;
@@ -9,6 +10,8 @@ type BookingWithItems = {
     price: number;
     isCancelled?: boolean;
     cancelRefundAmount?: number | null;
+    dressName?: string | null;
+    item?: { category?: string | null; subCategory?: string | null } | null;
   }>;
 };
 
@@ -30,6 +33,8 @@ export async function getRefundsBetween(from: Date, to: Date) {
           price: true,
           isCancelled: true,
           cancelRefundAmount: true,
+          dressName: true,
+          item: { select: { category: true, subCategory: true } },
         },
       },
     },
@@ -40,7 +45,10 @@ export function totalRefundAmount(bookings: BookingWithItems[]): number {
   return bookings.reduce((s, b) => s + (b.refundAmount || 0), 0);
 }
 
-export function refundByCategory(bookings: BookingWithItems[]): Record<string, number> {
+export function refundByCategory(
+  bookings: BookingWithItems[],
+  lists?: CategoryDivisionLists,
+): Record<string, number> {
   const byCat: Record<string, number> = {};
   for (const b of bookings) {
     const amt = b.refundAmount || 0;
@@ -48,31 +56,30 @@ export function refundByCategory(bookings: BookingWithItems[]): Record<string, n
     const total = b.totalPrice || b.price || 0;
     if (b.bookingItems.length && total > 0) {
       for (const bi of b.bookingItems) {
-        const cat = bi.category || "Other";
-        byCat[cat] = (byCat[cat] || 0) + amt * (bi.price / total);
+        const div = financeItemDivisionForBookingItem(bi, lists);
+        byCat[div] = (byCat[div] || 0) + amt * (bi.price / total);
       }
     } else {
-      byCat["Other"] = (byCat["Other"] || 0) + amt;
+      byCat.womens = (byCat.womens || 0) + amt;
     }
   }
   return byCat;
 }
 
-import { financeItemDivision } from "./financeGenderTotals";
-
-export function refundGenderTotals(refundCats: Record<string, number>) {
+export function refundGenderTotals(
+  refundCats: Record<string, number>,
+  lists?: CategoryDivisionLists,
+) {
   let mens = 0;
   let womens = 0;
   let jewellery = 0;
-  let other = 0;
   for (const [cat, amt] of Object.entries(refundCats)) {
-    const div = financeItemDivision(cat);
+    const div = financeItemDivision(cat, undefined, undefined, lists);
     if (div === "mens") mens += amt;
     else if (div === "womens") womens += amt;
-    else if (div === "jewellery") jewellery += amt;
-    else other += amt;
+    else jewellery += amt;
   }
-  return { mens, womens, jewellery, other };
+  return { mens, womens, jewellery };
 }
 
 /** Subtract refund map from a category totals map (mutates nothing). */

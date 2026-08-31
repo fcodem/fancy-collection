@@ -8,6 +8,11 @@ import {
   BASE_WOMENS,
 } from "@/lib/constants";
 import { cachedFetchJson } from "@/lib/clientRequestCache";
+import {
+  packingDivisionFilterLabel,
+  packingDivisionFilterValue,
+  type PackingDivision,
+} from "@/lib/packingDivision";
 
 export type CategoryLists = {
   mens_categories: string[];
@@ -31,12 +36,15 @@ export default function CategorySelect({
   onChange,
   className = "form-control",
   categories: categoriesProp,
+  includeDivisionFilters = false,
 }: {
   id?: string;
   value?: string;
   onChange?: (v: string) => void;
   className?: string;
   categories?: CategoryLists | null;
+  /** When true, adds "All Men's / Women's / Jewellery" options for whole-section filters. */
+  includeDivisionFilters?: boolean;
 }) {
   const [loaded, setLoaded] = useState<CategoryLists | null>(categoriesProp ?? null);
 
@@ -67,12 +75,33 @@ export default function CategorySelect({
   }, [categoriesProp]);
 
   const cats = loaded ?? FALLBACK;
-  const other = cats.other_categories || [];
+  const other = (cats.other_categories || []).filter(
+    (c) => c.trim().toLowerCase() !== "other",
+  );
+
+  const divisionOptions: Array<{ key: PackingDivision; label: string; value: string }> = includeDivisionFilters
+    ? [
+        { key: "mens", label: packingDivisionFilterLabel("mens"), value: packingDivisionFilterValue("mens") },
+        { key: "womens", label: packingDivisionFilterLabel("womens"), value: packingDivisionFilterValue("womens") },
+        {
+          key: "jewellery",
+          label: packingDivisionFilterLabel("jewellery"),
+          value: packingDivisionFilterValue("jewellery"),
+        },
+      ]
+    : [];
 
   return (
     <select id={id} className={className} value={value} onChange={(e) => onChange?.(e.target.value)}>
       <option value="">All Categories</option>
       <optgroup label="Men's">
+        {divisionOptions
+          .filter((option) => option.key === "mens")
+          .map((option) => (
+            <option key={option.value} value={option.value}>
+              {option.label}
+            </option>
+          ))}
         {cats.mens_categories.map((c) => (
           <option key={c} value={c}>
             {c}
@@ -80,6 +109,13 @@ export default function CategorySelect({
         ))}
       </optgroup>
       <optgroup label="Women's">
+        {divisionOptions
+          .filter((option) => option.key === "womens")
+          .map((option) => (
+            <option key={option.value} value={option.value}>
+              {option.label}
+            </option>
+          ))}
         {cats.womens_categories.map((c) => (
           <option key={c} value={c}>
             {c}
@@ -87,6 +123,13 @@ export default function CategorySelect({
         ))}
       </optgroup>
       <optgroup label="Jewellery">
+        {divisionOptions
+          .filter((option) => option.key === "jewellery")
+          .map((option) => (
+            <option key={option.value} value={option.value}>
+              {option.label}
+            </option>
+          ))}
         {cats.jewellery_categories.map((c) => (
           <option key={c} value={c}>
             {c}

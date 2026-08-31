@@ -23,7 +23,7 @@ export async function POST(req: NextRequest) {
     const body = (await req.json()) as { name?: string; group?: string };
     const name = String(body.name || "").trim();
     if (!name) return jsonError("Category name is required.");
-    const group = String(body.group || "other").trim() || "other";
+    const group = String(body.group || "womens").trim() || "womens";
     const row = await addCustomCategory(name, group);
     return jsonOk({ ok: true, id: row.id, name: row.name, group: row.group });
   } catch (e) {

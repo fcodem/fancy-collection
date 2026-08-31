@@ -1,5 +1,6 @@
 import { formatInr } from "@/lib/format";
 import { categoryLabelKeys, numberMap, numberValue } from "@/lib/finance/safeNumbers";
+import { formatFinanceCategoryLabel, sortFinanceCategoryKeys } from "@/lib/packingDivision";
 
 export function FinanceCategorySaleTable({
   advanceByCategory,
@@ -23,7 +24,7 @@ export function FinanceCategorySaleTable({
   const bookings = numberMap(bookingCounts);
   const dresses = numberMap(dressCounts);
   const delivered = numberMap(deliveredCounts);
-  const labels = categoryLabelKeys(advance, balance, bookings, dresses, delivered);
+  const labels = sortFinanceCategoryKeys(categoryLabelKeys(advance, balance, bookings, dresses, delivered));
   if (labels.length === 0) return null;
 
   const totalAdvance = labels.reduce((s, c) => s + numberValue(advance[c]), 0);
@@ -54,7 +55,7 @@ export function FinanceCategorySaleTable({
             const balanceAmt = numberValue(balance[cat]);
             return (
               <tr key={cat}>
-                <td>{cat}</td>
+                <td>{formatFinanceCategoryLabel(cat)}</td>
                 <td>₹{formatInr(advanceAmt)}</td>
                 <td>₹{formatInr(balanceAmt)}</td>
                 <td><strong>{numberValue(bookings[cat])}</strong></td>

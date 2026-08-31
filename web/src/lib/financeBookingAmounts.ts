@@ -1,5 +1,10 @@
 import prisma from "./prisma";
 import { balanceLeftToCollect } from "./bookingDetails";
+import {
+  financeItemDivision,
+  financeItemDivisionForBookingItem,
+  type CategoryDivisionLists,
+} from "./financeGenderTotals";
 
 export { CUSTOM_ORDERS_CATEGORY } from "./finance/constants";
 
@@ -103,6 +108,8 @@ export type BookingBalanceRow = {
     category?: string | null;
     remaining?: number;
     itemRemainingCollected?: number | null;
+    dressName?: string | null;
+    item?: { category?: string | null; subCategory?: string | null } | null;
   }>;
 };
 
@@ -137,13 +144,13 @@ export function totalBalanceReceivedAtReturn(bookings: BookingBalanceRow[]): num
 export function allocateBalanceByCategory(
   bookings: BookingBalanceRow[],
   mode: "delivery" | "return",
-  defaultCategory = "Other",
+  lists?: CategoryDivisionLists,
 ): Record<string, number> {
   const byCat: Record<string, number> = {};
   for (const b of bookings) {
     if (b.bookingItems?.length) {
       for (const bi of b.bookingItems) {
-        const cat = (bi.category || defaultCategory).trim() || defaultCategory;
+        const cat = financeItemDivisionForBookingItem(bi, lists);
         const amt =
           mode === "delivery"
             ? bi.itemRemainingCollected || 0
@@ -157,7 +164,8 @@ export function allocateBalanceByCategory(
           ? b.remainingCollected || 0
           : balanceDueAtReturn(b);
       if (amt <= 0) continue;
-      byCat[defaultCategory] = (byCat[defaultCategory] || 0) + amt;
+      const cat = financeItemDivision((b as { dressName?: string | null }).dressName, undefined, undefined, lists);
+      byCat[cat] = (byCat[cat] || 0) + amt;
     }
   }
   return byCat;
@@ -167,22 +175,29 @@ export function allocateAdvanceByCategory(
   bookings: Array<{
     totalAdvance?: number;
     advance?: number;
-    bookingItems: Array<{ advance: number; category?: string | null }>;
+    dressName?: string | null;
+    bookingItems: Array<{
+      advance: number;
+      category?: string | null;
+      dressName?: string | null;
+      item?: { category?: string | null; subCategory?: string | null } | null;
+    }>;
   }>,
-  defaultCategory = "Other",
+  lists?: CategoryDivisionLists,
 ): Record<string, number> {
   const byCat: Record<string, number> = {};
   for (const b of bookings) {
     if (b.bookingItems?.length) {
       for (const bi of b.bookingItems) {
         if ((bi.advance || 0) <= 0) continue;
-        const cat = (bi.category || defaultCategory).trim() || defaultCategory;
+        const cat = financeItemDivisionForBookingItem(bi, lists);
         byCat[cat] = (byCat[cat] || 0) + bi.advance;
       }
     } else {
       const amt = b.totalAdvance || b.advance || 0;
       if (amt <= 0) continue;
-      byCat[defaultCategory] = (byCat[defaultCategory] || 0) + amt;
+      const cat = financeItemDivision(b.dressName, undefined, undefined, lists);
+      byCat[cat] = (byCat[cat] || 0) + amt;
     }
   }
   return byCat;
@@ -210,18 +225,26 @@ export function countBalanceItems(bookings: BookingBalanceRow[], mode: "delivery
 
 /** Count dresses/items booked, grouped by category. */
 export function countDressesBookedByCategory(
-  bookings: { bookingItems?: { category?: string | null }[]; dressName?: string | null }[],
-  defaultCategory = "Other",
+  bookings: {
+    bookingItems?: Array<{
+      category?: string | null;
+      dressName?: string | null;
+      item?: { category?: string | null; subCategory?: string | null } | null;
+    }>;
+    dressName?: string | null;
+  }[],
+  lists?: CategoryDivisionLists,
 ): Record<string, number> {
   const byCat: Record<string, number> = {};
   for (const b of bookings) {
     if (b.bookingItems?.length) {
       for (const bi of b.bookingItems) {
-        const cat = (bi.category || defaultCategory).trim() || defaultCategory;
+        const cat = financeItemDivisionForBookingItem(bi, lists);
         byCat[cat] = (byCat[cat] || 0) + 1;
       }
     } else if (b.dressName) {
-      byCat[defaultCategory] = (byCat[defaultCategory] || 0) + 1;
+      const cat = financeItemDivision(b.dressName, undefined, undefined, lists);
+      byCat[cat] = (byCat[cat] || 0) + 1;
     }
   }
   return byCat;
@@ -230,17 +253,18 @@ export function countDressesBookedByCategory(
 /** Count dresses/items delivered, grouped by category. */
 export function countDeliveredByCategory(
   bookings: BookingBalanceRow[],
-  defaultCategory = "Other",
+  lists?: CategoryDivisionLists,
 ): Record<string, number> {
   const byCat: Record<string, number> = {};
   for (const b of bookings) {
     if (b.bookingItems?.length) {
       for (const bi of b.bookingItems) {
-        const cat = (bi.category || defaultCategory).trim() || defaultCategory;
+        const cat = financeItemDivisionForBookingItem(bi, lists);
         byCat[cat] = (byCat[cat] || 0) + 1;
       }
     } else {
-      byCat[defaultCategory] = (byCat[defaultCategory] || 0) + 1;
+      const cat = financeItemDivision((b as { dressName?: string | null }).dressName, undefined, undefined, lists);
+      byCat[cat] = (byCat[cat] || 0) + 1;
     }
   }
   return byCat;

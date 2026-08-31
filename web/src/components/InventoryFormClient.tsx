@@ -219,7 +219,9 @@ export default function InventoryFormClient({
   const isMensProductEdit = Boolean(isEdit && mensProductEdit);
   const isMens = categories.mens_categories.includes(category) || isMensProductEdit;
   const isJewellery = categories.jewellery_categories.includes(category);
-  const otherCategories = categories.other_categories || [];
+  const otherCategories = (categories.other_categories || []).filter(
+    (c) => c.trim().toLowerCase() !== "other",
+  );
   const allListed = new Set([
     ...categories.mens_categories,
     ...categories.womens_categories,

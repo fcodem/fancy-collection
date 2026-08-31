@@ -35,7 +35,7 @@ export default function ManageCategoriesClient({
   const [groups, setGroups] = useState<Record<string, CategoryEntry[]> | null>(null);
   const [subCategories, setSubCategories] = useState<SubCategoryRow[]>([]);
   const [name, setName] = useState("");
-  const [group, setGroup] = useState("other");
+  const [group, setGroup] = useState("womens");
   const [subName, setSubName] = useState("");
   const [editingCatId, setEditingCatId] = useState<number | null>(null);
   const [editCatName, setEditCatName] = useState("");

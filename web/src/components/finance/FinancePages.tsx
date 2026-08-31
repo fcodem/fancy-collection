@@ -17,6 +17,7 @@ import {
   numberValue,
 } from "@/lib/finance/safeNumbers";
 import { formatInr } from "@/lib/format";
+import { formatFinanceCategoryLabel, sortFinanceCategoryKeys } from "@/lib/packingDivision";
 
 function FinanceStatus({ loading, error }: { loading: boolean; error: string }) {
   const [mounted, setMounted] = useState(false);
@@ -161,8 +162,9 @@ function FinanceSaleCategorySection({ data }: { data: Record<string, unknown> })
       : mergeNumberMaps(advanceByCategory, balanceByCategory);
   const catBookingCounts = numberMap(data.category_booking_counts);
   const deliveredByCategory = numberMap(data.category_delivered_counts);
-  const catLabels = numberMapKeys(saleByCategory);
-  const catValues = numberMapValues(saleByCategory);
+  const rawCatKeys = sortFinanceCategoryKeys(numberMapKeys(saleByCategory));
+  const catLabels = rawCatKeys.map(formatFinanceCategoryLabel);
+  const catValues = rawCatKeys.map((key) => numberValue(saleByCategory[key]));
 
   if (catLabels.length === 0) {
     return <p style={{ color: "var(--text-muted)", marginTop: 24 }}>No category revenue in this period.</p>;
@@ -206,7 +208,6 @@ export function FinanceDailyBooking({ todayIso }: { todayIso: string }) {
     mens_total?: number;
     womens_total?: number;
     jewellery_total?: number;
-    other_total?: number;
     dresses_booked?: number;
     dresses_delivered_balance?: number;
     dresses_by_category?: Record<string, number>;
@@ -232,8 +233,9 @@ export function FinanceDailyBooking({ todayIso }: { todayIso: string }) {
   }, [date]);
 
   const categoryTotals = numberMap(data?.total_by_category);
-  const labels = numberMapKeys(categoryTotals);
-  const values = numberMapValues(categoryTotals);
+  const rawLabels = sortFinanceCategoryKeys(numberMapKeys(categoryTotals));
+  const labels = rawLabels.map(formatFinanceCategoryLabel);
+  const values = rawLabels.map((key) => numberValue(categoryTotals[key]));
   const dressCounts = numberMap(data?.dresses_by_category);
 
   return (
@@ -274,13 +276,6 @@ export function FinanceDailyBooking({ todayIso }: { todayIso: string }) {
                 <div className="stat-label">Jewellery Total</div>
                 <div style={{ fontSize: 12, color: "var(--text-muted)", marginTop: 6 }}>Dress booking value</div>
               </div>
-              {(data.other_total ?? 0) > 0 && (
-                <div className="stat-card" style={{ padding: 20 }}>
-                  <div className="stat-value">₹{formatInr(data.other_total || 0)}</div>
-                  <div className="stat-label">Other / Accessories</div>
-                  <div style={{ fontSize: 12, color: "var(--text-muted)", marginTop: 6 }}>Not in Men / Women / Jewellery</div>
-                </div>
-              )}
             </div>
             <FinanceInactiveStats data={data} />
             {labels.length > 0 ? (
@@ -291,9 +286,9 @@ export function FinanceDailyBooking({ todayIso }: { todayIso: string }) {
                 <table className="data-table">
                   <thead><tr><th>Category</th><th>Dresses Booked</th><th>Amount</th></tr></thead>
                   <tbody>
-                    {labels.map((cat, i) => (
+                    {rawLabels.map((cat, i) => (
                       <tr key={cat}>
-                        <td>{cat}</td>
+                        <td>{labels[i]}</td>
                         <td><strong>{dressCounts[cat] ?? 0}</strong></td>
                         <td><strong>₹{formatInr(values[i])}</strong></td>
                       </tr>

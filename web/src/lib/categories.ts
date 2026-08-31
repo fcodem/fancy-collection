@@ -1,6 +1,11 @@
 import { revalidateTag, unstable_cache } from "next/cache";
 import prisma from "./prisma";
 import {
+  categoryDivisionListsFromAllCategories,
+  inferDivisionGroupFromLabel,
+  type CategoryDivisionLists,
+} from "./categoryDivision";
+import {
   BASE_ACCESSORY,
   BASE_JEWELLERY,
   BASE_MENS,
@@ -46,7 +51,16 @@ async function loadAllCategoriesFromDatabase() {
     else if (c.group === "womens" && !womens.includes(c.name)) womens.push(c.name);
     else if (c.group === "jewellery" && !jewellery.includes(c.name)) jewellery.push(c.name);
     else if (c.group === "accessory" && !accessory.includes(c.name)) accessory.push(c.name);
-    else if (c.group === "other" && !other.includes(c.name)) other.push(c.name);
+    else if (c.group === "other") {
+      if (c.name.trim().toLowerCase() === "other") {
+        if (!other.includes(c.name)) other.push(c.name);
+        continue;
+      }
+      const inferred = inferDivisionGroupFromLabel(c.name) || "womens";
+      if (inferred === "mens" && !mens.includes(c.name)) mens.push(c.name);
+      else if (inferred === "jewellery" && !jewellery.includes(c.name)) jewellery.push(c.name);
+      else if (!womens.includes(c.name)) womens.push(c.name);
+    }
   }
 
   return {
@@ -78,6 +92,11 @@ const getTaggedCategories = unstable_cache(
 /** Load categories only from pages/services that actually render category controls. */
 export async function getAllCategories() {
   return getTaggedCategories();
+}
+
+/** Men / Women / Jewellery lists for packing and finance division (includes accessories). */
+export async function getCategoryDivisionLists(): Promise<CategoryDivisionLists> {
+  return categoryDivisionListsFromAllCategories(await getAllCategories());
 }
 
 /** Category mutations call this after a successful write. */

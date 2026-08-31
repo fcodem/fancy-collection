@@ -10,6 +10,7 @@ import { FinanceOrdersSummary } from "@/components/finance/FinanceOrdersSummary"
 import { CUSTOM_ORDERS_CATEGORY } from "@/lib/finance/constants";
 import { categoryLabelKeys, numberMap, numberValue } from "@/lib/finance/safeNumbers";
 import { formatInr } from "@/lib/format";
+import { formatFinanceCategoryLabel, sortFinanceCategoryKeys } from "@/lib/packingDivision";
 
 export default function FinanceDailySalePage({ todayIso }: { todayIso: string }) {
   const [date, setDate] = useState(todayIso);
@@ -68,8 +69,9 @@ export default function FinanceDailySalePage({ todayIso }: { todayIso: string })
 
   const advanceByCategory = numberMap(d?.advance_by_category);
   const balanceByCategory = numberMap(d?.balance_by_category);
-  const catLabels = categoryLabelKeys(advanceByCategory, balanceByCategory);
-  const catValues = catLabels.map(
+  const rawCatKeys = sortFinanceCategoryKeys(categoryLabelKeys(advanceByCategory, balanceByCategory));
+  const catLabels = rawCatKeys.map(formatFinanceCategoryLabel);
+  const catValues = rawCatKeys.map(
     (cat) => numberValue(advanceByCategory[cat]) + numberValue(balanceByCategory[cat]),
   );
   const dressCounts = numberMap(d?.dresses_by_category);

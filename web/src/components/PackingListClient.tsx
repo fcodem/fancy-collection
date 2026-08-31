@@ -17,7 +17,7 @@ import { panelsForItemWarnings } from "@/lib/bookingWarningPdf";
 import { STANDARD_BOOKING_HEADERS, flattenBookingPdfRows, standardBookingPdfRow } from "@/lib/standardBookingPdfRows";
 import StarBookingBadge from "@/components/StarBookingBadge";
 import { addDaysIso } from "@/lib/dateInput";
-import { packingDivision, PACKING_DIVISIONS } from "@/lib/packingDivision";
+import { packingDivision, PACKING_DIVISIONS, parsePackingDivisionFilter, formatPackingCategoryFilterLabel, type CategoryDivisionLists } from "@/lib/packingDivision";
 import { sortByDeliverySchedule } from "@/lib/bookingDeliverySort";
 
 type PackingItem = {
@@ -50,12 +50,14 @@ type PackingBooking = StandardBookingDetails & {
 
 export default function PackingListClient({
   today,
+  categoryLists,
   initialRows = [],
   initialLoaded = false,
   initialNextCursor = null,
   initialHasMore = false,
 }: {
   today: string;
+  categoryLists: CategoryDivisionLists;
   initialRows?: PackingBooking[];
   /** True when SSR already completed a fetch (even if zero rows). */
   initialLoaded?: boolean;
@@ -65,6 +67,11 @@ export default function PackingListClient({
   const [from, setFrom] = useState(today);
   const [to, setTo] = useState(() => addDaysIso(today, 1));
   const [category, setCategory] = useState("");
+  const activeDivision = parsePackingDivisionFilter(category);
+  const visibleDivisions = activeDivision
+    ? PACKING_DIVISIONS.filter((div) => div.key === activeDivision)
+    : PACKING_DIVISIONS;
+  const categoryFilterLabel = category ? formatPackingCategoryFilterLabel(category) : "";
   const [rows, setRows] = useState<PackingBooking[]>(initialRows);
   const [loaded, setLoaded] = useState(initialLoaded || initialRows.length > 0);
   const [error, setError] = useState("");
@@ -269,7 +276,7 @@ export default function PackingListClient({
           <DownloadPdfButton
             title="Packing List"
             filename={`packing-list-${from}${to !== from ? `-to-${to}` : ""}`}
-            subtitle={`Delivery: ${from}${to !== from ? ` to ${to}` : ""}${category ? ` · ${category}` : ""}`}
+            subtitle={`Delivery: ${from}${to !== from ? ` to ${to}` : ""}${categoryFilterLabel ? ` · ${categoryFilterLabel}` : ""}`}
             dataFactory={buildPdfData}
             disabled={!loaded || !allItems.length}
             size="sm"
@@ -296,7 +303,7 @@ export default function PackingListClient({
             </div>
             <div>
               <label className="form-label">Category</label>
-              <CategorySelect value={category} onChange={setCategory} />
+              <CategorySelect value={category} onChange={setCategory} includeDivisionFilters />
             </div>
             <button className="btn btn-primary" onClick={() => void load(false)} disabled={loading}>
               {loading ? "Loading…" : "Load"}
@@ -319,21 +326,20 @@ export default function PackingListClient({
       )}
 
       {loaded &&
-        PACKING_DIVISIONS.map((div) => {
+        visibleDivisions.map((div) => {
           const sectionRows = sortByDeliverySchedule(
             rows
               .map((b) => {
                 const items = b.items.filter(
                   (item) =>
-                    packingDivision(item.category, item.dress_name, item.sub_category) === div.key,
+                    packingDivision(item.category, item.dress_name, item.sub_category, categoryLists) === div.key,
                 );
                 if (!items.length) return null;
                 return { ...b, items };
               })
               .filter((b): b is PackingBooking => Boolean(b)),
           );
-          if (!sectionRows.length && div.key === "other") return null;
-          if (!loaded) return null;
+          if (!sectionRows.length) return null;
           return (
             <section key={div.key} style={{ marginBottom: 28 }}>
               <h2
@@ -473,7 +479,7 @@ export default function PackingListClient({
             const firstKey = PACKING_DIVISIONS.find((d) =>
               (original?.items || []).some(
                 (item) =>
-                  packingDivision(item.category, item.dress_name, item.sub_category) === d.key,
+                  packingDivision(item.category, item.dress_name, item.sub_category, categoryLists) === d.key,
               ),
             )?.key;
             return firstKey === div.key && b.orders && b.orders.length > 0;
