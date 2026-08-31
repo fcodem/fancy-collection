@@ -2,6 +2,8 @@ import prisma from "./prisma";
 import { balanceLeftToCollect } from "./bookingDetails";
 import {
   financeItemDivision,
+  financeItemCategoryKey,
+  financeItemCategoryKeyForBookingItem,
   financeItemDivisionForBookingItem,
   type CategoryDivisionLists,
 } from "./financeGenderTotals";
@@ -150,7 +152,7 @@ export function allocateBalanceByCategory(
   for (const b of bookings) {
     if (b.bookingItems?.length) {
       for (const bi of b.bookingItems) {
-        const cat = financeItemDivisionForBookingItem(bi, lists);
+        const cat = financeItemCategoryKeyForBookingItem(bi, lists);
         const amt =
           mode === "delivery"
             ? bi.itemRemainingCollected || 0
@@ -164,7 +166,13 @@ export function allocateBalanceByCategory(
           ? b.remainingCollected || 0
           : balanceDueAtReturn(b);
       if (amt <= 0) continue;
-      const cat = financeItemDivision((b as { dressName?: string | null }).dressName, undefined, undefined, lists);
+      const cat = financeItemCategoryKey(
+        null,
+        null,
+        (b as { dressName?: string | null }).dressName,
+        null,
+        lists,
+      );
       byCat[cat] = (byCat[cat] || 0) + amt;
     }
   }
@@ -190,13 +198,13 @@ export function allocateAdvanceByCategory(
     if (b.bookingItems?.length) {
       for (const bi of b.bookingItems) {
         if ((bi.advance || 0) <= 0) continue;
-        const cat = financeItemDivisionForBookingItem(bi, lists);
+        const cat = financeItemCategoryKeyForBookingItem(bi, lists);
         byCat[cat] = (byCat[cat] || 0) + bi.advance;
       }
     } else {
       const amt = b.totalAdvance || b.advance || 0;
       if (amt <= 0) continue;
-      const cat = financeItemDivision(b.dressName, undefined, undefined, lists);
+      const cat = financeItemCategoryKey(null, null, b.dressName, null, lists);
       byCat[cat] = (byCat[cat] || 0) + amt;
     }
   }
@@ -239,11 +247,11 @@ export function countDressesBookedByCategory(
   for (const b of bookings) {
     if (b.bookingItems?.length) {
       for (const bi of b.bookingItems) {
-        const cat = financeItemDivisionForBookingItem(bi, lists);
+        const cat = financeItemCategoryKeyForBookingItem(bi, lists);
         byCat[cat] = (byCat[cat] || 0) + 1;
       }
     } else if (b.dressName) {
-      const cat = financeItemDivision(b.dressName, undefined, undefined, lists);
+      const cat = financeItemCategoryKey(null, null, b.dressName, null, lists);
       byCat[cat] = (byCat[cat] || 0) + 1;
     }
   }
@@ -259,11 +267,17 @@ export function countDeliveredByCategory(
   for (const b of bookings) {
     if (b.bookingItems?.length) {
       for (const bi of b.bookingItems) {
-        const cat = financeItemDivisionForBookingItem(bi, lists);
+        const cat = financeItemCategoryKeyForBookingItem(bi, lists);
         byCat[cat] = (byCat[cat] || 0) + 1;
       }
     } else {
-      const cat = financeItemDivision((b as { dressName?: string | null }).dressName, undefined, undefined, lists);
+      const cat = financeItemCategoryKey(
+        null,
+        null,
+        (b as { dressName?: string | null }).dressName,
+        null,
+        lists,
+      );
       byCat[cat] = (byCat[cat] || 0) + 1;
     }
   }

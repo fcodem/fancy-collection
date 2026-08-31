@@ -1,5 +1,9 @@
 import prisma from "./prisma";
-import { financeItemDivision, financeItemDivisionForBookingItem, type CategoryDivisionLists } from "./financeGenderTotals";
+import {
+  financeItemDivision,
+  financeItemCategoryKeyForBookingItem,
+  type CategoryDivisionLists,
+} from "./financeGenderTotals";
 
 type BookingWithItems = {
   refundAmount: number | null;
@@ -56,8 +60,8 @@ export function refundByCategory(
     const total = b.totalPrice || b.price || 0;
     if (b.bookingItems.length && total > 0) {
       for (const bi of b.bookingItems) {
-        const div = financeItemDivisionForBookingItem(bi, lists);
-        byCat[div] = (byCat[div] || 0) + amt * (bi.price / total);
+        const cat = financeItemCategoryKeyForBookingItem(bi, lists);
+        byCat[cat] = (byCat[cat] || 0) + amt * (bi.price / total);
       }
     } else {
       byCat.womens = (byCat.womens || 0) + amt;

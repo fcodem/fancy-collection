@@ -17,9 +17,11 @@ import {
   refundAmountsByFinanceDivision,
   sumPricesByFinanceDivision,
   financeItemDivision,
+  financeItemCategoryKey,
+  financeItemCategoryKeyForBookingItem,
   financeItemDivisionForBookingItem,
 } from "../financeGenderTotals";
-import { type PackingDivision } from "../packingDivision";
+import { type PackingDivision, packingDivision } from "../packingDivision";
 import {
   allocateAdvanceByCategory,
   allocateBalanceByCategory,
@@ -142,12 +144,21 @@ type BookingPaymentRow = {
   }>;
 };
 
-function sumGenderFromCategories(byCat: Record<string, number>) {
-  return {
-    mens: byCat.mens || 0,
-    womens: byCat.womens || 0,
-    jewellery: byCat.jewellery || 0,
-  };
+function sumGenderFromCategories(
+  byCat: Record<string, number>,
+  lists?: Awaited<ReturnType<typeof getCategoryDivisionLists>>,
+) {
+  let mens = 0;
+  let womens = 0;
+  let jewellery = 0;
+  for (const [cat, amt] of Object.entries(byCat)) {
+    if (cat === CUSTOM_ORDERS_CATEGORY) continue;
+    const div = packingDivision(cat, null, null, lists);
+    if (div === "mens") mens += amt;
+    else if (div === "womens") womens += amt;
+    else jewellery += amt;
+  }
+  return { mens, womens, jewellery };
 }
 
 function mergeCategoryMaps(...maps: Record<string, number>[]) {
@@ -257,16 +268,18 @@ export async function getDailySale(targetDateStr: string) {
     if (b.bookingItems.length) {
       for (const bi of b.bookingItems) {
         if (bi.advance > 0) advance_count += 1;
+        const cat = financeItemCategoryKeyForBookingItem(bi, divisionLists);
+        advance_by_category[cat] = (advance_by_category[cat] || 0) + bi.advance;
         const div = financeItemDivisionForBookingItem(bi, divisionLists);
-        advance_by_category[div] = (advance_by_category[div] || 0) + bi.advance;
         if (div === "mens") advance_mens += bi.advance;
         else if (div === "womens") advance_womens += bi.advance;
         else advance_jewellery += bi.advance;
       }
     } else {
       if ((b.totalAdvance || b.advance) > 0) advance_count += 1;
+      const cat = financeItemCategoryKey(null, null, b.dressName, null, divisionLists);
+      advance_by_category[cat] = (advance_by_category[cat] || 0) + (b.totalAdvance || b.advance);
       const div = financeItemDivision(b.dressName, undefined, undefined, divisionLists);
-      advance_by_category[div] = (advance_by_category[div] || 0) + (b.totalAdvance || b.advance);
       if (div === "mens") advance_mens += b.totalAdvance || b.advance || 0;
       else if (div === "womens") advance_womens += b.totalAdvance || b.advance || 0;
       else advance_jewellery += b.totalAdvance || b.advance || 0;
@@ -312,8 +325,8 @@ export async function getDailySale(targetDateStr: string) {
   advance_womens -= refundGender.womens;
   advance_jewellery -= refundGender.jewellery;
 
-  const deliveryGender = sumGenderFromCategories(delivery_by_category);
-  const returnGender = sumGenderFromCategories(return_by_category);
+  const deliveryGender = sumGenderFromCategories(delivery_by_category, divisionLists);
+  const returnGender = sumGenderFromCategories(return_by_category, divisionLists);
   const remaining_mens = deliveryGender.mens + returnGender.mens;
   const remaining_womens = deliveryGender.womens + returnGender.womens;
   const remaining_jewellery = deliveryGender.jewellery + returnGender.jewellery;
@@ -327,14 +340,14 @@ export async function getDailySale(targetDateStr: string) {
     if (b.bookingItems.length) {
       const catsInBooking = new Set<string>();
       for (const bi of b.bookingItems) {
-        catsInBooking.add(financeItemDivisionForBookingItem(bi, divisionLists));
+        catsInBooking.add(financeItemCategoryKeyForBookingItem(bi, divisionLists));
       }
       for (const cat of catsInBooking) {
         category_booking_counts[cat] = (category_booking_counts[cat] || 0) + 1;
       }
     } else {
-      const div = financeItemDivision(b.dressName, undefined, undefined, divisionLists);
-      category_booking_counts[div] = (category_booking_counts[div] || 0) + 1;
+      const cat = financeItemCategoryKey(null, null, b.dressName, null, divisionLists);
+      category_booking_counts[cat] = (category_booking_counts[cat] || 0) + 1;
     }
   }
   const category_delivered_counts = countDeliveredByCategory(deliveredToday, divisionLists);
@@ -426,9 +439,9 @@ export async function getDailyBooking(targetDateStr: string) {
       for (const bi of b.bookingItems) {
         if (bi.isCancelled) continue;
         dresses_booked += 1;
-        const div = financeItemDivisionForBookingItem(bi, divisionLists);
-        dresses_by_category[div] = (dresses_by_category[div] || 0) + 1;
-        total_by_category[div] = (total_by_category[div] || 0) + bi.price;
+        const cat = financeItemCategoryKeyForBookingItem(bi, divisionLists);
+        dresses_by_category[cat] = (dresses_by_category[cat] || 0) + 1;
+        total_by_category[cat] = (total_by_category[cat] || 0) + bi.price;
       }
       const div = sumPricesByFinanceDivision(b.bookingItems, divisionLists);
       divisionTotals.mens += div.mens;
@@ -436,9 +449,10 @@ export async function getDailyBooking(targetDateStr: string) {
       divisionTotals.jewellery += div.jewellery;
     } else {
       dresses_booked += 1;
+      const cat = financeItemCategoryKey(null, null, b.dressName, null, divisionLists);
+      dresses_by_category[cat] = (dresses_by_category[cat] || 0) + 1;
+      total_by_category[cat] = (total_by_category[cat] || 0) + (b.totalPrice || b.price);
       const div = financeItemDivision(b.dressName, undefined, undefined, divisionLists);
-      dresses_by_category[div] = (dresses_by_category[div] || 0) + 1;
-      total_by_category[div] = (total_by_category[div] || 0) + (b.totalPrice || b.price);
       divisionTotals[div] += b.totalPrice || b.price;
     }
   }
@@ -567,19 +581,19 @@ export async function getMonthlySale(monthStr: string) {
     if (b.bookingItems.length) {
       const catsInBooking = new Set<string>();
       for (const bi of b.bookingItems) {
-        const div = financeItemDivisionForBookingItem(bi, divisionLists);
-        catsInBooking.add(div);
-        category_totals[div] = (category_totals[div] || 0) + bi.price;
+        const cat = financeItemCategoryKeyForBookingItem(bi, divisionLists);
+        catsInBooking.add(cat);
+        category_totals[cat] = (category_totals[cat] || 0) + bi.price;
         if (bi.advance > 0) advance_count += 1;
       }
       for (const cat of catsInBooking) {
         category_booking_counts[cat] = (category_booking_counts[cat] || 0) + 1;
       }
     } else {
-      const div = financeItemDivision(b.dressName, undefined, undefined, divisionLists);
-      category_booking_counts[div] = (category_booking_counts[div] || 0) + 1;
+      const cat = financeItemCategoryKey(null, null, b.dressName, null, divisionLists);
+      category_booking_counts[cat] = (category_booking_counts[cat] || 0) + 1;
       if ((b.totalAdvance || b.advance) > 0) advance_count += 1;
-      category_totals[div] = (category_totals[div] || 0) + (b.totalPrice || b.price);
+      category_totals[cat] = (category_totals[cat] || 0) + (b.totalPrice || b.price);
     }
   }
 
@@ -608,7 +622,7 @@ export async function getMonthlySale(monthStr: string) {
     balance_by_category[CUSTOM_ORDERS_CATEGORY] = (balance_by_category[CUSTOM_ORDERS_CATEGORY] || 0) + order_balance_collected;
   }
   const sale_by_category = mergeCategoryMaps(advance_by_category, balance_by_category);
-  const saleGender = sumGenderFromCategories(sale_by_category);
+  const saleGender = sumGenderFromCategories(sale_by_category, divisionLists);
   const inactive = await getInactiveBookingStats(monthStart, monthEnd);
   const fitting_charges = sumDeliveredFittingCharges(deliveredInMonth);
 
@@ -755,35 +769,35 @@ export async function getYearlySale(fromStr?: string, toStr?: string) {
     if (b.bookingItems.length) {
       const catsInBooking = new Set<string>();
       for (const bi of b.bookingItems) {
-        const div = financeItemDivisionForBookingItem(bi, divisionLists);
-        catsInBooking.add(div);
-        category_totals[div] = (category_totals[div] || 0) + bi.price;
+        const cat = financeItemCategoryKeyForBookingItem(bi, divisionLists);
+        catsInBooking.add(cat);
+        category_totals[cat] = (category_totals[cat] || 0) + bi.price;
         if (bi.advance > 0) advance_count += 1;
       }
       for (const cat of catsInBooking) {
         category_booking_counts[cat] = (category_booking_counts[cat] || 0) + 1;
       }
     } else {
-      const div = financeItemDivision(b.dressName, undefined, undefined, divisionLists);
-      category_booking_counts[div] = (category_booking_counts[div] || 0) + 1;
+      const cat = financeItemCategoryKey(null, null, b.dressName, null, divisionLists);
+      category_booking_counts[cat] = (category_booking_counts[cat] || 0) + 1;
       if ((b.totalAdvance || b.advance) > 0) advance_count += 1;
-      category_totals[div] = (category_totals[div] || 0) + (b.totalPrice || b.price);
+      category_totals[cat] = (category_totals[cat] || 0) + (b.totalPrice || b.price);
     }
   }
 
   const refund_total = advance_refunded;
-  const refundCats = refundByCategory(refundsRange);
+  const refundCats = refundByCategory(refundsRange, divisionLists);
   const advance_by_category = subtractRefundsFromCategories(
-    allocateAdvanceByCategory(bookings),
+    allocateAdvanceByCategory(bookings, divisionLists),
     refundCats,
   );
-  const category_delivered_counts = countDeliveredByCategory(deliveredInPeriod);
+  const category_delivered_counts = countDeliveredByCategory(deliveredInPeriod, divisionLists);
   const dresses_delivered = Object.values(category_delivered_counts).reduce((a, b) => a + b, 0);
-  const dresses_by_category = countDressesBookedByCategory(bookings);
+  const dresses_by_category = countDressesBookedByCategory(bookings, divisionLists);
   const dresses_booked = Object.values(dresses_by_category).reduce((a, b) => a + b, 0);
   const balance_by_category = mergeCategoryMaps(
-    allocateBalanceByCategory(deliveredInPeriod, "delivery"),
-    allocateBalanceByCategory(returnedInPeriod, "return"),
+    allocateBalanceByCategory(deliveredInPeriod, "delivery", divisionLists),
+    allocateBalanceByCategory(returnedInPeriod, "return", divisionLists),
   );
   if (order_cost > 0) {
     category_totals[CUSTOM_ORDERS_CATEGORY] = (category_totals[CUSTOM_ORDERS_CATEGORY] || 0) + order_cost;
@@ -795,7 +809,7 @@ export async function getYearlySale(fromStr?: string, toStr?: string) {
     balance_by_category[CUSTOM_ORDERS_CATEGORY] = (balance_by_category[CUSTOM_ORDERS_CATEGORY] || 0) + order_balance_collected;
   }
   const sale_by_category = mergeCategoryMaps(advance_by_category, balance_by_category);
-  const saleGender = sumGenderFromCategories(sale_by_category);
+  const saleGender = sumGenderFromCategories(sale_by_category, divisionLists);
   const inactive = await getInactiveBookingStats(rangeStart, rangeEnd);
   const fitting_charges = sumDeliveredFittingCharges(deliveredInPeriod);
 
@@ -1316,19 +1330,19 @@ export function getInventoryProfitabilityCached(fromStr?: string, toStr?: string
 }
 
 export function getDailySaleCached(targetDateStr: string) {
-  return cachedQuery(["finance-daily-sale", "v5", targetDateStr], () => getDailySale(targetDateStr), 300);
+  return cachedQuery(["finance-daily-sale", "v6", targetDateStr], () => getDailySale(targetDateStr), 300);
 }
 
 export function getDailyBookingCached(targetDateStr: string) {
-  return cachedQuery(["finance-daily-booking", "v3", targetDateStr], () => getDailyBooking(targetDateStr), 300);
+  return cachedQuery(["finance-daily-booking", "v4", targetDateStr], () => getDailyBooking(targetDateStr), 300);
 }
 
 export function getMonthlySaleCached(monthStr: string) {
-  return cachedQuery(["finance-monthly-sale", "v4", monthStr], () => getMonthlySale(monthStr), 300);
+  return cachedQuery(["finance-monthly-sale", "v5", monthStr], () => getMonthlySale(monthStr), 300);
 }
 
 export function getYearlySaleCached(fromStr?: string, toStr?: string) {
-  const key = `v4:${fromStr || ""}:${toStr || ""}`;
+  const key = `v5:${fromStr || ""}:${toStr || ""}`;
   return cachedQuery(["finance-yearly-sale", key], () => getYearlySale(fromStr, toStr), 240);
 }
 

@@ -17,7 +17,7 @@ import {
   numberValue,
 } from "@/lib/finance/safeNumbers";
 import { formatInr } from "@/lib/format";
-import { formatFinanceCategoryLabel, sortFinanceCategoryKeys } from "@/lib/packingDivision";
+import { formatFinanceCategoryLabel, sortFinanceDressCategoryKeys } from "@/lib/packingDivision";
 
 function FinanceStatus({ loading, error }: { loading: boolean; error: string }) {
   const [mounted, setMounted] = useState(false);
@@ -162,7 +162,7 @@ function FinanceSaleCategorySection({ data }: { data: Record<string, unknown> })
       : mergeNumberMaps(advanceByCategory, balanceByCategory);
   const catBookingCounts = numberMap(data.category_booking_counts);
   const deliveredByCategory = numberMap(data.category_delivered_counts);
-  const rawCatKeys = sortFinanceCategoryKeys(numberMapKeys(saleByCategory));
+  const rawCatKeys = sortFinanceDressCategoryKeys(numberMapKeys(saleByCategory));
   const catLabels = rawCatKeys.map(formatFinanceCategoryLabel);
   const catValues = rawCatKeys.map((key) => numberValue(saleByCategory[key]));
 
@@ -233,7 +233,7 @@ export function FinanceDailyBooking({ todayIso }: { todayIso: string }) {
   }, [date]);
 
   const categoryTotals = numberMap(data?.total_by_category);
-  const rawLabels = sortFinanceCategoryKeys(numberMapKeys(categoryTotals));
+  const rawLabels = sortFinanceDressCategoryKeys(numberMapKeys(categoryTotals));
   const labels = rawLabels.map(formatFinanceCategoryLabel);
   const values = rawLabels.map((key) => numberValue(categoryTotals[key]));
   const dressCounts = numberMap(data?.dresses_by_category);

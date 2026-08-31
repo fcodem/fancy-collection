@@ -73,6 +73,24 @@ export function sortFinanceCategoryKeys(keys: string[]): string[] {
   });
 }
 
+/** Sort dress categories Men → Women → Jewellery, then A–Z within each group. */
+export function sortFinanceDressCategoryKeys(
+  keys: string[],
+  lists?: CategoryDivisionLists,
+): string[] {
+  const divisionOrder: PackingDivision[] = ["mens", "womens", "jewellery"];
+  const rank = (key: string) => {
+    if (key === "Custom Orders") return 100;
+    const idx = divisionOrder.indexOf(packingDivision(key, null, null, lists));
+    return idx === -1 ? 50 : idx;
+  };
+  return [...keys].sort((a, b) => {
+    const dr = rank(a) - rank(b);
+    if (dr !== 0) return dr;
+    return a.localeCompare(b);
+  });
+}
+
 export const PACKING_DIVISIONS: Array<{
   key: PackingDivision;
   label: string;
