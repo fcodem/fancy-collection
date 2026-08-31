@@ -10,11 +10,6 @@ import {
   normalizeScanCode,
   resolveInventoryFromScannedCodeInDb,
 } from "@/lib/services/inventoryScanCode";
-import {
-  formatJewelleryPartsLabel,
-  partsPresentOnItem,
-  type JewelleryPartFlags,
-} from "@/lib/jewelleryParts";
 
 /**
  * Availability check for one scanned physical dress between a requested
@@ -229,7 +224,7 @@ type AvailabilityDb = Pick<
   "inventoryScanCode" | "clothingItem" | "booking"
 >;
 
-const INVENTORY_LOOKUP_SELECT = {
+const SCAN_INVENTORY_LOOKUP_SELECT = {
   id: true,
   name: true,
   sku: true,
@@ -240,21 +235,10 @@ const INVENTORY_LOOKUP_SELECT = {
   thumbnailPhoto: true,
   photo: true,
   inventoryGroupId: true,
-  itemType: true,
-  hasNecklace: true,
-  hasEarrings: true,
-  hasTeeka: true,
-  hasPasa: true,
-  hasSheeshpatti: true,
-  hasNath: true,
-  hasHathfool: true,
-  hasKamarband: true,
-  hasRings: true,
-  hasLongHar: true,
 } satisfies Prisma.ClothingItemSelect;
 
 type LookupInventory = Prisma.ClothingItemGetPayload<{
-  select: typeof INVENTORY_LOOKUP_SELECT;
+  select: typeof SCAN_INVENTORY_LOOKUP_SELECT;
 }>;
 
 function recordFrom(
@@ -332,13 +316,16 @@ export function createScannedDressAvailabilityService(db: AvailabilityDb) {
       classificationMs: 0,
     };
 
-    // 1. Shared resolver: active scan code, then exact normalized SKU fallback.
+    // Resolve scan code and overlap window in parallel — dates are known upfront.
     const lookupStart = Date.now();
-    const resolved = await resolveInventoryFromScannedCodeInDb<LookupInventory>(
-      db,
-      input.rawCode,
-      INVENTORY_LOOKUP_SELECT,
-    );
+    const [resolved, overlapWhere] = await Promise.all([
+      resolveInventoryFromScannedCodeInDb<LookupInventory>(
+        db,
+        input.rawCode,
+        SCAN_INVENTORY_LOOKUP_SELECT,
+      ),
+      whereBookingOverlapsPeriod(delivery.date, requestedReturn.date),
+    ]);
     timings.codeLookupMs = Date.now() - lookupStart;
 
     if (resolved.status === "CODE_NOT_FOUND") {
@@ -371,41 +358,20 @@ export function createScannedDressAvailabilityService(db: AvailabilityDb) {
     // availability + QR must stay size-specific.
     let units: LookupInventory[] = [inventory];
     if (inventory.inventoryGroupId) {
+      const sizeKey = String(inventory.size || "").trim();
       const siblings = await db.clothingItem.findMany({
-        where: { inventoryGroupId: inventory.inventoryGroupId },
-        select: INVENTORY_LOOKUP_SELECT,
+        where: {
+          inventoryGroupId: inventory.inventoryGroupId,
+          ...(sizeKey ? { size: inventory.size } : {}),
+        },
+        select: SCAN_INVENTORY_LOOKUP_SELECT,
         orderBy: { id: "asc" },
       });
-      const sizeKey = String(inventory.size || "")
-        .trim()
-        .toLowerCase();
-      const sameSize = siblings.filter(
-        (row) =>
-          String(row.size || "")
-            .trim()
-            .toLowerCase() === sizeKey,
-      );
-      if (sameSize.length) units = sameSize;
+      if (siblings.length) units = siblings;
     }
 
     const displayUnit =
       units.find((u) => u.id === inventory.id) || units[0] || inventory;
-    const partFlags: JewelleryPartFlags = {
-      hasNecklace: displayUnit.hasNecklace,
-      hasEarrings: displayUnit.hasEarrings,
-      hasTeeka: displayUnit.hasTeeka,
-      hasPasa: displayUnit.hasPasa,
-      hasSheeshpatti: displayUnit.hasSheeshpatti,
-      hasNath: displayUnit.hasNath,
-      hasHathfool: displayUnit.hasHathfool,
-      hasKamarband: displayUnit.hasKamarband,
-      hasRings: displayUnit.hasRings,
-      hasLongHar: displayUnit.hasLongHar,
-    };
-    const jewelleryPartsLabel =
-      displayUnit.itemType === "jewellery" || partsPresentOnItem(partFlags).length
-        ? formatJewelleryPartsLabel(partsPresentOnItem(partFlags)) || null
-        : null;
     const thumbRef =
       displayUnit.thumbnailPhoto ||
       units.find((u) => u.thumbnailPhoto)?.thumbnailPhoto ||
@@ -427,7 +393,6 @@ export function createScannedDressAvailabilityService(db: AvailabilityDb) {
       status: displayUnit.status,
       thumbnailUrl: listRef ? photoUrl(listRef) : null,
       photoUrl: fullRef ? photoUrl(fullRef) : null,
-      ...(jewelleryPartsLabel ? { jewelleryPartsLabel } : {}),
     };
 
     const bookableUnits = units.filter(
@@ -455,10 +420,6 @@ export function createScannedDressAvailabilityService(db: AvailabilityDb) {
     //    Cancelled/returned booking items never occupy inventory; legacy
     //    bookings (itemId set, no item rows) still do.
     const conflictStart = Date.now();
-    const overlapWhere = await whereBookingOverlapsPeriod(
-      delivery.date,
-      requestedReturn.date,
-    );
     const where: Prisma.BookingWhereInput = {
       ...overlapWhere,
       status: { in: ["booked", "delivered"] },

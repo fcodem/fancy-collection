@@ -131,6 +131,14 @@ function serialLabel(n: number) {
   return String(n).padStart(2, "0");
 }
 
+type PreviousCustomer = {
+  customer_name: string;
+  customer_address: string;
+  contact_1: string;
+  whatsapp_no: string;
+  venue: string;
+};
+
 
 
 type FreeItem = {
@@ -369,6 +377,7 @@ export default function BookingFormClient(props: Props) {
 
   const [venue, setVenue] = useState(props.initial?.venue || "");
   const [showPreviousCustomers, setShowPreviousCustomers] = useState(false);
+  const [prefetchedCustomers, setPrefetchedCustomers] = useState<PreviousCustomer[] | null>(null);
 
   const [securityDeposit, setSecurityDeposit] = useState(props.initial?.security_deposit || 0);
 
@@ -434,6 +443,21 @@ export default function BookingFormClient(props: Props) {
   const lastRealtimeRefreshRef = useRef(0);
   const formRootRef = useRef<HTMLFieldSetElement>(null);
   useBlockWheelValueChange(formRootRef);
+
+  useEffect(() => {
+    let cancelled = false;
+    void fetch("/api/booking/customer-lookup")
+      .then((r) => (r.ok ? r.json() : { customers: [] }))
+      .then((data: { customers?: PreviousCustomer[] }) => {
+        if (!cancelled) setPrefetchedCustomers(data.customers || []);
+      })
+      .catch(() => {
+        if (!cancelled) setPrefetchedCustomers([]);
+      });
+    return () => {
+      cancelled = true;
+    };
+  }, []);
 
   /** True when date-check reports a hard double-booking (blocks save unless prospect). */
   const hasHardBlock = useMemo(
@@ -1643,12 +1667,13 @@ export default function BookingFormClient(props: Props) {
             <div style={{ position: "relative", flex: 1, minWidth: 140, display: "flex", gap: 6 }}>
               <DressNameSuggestInput
                 className="form-control"
-                placeholder="Filter by dress name, SKU, or scan QR…"
+                placeholder={scanBusy ? "Checking scanned dress…" : "Filter by dress name, SKU, or scan QR…"}
                 value={nameSearch}
                 category={categoryFilter}
                 showPhotos
                 clearOnSelect={false}
                 minChars={2}
+                disabled={scanBusy}
                 onChange={(e) => setNameSearch(e.target.value)}
                 onKeyDown={handleDressSearchKeyDown}
                 onSuggestSelect={(item) => {
@@ -2139,6 +2164,7 @@ export default function BookingFormClient(props: Props) {
 
       {showPreviousCustomers && (
         <PreviousCustomerModal
+          initialCustomers={prefetchedCustomers}
           onSelect={(c) => {
             setCustomerName(c.customer_name);
             setCustomerAddress(c.customer_address);
@@ -2254,14 +2280,6 @@ function BookingScanModal({ onScan, onClose }: { onScan: (code: string) => void;
     </div>
   );
 }
-
-type PreviousCustomer = {
-  customer_name: string;
-  customer_address: string;
-  contact_1: string;
-  whatsapp_no: string;
-  venue: string;
-};
 
 type ScanConflictRecord = {
   customerName: string;
@@ -2395,38 +2413,71 @@ function formatScanAlternateConfirm(status: string, records: ScanConflictRecord[
   return `${header}\n\n${body}\n\nAdd this dress to the booking anyway?`;
 }
 
-function PreviousCustomerModal({ onSelect, onClose }: { onSelect: (c: PreviousCustomer) => void; onClose: () => void }) {
+function PreviousCustomerModal({
+  onSelect,
+  onClose,
+  initialCustomers = null,
+}: {
+  onSelect: (c: PreviousCustomer) => void;
+  onClose: () => void;
+  initialCustomers?: PreviousCustomer[] | null;
+}) {
   const [query, setQuery] = useState("");
-  const [results, setResults] = useState<PreviousCustomer[]>([]);
-  const [loading, setLoading] = useState(false);
-  const timerRef = useRef<ReturnType<typeof setTimeout> | null>(null);
+  const [results, setResults] = useState<PreviousCustomer[]>(initialCustomers ?? []);
+  const [loading, setLoading] = useState(!initialCustomers?.length);
+  const abortRef = useRef<AbortController | null>(null);
+  const reqIdRef = useRef(0);
 
-  const search = useCallback(async (q: string) => {
+  const runSearch = useCallback(async (q: string) => {
+    abortRef.current?.abort();
+    const controller = new AbortController();
+    abortRef.current = controller;
+    const reqId = ++reqIdRef.current;
+    const trimmed = q.trim();
+
+    if (!trimmed && initialCustomers?.length) {
+      setResults(initialCustomers);
+      setLoading(false);
+      return;
+    }
+
     setLoading(true);
     try {
-      const trimmed = q.trim();
       const url = trimmed.length >= 2
         ? `/api/booking/customer-lookup?q=${encodeURIComponent(trimmed)}`
         : "/api/booking/customer-lookup";
-      const res = await fetch(url);
+      const res = await fetch(url, { signal: controller.signal });
       const data = await res.json() as { customers?: PreviousCustomer[] };
+      if (reqId !== reqIdRef.current) return;
       setResults(data.customers || []);
-    } catch {
-      setResults([]);
+    } catch (e) {
+      if (isAbortError(e)) return;
+      if (reqId === reqIdRef.current) setResults([]);
     } finally {
+      if (reqId === reqIdRef.current) setLoading(false);
+    }
+  }, [initialCustomers]);
+
+  useEffect(() => {
+    if (initialCustomers?.length) {
+      setResults(initialCustomers);
       setLoading(false);
     }
-  }, []);
+  }, [initialCustomers]);
 
   useEffect(() => {
-    void search("");
-  }, [search]);
-
-  useEffect(() => {
-    if (timerRef.current) clearTimeout(timerRef.current);
-    timerRef.current = setTimeout(() => void search(query), 350);
-    return () => { if (timerRef.current) clearTimeout(timerRef.current); };
-  }, [query, search]);
+    const trimmed = query.trim();
+    if (trimmed.length >= 2) {
+      const timer = setTimeout(() => void runSearch(trimmed), 250);
+      return () => clearTimeout(timer);
+    }
+    if (initialCustomers?.length) {
+      setResults(initialCustomers);
+      setLoading(false);
+      return;
+    }
+    void runSearch("");
+  }, [query, runSearch, initialCustomers]);
 
   return (
     <div

@@ -1,5 +1,6 @@
 import { NextRequest } from "next/server";
-import { jsonOk, jsonError, requireOwner, isResponse, requireJsonContentType } from "@/lib/api";
+import { jsonOk, jsonError, requireFastReadUser, isResponse, requireJsonContentType } from "@/lib/api";
+import { isOwner } from "@/lib/auth";
 import { InventoryScanCodeError } from "@/lib/services/inventoryScanCode";
 import {
   checkScannedDressAvailability,
@@ -11,8 +12,9 @@ import { photoUrl } from "@/lib/photoUrl";
 export async function POST(req: NextRequest) {
   const ct = requireJsonContentType(req);
   if (ct) return ct;
-  const user = await requireOwner();
+  const user = await requireFastReadUser();
   if (isResponse(user)) return user;
+  if (!isOwner(user)) return jsonError("Access denied. Owner permission required.", 403);
 
   const body = (await req.json()) as {
     code?: string;
