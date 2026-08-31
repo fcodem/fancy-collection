@@ -46,6 +46,7 @@ export const bookingRecordCoreSelect = {
   remaining: true,
   remainingCollected: true,
   securityDeposit: true,
+  securityCollected: true,
   commonNotes: true,
   notes: true,
   dressName: true,

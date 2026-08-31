@@ -1012,6 +1012,7 @@ async function runSaveDeliveryInTx(
         data: {
           remainingCollected: totalRemaining,
           securityCollected: totalSecurity,
+          securityDeposit: totalSecurity > 0 ? totalSecurity : locked.securityDeposit,
           securityHeld: nextSecurityHeld,
           deliveryNotes: mergedDeliveryNotes,
           remainingPaymentMode: resolveRemainingPaymentMode(totalRemaining),
@@ -1058,6 +1059,7 @@ async function runSaveDeliveryInTx(
   const bookingFields = {
     remainingCollected: totalRemainingCollected,
     securityCollected: secCollected,
+    securityDeposit: secCollected > 0 ? secCollected : locked.securityDeposit,
     securityHeld: nextSecurityHeld,
     deliveryNotes: data.delivery_notes ?? locked.deliveryNotes,
     remainingPaymentMode: resolveRemainingPaymentMode(totalRemainingCollected),
@@ -1994,7 +1996,7 @@ function alternateBookingSide(
     total_remaining: totalRemaining,
     remaining_collected: remainingCollected,
     balance_remaining: Math.max(0, totalRemaining - remainingCollected),
-    security_deposit: b.securityDeposit || 0,
+    security_deposit: std.security_deposit,
     security_collected: b.securityCollected || 0,
     item_notes: std.item_notes,
     common_notes: std.common_notes,

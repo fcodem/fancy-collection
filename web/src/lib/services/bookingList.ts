@@ -72,6 +72,7 @@ export const bookingListSelect = {
   remaining: true,
   notes: true,
   securityDeposit: true,
+  securityCollected: true,
   bookingItems: {
     select: {
       itemId: true,
@@ -81,6 +82,7 @@ export const bookingListSelect = {
       size: true,
       notes: true,
       isDelivered: true,
+      itemSecurityCollected: true,
     },
   },
   legacyItem: { select: { size: true, category: true } },

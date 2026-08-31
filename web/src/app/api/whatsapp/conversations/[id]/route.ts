@@ -68,9 +68,16 @@ export async function GET(
         })
       : null;
 
+  const WINDOW_MS = 24 * 60 * 60 * 1000;
+  const windowStillOpen =
+    conversation.isWindowOpen && conversation.windowOpenedAt
+      ? Date.now() - conversation.windowOpenedAt.getTime() < WINDOW_MS
+      : false;
+
   return jsonOk({
     conversation: {
       ...conversation,
+      isWindowOpen: windowStillOpen,
       messages,
       bot,
       botBadge: botBadgeLabel({ botMode: conversation.botMode as "ACTIVE", botStep: conversation.botStep as "IDLE" }),

@@ -358,6 +358,7 @@ export default function BookingFormClient(props: Props) {
   const [whatsapp, setWhatsapp] = useState(props.initial?.whatsapp_no || "");
 
   const [venue, setVenue] = useState(props.initial?.venue || "");
+  const [showPreviousCustomers, setShowPreviousCustomers] = useState(false);
 
   const [securityDeposit, setSecurityDeposit] = useState(props.initial?.security_deposit || 0);
 
@@ -378,6 +379,10 @@ export default function BookingFormClient(props: Props) {
   const [sizeFilter, setSizeFilter] = useState("");
 
   const [nameSearch, setNameSearch] = useState("");
+  const [scanBusy, setScanBusy] = useState(false);
+  const [showCameraScanner, setShowCameraScanner] = useState(false);
+  const scanBuffer = useRef("");
+  const scanTimer = useRef<ReturnType<typeof setTimeout> | null>(null);
 
   /** Available panel: expanded by default; staff collapse manually if needed. */
   const [dressListExpanded, setDressListExpanded] = useState(true);
@@ -782,6 +787,121 @@ export default function BookingFormClient(props: Props) {
 
 
 
+  const handleScanCode = useCallback(async (code: string) => {
+    if (scanBusy) return;
+    const trimmed = code.trim();
+    if (!trimmed) return;
+    if (!deliveryDate || !returnDate) {
+      alert("Please select delivery and return dates before scanning a dress.");
+      return;
+    }
+    if (parseDate(returnDate) < parseDate(deliveryDate)) {
+      alert("Return date must be on or after delivery date before scanning.");
+      return;
+    }
+    setScanBusy(true);
+    try {
+      const res = await fetch("/api/booking/scan-add", {
+        method: "POST",
+        headers: { "Content-Type": "application/json" },
+        body: JSON.stringify({
+          code: trimmed,
+          delivery_date: deliveryDate,
+          return_date: returnDate,
+          exclude_booking: props.editId || undefined,
+        }),
+      });
+      const data = await res.json() as {
+        status: string;
+        error?: string;
+        item?: { id: number; name: string; category: string; size: string; color: string; photo: string } | null;
+        free_quantity?: number;
+        blockingRecords?: Array<{ customerName: string; bookingNumber: string }>;
+        warningRecords?: Array<{ customerName: string; bookingNumber: string; reason: string }>;
+      };
+      if (!res.ok) {
+        alert(data.error || "Failed to check scanned dress availability.");
+        return;
+      }
+      if (data.status === "CODE_NOT_FOUND") {
+        alert("Dress not found for this QR/barcode.");
+        return;
+      }
+      if (data.status === "AMBIGUOUS_LEGACY_CODE") {
+        alert("Multiple dresses match this code. Please select the dress manually.");
+        return;
+      }
+      if (!data.item || data.status === "MAINTENANCE") {
+        alert(data.status === "MAINTENANCE" ? "This dress is currently under maintenance." : "This dress is not available.");
+        return;
+      }
+      if (data.status === "INACTIVE") {
+        alert("This dress is inactive and cannot be booked.");
+        return;
+      }
+      if (data.status === "BOOKED" || (data.free_quantity != null && data.free_quantity <= 0)) {
+        const who = (data.blockingRecords || [])
+          .map((r) => `${r.customerName} (${r.bookingNumber})`)
+          .join(", ");
+        alert(
+          who
+            ? `${data.item.name} is already booked for these dates.\n\nBooked by: ${who}`
+            : `${data.item.name} is not available for these dates.`,
+        );
+        return;
+      }
+      if (selectedDresses.some((d) => d.id === data.item!.id)) {
+        toast?.("This dress is already added to the booking.", "info");
+        return;
+      }
+      if (data.status.startsWith("WARNING_")) {
+        const warns = (data.warningRecords || []).map((r) => `${r.customerName} (${r.bookingNumber})`).join(", ");
+        const msg = data.status === "WARNING_RETURNING_ON_DELIVERY_DAY"
+          ? `Another customer is returning this dress on your delivery day (${warns}). Add anyway?`
+          : data.status === "WARNING_BOOKED_ON_RETURN_DAY"
+          ? `Another booking starts on your return day (${warns}). Add anyway?`
+          : `Boundary conflict with ${warns}. Add anyway?`;
+        if (!window.confirm(msg)) return;
+      }
+      const item = data.item;
+      setSelectedDresses((prev) => [...prev, {
+        id: item.id,
+        name: item.name,
+        category: item.category,
+        size: item.size || "",
+        color: item.color || "",
+        photo: item.photo || "",
+        price: 0,
+        advance: 0,
+        notes: "",
+      }]);
+      setNameSearch("");
+      toast?.(`${item.name} added to booking`, "success");
+    } catch {
+      alert("Failed to look up scanned dress. Please try again.");
+    } finally {
+      setScanBusy(false);
+    }
+  }, [scanBusy, deliveryDate, returnDate, props.editId, selectedDresses, toast]);
+
+  const handleDressSearchKeyDown = useCallback((e: React.KeyboardEvent<HTMLInputElement>) => {
+    if (scanTimer.current) clearTimeout(scanTimer.current);
+    if (e.key === "Enter") {
+      e.preventDefault();
+      const code = scanBuffer.current;
+      scanBuffer.current = "";
+      if (code.length >= 4) {
+        void handleScanCode(code);
+        setNameSearch("");
+      }
+      return;
+    }
+    if (e.key.length === 1) {
+      scanBuffer.current += e.key;
+      scanTimer.current = setTimeout(() => { scanBuffer.current = ""; }, 100);
+    }
+  }, [handleScanCode]);
+
   function removeDress(index: number) {
 
     setSelectedDresses(selectedDresses.filter((_, i) => i !== index));
@@ -905,7 +1025,7 @@ export default function BookingFormClient(props: Props) {
 
 
   /** Validates form, POST/PUT booking (or prospect lead), then redirects. */
-  async function save(opts?: { openPrintSlip?: boolean; downloadSlipPdf?: boolean }) {
+  async function save(opts?: { openPrintSlip?: boolean; downloadSlipPdf?: boolean; openDelivery?: boolean }) {
     if (readOnly) return;
     if (submittingRef.current || saving) return;
 
@@ -1074,6 +1194,13 @@ export default function BookingFormClient(props: Props) {
 
     if (printWindow) {
       printWindow.location.href = `/booking/${bookingId}/slip?print=1`;
+    }
+
+    if (opts?.openDelivery && !isProspect) {
+      invalidateClientCache();
+      toast("✅ Booking saved — opening delivery", "success");
+      router.replace(`/booking-delivery/${bookingId}`);
+      return;
     }
 
     if (opts?.downloadSlipPdf && !isProspect) {
@@ -1253,7 +1380,23 @@ export default function BookingFormClient(props: Props) {
 
         <div className="card">
 
-          <div className="card-header"><h3 className="card-title"><i className="fa-solid fa-user-circle" style={{ marginRight: 8 }} />Customer Details</h3></div>
+          <div className="card-header" style={{ display: "flex", justifyContent: "space-between", alignItems: "center", flexWrap: "wrap", gap: 8 }}>
+            <h3 className="card-title" style={{ margin: 0 }}><i className="fa-solid fa-user-circle" style={{ marginRight: 8 }} />Customer Details</h3>
+            {!props.editId && !isProspect && (
+              <button
+                type="button"
+                onClick={() => setShowPreviousCustomers(true)}
+                style={{
+                  background: "var(--primary)", color: "#fff", border: "none", borderRadius: 8,
+                  padding: "6px 14px", fontSize: 12, fontWeight: 600, cursor: "pointer",
+                  display: "flex", alignItems: "center", gap: 6,
+                }}
+              >
+                <i className="fa-solid fa-clock-rotate-left" />
+                Previous Customers
+              </button>
+            )}
+          </div>
 
           <div className="card-body form-grid">
 
@@ -1480,22 +1623,38 @@ export default function BookingFormClient(props: Props) {
 
             )}
 
-            <DressNameSuggestInput
-              className="form-control"
-              placeholder="Filter by dress name or SKU…"
-              value={nameSearch}
-              category={categoryFilter}
-              showPhotos
-              clearOnSelect={false}
-              minChars={2}
-              onChange={(e) => setNameSearch(e.target.value)}
-              onSuggestSelect={(item) => {
-                const base = stripUnitSuffix(item.name || item.display_name || "");
-                if (item.category) setCategoryFilter(item.category);
-                setSizeFilter("");
-                setNameSearch(base || item.name);
-              }}
-            />
+            <div style={{ position: "relative", flex: 1, minWidth: 140, display: "flex", gap: 6 }}>
+              <DressNameSuggestInput
+                className="form-control"
+                placeholder="Filter by dress name, SKU, or scan QR…"
+                value={nameSearch}
+                category={categoryFilter}
+                showPhotos
+                clearOnSelect={false}
+                minChars={2}
+                onChange={(e) => setNameSearch(e.target.value)}
+                onKeyDown={handleDressSearchKeyDown}
+                onSuggestSelect={(item) => {
+                  const base = stripUnitSuffix(item.name || item.display_name || "");
+                  if (item.category) setCategoryFilter(item.category);
+                  setSizeFilter("");
+                  setNameSearch(base || item.name);
+                }}
+              />
+              <button
+                type="button"
+                title="Scan QR code with camera"
+                disabled={scanBusy}
+                onClick={() => setShowCameraScanner(true)}
+                style={{
+                  background: "var(--success)", color: "#fff", border: "none", borderRadius: 8,
+                  width: 38, height: 38, cursor: scanBusy ? "not-allowed" : "pointer",
+                  display: "flex", alignItems: "center", justifyContent: "center", flexShrink: 0,
+                }}
+              >
+                <i className={scanBusy ? "fa-solid fa-spinner fa-spin" : "fa-solid fa-camera"} />
+              </button>
+            </div>
 
           </div>
 
@@ -1891,6 +2050,19 @@ export default function BookingFormClient(props: Props) {
           <button type="button" className="btn btn-primary btn-lg" disabled={saving || !selectedDresses.length || hasHardBlock} onClick={() => void save()}>
             {hasHardBlock ? "Cannot Save — Dress Already Booked" : saving ? "Saving…" : isProspect ? "Save Prospect Lead" : props.editId ? "Update Booking" : "Save Booking"}
           </button>
+          {!isProspect && (
+            <button
+              type="button"
+              className="btn btn-outline btn-lg"
+              disabled={saving || !selectedDresses.length || hasHardBlock}
+              onClick={() => void save({ openDelivery: true })}
+              style={{ color: "var(--primary)", borderColor: "var(--primary)", display: "inline-flex", alignItems: "center", gap: 8 }}
+              title="Save booking and open delivery page"
+            >
+              <i className="fa-solid fa-truck-fast" />
+              {saving ? "Saving…" : props.editId ? "Update & Deliver" : "Save & Deliver"}
+            </button>
+          )}
           {!props.editId && !isProspect && (
             <>
             <button
@@ -1934,13 +2106,256 @@ export default function BookingFormClient(props: Props) {
         </div>
       )}
 
+      {showCameraScanner && (
+        <BookingScanModal
+          onScan={(code) => {
+            setShowCameraScanner(false);
+            void handleScanCode(code);
+          }}
+          onClose={() => setShowCameraScanner(false)}
+        />
+      )}
+
+      {showPreviousCustomers && (
+        <PreviousCustomerModal
+          onSelect={(c) => {
+            setCustomerName(c.customer_name);
+            setCustomerAddress(c.customer_address);
+            setContact1(c.contact_1);
+            setWhatsapp(c.whatsapp_no);
+            setVenue(c.venue);
+            setShowPreviousCustomers(false);
+            toast?.("Customer details filled from previous booking", "success");
+          }}
+          onClose={() => setShowPreviousCustomers(false)}
+        />
+      )}
+
     </div>
 
   );
 
 }
 
+function BookingScanModal({ onScan, onClose }: { onScan: (code: string) => void; onClose: () => void }) {
+  const videoRef = useRef<HTMLDivElement>(null);
+  const sessionRef = useRef<import("@/lib/cameraScanner").QrCameraSession | null>(null);
+  const [error, setError] = useState<string | null>(null);
+  const [manualCode, setManualCode] = useState("");
 
+  useEffect(() => {
+    let cancelled = false;
+    (async () => {
+      try {
+        const { QrCameraSession, cameraErrorMessage } = await import("@/lib/cameraScanner");
+        if (cancelled) return;
+        const session = new QrCameraSession("booking-qr-scan", { qrOnly: true });
+        sessionRef.current = session;
+        await session.start((code) => {
+          if (!cancelled) onScan(code);
+        });
+      } catch (e) {
+        if (!cancelled) {
+          const { cameraErrorMessage } = await import("@/lib/cameraScanner");
+          setError(cameraErrorMessage(e, location.protocol === "https:"));
+        }
+      }
+    })();
+    return () => {
+      cancelled = true;
+      sessionRef.current?.stop();
+    };
+  }, []);
+
+  return (
+    <div
+      onClick={onClose}
+      style={{
+        position: "fixed", inset: 0, background: "rgba(0,0,0,0.6)", zIndex: 9999,
+        display: "flex", alignItems: "center", justifyContent: "center",
+      }}
+    >
+      <div
+        onClick={(e) => e.stopPropagation()}
+        style={{
+          background: "#fff", borderRadius: 16, padding: 20, width: "90%", maxWidth: 420,
+          boxShadow: "0 8px 32px rgba(0,0,0,0.3)",
+        }}
+      >
+        <div style={{ display: "flex", justifyContent: "space-between", alignItems: "center", marginBottom: 12 }}>
+          <h3 style={{ margin: 0, fontSize: 16 }}>
+            <i className="fa-solid fa-qrcode" style={{ marginRight: 8, color: "var(--success)" }} />
+            Scan Dress QR Code
+          </h3>
+          <button type="button" onClick={onClose} style={{ background: "none", border: "none", fontSize: 20, cursor: "pointer", color: "#6b7280" }}>
+            <i className="fa-solid fa-xmark" />
+          </button>
+        </div>
+
+        <div
+          id="booking-qr-scan"
+          ref={videoRef}
+          style={{ width: "100%", minHeight: 260, borderRadius: 12, overflow: "hidden", background: "#111" }}
+        />
+
+        {error && (
+          <div style={{ marginTop: 12, padding: "8px 12px", background: "#fef2f2", color: "#dc2626", borderRadius: 8, fontSize: 13 }}>
+            {error}
+          </div>
+        )}
+
+        <div style={{ marginTop: 14, display: "flex", gap: 8 }}>
+          <input
+            type="text"
+            placeholder="Or type code manually…"
+            value={manualCode}
+            onChange={(e) => setManualCode(e.target.value)}
+            onKeyDown={(e) => {
+              if (e.key === "Enter" && manualCode.trim()) {
+                onScan(manualCode.trim());
+              }
+            }}
+            style={{ flex: 1, padding: "8px 12px", border: "1px solid #d1d5db", borderRadius: 8, fontSize: 14 }}
+          />
+          <button
+            type="button"
+            disabled={!manualCode.trim()}
+            onClick={() => manualCode.trim() && onScan(manualCode.trim())}
+            style={{
+              background: "var(--success)", color: "#fff", border: "none", borderRadius: 8,
+              padding: "8px 16px", cursor: manualCode.trim() ? "pointer" : "not-allowed",
+            }}
+          >
+            Add
+          </button>
+        </div>
+      </div>
+    </div>
+  );
+}
+
+type PreviousCustomer = {
+  customer_name: string;
+  customer_address: string;
+  contact_1: string;
+  whatsapp_no: string;
+  venue: string;
+};
+
+function PreviousCustomerModal({ onSelect, onClose }: { onSelect: (c: PreviousCustomer) => void; onClose: () => void }) {
+  const [query, setQuery] = useState("");
+  const [results, setResults] = useState<PreviousCustomer[]>([]);
+  const [loading, setLoading] = useState(false);
+  const timerRef = useRef<ReturnType<typeof setTimeout> | null>(null);
+
+  const search = useCallback(async (q: string) => {
+    if (q.length < 2) { setResults([]); return; }
+    setLoading(true);
+    try {
+      const res = await fetch(`/api/booking/customer-lookup?q=${encodeURIComponent(q)}`);
+      const data = await res.json() as { customers?: PreviousCustomer[] };
+      setResults(data.customers || []);
+    } catch {
+      setResults([]);
+    } finally {
+      setLoading(false);
+    }
+  }, []);
+
+  useEffect(() => {
+    if (timerRef.current) clearTimeout(timerRef.current);
+    timerRef.current = setTimeout(() => void search(query), 350);
+    return () => { if (timerRef.current) clearTimeout(timerRef.current); };
+  }, [query, search]);
+
+  return (
+    <div
+      onClick={onClose}
+      style={{
+        position: "fixed", inset: 0, background: "rgba(0,0,0,0.5)", zIndex: 9999,
+        display: "flex", alignItems: "center", justifyContent: "center",
+      }}
+    >
+      <div
+        onClick={(e) => e.stopPropagation()}
+        style={{
+          background: "#fff", borderRadius: 16, width: "92%", maxWidth: 500, maxHeight: "80vh",
+          display: "flex", flexDirection: "column", boxShadow: "0 8px 32px rgba(0,0,0,0.3)",
+        }}
+      >
+        <div style={{ padding: "16px 20px", borderBottom: "1px solid #e5e7eb" }}>
+          <div style={{ display: "flex", justifyContent: "space-between", alignItems: "center", marginBottom: 12 }}>
+            <h3 style={{ margin: 0, fontSize: 16 }}>
+              <i className="fa-solid fa-clock-rotate-left" style={{ marginRight: 8, color: "var(--primary)" }} />
+              Previous Customers
+            </h3>
+            <button type="button" onClick={onClose} style={{ background: "none", border: "none", fontSize: 20, cursor: "pointer", color: "#6b7280" }}>
+              <i className="fa-solid fa-xmark" />
+            </button>
+          </div>
+          <input
+            autoFocus
+            type="text"
+            placeholder="Search by customer name or phone…"
+            value={query}
+            onChange={(e) => setQuery(e.target.value)}
+            style={{ width: "100%", padding: "10px 14px", border: "1px solid #d1d5db", borderRadius: 10, fontSize: 14, boxSizing: "border-box" }}
+          />
+        </div>
+
+        <div style={{ flex: 1, overflowY: "auto", padding: "8px 0" }}>
+          {loading ? (
+            <div style={{ textAlign: "center", padding: 30, color: "#9ca3af" }}>
+              <i className="fa-solid fa-spinner fa-spin" /> Searching…
+            </div>
+          ) : results.length === 0 && query.length >= 2 ? (
+            <div style={{ textAlign: "center", padding: 30, color: "#9ca3af", fontSize: 13 }}>No previous customers found.</div>
+          ) : results.length === 0 ? (
+            <div style={{ textAlign: "center", padding: 30, color: "#9ca3af", fontSize: 13 }}>
+              Type a name or phone number to search previous customers.
+            </div>
+          ) : (
+            results.map((c, i) => (
+              <div
+                key={`${c.contact_1}-${i}`}
+                onClick={() => onSelect(c)}
+                style={{
+                  padding: "12px 20px", cursor: "pointer", borderBottom: "1px solid #f3f4f6",
+                  transition: "background 0.15s",
+                }}
+                onMouseEnter={(e) => { (e.currentTarget as HTMLDivElement).style.background = "#f0fdf4"; }}
+                onMouseLeave={(e) => { (e.currentTarget as HTMLDivElement).style.background = ""; }}
+              >
+                <div style={{ fontWeight: 600, fontSize: 14, color: "#1f2937" }}>{c.customer_name}</div>
+                <div style={{ fontSize: 12, color: "#6b7280", marginTop: 2 }}>
+                  <i className="fa-solid fa-phone" style={{ marginRight: 4, fontSize: 10 }} />
+                  {c.contact_1}
+                  {c.whatsapp_no && c.whatsapp_no !== c.contact_1 && (
+                    <span style={{ marginLeft: 10 }}>
+                      <i className="fa-brands fa-whatsapp" style={{ marginRight: 4, fontSize: 10, color: "#16a34a" }} />
+                      {c.whatsapp_no}
+                    </span>
+                  )}
+                </div>
+                {c.customer_address && (
+                  <div style={{ fontSize: 11, color: "#9ca3af", marginTop: 2, overflow: "hidden", textOverflow: "ellipsis", whiteSpace: "nowrap" }}>
+                    {c.customer_address}
+                  </div>
+                )}
+                {c.venue && (
+                  <div style={{ fontSize: 11, color: "#6366f1", marginTop: 2 }}>
+                    <i className="fa-solid fa-location-dot" style={{ marginRight: 4, fontSize: 9 }} />
+                    {c.venue}
+                  </div>
+                )}
+              </div>
+            ))
+          )}
+        </div>
+      </div>
+    </div>
+  );
+}
 
 /** Top-of-page breadcrumb: Dashboard → Booking list → New / Edit / Prospect. */
 function LinkBreadcrumb({ editId, serial, mode }: { editId?: number; serial?: number; mode?: "booking" | "prospect" }) {

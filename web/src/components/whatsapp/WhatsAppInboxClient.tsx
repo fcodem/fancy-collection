@@ -42,6 +42,7 @@ type Conversation = {
   unreadCount: number;
   lastMessageAt: string | null;
   isWindowOpen: boolean;
+  windowOpenedAt?: string | null;
   botActive?: boolean;
   humanHandled?: boolean;
   needsStaff?: boolean;
@@ -472,7 +473,7 @@ export default function WhatsAppInboxClient() {
               <input
                 ref={fileInputRef}
                 type="file"
-                accept="image/jpeg,image/png,image/webp,video/mp4,video/3gpp"
+                accept="image/jpeg,image/png,image/webp,video/mp4,video/3gpp,.jpg,.jpeg,.png,.webp,.mp4,.3gp"
                 onChange={onMediaSelected}
                 style={{ display: "none" }}
               />

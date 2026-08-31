@@ -12,8 +12,11 @@ import {
 import { enforceRateLimit } from "@/lib/rateLimit";
 import { markTeamHandlingOnStaffReply } from "@/lib/services/whatsapp/botControl";
 
+export const maxDuration = 60;
+
 const MAX_IMAGE_BYTES = 5 * 1024 * 1024;
 const MAX_VIDEO_BYTES = 16 * 1024 * 1024;
+const WINDOW_MS = 24 * 60 * 60 * 1000;
 
 function extensionForMime(mimeType: string): "jpg" | "png" | "webp" | "mp4" {
   const mime = mimeType.toLowerCase();
@@ -21,6 +24,17 @@ function extensionForMime(mimeType: string): "jpg" | "png" | "webp" | "mp4" {
   if (mime.includes("webp")) return "webp";
   if (mime.includes("video")) return "mp4";
   return "jpg";
+}
+
+const EXT_MIME: Record<string, string> = {
+  jpg: "image/jpeg", jpeg: "image/jpeg", png: "image/png", webp: "image/webp",
+  mp4: "video/mp4", "3gp": "video/3gpp", "3gpp": "video/3gpp",
+};
+
+function mimeFromFilename(name: string | undefined): string | null {
+  if (!name) return null;
+  const ext = name.split(".").pop()?.toLowerCase();
+  return (ext && EXT_MIME[ext]) || null;
 }
 
 export async function POST(
@@ -50,7 +64,10 @@ export async function POST(
     return jsonError("No file provided", 400);
   }
 
-  const mimeType = (file.type || "application/octet-stream").toLowerCase();
+  let mimeType = (file.type || "").toLowerCase();
+  if (!mimeType || mimeType === "application/octet-stream") {
+    mimeType = mimeFromFilename(file.name) ?? "application/octet-stream";
+  }
   const kind = classifyWhatsAppInboxMedia(mimeType);
   if (!kind) {
     return jsonError("Only JPEG, PNG, WebP images and MP4/3GP videos are supported.", 400);
@@ -68,6 +85,14 @@ export async function POST(
     where: { id: convId },
   });
   if (!conversation) return jsonError("Conversation not found", 404);
+
+  if (
+    !conversation.isWindowOpen ||
+    !conversation.windowOpenedAt ||
+    Date.now() - conversation.windowOpenedAt.getTime() >= WINDOW_MS
+  ) {
+    return jsonError("24-hour messaging window is closed. Customer must message first.", 403);
+  }
 
   const bytes = Buffer.from(await file.arrayBuffer());
   const filename = file.name?.trim() || `${kind}.${extensionForMime(mimeType)}`;

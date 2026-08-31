@@ -42,6 +42,8 @@ export type BookingForStandardDetails = Parameters<typeof serializeBookingItems>
   totalRemaining?: number;
   remaining?: number;
   securityDeposit?: number;
+  securityCollected?: number | null;
+  status?: string | null;
   commonNotes?: string | null;
   notes?: string | null;
   deliveryDate: Date | string;
@@ -81,7 +83,15 @@ export function serializeStandardBookingDetails(b: BookingForStandardDetails): S
     customer_name: b.customerName,
     customer_address: b.customerAddress || "",
     total_rent: b.totalPrice || b.price || 0,
-    security_deposit: b.securityDeposit || 0,
+    security_deposit: bookingSecurityDisplayAmount({
+      status: b.status,
+      securityDeposit: b.securityDeposit,
+      securityCollected: b.securityCollected,
+      items: (b.bookingItems || []) as Array<{
+        itemSecurityCollected?: number | null;
+        isDelivered?: boolean | null;
+      }>,
+    }),
     dress_names: bookingDressLabels(b),
     item_notes: itemNotes,
     common_notes: b.commonNotes || "",
@@ -196,6 +206,24 @@ export function effectiveSecurityCollected(
   items: Array<{ itemSecurityCollected?: number | null }> = [],
 ): number {
   return Math.max(bookingCollected || 0, sumItemSecurityCollected(items));
+}
+
+/** Security shown on booking records — collected total after delivery, booked deposit before. */
+export function bookingSecurityDisplayAmount(opts: {
+  status?: string | null;
+  securityDeposit?: number | null;
+  securityCollected?: number | null;
+  items?: Array<{ itemSecurityCollected?: number | null; isDelivered?: boolean | null }>;
+}): number {
+  const items = opts.items || [];
+  const collected = effectiveSecurityCollected(opts.securityCollected, items);
+  const dressOut =
+    items.some((i) => i.isDelivered) ||
+    opts.status === "delivered" ||
+    opts.status === "returned" ||
+    opts.status === "incomplete_return";
+  if (dressOut && collected > 0) return collected;
+  return opts.securityDeposit || 0;
 }
 
 /** Sum of per-dress security held on incomplete return. */

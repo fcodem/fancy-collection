@@ -41,15 +41,24 @@ export async function GET(req: NextRequest) {
       take: 100,
     });
 
-    const enriched = conversations.map((c) => ({
-      ...c,
-      bot: serializeBotState(c),
-      botBadge: botBadgeLabel({ botMode: c.botMode as "ACTIVE", botStep: c.botStep as "IDLE" }),
-      botActive: c.botMode === "ACTIVE",
-      needsStaff: c.botMode === "NEEDS_STAFF",
-      teamHandling: c.botMode === "TEAM_HANDLING",
-      bookingEnquiryComplete: c.botStep === "READY_FOR_STAFF",
-    }));
+    const now = Date.now();
+    const WINDOW_MS = 24 * 60 * 60 * 1000;
+    const enriched = conversations.map((c) => {
+      const windowStillOpen =
+        c.isWindowOpen && c.windowOpenedAt
+          ? now - new Date(c.windowOpenedAt).getTime() < WINDOW_MS
+          : false;
+      return {
+        ...c,
+        isWindowOpen: windowStillOpen,
+        bot: serializeBotState(c),
+        botBadge: botBadgeLabel({ botMode: c.botMode as "ACTIVE", botStep: c.botStep as "IDLE" }),
+        botActive: c.botMode === "ACTIVE",
+        needsStaff: c.botMode === "NEEDS_STAFF",
+        teamHandling: c.botMode === "TEAM_HANDLING",
+        bookingEnquiryComplete: c.botStep === "READY_FOR_STAFF",
+      };
+    });
 
     return jsonOk({ conversations: enriched });
   } catch (e) {

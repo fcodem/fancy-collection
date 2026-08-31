@@ -55,6 +55,12 @@ export function BookingRecordDetails({
     serializeBookingItemRows(booking as Parameters<typeof serializeBookingItemRows>[0]);
   const remDue =
     remainingCollected != null ? Math.max(0, d.total_remaining - remainingCollected) : null;
+  const bookingItems = (booking as { bookingItems?: Array<{ isDelivered?: boolean }> }).bookingItems;
+  const dressOut =
+    (booking as { status?: string }).status === "delivered" ||
+    (booking as { status?: string }).status === "returned" ||
+    (booking as { status?: string }).status === "incomplete_return" ||
+    Boolean(bookingItems?.some((i) => i.isDelivered));
 
   const dressRows =
     items.length > 0
@@ -158,7 +164,7 @@ export function BookingRecordDetails({
             value={<span style={{ color: "var(--success)", fontWeight: 600 }}>₹{formatInr(remainingCollected)}</span>}
           />
         )}
-        <Field label="Security" value={`₹${formatInr(d.security_deposit)}`} />
+        <Field label={dressOut ? "Security (at delivery)" : "Security"} value={`₹${formatInr(d.security_deposit)}`} />
       </div>
 
       {hasOrders && (
