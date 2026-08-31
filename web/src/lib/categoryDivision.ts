@@ -93,7 +93,7 @@ export function divisionFromCategoryLists(
   if (!c || PLACEHOLDER_CATEGORIES.has(normalize(c))) return null;
   const v = normalize(c);
   if (lists.mens.some((name) => normalize(name) === v)) return "mens";
-  if (lists.womens.some((name) => normalize(name) === v)) return "womens";
   if (lists.jewellery.some((name) => normalize(name) === v)) return "jewellery";
+  if (lists.womens.some((name) => normalize(name) === v)) return "womens";
   return null;
 }

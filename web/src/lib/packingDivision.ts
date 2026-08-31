@@ -103,8 +103,8 @@ function divisionFromLabel(
     if (fromLists) return fromLists;
   }
   if (inList(c, BASE_MENS) || inList(c, MENS_SUBCATEGORIES)) return "mens";
-  if (inList(c, BASE_WOMENS) || inList(c, WOMENS_SUBCATEGORIES)) return "womens";
   if (inList(c, BASE_JEWELLERY) || inList(c, JEWELLERY_SUBCATEGORIES)) return "jewellery";
+  if (inList(c, BASE_WOMENS) || inList(c, WOMENS_SUBCATEGORIES)) return "womens";
   if (inList(c, BASE_ACCESSORY)) return "womens";
   const group = resolveCategoryGroup(c);
   if (group === "mens" || group === "womens" || group === "jewellery") return group;

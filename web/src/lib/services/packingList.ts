@@ -76,6 +76,11 @@ export async function getPackingListPage(opts: {
     ? {
         OR: [
           { bookingItems: { some: { category, isCancelled: false } } },
+          {
+            bookingItems: {
+              some: { item: { is: { category } }, isCancelled: false },
+            },
+          },
           { bookingItems: { none: {} }, legacyItem: { is: { category } } },
         ],
       }
@@ -112,7 +117,11 @@ export async function getPackingListPage(opts: {
       bookingItems: {
         where: {
           isCancelled: false,
-          ...(category ? { category } : {}),
+          ...(category
+            ? {
+                OR: [{ category }, { item: { is: { category } } }],
+              }
+            : {}),
         },
         select: {
           id: true,

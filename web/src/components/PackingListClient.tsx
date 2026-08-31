@@ -18,6 +18,7 @@ import { STANDARD_BOOKING_HEADERS, flattenBookingPdfRows, standardBookingPdfRow 
 import StarBookingBadge from "@/components/StarBookingBadge";
 import { addDaysIso } from "@/lib/dateInput";
 import { packingDivision, PACKING_DIVISIONS, parsePackingDivisionFilter, formatPackingCategoryFilterLabel, type CategoryDivisionLists } from "@/lib/packingDivision";
+import { countPackingItemsByDivision, packingSectionsForRows } from "@/lib/packingListSections";
 import { sortByDeliverySchedule } from "@/lib/bookingDeliverySort";
 
 type PackingItem = {
@@ -225,8 +226,10 @@ export default function PackingListClient({
     // eslint-disable-next-line react-hooks/exhaustive-deps
   }, []);
 
-  const allItems = rows.flatMap((b) => (Array.isArray(b.items) ? b.items : []).filter((i) => i.bi_id));
+  const allItems = rows.flatMap((b) => (Array.isArray(b.items) ? b.items : []));
   const packed = allItems.filter((i) => i.is_packed_ready).length;
+  const divisionCounts = countPackingItemsByDivision(rows, categoryLists);
+  const packingSections = packingSectionsForRows(rows, categoryLists, visibleDivisions);
 
   function buildPdfData() {
     const headers = [
@@ -322,24 +325,19 @@ export default function PackingListClient({
         <div style={{ marginBottom: 16, fontSize: 13 }}>
           <strong>{allItems.length}</strong> items · <strong style={{ color: "#68d391" }}>{packed}</strong> packed ·{" "}
           <strong style={{ color: "#fc8181" }}>{allItems.length - packed}</strong> pending
+          {!activeDivision ? (
+            <span style={{ color: "var(--text-muted)", marginLeft: 8 }}>
+              · Men {divisionCounts.mens} · Women {divisionCounts.womens} · Jewellery {divisionCounts.jewellery}
+            </span>
+          ) : null}
         </div>
       )}
 
       {loaded &&
-        visibleDivisions.map((div) => {
-          const sectionRows = sortByDeliverySchedule(
-            rows
-              .map((b) => {
-                const items = b.items.filter(
-                  (item) =>
-                    packingDivision(item.category, item.dress_name, item.sub_category, categoryLists) === div.key,
-                );
-                if (!items.length) return null;
-                return { ...b, items };
-              })
-              .filter((b): b is PackingBooking => Boolean(b)),
-          );
-          if (!sectionRows.length) return null;
+        packingSections.map(({ division: div, rows: sectionRows }) => {
+          const sortedRows = sortByDeliverySchedule(sectionRows);
+          const sectionItemCount = divisionCounts[div.key];
+          if (!sortedRows.length && activeDivision) return null;
           return (
             <section key={div.key} style={{ marginBottom: 28 }}>
               <h2
@@ -353,17 +351,20 @@ export default function PackingListClient({
               >
                 {div.label}
                 <span style={{ fontWeight: 500, fontSize: 13, color: "var(--text-muted)", marginLeft: 8 }}>
-                  {sectionRows.length} booking{sectionRows.length === 1 ? "" : "s"}
+                  {sectionItemCount} item{sectionItemCount === 1 ? "" : "s"}
+                  {sortedRows.length > 0
+                    ? ` · ${sortedRows.length} booking${sortedRows.length === 1 ? "" : "s"}`
+                    : ""}
                 </span>
               </h2>
-              {!sectionRows.length ? (
+              {!sortedRows.length ? (
                 <div className="card" style={{ marginBottom: 16 }}>
                   <div className="card-body" style={{ color: "var(--text-muted)" }}>
                     No {div.label.toLowerCase()} items in this range.
                   </div>
                 </div>
               ) : (
-                sectionRows.map((b) => (
+                sortedRows.map((b) => (
         <div key={`${div.key}-${b.id}`} className="card" style={{ marginBottom: 16 }}>
           <div className="card-header" style={{ flexWrap: "wrap", gap: 12 }}>
             <h3 className="card-title" style={{ display: "inline-flex", alignItems: "center", flexWrap: "wrap", gap: 4 }}>
