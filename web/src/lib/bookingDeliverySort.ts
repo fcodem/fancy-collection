@@ -1,5 +1,5 @@
 import { parseDate } from "@/lib/constants";
-import { parseBookingTimeToMinutes } from "@/lib/services/scannedDressAvailability";
+import { parseBookingTimeToMinutes } from "@/lib/bookingTimeParse";
 
 export type DeliverySortable = {
   delivery_date?: string;

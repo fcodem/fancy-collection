@@ -3,9 +3,9 @@ import { jsonOk, jsonError, requireOwner, isResponse, requireJsonContentType } f
 import { InventoryScanCodeError } from "@/lib/services/inventoryScanCode";
 import {
   checkScannedDressAvailability,
-  buildKolkataDateTimeFromBookingForm,
   ScannedDressAvailabilityError,
 } from "@/lib/services/scannedDressAvailability";
+import { buildKolkataDateTimeFromBookingForm } from "@/lib/bookingTimeParse";
 import { photoUrl } from "@/lib/photoUrl";
 
 export async function POST(req: NextRequest) {
