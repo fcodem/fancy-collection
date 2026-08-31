@@ -756,6 +756,24 @@ export default function BookingFormClient(props: Props) {
 
 
 
+  function addSelectedDressFromItem(item: FreeItem) {
+    setSelectedDresses((prev) => [...prev, {
+      id: item.id,
+      name: item.name,
+      category: item.category,
+      size: item.size || "",
+      color: item.color || "",
+      photo: item.photo || "",
+      price: 0,
+      fittingCharges: 0,
+      advance: 0,
+      notes: "",
+      returning_warning: item.returning_warning || null,
+      booked_warning: item.booked_warning || null,
+    }]);
+    setNameSearch("");
+  }
+
   /** Add/remove a dress from the booking. */
   function toggleDress(item: FreeItem) {
 
@@ -767,31 +785,8 @@ export default function BookingFormClient(props: Props) {
 
     } else {
 
-      setSelectedDresses([...selectedDresses, {
-
-        id: item.id,
-
-        name: item.name,
-
-        category: item.category,
-
-        size: item.size || "",
-
-        color: item.color || "",
-
-        photo: item.photo || "",
-
-        price: 0,
-
-        fittingCharges: 0,
-
-        advance: 0,
-
-        notes: "",
-
-      }]);
-      // Clear name filter so the next dress can be typed without deleting first.
-      setNameSearch("");
+      if (!confirmAlternateDressAdd(item.returning_warning, item.booked_warning)) return;
+      addSelectedDressFromItem(item);
 
     }
 
@@ -858,8 +853,8 @@ export default function BookingFormClient(props: Props) {
         return;
       }
       if (data.status.startsWith("WARNING_")) {
-        const records = data.warningRecords || [];
-        if (!window.confirm(formatScanAlternateConfirm(data.status, records))) return;
+        const scanWarnings = warningsFromScanRecords(data.warningRecords || []);
+        if (!confirmAlternateDressAdd(scanWarnings.returning_warning, scanWarnings.booked_warning)) return;
       } else if (data.status === "BOOKED" || (data.free_quantity != null && data.free_quantity <= 0)) {
         const who = (data.blockingRecords || [])
           .map((r) => `${r.customerName} (${r.bookingNumber})`)
@@ -2279,6 +2274,45 @@ type ScanConflictRecord = {
   contact?: string;
   reason?: string;
 };
+
+function alternateStatusFromWarnings(
+  returning?: WarningInfo | null,
+  booked?: WarningInfo | null,
+): string | null {
+  if (returning && booked) return "WARNING_BOTH_BOUNDARIES";
+  if (returning) return "WARNING_RETURNING_ON_DELIVERY_DAY";
+  if (booked) return "WARNING_BOOKED_ON_RETURN_DAY";
+  return null;
+}
+
+function warningInfoToScanRecord(
+  w: WarningInfo,
+  reason: "RETURNING_ON_DELIVERY_DAY" | "BOOKED_ON_RETURN_DAY",
+): ScanConflictRecord {
+  return {
+    customerName: w.customer_name || w.customer || "",
+    bookingNumber: w.booking_number || "",
+    monthlySerial: w.serial_no,
+    contact: w.contact_1 || w.contact,
+    deliveryDate: w.delivery_date,
+    deliveryTime: w.delivery_time,
+    returnDate: w.return_date,
+    returnTime: w.return_time,
+    reason,
+  };
+}
+
+function confirmAlternateDressAdd(
+  returning?: WarningInfo | null,
+  booked?: WarningInfo | null,
+): boolean {
+  const status = alternateStatusFromWarnings(returning, booked);
+  if (!status) return true;
+  const records: ScanConflictRecord[] = [];
+  if (returning) records.push(warningInfoToScanRecord(returning, "RETURNING_ON_DELIVERY_DAY"));
+  if (booked) records.push(warningInfoToScanRecord(booked, "BOOKED_ON_RETURN_DAY"));
+  return window.confirm(formatScanAlternateConfirm(status, records));
+}
 
 function scanRecordToWarningInfo(record: ScanConflictRecord): WarningInfo {
   return {
