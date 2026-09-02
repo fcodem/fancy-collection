@@ -153,7 +153,7 @@ async function BookingPanelBody({
             <i className="fa-solid fa-list" style={{ marginRight: 8 }} />
             Active Bookings
             <span style={{ fontWeight: 500, fontSize: 13, color: "var(--text-muted)", marginLeft: 8 }}>
-              — {panelLabel} (booked &amp; delivered)
+              — {panelLabel} (booked &amp; delivered{month != null ? "; still out always shown" : ""})
             </span>
           </h3>
           <span style={{ fontSize: 13, color: "var(--text-muted)" }}>

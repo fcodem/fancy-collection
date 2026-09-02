@@ -4,6 +4,10 @@ import prisma from "@/lib/prisma";
 import { activeBookingWhere } from "@/lib/bookingActiveStatus";
 import { whereDeliveryInRange } from "@/lib/bookingDateQuery";
 import { bookingMonthKey } from "@/lib/bookingMonth";
+import {
+  bookingPanelActiveWhere,
+  bookingPanelStatsWhere,
+} from "@/lib/bookingPanelQuery";
 import { AsyncSemaphore } from "@/lib/asyncSemaphore";
 import { memoryCachedQuery } from "@/lib/perfCache";
 import { getFreshShopRevision } from "@/lib/realtime/revision";
@@ -121,7 +125,7 @@ async function loadBookingsPanelOrdered(opts: {
     return prisma.booking.findMany({
       where: opts.where,
       select: bookingPanelSelect,
-      orderBy: [{ monthlySerial: "asc" }, { id: "asc" }],
+      orderBy: [{ deliveryDate: "asc" }, { monthlySerial: "asc" }, { id: "asc" }],
       skip: opts.skip,
       take: opts.take,
     });
@@ -147,15 +151,12 @@ async function loadBookingPanelPageUncached(opts: {
   const pageSize = opts.pageSize ?? BOOKING_PANEL_PAGE_SIZE;
   const page = Math.max(1, opts.page || 1);
   const panelDeliveryWhere = await whereDeliveryInRange(opts.panelFrom, opts.panelTo);
-  const activeWhere = {
-    ...panelDeliveryWhere,
-    status: { in: ["booked", "delivered"] as string[] },
-  };
+  const activeWhere = bookingPanelActiveWhere(panelDeliveryWhere, opts.month);
   const returnedWhere = {
     ...panelDeliveryWhere,
     status: "returned",
   };
-  const statsWhere = { ...activeBookingWhere(), ...panelDeliveryWhere };
+  const statsWhere = bookingPanelStatsWhere(panelDeliveryWhere, opts.month);
 
   const yearBounds = await loadBookingPanelYearBounds();
 
@@ -210,6 +211,7 @@ export async function loadBookingPanelPage(opts: {
   const revision = await getFreshShopRevision();
   const cacheKey = [
     "booking-panel-page",
+    "v2",
     revision,
     String(opts.year),
     String(opts.month ?? "all"),
@@ -232,7 +234,7 @@ export async function loadBookingPanelForPdf(opts: {
   month?: number | null;
 }) {
   const panelDeliveryWhere = await whereDeliveryInRange(opts.panelFrom, opts.panelTo);
-  const where = { ...activeBookingWhere(), ...panelDeliveryWhere };
+  const where = bookingPanelActiveWhere(panelDeliveryWhere, opts.month ?? null);
   return limitedRead(() =>
     loadBookingsPanelOrdered({
       where,
