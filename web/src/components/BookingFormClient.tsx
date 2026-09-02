@@ -1851,7 +1851,7 @@ export default function BookingFormClient(props: Props) {
 
           ) : (
 
-            <div className="dress-picker-scroll">
+            <div className="dress-selected-list">
 
             {selectedDresses.map((d, i) => {
               const warn = allFreeItems.find((f) => f.id === d.id);
