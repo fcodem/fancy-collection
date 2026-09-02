@@ -1182,11 +1182,25 @@ a.stat-card:hover {
   max-height: min(76vh, 820px);
 }
 
-/* Selected dresses — full list, page scrolls (no inner scroll box) */
+/* Selected dresses — full vertical list; page scrolls (never inner scroll box) */
+.booking-selected-dresses-card {
+  overflow: visible !important;
+}
+
+.booking-selected-dresses-body {
+  display: flex;
+  flex-direction: column;
+  max-height: none !important;
+  overflow: visible !important;
+  overflow-y: visible !important;
+}
+
 .dress-selected-list {
   display: flex;
   flex-direction: column;
   gap: 0;
+  max-height: none !important;
+  overflow: visible !important;
 }
 
 .booking-photo-thumb {

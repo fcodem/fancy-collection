@@ -1829,7 +1829,7 @@ export default function BookingFormClient(props: Props) {
 
 
       {/* ── Selected dresses: rent / advance / notes per line (collapsible) ── */}
-      <div className="card" style={{ marginBottom: 20 }}>
+      <div className="card booking-selected-dresses-card" style={{ marginBottom: 20 }}>
 
         <DressListAccordionHeader
           expanded={selectedListExpanded}
@@ -1841,7 +1841,10 @@ export default function BookingFormClient(props: Props) {
         />
 
         {selectedListExpanded && (
-        <div className="card-body">
+        <div
+          className="card-body booking-selected-dresses-body"
+          style={{ maxHeight: "none", overflow: "visible" }}
+        >
 
           {!selectedDresses.length ? (
 
@@ -1851,9 +1854,7 @@ export default function BookingFormClient(props: Props) {
 
           ) : (
 
-            <div className="dress-selected-list">
-
-            {selectedDresses.map((d, i) => {
+            selectedDresses.map((d, i) => {
               const warn = allFreeItems.find((f) => f.id === d.id);
               return (
               <BookingSelectedDressRow
@@ -1866,9 +1867,7 @@ export default function BookingFormClient(props: Props) {
                 onUpdateField={updateDressField}
               />
             );
-            })}
-
-            </div>
+            })
 
           )}
 
