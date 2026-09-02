@@ -129,6 +129,11 @@ export function bookingDressLabels(
   return labels.length ? labels.join(", ") : fallback;
 }
 
+/** Count of dresses on a booking (matches bookingDressLabels rows). */
+export function bookingDressCount(booking: Parameters<typeof serializeBookingItems>[0]): number {
+  return serializeBookingItems(booking).length;
+}
+
 export type BookingItemPricingRow = {
   id?: number;
   display_name: string;

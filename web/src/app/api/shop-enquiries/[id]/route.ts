@@ -10,7 +10,7 @@ import {
 } from "@/lib/api";
 import { formatDate } from "@/lib/constants";
 import { logActivity } from "@/lib/activityLog";
-import { serializeShopEnquiry, shopEnquiryWriteData } from "@/lib/shopEnquiry";
+import { serializeShopEnquiry, shopEnquiryWriteData, deliveryDatesFromRow } from "@/lib/shopEnquiry";
 
 export async function GET(_req: NextRequest, ctx: { params: Promise<{ id: string }> }) {
   const user = await requireUserReadOnly();
@@ -58,16 +58,12 @@ export async function PATCH(req: NextRequest, ctx: { params: Promise<{ id: strin
       before: {
         customerName: existing.customerName,
         visitDate: formatDate(existing.visitDate, "iso"),
-        dressNeededDate: existing.dressNeededDate
-          ? formatDate(existing.dressNeededDate, "iso")
-          : null,
+        deliveryDates: deliveryDatesFromRow(existing),
       },
       after: {
         customerName: enquiry.customerName,
         visitDate: formatDate(enquiry.visitDate, "iso"),
-        dressNeededDate: enquiry.dressNeededDate
-          ? formatDate(enquiry.dressNeededDate, "iso")
-          : null,
+        deliveryDates: deliveryDatesFromRow(enquiry),
       },
     });
 

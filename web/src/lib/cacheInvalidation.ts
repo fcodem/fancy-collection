@@ -17,6 +17,7 @@ export const CACHE_TAGS = {
   packingList: "packing-list",
   deliveryList: "delivery-list",
   returnList: "return-list",
+  postponedBookingList: "postponed-booking-list",
   inventoryList: INVENTORY_CACHE_TAGS.inventoryList,
   inventorySearch: INVENTORY_CACHE_TAGS.inventorySearch,
   customers: "customers",
@@ -47,6 +48,7 @@ export function invalidateBookingCaches() {
     CACHE_TAGS.dashboardCounts,
     CACHE_TAGS.deliveryList,
     CACHE_TAGS.returnList,
+    CACHE_TAGS.postponedBookingList,
   ]);
   // A created/edited/deleted booking may change or retire a qr_token → id mapping.
   clearQrResolveCache();

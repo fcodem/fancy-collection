@@ -37,7 +37,23 @@ export async function runAiIndexingSelfHealIfDue(
     console.warn("[ai-self-heal] repair enqueue skipped:", e);
   }
 
+  if (repairEnqueued > 0) {
+    void kickAiIndexingDrain("self_heal_repair", 3);
+  }
+
   return { ran: true, recoveredLeases, repairEnqueued };
+}
+
+/** After enqueueing repair work, kick the worker so indexing does not stall waiting for cron. */
+export async function kickAiIndexingDrain(source: string, limit = 3): Promise<void> {
+  try {
+    const { drainAiJobQueue, resolveAiCronDrainLimit } = await import(
+      "@/lib/dressChecker/aiJobWorker"
+    );
+    await drainAiJobQueue(resolveAiCronDrainLimit(limit), { source });
+  } catch (e) {
+    console.warn(`[ai-self-heal] drain kick skipped (${source}):`, e);
+  }
 }
 
 export async function countUnindexedInventoryWithPhotos(): Promise<number> {

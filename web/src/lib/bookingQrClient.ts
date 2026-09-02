@@ -53,6 +53,22 @@ export function normalizeQrTarget(raw: string | null | undefined): QrTarget {
   return (QR_TARGETS as readonly string[]).includes(t) ? (t as QrTarget) : "booking";
 }
 
+/** Booking panel URL for a scanned bill — opens the delivery month with row highlight. */
+export function qrBookingPanelScanPath(
+  bookingId: number,
+  deliveryDate?: Date | string | null,
+): string {
+  const d = deliveryDate ? new Date(deliveryDate) : new Date();
+  const year = Number.isFinite(d.getTime()) ? d.getUTCFullYear() : new Date().getUTCFullYear();
+  const month = Number.isFinite(d.getTime()) ? d.getUTCMonth() + 1 : new Date().getUTCMonth() + 1;
+  return `/booking?year=${year}&month=${month}&scan=${bookingId}`;
+}
+
+/** Show a highlighted status banner after QR scan (booked = no banner). */
+export function qrScanShowsStatusBanner(status: string): boolean {
+  return status === "delivered" || status === "postponed" || status === "cancelled";
+}
+
 /** Deterministic destination path for a resolved booking id + target. */
 export function qrTargetPath(target: QrTarget, bookingId: number): string {
   switch (target) {

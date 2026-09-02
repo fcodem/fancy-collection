@@ -1,5 +1,5 @@
 import { formatDate, formatBookingDateTime } from "./constants";
-import { bookingDressLabels, dressDisplayName, serializeBookingItems } from "./dress";
+import { bookingDressLabels, dressDisplayName, serializeBookingItems, bookingDressCount } from "./dress";
 import { isStarBooking } from "./starBooking";
 
 /** Standard customer + booking fields shown on every list/menu. */
@@ -10,6 +10,7 @@ export type StandardBookingDetails = {
   total_fitting_charges?: number;
   security_deposit: number;
   dress_names: string;
+  dress_count: number;
   item_notes: string;
   common_notes: string;
   delivery_date: string;
@@ -96,6 +97,7 @@ export function serializeStandardBookingDetails(b: BookingForStandardDetails): S
       }>,
     }),
     dress_names: bookingDressLabels(b),
+    dress_count: bookingDressCount(b),
     item_notes: itemNotes,
     common_notes: b.commonNotes || "",
     delivery_date: formatDate(b.deliveryDate, "display"),

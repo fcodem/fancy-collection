@@ -2,6 +2,7 @@ import { notFound } from "next/navigation";
 import prisma from "@/lib/prisma";
 import ShopEnquiryFormClient from "@/components/ShopEnquiryFormClient";
 import { formatDate } from "@/lib/constants";
+import { deliveryDatesFromRow } from "@/lib/shopEnquiry";
 
 export const dynamic = "force-dynamic";
 
@@ -26,14 +27,11 @@ export default async function EditShopEnquiryPage({
       staffList={staff.map((s) => s.name)}
       initial={{
         customerName: enquiry.customerName,
-        customerAddress: enquiry.customerAddress || "",
         contact1: enquiry.contact1 || "",
         whatsapp: enquiry.whatsappNo || "",
         enquiryNotes: enquiry.enquiryNotes || "",
         visitDate: formatDate(enquiry.visitDate, "iso"),
-        dressNeededDate: enquiry.dressNeededDate
-          ? formatDate(enquiry.dressNeededDate, "iso")
-          : "",
+        deliveryDates: deliveryDatesFromRow(enquiry),
         staffNames: enquiry.staffNames ? enquiry.staffNames.split(", ") : [],
       }}
     />

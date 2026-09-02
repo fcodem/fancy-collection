@@ -72,6 +72,17 @@ export function StandardBookingTableCells({ d }: { d: StandardBookingDetails }) 
       </td>
       <td className="booking-col-money">₹{formatInr(d.security_deposit)}</td>
       <td className="booking-col-dress">
+        {d.dress_count > 0 ? (
+          <div style={{ marginBottom: 4 }}>
+            <span
+              className="badge badge-info"
+              style={{ fontSize: 11, fontWeight: 700 }}
+              title={`${d.dress_count} dress${d.dress_count === 1 ? "" : "es"} booked`}
+            >
+              {d.dress_count} {d.dress_count === 1 ? "dress" : "dresses"}
+            </span>
+          </div>
+        ) : null}
         <NoteCell text={d.dress_names} />
       </td>
       <td className="booking-col-notes">
@@ -112,7 +123,7 @@ export function StandardBookingDetailsGrid({ d }: { d: StandardBookingDetails })
     { label: "Address", value: d.customer_address || "—" },
     { label: "Total Rent", value: `₹${formatInr(d.total_rent)}` },
     { label: "Security", value: `₹${formatInr(d.security_deposit)}` },
-    { label: "Dress", value: d.dress_names || "—" },
+    { label: "Dress", value: d.dress_count > 0 ? `${d.dress_count} — ${d.dress_names || "—"}` : d.dress_names || "—" },
     { label: "Dress Notes", value: d.item_notes || "—" },
     { label: "Common Note", value: d.common_notes || "—" },
     {
@@ -186,7 +197,7 @@ export function PackingBookingDetailsGrid({
     { label: "Staff", value: extras?.staff_names || "—" },
     { label: "Total Rent", value: `₹${formatInr(d.total_rent)}` },
     { label: "Advance Paid", value: `₹${formatInr(extras?.total_advance ?? 0)}` },
-    { label: "Dress", value: d.dress_names || "—" },
+    { label: "Dress", value: d.dress_count > 0 ? `${d.dress_count} — ${d.dress_names || "—"}` : d.dress_names || "—" },
     { label: "Dress Notes", value: d.item_notes || "—" },
     { label: "Common Note", value: d.common_notes || "—" },
     { label: "Delivery", value: `${d.delivery_date} ${d.delivery_time}` },
@@ -229,6 +240,7 @@ export function BookingWarningPanel({
           total_rent: w.total_rent || 0,
           security_deposit: 0,
           dress_names: w.dress_names || "",
+          dress_count: w.dress_names ? w.dress_names.split(",").filter((s) => s.trim()).length : 0,
           item_notes: w.item_notes || "",
           common_notes: w.common_notes || "",
           booking_date: w.booking_date || "",

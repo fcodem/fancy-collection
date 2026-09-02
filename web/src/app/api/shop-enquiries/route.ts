@@ -3,7 +3,7 @@ import prisma from "@/lib/prisma";
 import { jsonError, jsonOk, requireUser, requireUserReadOnly, isResponse, requireJsonContentType } from "@/lib/api";
 import { formatDate } from "@/lib/constants";
 import { logActivity } from "@/lib/activityLog";
-import { serializeShopEnquiry, shopEnquiryWriteData } from "@/lib/shopEnquiry";
+import { serializeShopEnquiry, shopEnquiryWriteData, deliveryDatesFromRow } from "@/lib/shopEnquiry";
 
 export async function GET() {
   const user = await requireUserReadOnly();
@@ -41,9 +41,7 @@ export async function POST(req: NextRequest) {
       after: {
         customerName: enquiry.customerName,
         visitDate: formatDate(enquiry.visitDate, "iso"),
-        dressNeededDate: enquiry.dressNeededDate
-          ? formatDate(enquiry.dressNeededDate, "iso")
-          : null,
+        deliveryDates: deliveryDatesFromRow(enquiry),
       },
     });
 

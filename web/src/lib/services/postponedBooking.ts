@@ -89,9 +89,14 @@ export async function listPostponedBookings(searchQ?: string) {
 
   let list = rows.map((b) => serializePostponedRow(b as BookingForListRecord & typeof b));
   if (q) {
+    const qNorm = q.replace(/^#/, "");
     list = list.filter((r) => {
+      const serialPlain = String(r.serial);
+      const serialPadded = serialPlain.padStart(2, "0");
       const hay = [
-        String(r.serial),
+        serialPlain,
+        serialPadded,
+        `#${serialPadded}`,
         r.customer_name,
         r.contact_1,
         r.whatsapp_no,
@@ -100,7 +105,7 @@ export async function listPostponedBookings(searchQ?: string) {
       ]
         .join(" ")
         .toLowerCase();
-      return hay.includes(q);
+      return hay.includes(q) || hay.includes(qNorm);
     });
   }
 

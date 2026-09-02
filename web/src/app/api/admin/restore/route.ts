@@ -411,7 +411,7 @@ export async function POST(req: NextRequest) {
       if (backup.shop_enquiries?.length) {
         for (const e of backup.shop_enquiries) {
           await tx.$executeRawUnsafe(
-            `INSERT INTO "shop_enquiries" ("id","customer_name","customer_address","contact_1","whatsapp_no","enquiry_notes","staff_names","visit_date","dress_needed_date","created_at") VALUES (${ph(10)})`,
+            `INSERT INTO "shop_enquiries" ("id","customer_name","customer_address","contact_1","whatsapp_no","enquiry_notes","staff_names","visit_date","dress_needed_date","delivery_dates","created_at") VALUES (${ph(11)})`,
             e.id,
             e.customerName ?? e.customer_name,
             e.customerAddress ?? e.customer_address ?? null,
@@ -421,6 +421,7 @@ export async function POST(req: NextRequest) {
             e.staffNames ?? e.staff_names ?? null,
             dateParamReq((e.visitDate ?? e.visit_date) as string),
             dateParam((e.dressNeededDate ?? e.dress_needed_date) as string | undefined),
+            e.deliveryDates ?? e.delivery_dates ?? null,
             dateParamReq((e.createdAt ?? e.created_at) as string),
           );
         }

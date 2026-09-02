@@ -10,12 +10,11 @@ import { buildSaveRedirectUrl } from "@/components/SaveConfirmedBanner";
 
 export type ShopEnquiryFormValues = {
   customerName: string;
-  customerAddress: string;
   contact1: string;
   whatsapp: string;
   enquiryNotes: string;
   visitDate: string;
-  dressNeededDate: string;
+  deliveryDates: string[];
   staffNames: string[];
 };
 
@@ -26,6 +25,11 @@ type Props = {
   enquiryId?: number;
   initial?: ShopEnquiryFormValues;
 };
+
+function defaultDeliveryDates(initial?: string[]) {
+  if (initial?.length) return initial;
+  return [""];
+}
 
 export default function ShopEnquiryFormClient({
   staffList,
@@ -40,12 +44,13 @@ export default function ShopEnquiryFormClient({
   const editing = enquiryId != null;
 
   const [customerName, setCustomerName] = useState(initial?.customerName ?? "");
-  const [customerAddress, setCustomerAddress] = useState(initial?.customerAddress ?? "");
   const [contact1, setContact1] = useState(initial?.contact1 ?? "");
   const [whatsapp, setWhatsapp] = useState(initial?.whatsapp ?? "");
   const [enquiryNotes, setEnquiryNotes] = useState(initial?.enquiryNotes ?? "");
   const [visitDate, setVisitDate] = useState(initial?.visitDate ?? visitDefault);
-  const [dressNeededDate, setDressNeededDate] = useState(initial?.dressNeededDate ?? "");
+  const [deliveryDates, setDeliveryDates] = useState<string[]>(() =>
+    defaultDeliveryDates(initial?.deliveryDates),
+  );
   const [staffNames, setStaffNames] = useState<string[]>(initial?.staffNames ?? []);
   const [saving, setSaving] = useState(false);
   const [error, setError] = useState("");
@@ -54,24 +59,34 @@ export default function ShopEnquiryFormClient({
     setStaffNames((prev) => (prev.includes(name) ? prev.filter((n) => n !== name) : [...prev, name]));
   }
 
+  function addDeliveryDate() {
+    setDeliveryDates((prev) => [...prev, ""]);
+  }
+
+  function updateDeliveryDate(index: number, value: string) {
+    setDeliveryDates((prev) => prev.map((d, i) => (i === index ? value : d)));
+  }
+
+  function removeDeliveryDate(index: number) {
+    setDeliveryDates((prev) => (prev.length <= 1 ? [""] : prev.filter((_, i) => i !== index)));
+  }
+
   function resetForm() {
     if (editing && initial) {
       setCustomerName(initial.customerName);
-      setCustomerAddress(initial.customerAddress);
       setContact1(initial.contact1);
       setWhatsapp(initial.whatsapp);
       setEnquiryNotes(initial.enquiryNotes);
       setVisitDate(initial.visitDate);
-      setDressNeededDate(initial.dressNeededDate);
+      setDeliveryDates(defaultDeliveryDates(initial.deliveryDates));
       setStaffNames(initial.staffNames);
     } else {
       setCustomerName("");
-      setCustomerAddress("");
       setContact1("");
       setWhatsapp("");
       setEnquiryNotes("");
       setVisitDate(visitDefault);
-      setDressNeededDate("");
+      setDeliveryDates([""]);
       setStaffNames([]);
     }
     setError("");
@@ -88,13 +103,12 @@ export default function ShopEnquiryFormClient({
     try {
       const payload = {
         customer_name: customerName,
-        customer_address: customerAddress,
         contact_1: contact1,
         whatsapp_no: whatsapp,
         enquiry_notes: enquiryNotes,
         staff_names: staffNames,
         visit_date: visitDate,
-        dress_needed_date: dressNeededDate || null,
+        delivery_dates: deliveryDates.filter((d) => d.trim()),
       };
       const res = await fetch(
         editing ? `/api/shop-enquiries/${enquiryId}` : "/api/shop-enquiries",
@@ -163,10 +177,6 @@ export default function ShopEnquiryFormClient({
               <label className="form-label">Customer Name *</label>
               <input className="form-control" value={customerName} onChange={(e) => setCustomerName(e.target.value)} required />
             </div>
-            <div className="form-group full-width">
-              <label className="form-label">Address</label>
-              <textarea className="form-control" rows={2} value={customerAddress} onChange={(e) => setCustomerAddress(e.target.value)} />
-            </div>
             <div className="form-group">
               <label className="form-label">Contact</label>
               <input className="form-control" value={contact1} onChange={(e) => setContact1(e.target.value)} />
@@ -179,14 +189,37 @@ export default function ShopEnquiryFormClient({
               <label className="form-label">Visit Date</label>
               <input type="date" className="form-control" value={visitDate} onChange={(e) => setVisitDate(e.target.value)} />
             </div>
-            <div className="form-group">
-              <label className="form-label">Date Dress Is Needed</label>
-              <input
-                type="date"
-                className="form-control"
-                value={dressNeededDate}
-                onChange={(e) => setDressNeededDate(e.target.value)}
-              />
+            <div className="form-group full-width">
+              <div style={{ display: "flex", justifyContent: "space-between", alignItems: "center", marginBottom: 8 }}>
+                <label className="form-label" style={{ margin: 0 }}>Delivery Dates</label>
+                <button type="button" className="btn btn-outline btn-sm" onClick={addDeliveryDate}>
+                  <i className="fa-solid fa-plus" style={{ marginRight: 6 }} />
+                  Add Date
+                </button>
+              </div>
+              <div style={{ display: "grid", gap: 8 }}>
+                {deliveryDates.map((date, index) => (
+                  <div key={`delivery-date-${index}`} style={{ display: "flex", gap: 8, alignItems: "center" }}>
+                    <input
+                      type="date"
+                      className="form-control"
+                      value={date}
+                      onChange={(e) => updateDeliveryDate(index, e.target.value)}
+                      aria-label={`Delivery date ${index + 1}`}
+                    />
+                    <button
+                      type="button"
+                      className="btn btn-outline btn-sm"
+                      onClick={() => removeDeliveryDate(index)}
+                      title="Remove date"
+                      aria-label="Remove delivery date"
+                    >
+                      <i className="fa-solid fa-trash" />
+                    </button>
+                  </div>
+                ))}
+              </div>
+              <span className="form-hint">Add every delivery date the customer asked about.</span>
             </div>
             <div className="form-group full-width">
               <label className="form-label">Enquiry Notes</label>

@@ -260,6 +260,7 @@ export async function getPackingListPage(opts: {
                   total_advance: 0,
                   security_deposit: 0,
                   dress_names: "",
+                  dress_count: 0,
                   item_notes: "",
                   common_notes: "",
                   delivery_date: formatDate(warning.deliveryDate, "display"),

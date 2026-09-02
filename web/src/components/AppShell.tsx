@@ -7,6 +7,7 @@ import { fetchJson, parseResponseJson } from "@/lib/fetchJson";
 import { useToast } from "@/components/ui/Toast";
 import { useMounted } from "@/lib/useMounted";
 import RealtimeProvider, { useRealtime } from "@/components/RealtimeProvider";
+import GlobalHardwareScanner from "@/components/GlobalHardwareScanner";
 import { SidebarBrandMark, BrandBreadcrumbLabel, BrandLogo, BrandMottoPill } from "@/components/BrandMark";
 import { BRAND_APP_TITLE } from "@/lib/branding";
 import { dispatchPageOpenRefresh } from "@/lib/pageOpenRefresh";
@@ -366,6 +367,7 @@ export default function AppShell({
 
   return (
     <RealtimeProvider username={username} onNavRefresh={setOverdueDelivery}>
+      <GlobalHardwareScanner />
       <AppLayoutInner
         mounted={mounted}
         collapsed={collapsed}

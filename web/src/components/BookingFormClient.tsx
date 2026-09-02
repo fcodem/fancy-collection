@@ -41,6 +41,7 @@ import { todayIso, parseDate, isDateBeforeToday } from "@/lib/constants";
 import { formatInr } from "@/lib/format";
 import { privateMediaUrl } from "@/lib/photoUrl";
 import { isAbortError } from "@/lib/bookingQrClient";
+import { refocusInput } from "@/lib/hardwareScanner";
 import { useToast } from "@/components/ui/Toast";
 import { downloadBookingSlipPdf } from "@/lib/bookingSlipClient";
 import { useRealtimeRefresh } from "@/hooks/useRealtimeRefresh";
@@ -402,9 +403,22 @@ export default function BookingFormClient(props: Props) {
   const [showCameraScanner, setShowCameraScanner] = useState(false);
   const scanBuffer = useRef("");
   const scanTimer = useRef<ReturnType<typeof setTimeout> | null>(null);
+  const dressSearchInputRef = useRef<HTMLInputElement>(null);
+  const scanKeepFocusRef = useRef(false);
 
   /** Available panel: expanded by default; staff collapse manually if needed. */
   const [dressListExpanded, setDressListExpanded] = useState(true);
+
+  const refocusDressSearch = useCallback(() => {
+    refocusInput(dressSearchInputRef.current, 50);
+  }, []);
+
+  useEffect(() => {
+    scanKeepFocusRef.current = dressListExpanded && !showCameraScanner;
+    if (scanKeepFocusRef.current) {
+      refocusDressSearch();
+    }
+  }, [dressListExpanded, showCameraScanner, refocusDressSearch]);
 
   /** Selected panel: always expanded by default so pricing fields stay visible. */
   const [selectedListExpanded, setSelectedListExpanded] = useState(true);
@@ -913,26 +927,34 @@ export default function BookingFormClient(props: Props) {
       alert("Failed to look up scanned dress. Please try again.");
     } finally {
       setScanBusy(false);
+      setNameSearch("");
+      refocusDressSearch();
     }
-  }, [scanBusy, deliveryDate, returnDate, deliveryTime, returnTime, props.editId, selectedDresses, toast]);
+  }, [scanBusy, deliveryDate, returnDate, deliveryTime, returnTime, props.editId, selectedDresses, toast, refocusDressSearch]);
 
   const handleDressSearchKeyDown = useCallback((e: React.KeyboardEvent<HTMLInputElement>) => {
     if (scanTimer.current) clearTimeout(scanTimer.current);
     if (e.key === "Enter") {
       e.preventDefault();
-      const code = scanBuffer.current;
+      const code = scanBuffer.current || e.currentTarget.value;
       scanBuffer.current = "";
-      if (code.length >= 4) {
-        void handleScanCode(code);
-        setNameSearch("");
+      if (code.trim().length >= 4) {
+        void handleScanCode(code.trim());
       }
       return;
     }
     if (e.key.length === 1) {
       scanBuffer.current += e.key;
-      scanTimer.current = setTimeout(() => { scanBuffer.current = ""; }, 100);
+      scanTimer.current = setTimeout(() => { scanBuffer.current = ""; }, 120);
     }
   }, [handleScanCode]);
+
+  const handleDressSearchBlur = useCallback((e: React.FocusEvent<HTMLInputElement>) => {
+    if (!scanKeepFocusRef.current) return;
+    const next = e.relatedTarget as HTMLElement | null;
+    if (next?.closest("button, a, select, textarea, input:not([data-dress-scan]), .dress-suggest-item, .dress-picker-scroll")) return;
+    refocusDressSearch();
+  }, [refocusDressSearch]);
 
   function removeDress(index: number) {
 
@@ -1673,9 +1695,12 @@ export default function BookingFormClient(props: Props) {
                 showPhotos
                 clearOnSelect={false}
                 minChars={2}
-                disabled={scanBusy}
+                inputRef={dressSearchInputRef}
+                data-dress-scan="1"
+                autoComplete="off"
                 onChange={(e) => setNameSearch(e.target.value)}
                 onKeyDown={handleDressSearchKeyDown}
+                onBlur={handleDressSearchBlur}
                 onSuggestSelect={(item) => {
                   const base = stripUnitSuffix(item.name || item.display_name || "");
                   if (item.category) setCategoryFilter(item.category);

@@ -160,11 +160,17 @@ export default function SuppliersClient({
           by_category,
         };
       })
-      .filter((v) => v.total > 0)
-      .sort((a, b) => b.total - a.total);
+      .sort((a, b) => {
+        if (b.total !== a.total) return b.total - a.total;
+        return a.name.localeCompare(b.name);
+      });
   }, [suppliers, compareFrom, compareTo]);
 
   const comparisonTotal = vendorComparison.reduce((s, v) => s + v.total, 0);
+  const vendorsWithPurchases = useMemo(
+    () => vendorComparison.filter((v) => v.total > 0),
+    [vendorComparison],
+  );
   const comparisonCategories = useMemo(() => {
     const cats = new Set<string>();
     for (const v of vendorComparison) {
@@ -199,26 +205,30 @@ export default function SuppliersClient({
               <label className="form-label">To</label>
               <input type="date" className="form-control" value={compareTo} onChange={(e) => setCompareTo(e.target.value)} />
             </div>
-            {comparisonTotal > 0 && (
+            {suppliers.length > 0 && (
               <div style={{ marginLeft: "auto", textAlign: "right" }}>
                 <div style={{ fontSize: 20, fontWeight: 800 }}>₹{formatInr(comparisonTotal)}</div>
-                <div style={{ fontSize: 12, color: "var(--text-muted)" }}>Total stock purchased (all vendors)</div>
+                <div style={{ fontSize: 12, color: "var(--text-muted)" }}>
+                  Total stock purchased ({vendorsWithPurchases.length} of {vendorComparison.length} vendors)
+                </div>
               </div>
             )}
           </div>
 
-          {vendorComparison.length > 0 ? (
+          {suppliers.length > 0 ? (
             <>
+              {vendorsWithPurchases.length > 0 && (
               <div style={{ marginBottom: 24 }}>
                 <FinanceChart
                   type="bar"
-                  labels={vendorComparison.map((v) => v.name)}
-                  values={vendorComparison.map((v) => v.total)}
+                  labels={vendorsWithPurchases.map((v) => v.name)}
+                  values={vendorsWithPurchases.map((v) => v.total)}
                   title="Stock Purchase by Vendor"
-                  height={Math.max(260, vendorComparison.length * 36)}
+                  height={Math.max(260, vendorsWithPurchases.length * 36)}
                   horizontal
                 />
               </div>
+              )}
               <table className="data-table" style={{ marginBottom: 24 }}>
                 <thead>
                   <tr>
@@ -231,12 +241,12 @@ export default function SuppliersClient({
                 </thead>
                 <tbody>
                   {vendorComparison.map((v) => (
-                    <tr key={v.id}>
+                    <tr key={v.id} style={v.total === 0 ? { color: "var(--text-muted)" } : undefined}>
                       <td><strong>{v.name}</strong></td>
-                      <td>₹{formatInr(v.total)}</td>
-                      <td>₹{formatInr(v.gst)}</td>
-                      <td>{v.count}</td>
-                      <td>{comparisonTotal > 0 ? `${Math.round((v.total / comparisonTotal) * 100)}%` : "—"}</td>
+                      <td>{v.total > 0 ? `₹${formatInr(v.total)}` : "—"}</td>
+                      <td>{v.gst > 0 ? `₹${formatInr(v.gst)}` : "—"}</td>
+                      <td>{v.count || "—"}</td>
+                      <td>{comparisonTotal > 0 && v.total > 0 ? `${Math.round((v.total / comparisonTotal) * 100)}%` : v.total === 0 ? "—" : "0%"}</td>
                     </tr>
                   ))}
                 </tbody>
@@ -281,7 +291,7 @@ export default function SuppliersClient({
               )}
             </>
           ) : (
-            <p style={{ color: "var(--text-muted)", margin: 0 }}>No vendor purchases in this date range.</p>
+            <p style={{ color: "var(--text-muted)", margin: 0 }}>No vendors yet. Add a vendor below.</p>
           )}
         </div>
       </div>

@@ -3,7 +3,8 @@ import prisma from "@/lib/prisma";
 import ProspectLeadActions from "@/components/ProspectLeadActions";
 import ShopEnquiryActions from "@/components/ShopEnquiryActions";
 import { dressDisplayName } from "@/lib/dress";
-import { formatDate } from "@/lib/constants";
+import { formatDate, parseDate } from "@/lib/constants";
+import { deliveryDatesFromRow } from "@/lib/shopEnquiry";
 import { formatInr } from "@/lib/format";
 
 export default async function ProspectLeadsPage() {
@@ -135,20 +136,19 @@ export default async function ProspectLeadsPage() {
                     <th>Customer</th>
                     <th>Contact</th>
                     <th>Visit Date</th>
-                    <th>Dress Needed</th>
+                    <th>Delivery Dates</th>
                     <th>Notes</th>
                     <th>Staff</th>
                     <th>Actions</th>
                   </tr>
                 </thead>
                 <tbody>
-                  {enquiries.map((e) => (
+                  {enquiries.map((e) => {
+                    const deliveryDates = deliveryDatesFromRow(e);
+                    return (
                     <tr key={e.id}>
                       <td>
                         <div style={{ fontWeight: 600 }}>{e.customerName}</div>
-                        {e.customerAddress && (
-                          <div style={{ fontSize: 11, color: "var(--text-muted)" }}>{e.customerAddress}</div>
-                        )}
                       </td>
                       <td>
                         <div>{e.contact1 || "—"}</div>
@@ -159,8 +159,10 @@ export default async function ProspectLeadsPage() {
                         )}
                       </td>
                       <td>{formatDate(e.visitDate, "display")}</td>
-                      <td>
-                        {e.dressNeededDate ? formatDate(e.dressNeededDate, "display") : "—"}
+                      <td style={{ fontSize: 12 }}>
+                        {deliveryDates.length
+                          ? deliveryDates.map((d) => formatDate(parseDate(d), "display")).join(", ")
+                          : "—"}
                       </td>
                       <td style={{ maxWidth: 220, wordBreak: "break-word", fontSize: 12 }}>{e.enquiryNotes || "—"}</td>
                       <td style={{ fontSize: 12 }}>{e.staffNames || "—"}</td>
@@ -168,7 +170,8 @@ export default async function ProspectLeadsPage() {
                         <ShopEnquiryActions enquiryId={e.id} />
                       </td>
                     </tr>
-                  ))}
+                    );
+                  })}
                 </tbody>
               </table>
             </div>

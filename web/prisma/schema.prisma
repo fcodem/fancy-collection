@@ -634,6 +634,7 @@ model ShopEnquiry {
   staffNames      String?   @map("staff_names")
   visitDate       DateTime  @map("visit_date")
   dressNeededDate DateTime? @map("dress_needed_date")
+  deliveryDates   String?   @map("delivery_dates")
   createdAt       DateTime  @default(now()) @map("created_at")
 
   @@map("shop_enquiries")

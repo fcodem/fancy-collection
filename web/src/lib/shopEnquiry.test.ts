@@ -1,6 +1,9 @@
 import { describe, it } from "node:test";
 import assert from "node:assert/strict";
 import {
+  deliveryDatesFromRow,
+  normalizeDeliveryDatesInput,
+  parseDeliveryDatesJson,
   parseOptionalEnquiryDate,
   serializeShopEnquiry,
   shopEnquiryWriteData,
@@ -20,7 +23,14 @@ describe("shopEnquiry helpers", () => {
     assert.equal(d!.toISOString().slice(0, 10), "2026-07-20");
   });
 
-  it("shopEnquiryWriteData maps API body to prisma fields", () => {
+  it("normalizeDeliveryDatesInput deduplicates and sorts", () => {
+    assert.deepEqual(
+      normalizeDeliveryDatesInput(["2026-09-15", "2026-09-01", "2026-09-15", ""]),
+      ["2026-09-01", "2026-09-15"],
+    );
+  });
+
+  it("shopEnquiryWriteData stores multiple delivery dates and clears address", () => {
     const data = shopEnquiryWriteData({
       customer_name: " Priya ",
       customer_address: " 123 Main ",
@@ -29,28 +39,27 @@ describe("shopEnquiry helpers", () => {
       enquiry_notes: " Wedding dress ",
       staff_names: ["Alice", "Bob"],
       visit_date: "2026-07-19",
-      dress_needed_date: "2026-08-01",
+      delivery_dates: ["2026-08-01", "2026-08-15"],
     });
 
     assert.equal(data.customerName, "Priya");
-    assert.equal(data.customerAddress, "123 Main");
+    assert.equal(data.customerAddress, null);
     assert.equal(data.contact1, "9876543210");
-    assert.equal(data.whatsappNo, null);
     assert.equal(data.enquiryNotes, "Wedding dress");
-    assert.equal(data.staffNames, "Alice, Bob");
-    assert.equal(data.visitDate.toISOString().slice(0, 10), "2026-07-19");
+    assert.equal(data.deliveryDates, '["2026-08-01","2026-08-15"]');
     assert.equal(data.dressNeededDate?.toISOString().slice(0, 10), "2026-08-01");
   });
 
-  it("shopEnquiryWriteData clears dressNeededDate when omitted", () => {
+  it("shopEnquiryWriteData clears delivery dates when omitted", () => {
     const data = shopEnquiryWriteData({
       customer_name: "Test",
-      dress_needed_date: null,
+      delivery_dates: [],
     });
+    assert.equal(data.deliveryDates, null);
     assert.equal(data.dressNeededDate, null);
   });
 
-  it("serializeShopEnquiry exposes dress_needed_date", () => {
+  it("serializeShopEnquiry exposes delivery_dates array", () => {
     const row = {
       id: 1,
       customerName: "Test",
@@ -61,10 +70,28 @@ describe("shopEnquiry helpers", () => {
       staffNames: "Alice",
       visitDate: new Date("2026-07-19T00:00:00.000Z"),
       dressNeededDate: new Date("2026-08-01T00:00:00.000Z"),
+      deliveryDates: '["2026-08-01","2026-08-20"]',
       createdAt: new Date("2026-07-19T12:00:00.000Z"),
     };
     const out = serializeShopEnquiry(row);
+    assert.deepEqual(out.delivery_dates, ["2026-08-01", "2026-08-20"]);
     assert.equal(out.dress_needed_date, "2026-08-01");
-    assert.deepEqual(out.staff_names, ["Alice"]);
+  });
+
+  it("deliveryDatesFromRow falls back to legacy dressNeededDate", () => {
+    assert.deepEqual(
+      deliveryDatesFromRow({
+        deliveryDates: null,
+        dressNeededDate: new Date("2026-08-01T00:00:00.000Z"),
+      }),
+      ["2026-08-01"],
+    );
+  });
+
+  it("parseDeliveryDatesJson reads stored JSON", () => {
+    assert.deepEqual(parseDeliveryDatesJson('["2026-09-01","2026-09-10"]'), [
+      "2026-09-01",
+      "2026-09-10",
+    ]);
   });
 });

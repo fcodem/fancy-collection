@@ -5,7 +5,7 @@ import {
   enqueueBulkAiRebuild,
   getAiJobQueueStats,
 } from "@/lib/dressChecker/aiJobClient";
-import { AI_STATUS } from "@/lib/dressChecker/profileReadiness";
+import { countUnindexedInventoryWithPhotos } from "@/lib/dressChecker/aiIndexingSelfHeal";
 import { RECOGNITION_PIPELINE_VERSION } from "@/lib/recognitionPipeline/types";
 
 export const dynamic = "force-dynamic";
@@ -34,33 +34,16 @@ export async function GET() {
   const user = await requireOwner();
   if (isResponse(user)) return user;
 
-  const [total, readyProfiles, legacyIndexed, queue] = await Promise.all([
+  const [total, unindexed, queue] = await Promise.all([
     prisma.clothingItem.count({
       where: { photo: { not: null }, NOT: { photo: "" } },
     }),
-    prisma.inventoryAiProfile.count({
-      where: {
-        OR: [
-          { aiStatus: AI_STATUS.READY },
-          {
-            recognitionVersion: { gte: RECOGNITION_PIPELINE_VERSION },
-            status: "ready",
-          },
-        ],
-      },
-    }),
-    prisma.clothingItem.count({
-      where: {
-        photo: { not: null },
-        NOT: { photo: "" },
-        identificationIndexedAt: { not: null },
-      },
-    }),
+    countUnindexedInventoryWithPhotos(),
     getAiJobQueueStats().catch(() => null),
   ]);
 
-  const indexed = Math.max(readyProfiles, legacyIndexed);
-  const pending = Math.max(0, total - indexed);
+  const pending = unindexed;
+  const indexed = Math.max(0, total - pending);
 
   return jsonOk({
     total,

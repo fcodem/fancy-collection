@@ -31,6 +31,8 @@ type Props = Omit<React.InputHTMLAttributes<HTMLInputElement>, "onSelect"> & {
   clearOnSelect?: boolean;
   /** Open a larger preview when a suggestion photo is tapped. */
   onPhotoZoom?: (src: string, caption?: string) => void;
+  /** Optional ref to the underlying input (for USB scanner refocus). */
+  inputRef?: React.RefObject<HTMLInputElement | null>;
 };
 
 export default function DressNameSuggestInput({
@@ -43,6 +45,7 @@ export default function DressNameSuggestInput({
   suggestions = true,
   clearOnSelect = false,
   onPhotoZoom,
+  inputRef: externalInputRef,
   className = "",
   autoComplete = "off",
   value,
@@ -203,7 +206,10 @@ export default function DressNameSuggestInput({
     >
       <input
         {...props}
-        ref={inputRef}
+        ref={(el) => {
+          inputRef.current = el;
+          if (externalInputRef) externalInputRef.current = el;
+        }}
         value={value}
         onChange={onChange}
         autoComplete={autoComplete}

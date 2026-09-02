@@ -227,6 +227,16 @@ export async function loadBookingPanelPage(opts: {
   );
 }
 
+export async function loadBookingPanelScanRow(scanId: number) {
+  if (!Number.isFinite(scanId) || scanId <= 0) return null;
+  return limitedRead(() =>
+    prisma.booking.findUnique({
+      where: { id: scanId },
+      select: bookingPanelSelect,
+    }),
+  );
+}
+
 /** Full filtered set for PDF export only (authorized route). */
 export async function loadBookingPanelForPdf(opts: {
   panelFrom: string;
