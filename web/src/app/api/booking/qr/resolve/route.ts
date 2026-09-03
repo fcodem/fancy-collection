@@ -52,12 +52,7 @@ export async function POST(req: NextRequest) {
 
     const stages = perf.finish({ kind: "read" });
     return withServerTiming(
-      jsonOk({
-        ok: true,
-        bookingId: outcome.bookingId,
-        status: outcome.status,
-        target: outcome.url,
-      }),
+      jsonOk({ ok: true, bookingId: outcome.bookingId, target: outcome.url }),
       stages,
     );
   } catch (e) {

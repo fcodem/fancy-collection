@@ -3,11 +3,9 @@ import prisma from "@/lib/prisma";
 import { verifyBookingQrSignature } from "@/lib/bookingQr";
 import {
   normalizeQrTarget,
-  qrBookingPanelScanPath,
   qrTargetPath,
   type QrTarget,
 } from "@/lib/bookingQrClient";
-import { resolveBookingStatus } from "@/lib/bookingStatus";
 
 /**
  * Secure, lean QR resolver shared by:
@@ -39,7 +37,6 @@ export type QrResolveOutcome =
       bookingId: number;
       target: QrTarget;
       url: string;
-      status: string;
       cacheStatus: "hit" | "miss" | "coalesced";
     }
   | { ok: false; reason: "invalid_signature" | "not_found"; cacheStatus: "bypass" };
@@ -56,33 +53,12 @@ type CachedBooking = { bookingId: number };
 /** Injectable finder for tests; production uses the lean unique-index Prisma lookup. */
 export type QrBookingFinder = (token: string) => Promise<CachedBooking | null>;
 
-export type QrBookingMeta = {
-  deliveryDate: Date;
-  status: string;
-  bookingItems: Array<{ isDelivered?: boolean | null; isCancelled?: boolean | null }>;
-};
-
-export type QrBookingMetaFetcher = (bookingId: number) => Promise<QrBookingMeta | null>;
-
 const prismaFinder: QrBookingFinder = async (token) => {
   const row = await prisma.booking.findUnique({
     where: { qrToken: token },
     select: { id: true },
   });
   return row ? { bookingId: row.id } : null;
-};
-
-const prismaMetaFetcher: QrBookingMetaFetcher = async (bookingId) => {
-  return prisma.booking.findUnique({
-    where: { id: bookingId },
-    select: {
-      deliveryDate: true,
-      status: true,
-      bookingItems: {
-        select: { isDelivered: true, isCancelled: true },
-      },
-    },
-  });
 };
 
 // Short TTL keeps the token→id mapping fresh; status is never cached, and the
@@ -155,12 +131,11 @@ export async function resolveBookingQr(
     target?: string | null;
     signatureVerified?: boolean;
   },
-  deps?: { findBooking?: QrBookingFinder; fetchBookingMeta?: QrBookingMetaFetcher },
+  deps?: { findBooking?: QrBookingFinder },
 ): Promise<{ outcome: QrResolveOutcome; timings: QrResolveTimings }> {
   const token = (input.token || "").trim();
   const target = normalizeQrTarget(input.target);
   const finder = deps?.findBooking ?? prismaFinder;
-  const fetchMeta = deps?.fetchBookingMeta ?? prismaMetaFetcher;
 
   const sigStart = Date.now();
   const verified =
@@ -186,21 +161,13 @@ export async function resolveBookingQr(
     };
   }
 
-  // Status is always fetched fresh — never cached with the token→id mapping.
-  const meta = await fetchMeta(booking.bookingId);
-  const status = meta ? resolveBookingStatus(meta as Parameters<typeof resolveBookingStatus>[0]) : "booked";
-  const url =
-    target === "booking"
-      ? qrBookingPanelScanPath(booking.bookingId, meta?.deliveryDate)
-      : qrTargetPath(target, booking.bookingId);
-
+  // Open the booking record page directly (fast). Status banners live on that page.
   return {
     outcome: {
       ok: true,
       bookingId: booking.bookingId,
       target,
-      url,
-      status,
+      url: qrTargetPath(target, booking.bookingId),
       cacheStatus,
     },
     timings: { signatureMs, resolverDbMs, cacheStatus },

@@ -8,7 +8,7 @@ import {
   isBookingQrScanPayload,
 } from "@/lib/hardwareScanner";
 
-const RESOLVE_TIMEOUT_MS = 8000;
+const RESOLVE_TIMEOUT_MS = 6000;
 
 /** Global USB scanner — opens booking records from bill / slip QRs on any page. */
 export default function GlobalHardwareScanner() {
@@ -45,14 +45,15 @@ export default function GlobalHardwareScanner() {
             const data = (await res.json().catch(() => ({}))) as {
               target?: string;
               bookingId?: number;
-              status?: string;
             };
             if (res.status === 401) {
               router.replace("/login");
               return;
             }
             if (res.ok && data.target) {
-              router.push(data.target);
+              // Prefer replace + prefetch so record opens faster than a full history push.
+              router.prefetch(data.target);
+              router.replace(data.target);
             }
           } catch (e) {
             if (!isAbortError(e)) {
