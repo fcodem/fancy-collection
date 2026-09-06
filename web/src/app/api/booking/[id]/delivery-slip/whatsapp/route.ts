@@ -1,7 +1,7 @@
-import { NextRequest } from "next/server";
+import { NextRequest, after } from "next/server";
 import prisma from "@/lib/prisma";
 import { jsonError, jsonOk, requireUser, isResponse } from "@/lib/api";
-import { scheduleDeliverySlip, processWhatsAppJobQueue } from "@/lib/services/whatsapp/jobQueue";
+import { scheduleDeliverySlip } from "@/lib/services/whatsapp/jobQueue";
 import { isWhatsAppConfigured, isWhatsAppReceiptsDisabled } from "@/lib/services/whatsapp/metaApi";
 import { resolvePublicBookingId } from "@/lib/services/whatsapp/publicBookingId";
 import { buildWhatsAppUrl } from "@/lib/whatsapp";
@@ -53,7 +53,6 @@ export async function POST(req: NextRequest, { params }: { params: Promise<{ id:
     });
   }
 
-  // Allow resend from the slip page (clear prior notify flags for delivered items).
   await prisma.bookingItem.updateMany({
     where: { bookingId, isDelivered: true },
     data: { deliverySlipNotifiedAt: null },
@@ -65,22 +64,21 @@ export async function POST(req: NextRequest, { params }: { params: Promise<{ id:
     req.nextUrl.origin,
     user.username,
   );
-  let queueSummary;
-  try {
-    queueSummary = await processWhatsAppJobQueue(3, { bookingId });
-  } catch (e) {
-    console.error("[delivery-slip whatsapp POST] queue error:", e);
-    return jsonError(e instanceof Error ? e.message : "Failed to send delivery slip");
-  }
 
-  const sent = (queueSummary?.succeeded ?? 0) > 0;
+  after(async () => {
+    try {
+      const { processWhatsAppJobQueue } = await import("@/lib/services/whatsapp/jobQueue");
+      await processWhatsAppJobQueue(3, { bookingId });
+    } catch (e) {
+      console.error("[delivery-slip whatsapp POST] after-drain failed:", e);
+    }
+  });
+
   return jsonOk({
     ok: true,
     queued: true,
-    sent,
+    sent: false,
     job_id: job?.id ?? null,
-    message: sent
-      ? "Delivery slip sent to WhatsApp."
-      : "Delivery slip queued — run the job queue if it was not sent.",
+    message: "Delivery slip queued — WhatsApp is sending in the background.",
   });
 }

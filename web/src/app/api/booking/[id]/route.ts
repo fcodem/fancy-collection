@@ -64,7 +64,31 @@ export async function PUT(req: NextRequest, { params }: { params: Promise<{ id: 
       );
     }
 
-    return jsonOk({ ok: true, id: booking?.id, serial: booking?.monthlySerial });
+    // Auto-resend updated booking slip in background (same pattern as create).
+    const phone = (booking as { whatsappNo?: string | null; contact1?: string | null } | null);
+    const hasPhone = Boolean((phone?.whatsappNo || phone?.contact1 || "").trim());
+    if (hasPhone && booking?.status === "booked") {
+      after(async () => {
+        try {
+          const { scheduleBookingBill, processWhatsAppJobQueue } = await import(
+            "@/lib/services/whatsapp/jobQueue"
+          );
+          await scheduleBookingBill(bookingId, req.nextUrl.origin, user.username, {
+            forceResend: true,
+          });
+          await processWhatsAppJobQueue(2, { bookingId });
+        } catch (e) {
+          console.error("[booking PUT] auto-resend slip failed:", e);
+        }
+      });
+    }
+
+    return jsonOk({
+      ok: true,
+      id: booking?.id,
+      serial: booking?.monthlySerial,
+      slip_queued: hasPhone && booking?.status === "booked",
+    });
   } catch (e) {
     return jsonError(e instanceof Error ? e.message : "Failed to update booking");
   }

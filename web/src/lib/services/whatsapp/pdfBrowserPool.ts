@@ -534,7 +534,7 @@ async function renderHtmlUrlToPdfInner(
             WHATSAPP_RENDERER_STAGE_MS.navigation,
             () =>
               page!.goto(opts.url, {
-                waitUntil: "networkidle0",
+                waitUntil: "domcontentloaded",
                 timeout: WHATSAPP_RENDERER_STAGE_MS.navigation,
               }),
             opts.abortSignal,

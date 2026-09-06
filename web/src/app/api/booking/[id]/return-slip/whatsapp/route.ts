@@ -1,7 +1,7 @@
-import { NextRequest } from "next/server";
+import { NextRequest, after } from "next/server";
 import prisma from "@/lib/prisma";
 import { jsonError, jsonOk, requireUser, isResponse } from "@/lib/api";
-import { scheduleReturnSlip, processWhatsAppJobQueue } from "@/lib/services/whatsapp/jobQueue";
+import { scheduleReturnSlip } from "@/lib/services/whatsapp/jobQueue";
 import { isWhatsAppConfigured, isWhatsAppReceiptsDisabled } from "@/lib/services/whatsapp/metaApi";
 import { resolvePublicBookingId } from "@/lib/services/whatsapp/publicBookingId";
 import { buildWhatsAppUrl } from "@/lib/whatsapp";
@@ -56,7 +56,6 @@ export async function POST(req: NextRequest, { params }: { params: Promise<{ id:
     {
       bookingItems: booking.bookingItems.map((bi) => ({
         ...bi,
-        // Allow resend from the slip page.
         returnSlipNotifiedAt: null,
       })),
     },
@@ -107,22 +106,20 @@ export async function POST(req: NextRequest, { params }: { params: Promise<{ id:
     user.username,
   );
 
-  let queueSummary;
-  try {
-    queueSummary = await processWhatsAppJobQueue(3, { bookingId });
-  } catch (e) {
-    console.error("[return-slip whatsapp POST] queue error:", e);
-    return jsonError(e instanceof Error ? e.message : "Failed to send return slip");
-  }
+  after(async () => {
+    try {
+      const { processWhatsAppJobQueue } = await import("@/lib/services/whatsapp/jobQueue");
+      await processWhatsAppJobQueue(3, { bookingId });
+    } catch (e) {
+      console.error("[return-slip whatsapp POST] after-drain failed:", e);
+    }
+  });
 
-  const sent = (queueSummary?.succeeded ?? 0) > 0;
   return jsonOk({
     ok: true,
     queued: true,
-    sent,
+    sent: false,
     job_id: job?.id ?? null,
-    message: sent
-      ? "Return slip sent to WhatsApp."
-      : "Return slip queued — run the job queue if it was not sent.",
+    message: "Return slip queued — WhatsApp is sending in the background.",
   });
 }

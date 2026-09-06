@@ -737,7 +737,7 @@ export default function BookingFormClient(props: Props) {
   useEffect(() => {
     const t = setTimeout(() => {
       void updateSerial(deliveryDate);
-    }, props.editId ? 0 : 400);
+    }, 400);
     return () => clearTimeout(t);
   }, [deliveryDate, updateSerial, props.editId]);
 
@@ -745,7 +745,7 @@ export default function BookingFormClient(props: Props) {
   useEffect(() => {
     const t = setTimeout(() => {
       void fetchAvailability();
-    }, props.editId ? 0 : 450);
+    }, 450);
     return () => clearTimeout(t);
   }, [deliveryDate, returnDate, categoryFilter, sizeFilter, nameSearch, fetchAvailability, props.editId]);
 
@@ -2240,6 +2240,7 @@ function BookingScanModal({ onScan, onClose }: { onScan: (code: string) => void;
 
   return (
     <div
+      data-suppress-hardware-scan="1"
       onClick={onClose}
       style={{
         position: "fixed", inset: 0, background: "rgba(0,0,0,0.6)", zIndex: 9999,

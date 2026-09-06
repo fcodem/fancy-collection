@@ -10,6 +10,16 @@ import {
 
 const RESOLVE_TIMEOUT_MS = 6000;
 
+function isDressScanFocusActive(): boolean {
+  if (typeof document === "undefined") return false;
+  const el = document.activeElement as HTMLElement | null;
+  if (!el) return false;
+  if (el.closest("[data-dress-scan], [data-suppress-hardware-scan]")) return true;
+  // Camera dress-scan modal open
+  if (document.querySelector("[data-suppress-hardware-scan='1']")) return true;
+  return false;
+}
+
 /** Global USB scanner — opens booking records from bill / slip QRs on any page. */
 export default function GlobalHardwareScanner() {
   const router = useRouter();
@@ -20,7 +30,7 @@ export default function GlobalHardwareScanner() {
     if (pathname.startsWith("/login") || pathname.startsWith("/public/")) return;
 
     return attachHardwareScanListener({
-      enabled: () => !busyRef.current,
+      enabled: () => !busyRef.current && !isDressScanFocusActive(),
       onScan(code) {
         if (!isBookingQrScanPayload(code)) return false;
 
@@ -45,13 +55,14 @@ export default function GlobalHardwareScanner() {
             const data = (await res.json().catch(() => ({}))) as {
               target?: string;
               bookingId?: number;
+              code?: string;
             };
-            if (res.status === 401) {
+            // Invalid QR signature is 401 + QR_INVALID — do NOT treat as logout.
+            if (res.status === 401 && data.code !== "QR_INVALID") {
               router.replace("/login");
               return;
             }
             if (res.ok && data.target) {
-              // Prefer replace + prefetch so record opens faster than a full history push.
               router.prefetch(data.target);
               router.replace(data.target);
             }
