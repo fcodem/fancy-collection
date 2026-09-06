@@ -167,6 +167,7 @@ export async function recoverStuckWhatsAppJobs(): Promise<number> {
 async function listPendingWhatsAppJobCandidates(options?: {
   bookingId?: number;
   limit?: number;
+  jobTypes?: string[];
 }): Promise<Array<{ id: number; jobType: string }>> {
   const now = new Date();
   return prisma.whatsAppJob.findMany({
@@ -174,6 +175,7 @@ async function listPendingWhatsAppJobCandidates(options?: {
       status: "pending",
       scheduledAt: { lte: now },
       ...(options?.bookingId != null ? { bookingId: options.bookingId } : {}),
+      ...(options?.jobTypes?.length ? { jobType: { in: options.jobTypes } } : {}),
     },
     orderBy: [{ scheduledAt: "asc" }, { id: "asc" }],
     take: options?.limit ?? 30,
@@ -231,7 +233,7 @@ async function claimWhatsAppJobById(jobId: number): Promise<ClaimedWhatsAppJob |
 
 async function releaseWhatsAppJobWithoutAttempt(
   jobId: number,
-  reason: string,
+  reason: string | null,
 ): Promise<boolean> {
   const updated = await prisma.whatsAppJob.updateMany({
     where: { id: jobId, status: "processing" },
@@ -241,10 +243,23 @@ async function releaseWhatsAppJobWithoutAttempt(
       claimedAt: null,
       leaseExpiresAt: null,
       claimedBy: null,
-      failedReason: reason.slice(0, 500),
+      // Budget deferrals are normal — do not leave a red "error" on pending jobs.
+      failedReason: reason ? reason.slice(0, 500) : null,
     },
   });
   return updated.count === 1;
+}
+
+/** Clear false "insufficient runtime budget" notes so pending slips look ready to send. */
+export async function clearWhatsAppBudgetDeferralReasons(): Promise<number> {
+  const result = await prisma.whatsAppJob.updateMany({
+    where: {
+      status: "pending",
+      failedReason: { contains: "insufficient runtime budget" },
+    },
+    data: { failedReason: null },
+  });
+  return result.count;
 }
 
 /** @deprecated batch claim — prefer claimWhatsAppJobById in the cron loop */
@@ -973,6 +988,7 @@ export async function processWhatsAppJobQueue(
   const batchStartedAt = Date.now();
 
   await recoverStuckWhatsAppJobs();
+  await clearWhatsAppBudgetDeferralReasons().catch(() => 0);
 
   const results: Array<{
     jobId: number;
@@ -992,8 +1008,10 @@ export async function processWhatsAppJobQueue(
 
     const candidates = await listPendingWhatsAppJobCandidates({
       bookingId: opts.bookingId,
+      jobTypes: opts.jobTypes,
       limit: 30,
     });
+    // Require claim headroom so we almost never claim-then-release.
     const pick = candidates.find(
       (c) =>
         !attemptedThisRun.has(c.id) &&
@@ -1002,6 +1020,7 @@ export async function processWhatsAppJobQueue(
           remainingBudgetMs,
           heavyJobsStarted,
           maxHeavyJobs,
+          { includeClaimHeadroom: true },
         ),
     );
     if (!pick) break;
@@ -1020,12 +1039,10 @@ export async function processWhatsAppJobQueue(
         maxHeavyJobs,
       )
     ) {
-      const releasedOk = await releaseWhatsAppJobWithoutAttempt(
-        job.id,
-        "Released — insufficient runtime budget before execution",
-      );
+      const releasedOk = await releaseWhatsAppJobWithoutAttempt(job.id, null);
       if (releasedOk) released += 1;
-      continue;
+      // Stop claiming more this run — budget is too tight.
+      break;
     }
 
     if (isHeavyWhatsAppJobType(job.jobType)) {
@@ -1040,7 +1057,7 @@ export async function processWhatsAppJobQueue(
   return {
     processed: executed,
     succeeded: results.filter((r) => r.ok).length,
-    failed: results.filter((r) => !r.ok).length,
+    failed: results.filter((r) => r.ok === false).length,
     released,
     elapsedMs,
     heavyJobsStarted,

@@ -5,11 +5,19 @@ import type { SlipRenderTimeoutStage } from "./slipRenderErrors";
 export type { SlipRenderTimeoutStage };
 
 export const VERCEL_WHATSAPP_MAX_DURATION_MS = 60_000;
-export const WHATSAPP_CRON_SAFE_BUDGET_MS = 45_000;
+/** Wall-clock budget for one queue drain. Leave ~5s for response teardown under Vercel 60s. */
+export const WHATSAPP_CRON_SAFE_BUDGET_MS = 55_000;
 export const WHATSAPP_SLIP_JOB_TIMEOUT_MS = 38_000;
 export const WHATSAPP_TEXT_JOB_TIMEOUT_MS = 15_000;
-export const WHATSAPP_MIN_REMAINING_TO_START_SLIP_MS = 40_000;
+/**
+ * Minimum remaining batch budget to start a heavy slip job.
+ * Must leave enough headroom under WHATSAPP_CRON_SAFE_BUDGET_MS for recover/list/claim
+ * (previously 45s budget / 40s min left only ~5s and caused false "insufficient runtime budget" releases).
+ */
+export const WHATSAPP_MIN_REMAINING_TO_START_SLIP_MS = 36_000;
 export const WHATSAPP_MIN_REMAINING_TO_START_TEXT_MS = 10_000;
+/** Extra remaining ms required before claiming, so claim RTT cannot trip the post-claim budget check. */
+export const WHATSAPP_CLAIM_HEADROOM_MS = 4_000;
 export const WHATSAPP_RENDERER_REQUEST_TIMEOUT_MS = 31_000;
 
 /** Renderer stage ceilings — total must stay below WHATSAPP_RENDERER_REQUEST_TIMEOUT_MS. */
@@ -62,10 +70,14 @@ export function canStartWhatsAppJobWithBudget(
   remainingBudgetMs: number,
   heavyJobsStarted: number,
   maxHeavyJobs: number,
+  opts?: { includeClaimHeadroom?: boolean },
 ): boolean {
   if (isHeavyWhatsAppJobType(jobType)) {
     if (heavyJobsStarted >= maxHeavyJobs) return false;
-    return remainingBudgetMs >= WHATSAPP_MIN_REMAINING_TO_START_SLIP_MS;
+    const need =
+      WHATSAPP_MIN_REMAINING_TO_START_SLIP_MS +
+      (opts?.includeClaimHeadroom ? WHATSAPP_CLAIM_HEADROOM_MS : 0);
+    return remainingBudgetMs >= need;
   }
   return remainingBudgetMs >= WHATSAPP_MIN_REMAINING_TO_START_TEXT_MS;
 }
@@ -79,6 +91,8 @@ export type ProcessWhatsAppJobQueueOptions = {
   maxJobs?: number;
   maxHeavyJobs?: number;
   runtimeBudgetMs?: number;
+  /** When set, only claim jobs of these types (e.g. booking_bill drain). */
+  jobTypes?: string[];
 };
 
 export function normalizeProcessWhatsAppJobQueueOptions(
@@ -99,6 +113,7 @@ export function normalizeProcessWhatsAppJobQueueOptions(
     maxHeavyJobs: opts.maxHeavyJobs ?? 1,
     runtimeBudgetMs: opts.runtimeBudgetMs ?? WHATSAPP_CRON_SAFE_BUDGET_MS,
     bookingId: opts.bookingId ?? legacyOptions?.bookingId,
+    jobTypes: opts.jobTypes,
   };
 }
 

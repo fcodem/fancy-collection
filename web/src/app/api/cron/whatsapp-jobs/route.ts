@@ -2,6 +2,7 @@ import { NextRequest } from "next/server";
 import * as Sentry from "@sentry/nextjs";
 import { jsonError, jsonOk } from "@/lib/api";
 import { processWhatsAppJobQueue } from "@/lib/services/whatsapp/jobQueue";
+import { WHATSAPP_CRON_SAFE_BUDGET_MS } from "@/lib/services/whatsapp/whatsappRuntime";
 
 export const dynamic = "force-dynamic";
 export const maxDuration = 60;
@@ -20,9 +21,9 @@ export async function GET(req: NextRequest) {
 
   try {
     const summary = await processWhatsAppJobQueue({
-      maxJobs: 3,
+      maxJobs: 2,
       maxHeavyJobs: 1,
-      runtimeBudgetMs: 45_000,
+      runtimeBudgetMs: WHATSAPP_CRON_SAFE_BUDGET_MS,
     });
     return jsonOk({ ok: true, ...summary });
   } catch (e) {

@@ -98,6 +98,10 @@ function isProviderOutcomeUnknown(reason: string | null): boolean {
   return Boolean(reason?.startsWith("PROVIDER_OUTCOME_UNKNOWN:"));
 }
 
+function isBudgetDeferralReason(reason: string | null): boolean {
+  return Boolean(reason && /insufficient runtime budget/i.test(reason));
+}
+
 function canRetryJob(job: Job): boolean {
   if (job.meta_message_id?.trim()) return false;
   if (isProviderOutcomeUnknown(job.failed_reason)) return false;
@@ -134,6 +138,7 @@ export default function WhatsAppJobsClient() {
   const [clearing, setClearing] = useState(false);
   const [reconciling, setReconciling] = useState<number | null>(null);
   const [safeRetrying, setSafeRetrying] = useState(false);
+  const [drainingBookingSlips, setDrainingBookingSlips] = useState(false);
   const [failureReport, setFailureReport] = useState<{
     total: number;
     safeToRequeue: Array<{ jobId: number; jobType: string; failedReason: string | null }>;
@@ -323,6 +328,51 @@ export default function WhatsAppJobsClient() {
     }
   };
 
+  /** Send all pending booking slips one-at-a-time (Vercel can only finish ~1 PDF per request). */
+  const drainPendingBookingSlips = async () => {
+    if (drainingBookingSlips) return;
+    setDrainingBookingSlips(true);
+    let rounds = 0;
+    let succeeded = 0;
+    let failed = 0;
+    let remaining = -1;
+    try {
+      while (rounds < 12) {
+        rounds += 1;
+        const res = await fetch("/api/whatsapp/jobs/process?drainBookingSlips=1", {
+          method: "POST",
+        });
+        const data = (await res.json()) as {
+          ok?: boolean;
+          succeeded?: number;
+          failed?: number;
+          processed?: number;
+          pending_booking_slips?: number;
+          error?: string;
+        };
+        if (!res.ok || !data.ok) {
+          alert(data.error || "Failed to send pending booking slips");
+          break;
+        }
+        succeeded += data.succeeded ?? 0;
+        failed += data.failed ?? 0;
+        remaining = data.pending_booking_slips ?? 0;
+        if ((data.processed ?? 0) === 0 || remaining <= 0) break;
+        // Brief pause so the next invocation gets a fresh Vercel runtime budget.
+        await new Promise((r) => setTimeout(r, 800));
+      }
+      alert(
+        `Pending booking slips: ${succeeded} sent, ${failed} failed after ${rounds} run(s).` +
+          (remaining > 0 ? ` ${remaining} still pending — click again or wait for cron.` : ""),
+      );
+      await load();
+    } catch {
+      alert("Failed to send pending booking slips");
+    } finally {
+      setDrainingBookingSlips(false);
+    }
+  };
+
   useEffect(() => {
     load();
     void loadFailureReport();
@@ -366,6 +416,27 @@ export default function WhatsAppJobsClient() {
           >
             <i className="fa-solid fa-file-pdf" style={{ fontSize: 12 }} />
             {safeRetrying ? "Retrying…" : "Retry Safe Render Failures"}
+          </button>
+          <button
+            onClick={() => void drainPendingBookingSlips()}
+            disabled={drainingBookingSlips}
+            title="Clear budget-deferral notes and send each pending booking slip PDF"
+            style={{
+              display: "flex",
+              alignItems: "center",
+              gap: 6,
+              background: drainingBookingSlips ? "#86efac" : "#15803d",
+              color: "#fff",
+              border: "none",
+              borderRadius: 12,
+              padding: "8px 16px",
+              fontSize: 13,
+              cursor: drainingBookingSlips ? "wait" : "pointer",
+              fontWeight: 500,
+            }}
+          >
+            <i className="fa-solid fa-paper-plane" style={{ fontSize: 12 }} />
+            {drainingBookingSlips ? "Sending pending…" : "Send Pending Booking Slips"}
           </button>
           <button
             onClick={runQueue}
@@ -577,7 +648,7 @@ export default function WhatsAppJobsClient() {
                       </div>
                     )}
 
-                    {job.failed_reason && (
+                    {job.failed_reason && !isBudgetDeferralReason(job.failed_reason) && (
                       <div style={{ fontSize: 11, color: "#dc2626", marginTop: 4, display: "flex", alignItems: "center", gap: 4 }}>
                         <i className="fa-solid fa-circle-exclamation" style={{ fontSize: 10 }} />
                         {job.failed_reason}

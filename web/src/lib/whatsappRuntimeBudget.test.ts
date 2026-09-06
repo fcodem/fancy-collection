@@ -29,9 +29,13 @@ describe("WhatsApp runtime budget", () => {
     assert.ok(WHATSAPP_RENDERER_REQUEST_TIMEOUT_MS < WHATSAPP_SLIP_JOB_TIMEOUT_MS);
   });
 
-  it("cron safe budget stays below Vercel max duration", () => {
+  it("cron safe budget stays below Vercel max duration with slip headroom", () => {
     assert.ok(WHATSAPP_CRON_SAFE_BUDGET_MS < VERCEL_WHATSAPP_MAX_DURATION_MS);
-    assert.ok(WHATSAPP_CRON_SAFE_BUDGET_MS <= 45_000);
+    assert.ok(WHATSAPP_CRON_SAFE_BUDGET_MS <= 55_000);
+    assert.ok(
+      WHATSAPP_CRON_SAFE_BUDGET_MS - WHATSAPP_MIN_REMAINING_TO_START_SLIP_MS >= 12_000,
+      "need ≥12s headroom so recover/list/claim cannot false-release slip jobs",
+    );
   });
 
   it("text job timeout stays below cron budget", () => {
@@ -53,6 +57,20 @@ describe("WhatsApp runtime budget", () => {
   it("blocks heavy job when remaining budget is insufficient", () => {
     assert.equal(
       canStartWhatsAppJobWithBudget("booking_bill", WHATSAPP_MIN_REMAINING_TO_START_SLIP_MS - 1, 0, 1),
+      false,
+    );
+    assert.equal(
+      canStartWhatsAppJobWithBudget("booking_bill", WHATSAPP_MIN_REMAINING_TO_START_SLIP_MS, 0, 1),
+      true,
+    );
+    assert.equal(
+      canStartWhatsAppJobWithBudget(
+        "booking_bill",
+        WHATSAPP_MIN_REMAINING_TO_START_SLIP_MS,
+        0,
+        1,
+        { includeClaimHeadroom: true },
+      ),
       false,
     );
     assert.equal(
