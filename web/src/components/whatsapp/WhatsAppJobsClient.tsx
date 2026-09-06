@@ -328,7 +328,7 @@ export default function WhatsAppJobsClient() {
     }
   };
 
-  /** Send all pending booking slips one-at-a-time (Vercel can only finish ~1 PDF per request). */
+  /** Send all pending slip jobs (booking/delivery/return/incomplete/postponement/cancellation). */
   const drainPendingBookingSlips = async () => {
     if (drainingBookingSlips) return;
     setDrainingBookingSlips(true);
@@ -337,9 +337,9 @@ export default function WhatsAppJobsClient() {
     let failed = 0;
     let remaining = -1;
     try {
-      while (rounds < 12) {
+      while (rounds < 20) {
         rounds += 1;
-        const res = await fetch("/api/whatsapp/jobs/process?drainBookingSlips=1", {
+        const res = await fetch("/api/whatsapp/jobs/process?drainAllSlips=1", {
           method: "POST",
         });
         const data = (await res.json()) as {
@@ -347,27 +347,28 @@ export default function WhatsAppJobsClient() {
           succeeded?: number;
           failed?: number;
           processed?: number;
+          pending_slips?: number;
           pending_booking_slips?: number;
+          pending_by_type?: Record<string, number>;
           error?: string;
         };
         if (!res.ok || !data.ok) {
-          alert(data.error || "Failed to send pending booking slips");
+          alert(data.error || "Failed to send pending slips");
           break;
         }
         succeeded += data.succeeded ?? 0;
         failed += data.failed ?? 0;
-        remaining = data.pending_booking_slips ?? 0;
+        remaining = data.pending_slips ?? 0;
         if ((data.processed ?? 0) === 0 || remaining <= 0) break;
-        // Brief pause so the next invocation gets a fresh Vercel runtime budget.
         await new Promise((r) => setTimeout(r, 800));
       }
       alert(
-        `Pending booking slips: ${succeeded} sent, ${failed} failed after ${rounds} run(s).` +
-          (remaining > 0 ? ` ${remaining} still pending — click again or wait for cron.` : ""),
+        `Pending slips: ${succeeded} sent, ${failed} failed after ${rounds} run(s).` +
+          (remaining > 0 ? ` ${remaining} still pending — click again or wait for cron (every 2 min).` : ""),
       );
       await load();
     } catch {
-      alert("Failed to send pending booking slips");
+      alert("Failed to send pending slips");
     } finally {
       setDrainingBookingSlips(false);
     }
@@ -420,7 +421,7 @@ export default function WhatsAppJobsClient() {
           <button
             onClick={() => void drainPendingBookingSlips()}
             disabled={drainingBookingSlips}
-            title="Clear budget-deferral notes and send each pending booking slip PDF"
+            title="Send pending booking, delivery, return, incomplete, postponement, and cancellation slips"
             style={{
               display: "flex",
               alignItems: "center",
@@ -436,7 +437,7 @@ export default function WhatsAppJobsClient() {
             }}
           >
             <i className="fa-solid fa-paper-plane" style={{ fontSize: 12 }} />
-            {drainingBookingSlips ? "Sending pending…" : "Send Pending Booking Slips"}
+            {drainingBookingSlips ? "Sending pending…" : "Send All Pending Slips"}
           </button>
           <button
             onClick={runQueue}

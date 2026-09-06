@@ -5,9 +5,18 @@ import {
   clearWhatsAppBudgetDeferralReasons,
   processWhatsAppJobQueue,
 } from "@/lib/services/whatsapp/jobQueue";
-import { WHATSAPP_CRON_SAFE_BUDGET_MS } from "@/lib/services/whatsapp/whatsappRuntime";
+import {
+  HEAVY_WHATSAPP_JOB_TYPES,
+  LIGHT_WHATSAPP_JOB_TYPES,
+  WHATSAPP_CRON_SAFE_BUDGET_MS,
+} from "@/lib/services/whatsapp/whatsappRuntime";
 
 export const maxDuration = 60;
+
+const ALL_SLIP_JOB_TYPES = [
+  ...HEAVY_WHATSAPP_JOB_TYPES,
+  ...LIGHT_WHATSAPP_JOB_TYPES,
+];
 
 /** Staff-authenticated queue processor (replaces calling cron route from the browser). */
 export async function POST(req: NextRequest) {
@@ -17,35 +26,51 @@ export async function POST(req: NextRequest) {
   try {
     const bookingIdParam = req.nextUrl.searchParams.get("bookingId");
     const bookingId = bookingIdParam ? parseInt(bookingIdParam, 10) : undefined;
-    const drainBookingSlips =
+    const drainAllSlips =
+      req.nextUrl.searchParams.get("drainAllSlips") === "1" ||
+      req.nextUrl.searchParams.get("drainAllSlips") === "true" ||
       req.nextUrl.searchParams.get("drainBookingSlips") === "1" ||
       req.nextUrl.searchParams.get("drainBookingSlips") === "true";
 
     const cleared = await clearWhatsAppBudgetDeferralReasons().catch(() => 0);
 
     const summary = await processWhatsAppJobQueue({
-      // One heavy slip per invocation — safe under Vercel 60s with the widened budget.
-      maxJobs: drainBookingSlips ? 1 : 3,
+      // One heavy PDF slip per invocation under Vercel 60s; light notices can share the batch.
+      maxJobs: drainAllSlips ? 2 : 3,
       maxHeavyJobs: 1,
       runtimeBudgetMs: WHATSAPP_CRON_SAFE_BUDGET_MS,
       bookingId: bookingId && !Number.isNaN(bookingId) ? bookingId : undefined,
-      ...(drainBookingSlips ? { jobTypes: ["booking_bill"] } : {}),
+      ...(drainAllSlips ? { jobTypes: ALL_SLIP_JOB_TYPES } : {}),
     });
 
-    const pendingBookingSlips = await prisma.whatsAppJob.count({
+    const pendingSlips = await prisma.whatsAppJob.count({
       where: {
         status: "pending",
-        jobType: "booking_bill",
+        jobType: { in: ALL_SLIP_JOB_TYPES },
         scheduledAt: { lte: new Date() },
       },
+    });
+
+    const pendingByType = await prisma.whatsAppJob.groupBy({
+      by: ["jobType"],
+      where: {
+        status: "pending",
+        jobType: { in: ALL_SLIP_JOB_TYPES },
+        scheduledAt: { lte: new Date() },
+      },
+      _count: { _all: true },
     });
 
     return jsonOk({
       ok: true,
       ...summary,
       cleared_budget_deferrals: cleared,
-      pending_booking_slips: pendingBookingSlips,
-      drain_booking_slips: drainBookingSlips,
+      pending_slips: pendingSlips,
+      pending_booking_slips: pendingByType.find((r) => r.jobType === "booking_bill")?._count._all ?? 0,
+      pending_by_type: Object.fromEntries(
+        pendingByType.map((r) => [r.jobType, r._count._all]),
+      ),
+      drain_all_slips: drainAllSlips,
     });
   } catch (e) {
     console.error("[whatsapp/jobs/process]", e);

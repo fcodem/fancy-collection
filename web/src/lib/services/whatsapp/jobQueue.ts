@@ -168,9 +168,9 @@ async function listPendingWhatsAppJobCandidates(options?: {
   bookingId?: number;
   limit?: number;
   jobTypes?: string[];
-}): Promise<Array<{ id: number; jobType: string }>> {
+}): Promise<Array<{ id: number; jobType: string; bookingId: number | null }>> {
   const now = new Date();
-  return prisma.whatsAppJob.findMany({
+  const rows = await prisma.whatsAppJob.findMany({
     where: {
       status: "pending",
       scheduledAt: { lte: now },
@@ -178,9 +178,22 @@ async function listPendingWhatsAppJobCandidates(options?: {
       ...(options?.jobTypes?.length ? { jobType: { in: options.jobTypes } } : {}),
     },
     orderBy: [{ scheduledAt: "asc" }, { id: "asc" }],
-    take: options?.limit ?? 30,
-    select: { id: true, jobType: true },
+    take: options?.limit ?? 80,
+    select: { id: true, jobType: true, bookingId: true },
   });
+
+  // Prefer the newest pending job per booking+type so older duplicates are not sent.
+  const newestByKey = new Map<string, (typeof rows)[number]>();
+  for (const row of rows) {
+    const key = `${row.bookingId ?? "x"}:${row.jobType}`;
+    const prev = newestByKey.get(key);
+    if (!prev || row.id > prev.id) newestByKey.set(key, row);
+  }
+  const newestIds = new Set([...newestByKey.values()].map((r) => r.id));
+  return rows
+    .filter((r) => newestIds.has(r.id))
+    .sort((a, b) => a.id - b.id)
+    .slice(0, options?.limit ?? 30);
 }
 
 async function claimWhatsAppJobById(jobId: number): Promise<ClaimedWhatsAppJob | null> {
@@ -283,8 +296,37 @@ async function claimPendingWhatsAppJobs(
 async function cancelPendingJobs(bookingId: number, jobType: WhatsAppJobType) {
   await prisma.whatsAppJob.updateMany({
     where: { bookingId, jobType, status: "pending" },
-    data: { status: "cancelled" },
+    data: {
+      status: "cancelled",
+      failedReason: "Superseded by a newer slip job",
+      claimedAt: null,
+      leaseExpiresAt: null,
+      claimedBy: null,
+    },
   });
+}
+
+async function cancelSiblingPendingJobs(
+  bookingId: number,
+  jobType: string,
+  keepJobId: number,
+): Promise<number> {
+  const result = await prisma.whatsAppJob.updateMany({
+    where: {
+      bookingId,
+      jobType,
+      status: "pending",
+      id: { not: keepJobId },
+    },
+    data: {
+      status: "cancelled",
+      failedReason: `Superseded by job #${keepJobId}`,
+      claimedAt: null,
+      leaseExpiresAt: null,
+      claimedBy: null,
+    },
+  });
+  return result.count;
 }
 
 export async function schedulePostponementHeld(
@@ -422,8 +464,9 @@ export async function scheduleBookingBill(
       where: { idempotencyKey, status: { in: [...OPEN_WA_JOB_STATUSES] } },
     });
     if (existing) return existing;
-    await cancelPendingJobs(bookingId, "booking_bill");
   }
+  // Always drop older pending slips for this booking so force-resend cannot leave duplicates.
+  await cancelPendingJobs(bookingId, "booking_bill");
   return prisma.$transaction((tx) =>
     scheduleBookingBillInTx(tx, bookingId, requestOrigin, createdBy, opts),
   );
@@ -508,6 +551,14 @@ export async function scheduleDeliverySlipInTx(
       where: { idempotencyKey, status: { in: [...OPEN_WA_JOB_STATUSES] } },
     });
     if (existing) return existing;
+  } else {
+    await tx.whatsAppJob.updateMany({
+      where: { bookingId, jobType: "delivery_slip", status: "pending" },
+      data: {
+        status: "cancelled",
+        failedReason: "Superseded by a newer slip job",
+      },
+    });
   }
 
   try {
@@ -631,6 +682,14 @@ async function scheduleKeyedSlipJobInTx(
       where: { idempotencyKey, status: { in: [...OPEN_WA_JOB_STATUSES] } },
     });
     if (existing) return existing;
+  } else {
+    await tx.whatsAppJob.updateMany({
+      where: { bookingId, jobType, status: "pending" },
+      data: {
+        status: "cancelled",
+        failedReason: "Superseded by a newer slip job",
+      },
+    });
   }
 
   try {
@@ -1029,6 +1088,10 @@ export async function processWhatsAppJobQueue(
 
     const job = await claimWhatsAppJobById(pick.id);
     if (!job) continue;
+
+    if (job.bookingId != null) {
+      await cancelSiblingPendingJobs(job.bookingId, job.jobType, job.id).catch(() => 0);
+    }
 
     const remainingAfterClaim = runtimeBudgetMs - (Date.now() - batchStartedAt);
     if (

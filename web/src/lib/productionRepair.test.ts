@@ -32,7 +32,7 @@ describe("Premium-only customer WhatsApp slips", () => {
   });
 
   it("WhatsApp cron batch is bounded", () => {
-    assert.match(read("src/app/api/cron/whatsapp-jobs/route.ts"), /maxJobs:\s*3/);
+    assert.match(read("src/app/api/cron/whatsapp-jobs/route.ts"), /maxJobs:\s*2/);
     assert.match(read("src/lib/services/whatsapp/jobQueue.ts"), /maxHeavyJobs|canStartWhatsAppJobWithBudget/);
   });
 
