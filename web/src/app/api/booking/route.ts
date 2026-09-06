@@ -76,6 +76,25 @@ export async function POST(req: NextRequest) {
       perf.set("postCommitMs", 0);
     }
     const timings = perf.finish({ kind: "mutation" });
+
+    // Clear matching prospect dress lines after a real booking is created.
+    if (!result.reused && Array.isArray(body.items) && body.items.length) {
+      const itemIds = body.items
+        .map((i) => Number(i.item_id))
+        .filter((id) => Number.isFinite(id) && id > 0);
+      after(async () => {
+        try {
+          const { consumeProspectItemsForBookedDresses } = await import("@/lib/prospectLeads");
+          await consumeProspectItemsForBookedDresses(itemIds, {
+            bookingId: result.id,
+            by: user.username,
+          });
+        } catch (e) {
+          console.error("[booking POST] prospect cleanup failed:", e);
+        }
+      });
+    }
+
     return withServerTiming(
       jsonOk({
         ok: true,

@@ -3,6 +3,7 @@
 import Link from "next/link";
 import { useEffect, useState } from "react";
 import { downloadBookingSlipPdf } from "@/lib/bookingSlipClient";
+import { useToast } from "@/components/ui/Toast";
 
 export default function SlipActions({
   bookingId,
@@ -13,6 +14,7 @@ export default function SlipActions({
   autoPrint?: boolean;
   offerPdfDownload?: boolean;
 }) {
+  const toast = useToast();
   const [sending, setSending] = useState(false);
   const [sent, setSent] = useState(false);
   const [downloading, setDownloading] = useState(false);
@@ -40,16 +42,51 @@ export default function SlipActions({
   async function sendWhatsApp() {
     setSending(true);
     try {
-      const res = await fetch(`/api/booking/${bookingId}/whatsapp`, { method: "POST" });
-      const data = await res.json() as { ok?: boolean; error?: string };
+      const res = await fetch(`/api/booking/${bookingId}/whatsapp`, {
+        method: "POST",
+        credentials: "same-origin",
+        headers: { "Content-Type": "application/json" },
+        body: JSON.stringify({ resend: true }),
+      });
+      const data = (await res.json()) as {
+        ok?: boolean;
+        queued?: boolean;
+        paused?: boolean;
+        error?: string;
+        message?: string;
+        whatsappUrl?: string;
+      };
+      if (!res.ok) {
+        toast(data.error || "Failed to queue booking slip on WhatsApp", "error");
+        return;
+      }
+      if (data.paused) {
+        toast(data.message || "WhatsApp receipts are paused", "error");
+        return;
+      }
+      if (data.queued) {
+        setSent(true);
+        setTimeout(() => setSent(false), 4000);
+        toast(data.message || "Booking slip PDF queued for WhatsApp", "success");
+        return;
+      }
+      if (data.whatsappUrl) {
+        window.open(data.whatsappUrl, "_blank");
+        toast(
+          "WhatsApp API not configured — opened chat. Attach the PDF from Download (do not paste a file path).",
+          "success",
+        );
+        return;
+      }
       if (data.ok) {
         setSent(true);
         setTimeout(() => setSent(false), 4000);
-      } else {
-        alert(data.error || "Failed to queue booking slip on WhatsApp");
+        toast(data.message || "Booking slip queued", "success");
+        return;
       }
+      toast(data.error || "Failed to queue booking slip on WhatsApp", "error");
     } catch {
-      alert("Request failed");
+      toast("Request failed", "error");
     } finally {
       setSending(false);
     }
@@ -61,6 +98,7 @@ export default function SlipActions({
     try {
       await downloadBookingSlipPdf(bookingId);
       setShowPdfHint(false);
+      toast("PDF saved on this computer only — does not send WhatsApp", "success");
     } catch (e) {
       setDownloadError(e instanceof Error ? e.message : "Download failed");
     } finally {
@@ -88,7 +126,8 @@ export default function SlipActions({
         >
           <span>
             <i className="fa-solid fa-circle-info" style={{ marginRight: 8 }} />
-            No printer or print blocked? Download the booking slip as a PDF instead.
+            No printer? Download the PDF to this PC, or use Send via WhatsApp for the customer
+            (never paste a Downloads path into chat).
           </span>
           <button
             type="button"
@@ -98,7 +137,7 @@ export default function SlipActions({
             style={{ whiteSpace: "nowrap" }}
           >
             <i className="fa-solid fa-file-pdf" style={{ marginRight: 6 }} />
-            {downloading ? "Preparing…" : "Download PDF"}
+            {downloading ? "Preparing…" : "Download to PC"}
           </button>
         </div>
       )}
@@ -139,6 +178,7 @@ export default function SlipActions({
             type="button"
             onClick={() => void downloadPdf()}
             disabled={downloading}
+            title="Saves the PDF on this computer only. Does not message the customer."
             style={{
               display: "flex",
               alignItems: "center",
@@ -155,13 +195,14 @@ export default function SlipActions({
             }}
           >
             <i className="fa-solid fa-file-pdf" style={{ fontSize: 12 }} />
-            {downloading ? "Preparing…" : "Download PDF"}
+            {downloading ? "Preparing…" : "Download to PC"}
           </button>
 
           <button
             type="button"
-            onClick={sendWhatsApp}
+            onClick={() => void sendWhatsApp()}
             disabled={sending}
+            title="Queue the slip PDF via WhatsApp Cloud API (customer receives a document, not a file path)"
             style={{
               display: "flex",
               alignItems: "center",

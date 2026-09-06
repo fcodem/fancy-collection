@@ -66,8 +66,13 @@ export async function PUT(req: NextRequest, { params }: { params: Promise<{ id: 
 
     // Auto-resend updated booking slip in background (same pattern as create).
     const phone = (booking as { whatsappNo?: string | null; contact1?: string | null } | null);
-    const hasPhone = Boolean((phone?.whatsappNo || phone?.contact1 || "").trim());
-    if (hasPhone && booking?.status === "booked") {
+    const hasPhone = Boolean(
+      (phone?.whatsappNo || phone?.contact1 || body.whatsapp_no || body.contact_1 || "").trim(),
+    );
+    const status = booking?.status || "";
+    const canResendSlip =
+      hasPhone && !["cancelled", "returned", "completed", "postponed"].includes(status);
+    if (canResendSlip) {
       after(async () => {
         try {
           const { scheduleBookingBill, processWhatsAppJobQueue } = await import(
@@ -83,11 +88,29 @@ export async function PUT(req: NextRequest, { params }: { params: Promise<{ id: 
       });
     }
 
+    // Remove booked dresses from prospect leads.
+    const bookedItemIds = (body.items || [])
+      .map((i) => Number(i.item_id))
+      .filter((id) => Number.isFinite(id) && id > 0);
+    if (bookedItemIds.length) {
+      after(async () => {
+        try {
+          const { consumeProspectItemsForBookedDresses } = await import("@/lib/prospectLeads");
+          await consumeProspectItemsForBookedDresses(bookedItemIds, {
+            bookingId,
+            by: user.username,
+          });
+        } catch (e) {
+          console.error("[booking PUT] prospect cleanup failed:", e);
+        }
+      });
+    }
+
     return jsonOk({
       ok: true,
       id: booking?.id,
       serial: booking?.monthlySerial,
-      slip_queued: hasPhone && booking?.status === "booked",
+      slip_queued: canResendSlip,
     });
   } catch (e) {
     return jsonError(e instanceof Error ? e.message : "Failed to update booking");

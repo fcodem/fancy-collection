@@ -38,6 +38,10 @@ import {
   mergeAvailabilityItemsById,
 } from "@/lib/mensAvailabilityCollapse";
 import { todayIso, parseDate, isDateBeforeToday } from "@/lib/constants";
+import {
+  formatProspectConfirmMessage,
+  type ProspectDressWarning,
+} from "@/lib/prospectLeadWarning";
 import { formatInr } from "@/lib/format";
 import { privateMediaUrl } from "@/lib/photoUrl";
 import { isAbortError } from "@/lib/bookingQrClient";
@@ -168,6 +172,8 @@ type FreeItem = {
 
   booked_warning?: WarningInfo | null;
 
+  prospect_warnings?: ProspectDressWarning[];
+
 };
 
 
@@ -197,6 +203,8 @@ type SelectedDress = {
   returning_warning?: WarningInfo | null;
 
   booked_warning?: WarningInfo | null;
+
+  prospect_warnings?: ProspectDressWarning[];
 
 };
 
@@ -808,6 +816,7 @@ export default function BookingFormClient(props: Props) {
       notes: "",
       returning_warning: item.returning_warning || null,
       booked_warning: item.booked_warning || null,
+      prospect_warnings: item.prospect_warnings || [],
     }]);
     setNameSearch("");
   }
@@ -824,6 +833,7 @@ export default function BookingFormClient(props: Props) {
     } else {
 
       if (!confirmAlternateDressAdd(item.returning_warning, item.booked_warning)) return;
+      if (!isProspect && !confirmProspectDressAdd(item.name, item.prospect_warnings)) return;
       addSelectedDressFromItem(item);
 
     }
@@ -865,6 +875,7 @@ export default function BookingFormClient(props: Props) {
         free_quantity?: number;
         blockingRecords?: ScanConflictRecord[];
         warningRecords?: ScanConflictRecord[];
+        prospect_warnings?: ProspectDressWarning[];
       };
       if (!res.ok) {
         alert(data.error || "Failed to check scanned dress availability.");
@@ -905,6 +916,7 @@ export default function BookingFormClient(props: Props) {
         return;
       }
       const item = data.item;
+      if (!isProspect && !confirmProspectDressAdd(item.name, data.prospect_warnings)) return;
       const scanWarnings = data.status.startsWith("WARNING_")
         ? warningsFromScanRecords(data.warningRecords || [])
         : { returning_warning: null, booked_warning: null };
@@ -920,6 +932,7 @@ export default function BookingFormClient(props: Props) {
         advance: 0,
         notes: "",
         ...scanWarnings,
+        prospect_warnings: data.prospect_warnings || [],
       }]);
       setNameSearch("");
       toast?.(`${item.name} added to booking`, "success");
@@ -930,7 +943,7 @@ export default function BookingFormClient(props: Props) {
       setNameSearch("");
       refocusDressSearch();
     }
-  }, [scanBusy, deliveryDate, returnDate, deliveryTime, returnTime, props.editId, selectedDresses, toast, refocusDressSearch]);
+  }, [scanBusy, deliveryDate, returnDate, deliveryTime, returnTime, props.editId, selectedDresses, toast, refocusDressSearch, isProspect]);
 
   const handleDressSearchKeyDown = useCallback((e: React.KeyboardEvent<HTMLInputElement>) => {
     if (scanTimer.current) clearTimeout(scanTimer.current);
@@ -1086,7 +1099,13 @@ export default function BookingFormClient(props: Props) {
 
 
   /** Validates form, POST/PUT booking (or prospect lead), then redirects. */
-  async function save(opts?: { openPrintSlip?: boolean; downloadSlipPdf?: boolean; openDelivery?: boolean }) {
+  async function save(opts?: {
+    openPrintSlip?: boolean;
+    downloadSlipPdf?: boolean;
+    /** Emphasize WhatsApp slip delivery in the success toast (slip is also auto-queued on create/update). */
+    sendWhatsApp?: boolean;
+    openDelivery?: boolean;
+  }) {
     if (readOnly) return;
     if (submittingRef.current || saving) return;
 
@@ -1219,7 +1238,13 @@ export default function BookingFormClient(props: Props) {
 
     const res = await fetch(url, { method, headers: { "Content-Type": "application/json" }, body: JSON.stringify(payload), credentials: "same-origin" });
 
-    let data: { error?: string; id?: number; serial?: number; monthly_serial?: number } = {};
+    let data: {
+      error?: string;
+      id?: number;
+      serial?: number;
+      monthly_serial?: number;
+      slip_queued?: boolean;
+    } = {};
     try {
       data = await res.json();
     } catch {
@@ -1266,10 +1291,62 @@ export default function BookingFormClient(props: Props) {
       return;
     }
 
-    if (opts?.downloadSlipPdf && !isProspect) {
+    // Explicit "send WhatsApp" after save: ensure a job is queued (create/update already
+    // auto-queue; this covers edge cases and gives staff a clear send action).
+    if (opts?.sendWhatsApp && !isProspect) {
+      const slipToast = props.editId
+        ? "✅ Booking updated — slip PDF re-queued for WhatsApp"
+        : "✅ Booking saved — slip PDF queued for WhatsApp";
+      if (data.slip_queued) {
+        toast(slipToast, "success");
+      } else {
+        try {
+          const waRes = await fetch(`/api/booking/${bookingId}/whatsapp`, {
+            method: "POST",
+            credentials: "same-origin",
+            headers: { "Content-Type": "application/json" },
+            body: JSON.stringify({ resend: true }),
+          });
+          const waData = (await waRes.json()) as {
+            ok?: boolean;
+            queued?: boolean;
+            paused?: boolean;
+            error?: string;
+            message?: string;
+            whatsappUrl?: string;
+          };
+          if (!waRes.ok) {
+            toast(waData.error || "Booking saved but WhatsApp send failed", "error");
+          } else if (waData.paused) {
+            toast(waData.message || "WhatsApp receipts are paused", "error");
+          } else if (waData.whatsappUrl && !waData.queued) {
+            window.open(waData.whatsappUrl, "_blank");
+            toast(
+              "Booking saved — WhatsApp API not configured; opened chat (attach PDF from slip page, do not paste a file path)",
+              "success",
+            );
+          } else if (waData.queued || waData.ok) {
+            toast(slipToast, "success");
+          } else {
+            toast(waData.message || "Booking saved but WhatsApp was not queued", "error");
+          }
+        } catch {
+          toast("Booking saved but could not queue WhatsApp slip", "error");
+        }
+      }
+    } else if (opts?.downloadSlipPdf && !isProspect) {
       try {
         await downloadBookingSlipPdf(bookingId);
-        toast("✅ Booking saved — PDF downloaded", "success");
+        toast(
+          data.slip_queued
+            ? props.editId
+              ? "✅ Booking updated — PDF saved on this PC only. Updated WhatsApp slip is also queued."
+              : "✅ Booking saved — PDF saved on this PC only. WhatsApp slip is also queued separately."
+            : props.editId
+              ? "✅ Booking updated — PDF saved on this PC only (does not message the customer)."
+              : "✅ Booking saved — PDF saved on this PC only (does not message the customer).",
+          "success",
+        );
       } catch (e) {
         toast(
           e instanceof Error ? e.message : "Booking saved but PDF download failed",
@@ -1282,9 +1359,21 @@ export default function BookingFormClient(props: Props) {
       toast(
         opts?.openPrintSlip
           ? printWindow
-            ? "✅ Booking Saved — opening A4 slip for print"
+            ? data.slip_queued
+              ? props.editId
+                ? "✅ Booking updated — opening print slip; WhatsApp PDF is re-queued"
+                : "✅ Booking saved — opening print slip; WhatsApp PDF is queued"
+              : props.editId
+                ? "✅ Booking updated — opening A4 slip for print"
+                : "✅ Booking Saved — opening A4 slip for print"
             : "✅ Booking Saved — opening slip (use Download PDF if print is unavailable)"
-          : "✅ Booking Saved!",
+          : data.slip_queued
+            ? props.editId
+              ? "✅ Booking updated — slip PDF re-queued for WhatsApp"
+              : "✅ Booking saved — slip PDF queued for WhatsApp"
+            : props.editId
+              ? "✅ Booking updated"
+              : "✅ Booking Saved!",
         "success",
       );
     }
@@ -1339,6 +1428,8 @@ export default function BookingFormClient(props: Props) {
     else if (item.returning_warning) bg = "#FFF8E1";
 
     else if (item.booked_warning) bg = "#FFF0F0";
+
+    else if (item.prospect_warnings?.length) bg = "rgba(106, 27, 154, 0.06)";
 
     return {
 
@@ -1790,6 +1881,19 @@ export default function BookingFormClient(props: Props) {
                         </div>
                       )}
 
+                      {!isProspect && item.prospect_warnings?.map((pw) => (
+                        <div
+                          key={pw.prospect_lead_item_id}
+                          style={{ fontSize: 10, color: "#6A1B9A", marginTop: 2, lineHeight: 1.35 }}
+                        >
+                          <i className="fa-solid fa-user-clock" /> Prospect: {pw.customer_name}
+                          {pw.contact_1 ? ` · ${pw.contact_1}` : ""}
+                          {pw.whatsapp_no ? ` · WA ${pw.whatsapp_no}` : ""}
+                          {` · ${pw.delivery_date} → ${pw.return_date}`}
+                          {pw.notes ? ` · ${pw.notes}` : ""}
+                        </div>
+                      ))}
+
                     </div>
 
                     <div style={{ width: 28, height: 28, borderRadius: "50%", border: `2px solid ${sel ? "var(--primary)" : "var(--border)"}`, background: sel ? "var(--primary)" : "transparent", display: "flex", alignItems: "center", justifyContent: "center", color: "white", flexShrink: 0 }}>
@@ -1863,6 +1967,7 @@ export default function BookingFormClient(props: Props) {
                 index={i}
                 returningWarning={warn?.returning_warning || d.returning_warning}
                 bookedWarning={warn?.booked_warning || d.booked_warning}
+                prospectWarnings={warn?.prospect_warnings || d.prospect_warnings}
                 onRemove={removeDress}
                 onUpdateField={updateDressField}
               />
@@ -2133,6 +2238,23 @@ export default function BookingFormClient(props: Props) {
               {saving ? "Saving…" : props.editId ? "Update & Deliver" : "Save & Deliver"}
             </button>
           )}
+          {!isProspect && (
+            <button
+              type="button"
+              className="btn btn-outline btn-lg"
+              disabled={saving || !selectedDresses.length || hasHardBlock}
+              onClick={() => void save({ sendWhatsApp: true })}
+              style={{ color: "#25d366", borderColor: "#25d366", display: "inline-flex", alignItems: "center", gap: 8 }}
+              title={
+                props.editId
+                  ? "Update booking and re-queue the slip PDF on WhatsApp"
+                  : "Save booking and queue the slip PDF on WhatsApp (Meta API — not a local Downloads file)"
+              }
+            >
+              <i className="fa-brands fa-whatsapp" />
+              {saving ? "Saving…" : props.editId ? "Update & Send WhatsApp" : "Save & Send WhatsApp"}
+            </button>
+          )}
           {!props.editId && !isProspect && (
             <>
             <button
@@ -2152,7 +2274,7 @@ export default function BookingFormClient(props: Props) {
               disabled={saving || !selectedDresses.length || hasHardBlock}
               onClick={() => void save({ downloadSlipPdf: true })}
               style={{ color: "#b45309", borderColor: "#b45309", display: "inline-flex", alignItems: "center", gap: 8 }}
-              title="Save booking and download A4 slip PDF (for mobile or when no printer is connected)"
+              title="Save booking and download the PDF to this computer only — does not send WhatsApp. Do not paste the Downloads path into chat."
             >
               <i className="fa-solid fa-file-pdf" />
               {saving ? "Saving…" : "Save & Download PDF"}
@@ -2355,6 +2477,14 @@ function confirmAlternateDressAdd(
   if (returning) records.push(warningInfoToScanRecord(returning, "RETURNING_ON_DELIVERY_DAY"));
   if (booked) records.push(warningInfoToScanRecord(booked, "BOOKED_ON_RETURN_DAY"));
   return window.confirm(formatScanAlternateConfirm(status, records));
+}
+
+function confirmProspectDressAdd(
+  dressName: string,
+  warnings?: ProspectDressWarning[] | null,
+): boolean {
+  if (!warnings?.length) return true;
+  return window.confirm(formatProspectConfirmMessage(dressName, warnings));
 }
 
 function scanRecordToWarningInfo(record: ScanConflictRecord): WarningInfo {

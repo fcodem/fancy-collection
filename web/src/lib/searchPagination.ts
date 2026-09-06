@@ -1,6 +1,6 @@
 export const DEFAULT_SEARCH_PAGE_SIZE = 100;
 export const MAX_SEARCH_PAGE_SIZE = 200;
-export const DASHBOARD_SEARCH_LIMIT = 50;
+export const DASHBOARD_SEARCH_LIMIT = 12;
 
 /** Delivery / Return / Jewellery operational lists */
 export const OPERATIONAL_LIST_DEFAULT_PAGE_SIZE = 25;

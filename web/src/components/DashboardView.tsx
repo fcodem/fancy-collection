@@ -248,6 +248,7 @@ export default function DashboardView({
   }, [showFreePanel, searchFreeItems]);
 
   useEffect(() => {
+    const controller = new AbortController();
     const t = setTimeout(async () => {
       const q = dashQuery.trim();
       const isSerial = /^\d+$/.test(q);
@@ -259,17 +260,24 @@ export default function DashboardView({
       }
       try {
         const json = await fetchJson<{ mode?: string; results?: Array<Record<string, unknown>> }>(
-          `/api/dashboard/search?date=${data.today_iso}&q=${encodeURIComponent(q)}`
+          `/api/dashboard/search?date=${data.today_iso}&q=${encodeURIComponent(q)}`,
+          { signal: controller.signal, dedupeMs: 0, cache: "no-store" },
         );
+        if (controller.signal.aborted) return;
         setDashResults(Array.isArray(json.results) ? json.results.slice(0, 12) : []);
         setDashSearchMode(json.mode || "");
         setShowDashResults(true);
-      } catch {
+      } catch (e) {
+        if (controller.signal.aborted) return;
+        if (e instanceof Error && e.name === "AbortError") return;
         setDashResults([]);
         setShowDashResults(false);
       }
-    }, 350);
-    return () => clearTimeout(t);
+    }, 250);
+    return () => {
+      clearTimeout(t);
+      controller.abort();
+    };
   }, [dashQuery, data.today_iso]);
 
   async function runDressChecker() {

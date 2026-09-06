@@ -52,6 +52,15 @@ export async function POST(req: NextRequest) {
       return jsonOk({ status: result.status, item: null });
     }
 
+    let prospect_warnings: import("@/lib/prospectLeadWarning").ProspectDressWarning[] = [];
+    try {
+      const { findProspectWarningsByItemIds } = await import("@/lib/prospectLeads");
+      prospect_warnings =
+        (await findProspectWarningsByItemIds([result.dress.id])).get(result.dress.id) || [];
+    } catch {
+      prospect_warnings = [];
+    }
+
     return jsonOk({
       status: result.status,
       item: {
@@ -66,6 +75,7 @@ export async function POST(req: NextRequest) {
       total_quantity: result.total_quantity,
       blockingRecords: result.blockingRecords,
       warningRecords: result.warningRecords,
+      prospect_warnings,
     });
   } catch (e) {
     if (e instanceof ScannedDressAvailabilityError) return jsonError(e.message, 400);

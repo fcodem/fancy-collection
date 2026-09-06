@@ -112,6 +112,20 @@ export function dressNameWhere(q: string): Prisma.BookingWhereInput {
   };
 }
 
+/** Dashboard quick search — dress name only (no SKU joins) for speed. */
+export function dressNameWhereQuick(q: string): Prisma.BookingWhereInput {
+  const ws = words(q);
+  if (!ws.length) return {};
+  return {
+    AND: ws.map((w) => ({
+      OR: [
+        { dressName: { contains: w, mode: "insensitive" as const } },
+        { bookingItems: { some: { dressName: { contains: w, mode: "insensitive" as const } } } },
+      ],
+    })),
+  };
+}
+
 export function phoneWhere(q: string): Prisma.BookingWhereInput {
   const d = digitsOnly(q);
   if (!d) return {};
@@ -248,16 +262,48 @@ function dashboardResults(rows: BookingWithItems[], mode: SearchMode, meta?: Sea
 
 /** Dashboard serial — direct match first, then month/year windows (active only). */
 async function searchDashboardBySerial(serial: number, refDate: Date) {
-  let results: BookingWithItems[] = await fetchBookings({
-    monthlySerial: serial,
-    status: { in: [...DASHBOARD_ACTIVE_STATUSES] },
-  });
+  const orderBy: Prisma.BookingOrderByWithRelationInput[] = [
+    { deliveryDate: "desc" },
+    { monthlySerial: "asc" },
+  ];
+  let results: BookingWithItems[] = await fetchBookings(
+    {
+      monthlySerial: serial,
+      status: { in: [...DASHBOARD_ACTIVE_STATUSES] },
+    },
+    orderBy,
+    DASHBOARD_SEARCH_LIMIT,
+  );
 
   if (!results.length) {
-    results = filterDashboardActive(await searchBySerialMonths(serial, refDate));
+    const prevAnchor = new Date(
+      Date.UTC(refDate.getUTCFullYear(), refDate.getUTCMonth() - 1, 15),
+    );
+    const nextAnchor = new Date(
+      Date.UTC(refDate.getUTCFullYear(), refDate.getUTCMonth() + 1, 15),
+    );
+    results = await fetchBookings(
+      {
+        monthlySerial: serial,
+        status: { in: [...DASHBOARD_ACTIVE_STATUSES] },
+        deliveryDate: { gte: startOfMonthQ(prevAnchor), lt: endOfMonthQ(nextAnchor) },
+      },
+      orderBy,
+      DASHBOARD_SEARCH_LIMIT,
+    );
   }
   if (!results.length) {
-    results = filterDashboardActive(await searchBySerialInYear(serial, refDate));
+    const y = refDate.getUTCFullYear();
+    const yearWhere = await whereDeliveryInRange(`${y}-01-01`, `${y}-12-31`);
+    results = await fetchBookings(
+      {
+        monthlySerial: serial,
+        status: { in: [...DASHBOARD_ACTIVE_STATUSES] },
+        ...yearWhere,
+      },
+      orderBy,
+      DASHBOARD_SEARCH_LIMIT,
+    );
   }
 
   return dedupeById(results).sort((a, b) => a.deliveryDate.getTime() - b.deliveryDate.getTime());
@@ -267,7 +313,14 @@ export async function dashboardSearchBookings(queryText: string, refDateStr?: st
   const q = queryText.trim();
   const isSerialQuery = /^\d+$/.test(q);
   if (!q || (!isSerialQuery && q.length < 2)) {
-    return { mode: "mixed" as SearchMode, results: [], total: 0, page: 1, pageSize: DASHBOARD_SEARCH_LIMIT, hasMore: false };
+    return {
+      mode: "mixed" as SearchMode,
+      results: [],
+      total: 0,
+      page: 1,
+      pageSize: DASHBOARD_SEARCH_LIMIT,
+      hasMore: false,
+    };
   }
 
   const refDate = parseDate(refDateStr || todayIso());
@@ -275,52 +328,47 @@ export async function dashboardSearchBookings(queryText: string, refDateStr?: st
     { deliveryDate: "desc" },
     { monthlySerial: "asc" },
   ];
+  const activeStatus = { status: { in: [...DASHBOARD_ACTIVE_STATUSES] } };
+
+  // Fast path: findMany only (no COUNT) — UI shows at most 12 rows.
+  const quickFetch = (where: Prisma.BookingWhereInput) =>
+    fetchBookings({ ...where, ...activeStatus }, orderBy, DASHBOARD_SEARCH_LIMIT);
 
   if (isSerialQuery) {
     if (q.length <= 3) {
       const serial = parseInt(q, 10);
       if (!Number.isNaN(serial)) {
         const results = await searchDashboardBySerial(serial, refDate);
-        return dashboardResults(results, "serial");
+        return dashboardResults(results.slice(0, DASHBOARD_SEARCH_LIMIT), "serial");
       }
       return dashboardResults([], "serial");
     }
-    const page = await fetchBookingsPage(
-      { ...phoneWhere(q), status: { in: [...DASHBOARD_ACTIVE_STATUSES] } },
-      orderBy,
-      1,
-      DASHBOARD_SEARCH_LIMIT,
-    );
-    return dashboardResults(page.rows, "phone", page);
+    const rows = await quickFetch(phoneWhere(q));
+    return dashboardResults(rows, "phone");
   }
 
   if (classifyNumericSearch(q) === "phone") {
-    const page = await fetchBookingsPage(
-      { ...phoneWhere(q), status: { in: [...DASHBOARD_ACTIVE_STATUSES] } },
-      orderBy,
-      1,
-      DASHBOARD_SEARCH_LIMIT,
+    const rows = await quickFetch(phoneWhere(q));
+    return dashboardResults(rows, "phone");
+  }
+
+  // Customer + dress in parallel — avoid sequential waterfall.
+  const [customerRows, dressRows] = await Promise.all([
+    quickFetch(customerNameWhere(q)),
+    quickFetch(dressNameWhereQuick(q)),
+  ]);
+
+  if (customerRows.length) {
+    return dashboardResults(
+      sortByRelevance(customerRows, refDate).slice(0, DASHBOARD_SEARCH_LIMIT),
+      "customer",
     );
-    return dashboardResults(page.rows, "phone", page);
   }
 
-  const customerPage = await fetchBookingsPage(
-    { ...customerNameWhere(q), status: { in: [...DASHBOARD_ACTIVE_STATUSES] } },
-    orderBy,
-    1,
-    DASHBOARD_SEARCH_LIMIT,
+  return dashboardResults(
+    sortByRelevance(dressRows, refDate).slice(0, DASHBOARD_SEARCH_LIMIT),
+    "dress",
   );
-  if (customerPage.total) {
-    return dashboardResults(sortByRelevance(customerPage.rows, refDate), "customer", customerPage);
-  }
-
-  const dressPage = await fetchBookingsPage(
-    { ...dressNameWhere(q), status: { in: [...DASHBOARD_ACTIVE_STATUSES] } },
-    orderBy,
-    1,
-    DASHBOARD_SEARCH_LIMIT,
-  );
-  return dashboardResults(sortByRelevance(dressPage.rows, refDate), "dress", dressPage);
 }
 
 /** All Record / Advanced Search — full history in year; customer name = lifetime. */

@@ -77,7 +77,10 @@ export default function BookingWhatsAppButton({
       }
       if (data.whatsappUrl) {
         window.open(data.whatsappUrl, "_blank");
-        toast("WhatsApp API not configured — opened WhatsApp manually", "success");
+        toast(
+          "WhatsApp API not configured — opened chat. Use Send Booking Slip after API is set up; do not paste a Downloads file path.",
+          "success",
+        );
         return;
       }
       toast("Message prepared", "success");
