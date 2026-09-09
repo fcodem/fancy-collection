@@ -5,7 +5,6 @@ import { formatInr } from "@/lib/format";
 import { preventInputWheel } from "@/lib/preventInputWheel";
 import { bookingItemRemaining } from "@/lib/bookingLineTotals";
 import BookingPhotoThumb from "@/components/BookingPhotoThumb";
-import type { ProspectDressWarning } from "@/lib/prospectLeadWarning";
 
 type DressWarning = {
   customer?: string;
@@ -39,7 +38,6 @@ type BookingSelectedDressRowProps = {
   index: number;
   returningWarning?: DressWarning | null;
   bookedWarning?: DressWarning | null;
-  prospectWarnings?: ProspectDressWarning[] | null;
   onRemove: (index: number) => void;
   onUpdateField: (index: number, field: "price" | "fittingCharges" | "advance" | "notes", value: string | number) => void;
 };
@@ -85,7 +83,6 @@ function BookingSelectedDressRow({
   index: i,
   returningWarning,
   bookedWarning,
-  prospectWarnings,
   onRemove,
   onUpdateField,
 }: BookingSelectedDressRowProps) {
@@ -135,50 +132,6 @@ function BookingSelectedDressRow({
               <i className="fa-solid fa-circle-exclamation" /> {formatBookedWarning(bookedWarning)}
             </div>
           )}
-
-          {prospectWarnings?.map((pw) => (
-            <div
-              key={pw.prospect_lead_item_id}
-              style={{
-                fontSize: 11,
-                color: "#6A1B9A",
-                marginTop: 6,
-                lineHeight: 1.4,
-                padding: "6px 8px",
-                background: "rgba(106, 27, 154, 0.06)",
-                borderRadius: 8,
-              }}
-            >
-              <strong>
-                <i className="fa-solid fa-user-clock" /> Prospect lead
-              </strong>
-              {" — "}
-              {pw.customer_name}
-              {pw.contact_1 ? ` · ${pw.contact_1}` : ""}
-              {pw.whatsapp_no ? ` · WA ${pw.whatsapp_no}` : ""}
-              <br />
-              {pw.customer_address ? <>Address: {pw.customer_address}<br /></> : null}
-              Delivery {pw.delivery_date}
-              {pw.delivery_time ? ` ${pw.delivery_time}` : ""} → Return {pw.return_date}
-              {pw.return_time ? ` ${pw.return_time}` : ""}
-              {pw.venue ? <> · Venue: {pw.venue}</> : null}
-              {pw.staff_names ? <> · Staff: {pw.staff_names}</> : null}
-              {pw.notes ? (
-                <>
-                  <br />
-                  Notes: {pw.notes}
-                </>
-              ) : null}
-              {pw.other_dresses.length ? (
-                <>
-                  <br />
-                  Other dresses: {pw.other_dresses.join(", ")}
-                </>
-              ) : null}
-              <br />
-              <em>Will be removed from prospects after this booking is saved.</em>
-            </div>
-          ))}
         </div>
 
         <button

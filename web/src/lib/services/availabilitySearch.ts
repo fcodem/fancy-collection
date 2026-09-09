@@ -75,7 +75,6 @@ export type AvailabilitySearchResult = {
     available_parts: JewelleryPartKey[];
     returning_warning: Record<string, unknown> | null;
     booked_warning: Record<string, unknown> | null;
-    prospect_warnings?: import("@/lib/prospectLeadWarning").ProspectDressWarning[];
   }>;
   returning_on_delivery: Array<Record<string, unknown>>;
   booked_on_return: Array<Record<string, unknown>>;
@@ -803,19 +802,8 @@ export async function searchAvailableItems(
       available_parts: isJewellery ? partsFor(row, false) : [],
       returning_warning: warningShape(row.returningWarning),
       booked_warning: warningShape(row.bookedWarning),
-      prospect_warnings: [] as import("@/lib/prospectLeadWarning").ProspectDressWarning[],
     };
   });
-
-  try {
-    const { findProspectWarningsByItemIds } = await import("@/lib/prospectLeads");
-    const byItem = await findProspectWarningsByItemIds(free_items.map((i) => i.id));
-    for (const item of free_items) {
-      item.prospect_warnings = byItem.get(item.id) || [];
-    }
-  } catch (e) {
-    console.warn("[availability] prospect warning lookup skipped:", e);
-  }
 
   const last = visible[visible.length - 1];
   const result: AvailabilitySearchResult = {

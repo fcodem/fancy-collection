@@ -31,9 +31,10 @@ export const WOMENS_CATEGORIES = BASE_WOMENS;
 export const JEWELLERY_CATEGORIES = BASE_JEWELLERY;
 export const ACCESSORY_CATEGORIES = BASE_ACCESSORY;
 
-export function formatDate(d: Date | string, style: "iso" | "display" = "iso"): string {
+export function formatDate(d: Date | string | null | undefined, style: "iso" | "display" = "iso"): string {
+  if (d == null || d === "") return "—";
   const date = typeof d === "string" ? parseDate(d) : d;
-  if (Number.isNaN(date.getTime())) return "—";
+  if (!(date instanceof Date) || Number.isNaN(date.getTime())) return "—";
   if (style === "iso") {
     const y = date.getUTCFullYear();
     const m = String(date.getUTCMonth() + 1).padStart(2, "0");

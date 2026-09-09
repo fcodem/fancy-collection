@@ -14,6 +14,8 @@ type LateReturnRow = {
   id: number;
   monthlySerial: number;
   daysLate: number;
+  contact1: string;
+  whatsappNo: string;
   details: StandardBookingDetails;
 };
 
@@ -95,6 +97,7 @@ export default function LateReturnClient({ initial }: { initial: PageData }) {
                   <tr>
                     <th className="booking-col-serial">S.No</th>
                     <StandardBookingTableHead />
+                    <th className="booking-col-date">Contact</th>
                     <th className="booking-col-date">Days Late</th>
                     <th className="booking-col-actions">Action</th>
                   </tr>
@@ -106,13 +109,31 @@ export default function LateReturnClient({ initial }: { initial: PageData }) {
                         <strong>{String(b.monthlySerial).padStart(2, "0")}</strong>
                       </td>
                       <StandardBookingTableCells d={b.details} />
+                      <td className="booking-col-date" style={{ fontSize: 12 }}>
+                        {b.contact1 ? <div>{b.contact1}</div> : null}
+                        {b.whatsappNo ? (
+                          <div style={{ color: "#25D366" }}>
+                            <i className="fa-brands fa-whatsapp" style={{ marginRight: 4 }} />
+                            {b.whatsappNo}
+                          </div>
+                        ) : null}
+                        {!b.contact1 && !b.whatsappNo ? (
+                          <span style={{ color: "var(--text-muted)" }}>—</span>
+                        ) : null}
+                      </td>
                       <td className="booking-col-date">
                         <span className="badge badge-overdue">{b.daysLate} days</span>
                       </td>
                       <td className="booking-col-actions">
-                        <PrefetchOnIntentLink href={`/return/${b.id}`} className="btn btn-sm btn-primary">
-                          Process Return
-                        </PrefetchOnIntentLink>
+                        <div className="booking-col-actions-inner" style={{ display: "flex", gap: 6, flexWrap: "wrap" }}>
+                          <PrefetchOnIntentLink href={`/booking/${b.id}`} className="btn btn-sm btn-outline">
+                            <i className="fa-solid fa-eye" style={{ marginRight: 4 }} />
+                            Record
+                          </PrefetchOnIntentLink>
+                          <PrefetchOnIntentLink href={`/return/${b.id}`} className="btn btn-sm btn-primary">
+                            Process Return
+                          </PrefetchOnIntentLink>
+                        </div>
                       </td>
                     </tr>
                   ))}

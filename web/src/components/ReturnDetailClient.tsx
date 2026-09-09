@@ -19,8 +19,10 @@ import {
   balanceLeftToCollect,
   effectiveRemainingCollected,
   incompleteReturnSecuritySummary,
+  isDuplicatedDeliveryCashBooking,
   securityCurrentlyHeld,
   sumItemRemainingCollected,
+  unpaidBalanceAfterDelivery,
   type BookingForStandardDetails,
 } from "@/lib/bookingDetails";
 import { isDeliverySlipEligible, isCommonDeliverySlipEligible, isIncompleteSlipEligible, isReturnSlipEligible, isCommonReturnSlipEligible, hasPartialReturn, deliverySlipHref, returnSlipHref } from "@/lib/bookingStatus";
@@ -148,6 +150,7 @@ export default function ReturnDetailClient({
     securityHeld: booking.securityHeld,
     securityCollected: booking.securityCollected,
     securityDeposit: booking.securityDeposit,
+    remainingCollected: booking.remainingCollected,
     items: itemDelivery,
     dressIsOut: hasAnyDeliveredDress,
   });
@@ -354,10 +357,27 @@ export default function ReturnDetailClient({
   const totalPrice = scopedTotalPrice;
   const totalAdvance = scopedTotalAdvance;
   const totalRemaining = scopedTotalRemaining;
-  const collectedAtDelivery = isPartialDeliveryOut
-    ? sumItemRemainingCollected(deliveredItems)
-    : effectiveRemainingCollected(booking.remainingCollected, itemDelivery);
-  const balanceLeft = balanceLeftToCollect(totalRemaining, collectedAtDelivery);
+  const duplicatedCash = isDuplicatedDeliveryCashBooking({
+    remainingCollected: booking.remainingCollected,
+    securityCollected: booking.securityCollected,
+    securityDeposit: booking.securityDeposit,
+    bookingItems: itemDelivery,
+  });
+  const collectedAtDelivery = duplicatedCash
+    ? 0
+    : isPartialDeliveryOut
+      ? sumItemRemainingCollected(deliveredItems)
+      : effectiveRemainingCollected(booking.remainingCollected, itemDelivery);
+  const balanceLeft = isPartialDeliveryOut
+    ? balanceLeftToCollect(totalRemaining, collectedAtDelivery)
+    : unpaidBalanceAfterDelivery({
+        totalRemaining,
+        remaining: totalRemaining,
+        remainingCollected: booking.remainingCollected,
+        securityCollected: booking.securityCollected,
+        securityDeposit: booking.securityDeposit,
+        bookingItems: itemDelivery,
+      });
   const rentCollectedPart = Math.min(collectedAtDelivery, totalRemaining);
   const orderCollectedPart = Math.max(0, collectedAtDelivery - rentCollectedPart);
   const showOrderBreakdown = orders.length > 0 && orderCollectedPart > 0 && !isPartialDeliveryOut;

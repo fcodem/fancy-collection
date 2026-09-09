@@ -88,6 +88,8 @@ export async function loadLateReturnPage(opts?: { page?: number; pageSize?: numb
       id: b.id,
       monthlySerial: b.monthlySerial,
       daysLate: daysLateForReturn(b.returnDate, today),
+      contact1: b.contact1 || "",
+      whatsappNo: b.whatsappNo || "",
       details: serializeStandardBookingDetails(b),
     })),
     page,

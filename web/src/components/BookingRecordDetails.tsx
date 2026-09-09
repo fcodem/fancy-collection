@@ -4,7 +4,7 @@ import { BookingNotesFromBooking } from "@/components/BookingNotesBlock";
 import BookingItemWarningsBlock, { findItemWarnings } from "@/components/BookingItemWarningsSection";
 import { CustomOrdersSection, type SlipOrderDisplay } from "@/components/BookingSlip";
 import type { BookingForStandardDetails } from "@/lib/bookingDetails";
-import { serializeRecordBookingDetails } from "@/lib/bookingDetails";
+import { serializeRecordBookingDetails, unpaidBalanceAfterDelivery } from "@/lib/bookingDetails";
 import type { BookingItemPricingRow } from "@/lib/dress";
 import { serializeBookingItemRows } from "@/lib/dress";
 import { formatInr } from "@/lib/format";
@@ -54,7 +54,21 @@ export function BookingRecordDetails({
     itemsProp ??
     serializeBookingItemRows(booking as Parameters<typeof serializeBookingItemRows>[0]);
   const remDue =
-    remainingCollected != null ? Math.max(0, d.total_remaining - remainingCollected) : null;
+    remainingCollected != null
+      ? unpaidBalanceAfterDelivery({
+          totalRemaining: d.total_remaining,
+          remaining: d.total_remaining,
+          remainingCollected:
+            (booking as { remainingCollected?: number | null }).remainingCollected ??
+            remainingCollected,
+          securityCollected: (booking as { securityCollected?: number | null }).securityCollected,
+          securityDeposit: booking.securityDeposit,
+          bookingItems: (booking as { bookingItems?: Array<{
+            itemRemainingCollected?: number | null;
+            itemSecurityCollected?: number | null;
+          }> }).bookingItems,
+        })
+      : null;
   const bookingItems = (booking as { bookingItems?: Array<{ isDelivered?: boolean }> }).bookingItems;
   const dressOut =
     (booking as { status?: string }).status === "delivered" ||
@@ -164,7 +178,7 @@ export function BookingRecordDetails({
             }
           />
         )}
-        {remainingCollected != null && remainingCollected > 0 && (
+        {remainingCollected != null && remainingCollected > 0 && remDue !== d.total_remaining && (
           <Field
             label="Collected at Delivery"
             value={<span style={{ color: "var(--success)", fontWeight: 600 }}>₹{formatInr(remainingCollected)}</span>}

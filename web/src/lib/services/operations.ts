@@ -1012,7 +1012,7 @@ async function runSaveDeliveryInTx(
         data: {
           remainingCollected: totalRemaining,
           securityCollected: totalSecurity,
-          securityDeposit: totalSecurity > 0 ? totalSecurity : locked.securityDeposit,
+          // Never overwrite booking-time security deposit with delivery collections.
           securityHeld: nextSecurityHeld,
           deliveryNotes: mergedDeliveryNotes,
           remainingPaymentMode: resolveRemainingPaymentMode(totalRemaining),
@@ -1059,7 +1059,7 @@ async function runSaveDeliveryInTx(
   const bookingFields = {
     remainingCollected: totalRemainingCollected,
     securityCollected: secCollected,
-    securityDeposit: secCollected > 0 ? secCollected : locked.securityDeposit,
+    // Keep booking-time deposit; delivery collections live on securityCollected/securityHeld.
     securityHeld: nextSecurityHeld,
     deliveryNotes: data.delivery_notes ?? locked.deliveryNotes,
     remainingPaymentMode: resolveRemainingPaymentMode(totalRemainingCollected),

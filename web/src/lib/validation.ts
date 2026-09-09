@@ -142,7 +142,7 @@ export const BookingFormSchema = z.preprocess(
   z.object({
     customer_name: z.string().min(1).max(150).transform(upper),
     customer_address: z.preprocess(optionalString, z.string().max(300).default("").transform(upper)),
-    contact_1: z.string().min(1).max(25),
+    contact_1: z.preprocess(optionalString, z.string().max(25).default("")),
     whatsapp_no: z.preprocess(optionalString, z.string().max(25).default("")),
     payment_mode: z.enum(["cash", "online"]).default("cash"),
     delivery_date: z.string().regex(/^\d{4}-\d{2}-\d{2}$/, "Invalid delivery date"),

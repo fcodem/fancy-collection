@@ -38,10 +38,6 @@ import {
   mergeAvailabilityItemsById,
 } from "@/lib/mensAvailabilityCollapse";
 import { todayIso, parseDate, isDateBeforeToday } from "@/lib/constants";
-import {
-  formatProspectConfirmMessage,
-  type ProspectDressWarning,
-} from "@/lib/prospectLeadWarning";
 import { formatInr } from "@/lib/format";
 import { privateMediaUrl } from "@/lib/photoUrl";
 import { isAbortError } from "@/lib/bookingQrClient";
@@ -172,8 +168,6 @@ type FreeItem = {
 
   booked_warning?: WarningInfo | null;
 
-  prospect_warnings?: ProspectDressWarning[];
-
 };
 
 
@@ -203,8 +197,6 @@ type SelectedDress = {
   returning_warning?: WarningInfo | null;
 
   booked_warning?: WarningInfo | null;
-
-  prospect_warnings?: ProspectDressWarning[];
 
 };
 
@@ -816,7 +808,6 @@ export default function BookingFormClient(props: Props) {
       notes: "",
       returning_warning: item.returning_warning || null,
       booked_warning: item.booked_warning || null,
-      prospect_warnings: item.prospect_warnings || [],
     }]);
     setNameSearch("");
   }
@@ -833,7 +824,6 @@ export default function BookingFormClient(props: Props) {
     } else {
 
       if (!confirmAlternateDressAdd(item.returning_warning, item.booked_warning)) return;
-      if (!isProspect && !confirmProspectDressAdd(item.name, item.prospect_warnings)) return;
       addSelectedDressFromItem(item);
 
     }
@@ -875,7 +865,6 @@ export default function BookingFormClient(props: Props) {
         free_quantity?: number;
         blockingRecords?: ScanConflictRecord[];
         warningRecords?: ScanConflictRecord[];
-        prospect_warnings?: ProspectDressWarning[];
       };
       if (!res.ok) {
         alert(data.error || "Failed to check scanned dress availability.");
@@ -916,7 +905,6 @@ export default function BookingFormClient(props: Props) {
         return;
       }
       const item = data.item;
-      if (!isProspect && !confirmProspectDressAdd(item.name, data.prospect_warnings)) return;
       const scanWarnings = data.status.startsWith("WARNING_")
         ? warningsFromScanRecords(data.warningRecords || [])
         : { returning_warning: null, booked_warning: null };
@@ -932,7 +920,6 @@ export default function BookingFormClient(props: Props) {
         advance: 0,
         notes: "",
         ...scanWarnings,
-        prospect_warnings: data.prospect_warnings || [],
       }]);
       setNameSearch("");
       toast?.(`${item.name} added to booking`, "success");
@@ -1082,7 +1069,10 @@ export default function BookingFormClient(props: Props) {
     }
     const next = isDateBeforeToday(value) ? minDate : value.slice(0, 10);
     setDeliveryDate(next);
-    setReturnDate(addDaysIso(next, 1));
+    // Keep same-day rentals: only bump return when it would be before delivery.
+    if (!returnDate || returnDate < next) {
+      setReturnDate(next);
+    }
   }
 
   function applyReturnDate(value: string) {
@@ -1429,8 +1419,6 @@ export default function BookingFormClient(props: Props) {
 
     else if (item.booked_warning) bg = "#FFF0F0";
 
-    else if (item.prospect_warnings?.length) bg = "rgba(106, 27, 154, 0.06)";
-
     return {
 
       display: "flex", alignItems: "center", gap: 12, padding: "10px 16px",
@@ -1601,9 +1589,9 @@ export default function BookingFormClient(props: Props) {
               <div>
                 <label className="form-label">
                   <i className="fa-solid fa-phone" style={{ marginRight: 6 }} />
-                  Contact *
+                  Contact
                 </label>
-                <input className="form-control" inputMode="tel" value={contact1} onChange={(e) => setContact1(e.target.value)} required />
+                <input className="form-control" inputMode="tel" value={contact1} onChange={(e) => setContact1(e.target.value)} />
               </div>
 
             </div>
@@ -1664,7 +1652,7 @@ export default function BookingFormClient(props: Props) {
                 onChange={applyDeliveryDate}
               />
 
-              <span className="form-hint">Type DD/MM/YYYY or use the calendar · return date auto-fills to next day</span>
+              <span className="form-hint">Type DD/MM/YYYY or use the calendar · return can be the same day</span>
 
             </div>
 
@@ -1691,7 +1679,7 @@ export default function BookingFormClient(props: Props) {
                 onChange={applyReturnDate}
               />
 
-              <span className="form-hint">Type DD/MM/YYYY or use the calendar · cannot be before today or delivery date</span>
+              <span className="form-hint">Type DD/MM/YYYY or use the calendar · same day as delivery is allowed</span>
 
             </div>
 
@@ -1881,19 +1869,6 @@ export default function BookingFormClient(props: Props) {
                         </div>
                       )}
 
-                      {!isProspect && item.prospect_warnings?.map((pw) => (
-                        <div
-                          key={pw.prospect_lead_item_id}
-                          style={{ fontSize: 10, color: "#6A1B9A", marginTop: 2, lineHeight: 1.35 }}
-                        >
-                          <i className="fa-solid fa-user-clock" /> Prospect: {pw.customer_name}
-                          {pw.contact_1 ? ` · ${pw.contact_1}` : ""}
-                          {pw.whatsapp_no ? ` · WA ${pw.whatsapp_no}` : ""}
-                          {` · ${pw.delivery_date} → ${pw.return_date}`}
-                          {pw.notes ? ` · ${pw.notes}` : ""}
-                        </div>
-                      ))}
-
                     </div>
 
                     <div style={{ width: 28, height: 28, borderRadius: "50%", border: `2px solid ${sel ? "var(--primary)" : "var(--border)"}`, background: sel ? "var(--primary)" : "transparent", display: "flex", alignItems: "center", justifyContent: "center", color: "white", flexShrink: 0 }}>
@@ -1967,7 +1942,6 @@ export default function BookingFormClient(props: Props) {
                 index={i}
                 returningWarning={warn?.returning_warning || d.returning_warning}
                 bookedWarning={warn?.booked_warning || d.booked_warning}
-                prospectWarnings={warn?.prospect_warnings || d.prospect_warnings}
                 onRemove={removeDress}
                 onUpdateField={updateDressField}
               />
@@ -2477,14 +2451,6 @@ function confirmAlternateDressAdd(
   if (returning) records.push(warningInfoToScanRecord(returning, "RETURNING_ON_DELIVERY_DAY"));
   if (booked) records.push(warningInfoToScanRecord(booked, "BOOKED_ON_RETURN_DAY"));
   return window.confirm(formatScanAlternateConfirm(status, records));
-}
-
-function confirmProspectDressAdd(
-  dressName: string,
-  warnings?: ProspectDressWarning[] | null,
-): boolean {
-  if (!warnings?.length) return true;
-  return window.confirm(formatProspectConfirmMessage(dressName, warnings));
 }
 
 function scanRecordToWarningInfo(record: ScanConflictRecord): WarningInfo {

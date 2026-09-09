@@ -46,12 +46,13 @@ export type BookingForStandardDetails = Parameters<typeof serializeBookingItems>
   remaining?: number;
   securityDeposit?: number;
   securityCollected?: number | null;
+  remainingCollected?: number | null;
   status?: string | null;
   commonNotes?: string | null;
   notes?: string | null;
-  deliveryDate: Date | string;
+  deliveryDate: Date | string | null;
   deliveryTime: string;
-  returnDate: Date | string;
+  returnDate: Date | string | null;
   returnTime: string;
   createdAt?: Date | string | null;
 };
@@ -91,8 +92,10 @@ export function serializeStandardBookingDetails(b: BookingForStandardDetails): S
       status: b.status,
       securityDeposit: b.securityDeposit,
       securityCollected: b.securityCollected,
+      remainingCollected: b.remainingCollected,
       items: (b.bookingItems || []) as Array<{
         itemSecurityCollected?: number | null;
+        itemRemainingCollected?: number | null;
         isDelivered?: boolean | null;
       }>,
     }),
@@ -186,49 +189,105 @@ export function balanceLeftToCollect(
   return Math.max(0, (totalRemaining || 0) - (collectedAtDelivery || 0));
 }
 
+/** Detect legacy delivery saves where the same cash was written to remaining
+ *  and security (deposit overwrite bug and/or duplicate column entry). */
+export function isDuplicatedDeliveryCashBooking(booking: {
+  remainingCollected?: number | null;
+  securityCollected?: number | null;
+  securityDeposit?: number | null;
+  bookingItems?: ReadonlyArray<{
+    itemRemainingCollected?: number | null;
+    itemSecurityCollected?: number | null;
+  }> | null;
+}): boolean {
+  const rem = effectiveRemainingCollected(booking.remainingCollected, booking.bookingItems || []);
+  const sec = effectiveSecurityCollected(booking.securityCollected, booking.bookingItems || []);
+  // Same positive amount in both remaining + security columns is almost always a
+  // double-entry (or the old deposit overwrite). Treat as rent-only: balance stays
+  // full remaining, security held shows ₹0.
+  if (rem > 0 && sec > 0 && rem === sec) return true;
+  const items = booking.bookingItems || [];
+  return (
+    items.length > 0 &&
+    items.every(
+      (i) =>
+        (i.itemRemainingCollected || 0) === (i.itemSecurityCollected || 0) &&
+        (i.itemRemainingCollected || 0) > 0,
+    )
+  );
+}
+
 /** Unpaid leftover after booking-time remaining minus amounts collected at delivery. */
 export function unpaidBalanceAfterDelivery(booking: {
   totalRemaining?: number | null;
   remaining?: number | null;
   remainingCollected?: number | null;
-  bookingItems?: ReadonlyArray<{ itemRemainingCollected?: number | null }> | null;
+  securityCollected?: number | null;
+  securityDeposit?: number | null;
+  bookingItems?: ReadonlyArray<{
+    itemRemainingCollected?: number | null;
+    itemSecurityCollected?: number | null;
+  }> | null;
 }): number {
+  const total = booking.totalRemaining ?? booking.remaining ?? 0;
+  if (isDuplicatedDeliveryCashBooking(booking)) {
+    return Math.max(0, total);
+  }
   return balanceLeftToCollect(
-    booking.totalRemaining ?? booking.remaining,
+    total,
     effectiveRemainingCollected(booking.remainingCollected, booking.bookingItems || []),
   );
 }
 
 /** Sum of per-dress security collected at delivery. */
 export function sumItemSecurityCollected(
-  items: Array<{ itemSecurityCollected?: number | null }>,
+  items: ReadonlyArray<{ itemSecurityCollected?: number | null }>,
 ): number {
   return items.reduce((s, row) => s + (row.itemSecurityCollected || 0), 0);
 }
 
 export function effectiveSecurityCollected(
   bookingCollected: number | null | undefined,
-  items: Array<{ itemSecurityCollected?: number | null }> = [],
+  items: ReadonlyArray<{ itemSecurityCollected?: number | null }> = [],
 ): number {
   return Math.max(bookingCollected || 0, sumItemSecurityCollected(items));
 }
 
-/** Security shown on booking records — collected total after delivery, booked deposit before. */
+/** Security shown on booking records — booked deposit; collected amount is separate. */
 export function bookingSecurityDisplayAmount(opts: {
   status?: string | null;
   securityDeposit?: number | null;
   securityCollected?: number | null;
-  items?: Array<{ itemSecurityCollected?: number | null; isDelivered?: boolean | null }>;
+  remainingCollected?: number | null;
+  items?: Array<{
+    itemSecurityCollected?: number | null;
+    itemRemainingCollected?: number | null;
+    isDelivered?: boolean | null;
+  }>;
 }): number {
+  if (
+    isDuplicatedDeliveryCashBooking({
+      remainingCollected: opts.remainingCollected,
+      securityCollected: opts.securityCollected,
+      securityDeposit: opts.securityDeposit,
+      bookingItems: opts.items,
+    })
+  ) {
+    return 0;
+  }
   const items = opts.items || [];
   const collected = effectiveSecurityCollected(opts.securityCollected, items);
+  const deposit = opts.securityDeposit || 0;
   const dressOut =
     items.some((i) => i.isDelivered) ||
     opts.status === "delivered" ||
     opts.status === "returned" ||
     opts.status === "incomplete_return";
-  if (dressOut && collected > 0) return collected;
-  return opts.securityDeposit || 0;
+  if (dressOut) {
+    if (deposit > 0) return deposit;
+    return collected > 0 ? collected : 0;
+  }
+  return deposit;
 }
 
 /** Sum of per-dress security held on incomplete return. */
@@ -273,11 +332,27 @@ export function securityCurrentlyHeld(opts: {
   securityHeld?: number | null;
   securityCollected?: number | null;
   securityDeposit?: number | null;
-  items?: Array<{ itemSecurityCollected?: number | null; isDelivered?: boolean }>;
+  remainingCollected?: number | null;
+  items?: Array<{
+    itemSecurityCollected?: number | null;
+    itemRemainingCollected?: number | null;
+    isDelivered?: boolean;
+  }>;
   dressIsOut?: boolean;
 }): number {
   const { status, securityHeld, securityCollected, securityDeposit, items = [], dressIsOut } = opts;
   if (status === "returned" || status === "cancelled") return 0;
+
+  if (
+    isDuplicatedDeliveryCashBooking({
+      remainingCollected: opts.remainingCollected,
+      securityCollected,
+      securityDeposit,
+      bookingItems: items,
+    })
+  ) {
+    return 0;
+  }
 
   const collected = effectiveSecurityCollected(securityCollected, items);
   const isOut =
@@ -288,7 +363,11 @@ export function securityCurrentlyHeld(opts: {
     return (securityHeld != null && securityHeld > 0) ? securityHeld : collected;
   }
 
-  if (securityHeld != null && securityHeld > 0) return securityHeld;
+  if (securityHeld != null && securityHeld > 0) {
+    // Legacy overwrite set securityHeld === securityDeposit === collected; ignore that mirror.
+    if (securityDeposit === securityHeld && collected === securityHeld) return 0;
+    return securityHeld;
+  }
   if (collected > 0) return collected;
   if (isOut && (securityDeposit || 0) > 0) return securityDeposit || 0;
   return 0;

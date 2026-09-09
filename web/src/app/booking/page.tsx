@@ -24,14 +24,24 @@ import {
 
 export const dynamic = "force-dynamic";
 
-function fmtDate(d: Date) {
-  return d.toISOString().slice(0, 10);
+function fmtDate(d: Date | string | null | undefined): string {
+  if (d == null || d === "") return "";
+  const date = typeof d === "string" ? new Date(d) : d;
+  if (!(date instanceof Date) || Number.isNaN(date.getTime())) return "";
+  try {
+    return date.toISOString().slice(0, 10);
+  } catch {
+    return "";
+  }
 }
 
 function bookingPanelRowProps(b: BookingPanelRow, scanId: number | null, todayReal: Date) {
   const status = resolveBookingStatus(b);
   const rem = unpaidBalanceAfterDelivery(b);
-  const overdue = status === "delivered" && fmtDate(b.returnDate) < fmtDate(todayReal);
+  const returnIso = fmtDate(b.returnDate);
+  const todayIso = fmtDate(todayReal);
+  const overdue =
+    status === "delivered" && Boolean(returnIso) && Boolean(todayIso) && returnIso < todayIso;
   const isScan = scanId != null && b.id === scanId;
   return { status, rem, overdue, isScan };
 }
@@ -181,8 +191,10 @@ async function BookingPanelBody({
   scanId: number | null;
 }) {
   const todayReal = localTodayStart();
-  const [{ yearBounds, bookings, returnedBookings, statusCounts, totalCount, pageSize, totalPages }, scanBooking] =
-    await Promise.all([
+  let panelData: Awaited<ReturnType<typeof loadBookingPanelPage>>;
+  let scanBooking: Awaited<ReturnType<typeof loadBookingPanelScanRow>>;
+  try {
+    [panelData, scanBooking] = await Promise.all([
       loadBookingPanelPage({
         year,
         month,
@@ -193,6 +205,12 @@ async function BookingPanelBody({
       }),
       scanId ? loadBookingPanelScanRow(scanId) : Promise.resolve(null),
     ]);
+  } catch (e) {
+    console.error("[booking panel] load failed:", e);
+    throw e instanceof Error ? e : new Error("Failed to load booking panel");
+  }
+  const { yearBounds, bookings, returnedBookings, statusCounts, totalCount, pageSize, totalPages } =
+    panelData;
 
   const scanStatus = scanBooking ? resolveBookingStatus(scanBooking) : null;
   const scanInTable =
