@@ -1069,10 +1069,8 @@ export default function BookingFormClient(props: Props) {
     }
     const next = isDateBeforeToday(value) ? minDate : value.slice(0, 10);
     setDeliveryDate(next);
-    // Keep same-day rentals: only bump return when it would be before delivery.
-    if (!returnDate || returnDate < next) {
-      setReturnDate(next);
-    }
+    // Default return is always the next calendar day; user can still pick same-day manually.
+    setReturnDate(addDaysIso(next, 1));
   }
 
   function applyReturnDate(value: string) {
@@ -1652,7 +1650,7 @@ export default function BookingFormClient(props: Props) {
                 onChange={applyDeliveryDate}
               />
 
-              <span className="form-hint">Type DD/MM/YYYY or use the calendar · return can be the same day</span>
+              <span className="form-hint">Type DD/MM/YYYY or use the calendar · return date auto-fills to next day</span>
 
             </div>
 
