@@ -111,6 +111,32 @@ type ItemFormState = {
   notes: string;
 };
 
+/** Blank remaining field means "collect full due"; explicit 0 means unpaid. */
+function resolveRemainingCollectedInput(raw: string | undefined, dueAmount: number): number {
+  if (raw == null || String(raw).trim() === "") return Math.max(0, dueAmount || 0);
+  const n = Number(raw);
+  return Number.isFinite(n) && n >= 0 ? n : Math.max(0, dueAmount || 0);
+}
+
+function initialDeliveryItemForm(
+  it: ItemRow,
+  securityDeposit: number,
+): ItemFormState {
+  const remainingPrefill =
+    (it.itemRemainingCollected || 0) > 0
+      ? it.itemRemainingCollected
+      : it.remaining || 0;
+  const securityPrefill =
+    (it.itemSecurityCollected || 0) > 0
+      ? it.itemSecurityCollected
+      : securityDeposit || 0;
+  return {
+    remaining: String(remainingPrefill || ""),
+    security: String(securityPrefill || ""),
+    notes: it.itemDeliveryNotes || "",
+  };
+}
+
 type SaveItemResponse = {
   id: number;
   isDelivered: boolean;
@@ -144,12 +170,9 @@ export default function DeliveryDetailClient({
   const [bookingStatus, setBookingStatus] = useState(booking.status);
   const [itemForms, setItemForms] = useState<Record<number, ItemFormState>>(() => {
     const init: Record<number, ItemFormState> = {};
+    const deposit = Number(booking.securityDeposit || 0);
     for (const it of initialItems) {
-      init[it.id] = {
-        remaining: String(it.itemRemainingCollected || ""),
-        security: String(it.itemSecurityCollected || ""),
-        notes: it.itemDeliveryNotes || "",
-      };
+      init[it.id] = initialDeliveryItemForm(it, deposit);
     }
     return init;
   });
@@ -403,7 +426,10 @@ export default function DeliveryDetailClient({
       delivery_notes: commonDeliveryNote.trim(),
       items: [{
         booking_item_id: itemId,
-        remaining_collected: Number(itemForms[itemId]?.remaining) || 0,
+        remaining_collected: resolveRemainingCollectedInput(
+          itemForms[itemId]?.remaining,
+          it.remaining || 0,
+        ),
         security_collected: Number(itemForms[itemId]?.security) || 0,
         delivery_notes: (itemForms[itemId]?.notes || "").trim() || commonDeliveryNote.trim(),
         mark_delivered: !it.isDelivered,
@@ -477,13 +503,19 @@ export default function DeliveryDetailClient({
       payment_mode: paymentMode,
       security_payment_mode: securityPaymentMode,
       delivery_notes: commonDeliveryNote.trim(),
-      items: ids.map((id) => ({
-        booking_item_id: id,
-        remaining_collected: Number(itemForms[id]?.remaining) || 0,
-        security_collected: Number(itemForms[id]?.security) || 0,
-        delivery_notes: (itemForms[id]?.notes || "").trim() || commonDeliveryNote.trim(),
-        mark_delivered: true,
-      })),
+      items: ids.map((id) => {
+        const it = localItems.find((row) => row.id === id);
+        return {
+          booking_item_id: id,
+          remaining_collected: resolveRemainingCollectedInput(
+            itemForms[id]?.remaining,
+            it?.remaining || 0,
+          ),
+          security_collected: Number(itemForms[id]?.security) || 0,
+          delivery_notes: (itemForms[id]?.notes || "").trim() || commonDeliveryNote.trim(),
+          mark_delivered: true,
+        };
+      }),
     };
 
     try {
@@ -551,13 +583,19 @@ export default function DeliveryDetailClient({
       payment_mode: paymentMode,
       security_payment_mode: securityPaymentMode,
       delivery_notes: commonDeliveryNote.trim(),
-      items: ids.map((id) => ({
-        booking_item_id: id,
-        remaining_collected: Number(itemForms[id]?.remaining) || 0,
-        security_collected: Number(itemForms[id]?.security) || 0,
-        delivery_notes: (itemForms[id]?.notes || "").trim() || commonDeliveryNote.trim(),
-        mark_delivered: false,
-      })),
+      items: ids.map((id) => {
+        const it = localItems.find((row) => row.id === id);
+        return {
+          booking_item_id: id,
+          remaining_collected: resolveRemainingCollectedInput(
+            itemForms[id]?.remaining,
+            it?.remaining || 0,
+          ),
+          security_collected: Number(itemForms[id]?.security) || 0,
+          delivery_notes: (itemForms[id]?.notes || "").trim() || commonDeliveryNote.trim(),
+          mark_delivered: false,
+        };
+      }),
     };
     try {
       const res = await fetch(`/api/booking-delivery/${booking.id}/save`, {
@@ -897,7 +935,7 @@ export default function DeliveryDetailClient({
           </p>
           <BookingRecordDetails
             booking={booking}
-            remainingCollected={booking.remainingCollected ?? 0}
+            remainingCollected={dressRemainingCollected}
             orders={orderDisplay}
           />
           {warningItems.length <= 1 && <BookingItemWarningsSection items={warningItems} />}

@@ -59,6 +59,7 @@ export function BookingRecordDetails({
     serializeBookingItemRows(booking as Parameters<typeof serializeBookingItemRows>[0]);
   const bookingItems = (booking as {
     bookingItems?: Array<{
+      id?: number;
       itemRemainingCollected?: number | null;
       itemSecurityCollected?: number | null;
       isDelivered?: boolean;
@@ -169,31 +170,31 @@ export function BookingRecordDetails({
         <Field
           label="Remaining"
           value={
-            d.total_remaining > 0 ? (
+            showPostDeliveryBalance ? (
+              remDue > 0 ? (
+                <span style={{ fontWeight: 800, color: "var(--danger)", fontSize: compact ? 14 : 16 }}>
+                  ₹{formatInr(remDue)}
+                </span>
+              ) : (
+                <span style={{ color: "var(--success)", fontWeight: 700 }}>Paid ✓</span>
+              )
+            ) : d.total_remaining > 0 ? (
               <span style={{ fontWeight: 700, color: "var(--danger)" }}>₹{formatInr(d.total_remaining)}</span>
             ) : (
               <span style={{ color: "var(--success)", fontWeight: 600 }}>Paid ✓</span>
             )
           }
         />
-        {showPostDeliveryBalance && (
-          <Field
-            label="Balance Left to Collect"
-            value={
-              remDue > 0 ? (
-                <span style={{ fontWeight: 700, color: "var(--danger)", fontSize: compact ? 14 : 16 }}>
-                  ₹{formatInr(remDue)}
-                </span>
-              ) : (
-                <span style={{ color: "var(--success)", fontWeight: 600 }}>Paid ✓</span>
-              )
-            }
-          />
-        )}
         {showPostDeliveryBalance && collectedAtDelivery > 0 && (
           <Field
             label="Collected at Delivery"
             value={<span style={{ color: "var(--success)", fontWeight: 600 }}>₹{formatInr(collectedAtDelivery)}</span>}
+          />
+        )}
+        {showPostDeliveryBalance && d.total_remaining > 0 && collectedAtDelivery > 0 && remDue !== d.total_remaining && (
+          <Field
+            label="Original Remaining"
+            value={<span style={{ color: "var(--text-muted)" }}>₹{formatInr(d.total_remaining)}</span>}
           />
         )}
         <Field label={dressOut ? "Security (at delivery)" : "Security"} value={`₹${formatInr(d.security_deposit)}`} />
@@ -257,14 +258,32 @@ export function BookingRecordDetails({
               const dressWarnings = warningItems?.length
                 ? findItemWarnings(warningItems, { dressName: item.display_name })
                 : undefined;
+              const bi =
+                item.id != null
+                  ? bookingItems?.find((row) => (row as { id?: number }).id === item.id)
+                  : bookingItems?.[i];
+              const itemCollected = Number(
+                (bi as { itemRemainingCollected?: number | null } | undefined)?.itemRemainingCollected || 0,
+              );
+              const itemLeft = Math.max(0, (item.remaining || 0) - itemCollected);
               return (
-                <Fragment key={i}>
+                <Fragment key={item.id ?? i}>
                   <tr>
                     <td style={{ fontWeight: 700, color: "var(--text-muted)" }}>{i + 1}</td>
                     <td>{item.display_name}</td>
                     <td>₹{formatInr(item.price)}</td>
                     <td>₹{formatInr(item.advance)}</td>
-                    <td>₹{formatInr(item.remaining)}</td>
+                    <td>
+                      {dressOut ? (
+                        itemLeft > 0 ? (
+                          <span style={{ fontWeight: 700, color: "var(--danger)" }}>₹{formatInr(itemLeft)}</span>
+                        ) : (
+                          <span style={{ color: "var(--success)", fontWeight: 600 }}>Paid ✓</span>
+                        )
+                      ) : (
+                        `₹${formatInr(item.remaining)}`
+                      )}
+                    </td>
                     <td style={{ fontSize: 12, wordBreak: "break-word" }}>{item.notes || "—"}</td>
                   </tr>
                   {dressWarnings && (

@@ -20,6 +20,7 @@ import { deletePrivateBookingMedia } from "../storage/privateBookingMedia";
 import { syncBookingStatusFromItems } from "../syncBookingStatusFromItems";
 import { cachedQuery, memoryCachedQuery } from "../perfCache";
 import { serializeActiveOrders } from "../slipBookingData";
+import { healMissingDeliveryRemainingCollection } from "./bookingRecordData";
 
 export { syncBookingStatusFromItems } from "../syncBookingStatusFromItems";
 
@@ -2404,6 +2405,17 @@ export async function getDeliveryDetail(bookingId: number) {
     },
   });
   if (!booking) return null;
+
+  const healed = await healMissingDeliveryRemainingCollection(booking);
+  if (healed) {
+    Object.assign(booking, {
+      remainingCollected: healed.remainingCollected,
+      bookingItems: booking.bookingItems.map((bi) => {
+        const h = healed.bookingItems.find((x) => x.id === bi.id);
+        return h ? { ...bi, itemRemainingCollected: h.itemRemainingCollected } : bi;
+      }),
+    });
+  }
 
   const itemIds = booking.bookingItems.map((bi) => bi.itemId).filter((id): id is number => id != null);
   const nextCandidates =
