@@ -250,6 +250,7 @@ export default function BookingViewClient({
         <div className="card-body">
           <BookingRecordDetails
             booking={booking}
+            remainingCollected={booking.remainingCollected ?? 0}
             warningItems={warningsSlot ? undefined : warningItems.length > 1 ? warningItems : undefined}
             orders={orders}
             extra={

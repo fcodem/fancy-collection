@@ -202,10 +202,8 @@ export function balanceLeftToCollect(
   return Math.max(0, (totalRemaining || 0) - (collectedAtDelivery || 0));
 }
 
-/** Detect legacy delivery saves where remaining/security/deposit were overwritten
- *  with the same cash amount (old deposit overwrite bug). Do not treat legitimate
- *  equal remaining+security collections as duplicates. */
-export function isDuplicatedDeliveryCashBooking(booking: {
+/** Legacy heuristic kept for call sites; delivery collections are trusted as entered. */
+export function isDuplicatedDeliveryCashBooking(_booking: {
   remainingCollected?: number | null;
   securityCollected?: number | null;
   securityDeposit?: number | null;
@@ -214,11 +212,6 @@ export function isDuplicatedDeliveryCashBooking(booking: {
     itemSecurityCollected?: number | null;
   }> | null;
 }): boolean {
-  const rem = effectiveRemainingCollected(booking.remainingCollected, booking.bookingItems || []);
-  const sec = effectiveSecurityCollected(booking.securityCollected, booking.bookingItems || []);
-  const dep = booking.securityDeposit || 0;
-  // Classic overwrite: same positive amount stored in remaining, security, and deposit.
-  if (rem > 0 && sec > 0 && rem === sec && dep === sec) return true;
   return false;
 }
 
@@ -235,9 +228,6 @@ export function unpaidBalanceAfterDelivery(booking: {
   }> | null;
 }): number {
   const total = booking.totalRemaining ?? booking.remaining ?? 0;
-  if (isDuplicatedDeliveryCashBooking(booking)) {
-    return Math.max(0, total);
-  }
   return balanceLeftToCollect(
     total,
     effectiveRemainingCollected(booking.remainingCollected, booking.bookingItems || []),
@@ -270,16 +260,6 @@ export function bookingSecurityDisplayAmount(opts: {
     isDelivered?: boolean | null;
   }>;
 }): number {
-  if (
-    isDuplicatedDeliveryCashBooking({
-      remainingCollected: opts.remainingCollected,
-      securityCollected: opts.securityCollected,
-      securityDeposit: opts.securityDeposit,
-      bookingItems: opts.items,
-    })
-  ) {
-    return 0;
-  }
   const items = opts.items || [];
   const collected = effectiveSecurityCollected(opts.securityCollected, items);
   const deposit = opts.securityDeposit || 0;

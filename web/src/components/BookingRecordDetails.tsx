@@ -4,7 +4,11 @@ import { BookingNotesFromBooking } from "@/components/BookingNotesBlock";
 import BookingItemWarningsBlock, { findItemWarnings } from "@/components/BookingItemWarningsSection";
 import { CustomOrdersSection, type SlipOrderDisplay } from "@/components/BookingSlip";
 import type { BookingForStandardDetails } from "@/lib/bookingDetails";
-import { serializeRecordBookingDetails, unpaidBalanceAfterDelivery } from "@/lib/bookingDetails";
+import {
+  effectiveRemainingCollected,
+  serializeRecordBookingDetails,
+  unpaidBalanceAfterDelivery,
+} from "@/lib/bookingDetails";
 import type { BookingItemPricingRow } from "@/lib/dress";
 import { serializeBookingItemRows } from "@/lib/dress";
 import { formatInr } from "@/lib/format";
@@ -53,28 +57,34 @@ export function BookingRecordDetails({
   const items =
     itemsProp ??
     serializeBookingItemRows(booking as Parameters<typeof serializeBookingItemRows>[0]);
-  const remDue =
-    remainingCollected != null
-      ? unpaidBalanceAfterDelivery({
-          totalRemaining: d.total_remaining,
-          remaining: d.total_remaining,
-          remainingCollected:
-            (booking as { remainingCollected?: number | null }).remainingCollected ??
-            remainingCollected,
-          securityCollected: (booking as { securityCollected?: number | null }).securityCollected,
-          securityDeposit: booking.securityDeposit,
-          bookingItems: (booking as { bookingItems?: Array<{
-            itemRemainingCollected?: number | null;
-            itemSecurityCollected?: number | null;
-          }> }).bookingItems,
-        })
-      : null;
-  const bookingItems = (booking as { bookingItems?: Array<{ isDelivered?: boolean }> }).bookingItems;
+  const bookingItems = (booking as {
+    bookingItems?: Array<{
+      itemRemainingCollected?: number | null;
+      itemSecurityCollected?: number | null;
+      isDelivered?: boolean;
+    }>;
+  }).bookingItems;
+  const collectedAtDelivery = effectiveRemainingCollected(
+    (booking as { remainingCollected?: number | null }).remainingCollected ?? remainingCollected,
+    bookingItems || [],
+  );
+  const remDue = unpaidBalanceAfterDelivery({
+    totalRemaining: d.total_remaining,
+    remaining: d.total_remaining,
+    remainingCollected:
+      (booking as { remainingCollected?: number | null }).remainingCollected ??
+      remainingCollected ??
+      collectedAtDelivery,
+    securityCollected: (booking as { securityCollected?: number | null }).securityCollected,
+    securityDeposit: booking.securityDeposit,
+    bookingItems,
+  });
   const dressOut =
     (booking as { status?: string }).status === "delivered" ||
     (booking as { status?: string }).status === "returned" ||
     (booking as { status?: string }).status === "incomplete_return" ||
     Boolean(bookingItems?.some((i) => i.isDelivered));
+  const showPostDeliveryBalance = dressOut || collectedAtDelivery > 0;
 
   const dressRows =
     items.length > 0
@@ -166,22 +176,24 @@ export function BookingRecordDetails({
             )
           }
         />
-        {remDue != null && (
+        {showPostDeliveryBalance && (
           <Field
             label="Balance Left to Collect"
             value={
               remDue > 0 ? (
-                <span style={{ fontWeight: 700, color: "var(--danger)", fontSize: compact ? 14 : 16 }}>₹{formatInr(remDue)}</span>
+                <span style={{ fontWeight: 700, color: "var(--danger)", fontSize: compact ? 14 : 16 }}>
+                  ₹{formatInr(remDue)}
+                </span>
               ) : (
                 <span style={{ color: "var(--success)", fontWeight: 600 }}>Paid ✓</span>
               )
             }
           />
         )}
-        {remainingCollected != null && remainingCollected > 0 && remDue !== d.total_remaining && (
+        {showPostDeliveryBalance && collectedAtDelivery > 0 && (
           <Field
             label="Collected at Delivery"
-            value={<span style={{ color: "var(--success)", fontWeight: 600 }}>₹{formatInr(remainingCollected)}</span>}
+            value={<span style={{ color: "var(--success)", fontWeight: 600 }}>₹{formatInr(collectedAtDelivery)}</span>}
           />
         )}
         <Field label={dressOut ? "Security (at delivery)" : "Security"} value={`₹${formatInr(d.security_deposit)}`} />

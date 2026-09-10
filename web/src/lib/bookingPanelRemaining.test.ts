@@ -47,7 +47,7 @@ describe("unpaidBalanceAfterDelivery", () => {
     );
   });
 
-  it("ignores mirrored remaining+security+deposit overwrite as unpaid remaining", () => {
+  it("still subtracts when remaining, security, and deposit amounts match", () => {
     assert.equal(
       unpaidBalanceAfterDelivery({
         totalRemaining: 700,
@@ -55,7 +55,7 @@ describe("unpaidBalanceAfterDelivery", () => {
         securityCollected: 600,
         securityDeposit: 600,
       }),
-      700,
+      100,
     );
   });
 });

@@ -895,7 +895,11 @@ export default function DeliveryDetailClient({
           <p style={{ marginBottom: 12, fontSize: 14 }}>
             <strong>Serial:</strong> #{String(booking.monthlySerial).padStart(2, "0")}
           </p>
-          <BookingRecordDetails booking={booking} orders={orderDisplay} />
+          <BookingRecordDetails
+            booking={booking}
+            remainingCollected={booking.remainingCollected ?? 0}
+            orders={orderDisplay}
+          />
           {warningItems.length <= 1 && <BookingItemWarningsSection items={warningItems} />}
         </div>
       </div>
