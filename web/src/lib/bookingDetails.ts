@@ -50,6 +50,7 @@ export type BookingForStandardDetails = Parameters<typeof serializeBookingItems>
   status?: string | null;
   commonNotes?: string | null;
   notes?: string | null;
+  deliveryNotes?: string | null;
   deliveryDate: Date | string | null;
   deliveryTime: string;
   returnDate: Date | string | null;
@@ -63,17 +64,28 @@ export function serializeStandardBookingDetails(b: BookingForStandardDetails): S
     category?: string | null;
     size?: string | null;
     notes?: string | null;
+    itemDeliveryNotes?: string | null;
     item?: { size?: string | null } | null;
   }>;
   let itemNotes = "";
   if (rawItems.length) {
-    itemNotes = rawItems
-      .filter((bi) => bi.notes?.trim())
+    const deliveryItemNotes = rawItems
+      .filter((bi) => bi.itemDeliveryNotes?.trim())
       .map((bi) => {
         const label = dressDisplayName(bi.dressName, bi.category, bi.size || bi.item?.size);
-        return rawItems.length > 1 ? `${label}: ${bi.notes}` : (bi.notes || "");
+        return rawItems.length > 1 ? `${label}: ${bi.itemDeliveryNotes}` : (bi.itemDeliveryNotes || "");
       })
       .join("; ");
+    itemNotes = deliveryItemNotes;
+    if (!itemNotes) {
+      itemNotes = rawItems
+        .filter((bi) => bi.notes?.trim())
+        .map((bi) => {
+          const label = dressDisplayName(bi.dressName, bi.category, bi.size || bi.item?.size);
+          return rawItems.length > 1 ? `${label}: ${bi.notes}` : (bi.notes || "");
+        })
+        .join("; ");
+    }
     if (!itemNotes && rawItems.length === 1 && b.notes?.trim()) {
       itemNotes = b.notes;
     }
@@ -82,6 +94,7 @@ export function serializeStandardBookingDetails(b: BookingForStandardDetails): S
   }
 
   const bookingWhen = b.createdAt ? formatBookingDateTime(b.createdAt) : { date: "", time: "" };
+  const commonNotes = (b.deliveryNotes?.trim() || b.commonNotes || "").trim();
 
   return {
     customer_name: b.customerName,
@@ -102,7 +115,7 @@ export function serializeStandardBookingDetails(b: BookingForStandardDetails): S
     dress_names: bookingDressLabels(b),
     dress_count: bookingDressCount(b),
     item_notes: itemNotes,
-    common_notes: b.commonNotes || "",
+    common_notes: commonNotes,
     delivery_date: formatDate(b.deliveryDate, "display"),
     delivery_time: b.deliveryTime,
     return_date: formatDate(b.returnDate, "display"),
@@ -189,8 +202,9 @@ export function balanceLeftToCollect(
   return Math.max(0, (totalRemaining || 0) - (collectedAtDelivery || 0));
 }
 
-/** Detect legacy delivery saves where the same cash was written to remaining
- *  and security (deposit overwrite bug and/or duplicate column entry). */
+/** Detect legacy delivery saves where remaining/security/deposit were overwritten
+ *  with the same cash amount (old deposit overwrite bug). Do not treat legitimate
+ *  equal remaining+security collections as duplicates. */
 export function isDuplicatedDeliveryCashBooking(booking: {
   remainingCollected?: number | null;
   securityCollected?: number | null;
@@ -202,19 +216,10 @@ export function isDuplicatedDeliveryCashBooking(booking: {
 }): boolean {
   const rem = effectiveRemainingCollected(booking.remainingCollected, booking.bookingItems || []);
   const sec = effectiveSecurityCollected(booking.securityCollected, booking.bookingItems || []);
-  // Same positive amount in both remaining + security columns is almost always a
-  // double-entry (or the old deposit overwrite). Treat as rent-only: balance stays
-  // full remaining, security held shows ₹0.
-  if (rem > 0 && sec > 0 && rem === sec) return true;
-  const items = booking.bookingItems || [];
-  return (
-    items.length > 0 &&
-    items.every(
-      (i) =>
-        (i.itemRemainingCollected || 0) === (i.itemSecurityCollected || 0) &&
-        (i.itemRemainingCollected || 0) > 0,
-    )
-  );
+  const dep = booking.securityDeposit || 0;
+  // Classic overwrite: same positive amount stored in remaining, security, and deposit.
+  if (rem > 0 && sec > 0 && rem === sec && dep === sec) return true;
+  return false;
 }
 
 /** Unpaid leftover after booking-time remaining minus amounts collected at delivery. */
@@ -253,7 +258,7 @@ export function effectiveSecurityCollected(
   return Math.max(bookingCollected || 0, sumItemSecurityCollected(items));
 }
 
-/** Security shown on booking records — booked deposit; collected amount is separate. */
+/** Security shown on lists/records: delivery-collected wins once dress is out. */
 export function bookingSecurityDisplayAmount(opts: {
   status?: string | null;
   securityDeposit?: number | null;
@@ -284,8 +289,8 @@ export function bookingSecurityDisplayAmount(opts: {
     opts.status === "returned" ||
     opts.status === "incomplete_return";
   if (dressOut) {
-    if (deposit > 0) return deposit;
-    return collected > 0 ? collected : 0;
+    // Delivery page amount is source of truth after handover (including ₹0).
+    return collected;
   }
   return deposit;
 }
@@ -340,7 +345,7 @@ export function securityCurrentlyHeld(opts: {
   }>;
   dressIsOut?: boolean;
 }): number {
-  const { status, securityHeld, securityCollected, securityDeposit, items = [], dressIsOut } = opts;
+  const { status, securityHeld, securityCollected, securityDeposit, items = [] } = opts;
   if (status === "returned" || status === "cancelled") return 0;
 
   if (
@@ -355,9 +360,6 @@ export function securityCurrentlyHeld(opts: {
   }
 
   const collected = effectiveSecurityCollected(securityCollected, items);
-  const isOut =
-    dressIsOut ??
-    (items.length > 0 ? items.some((i) => i.isDelivered) : status === "delivered");
 
   if (status === "incomplete_return") {
     return (securityHeld != null && securityHeld > 0) ? securityHeld : collected;
@@ -366,9 +368,11 @@ export function securityCurrentlyHeld(opts: {
   if (securityHeld != null && securityHeld > 0) {
     // Legacy overwrite set securityHeld === securityDeposit === collected; ignore that mirror.
     if (securityDeposit === securityHeld && collected === securityHeld) return 0;
+    // Held only copied from booking-time deposit with nothing collected at delivery.
+    if (securityDeposit === securityHeld && collected === 0) return 0;
     return securityHeld;
   }
   if (collected > 0) return collected;
-  if (isOut && (securityDeposit || 0) > 0) return securityDeposit || 0;
+  // After delivery, do not fall back to booking-time deposit — delivery amount is source of truth.
   return 0;
 }

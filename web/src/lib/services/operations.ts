@@ -985,17 +985,12 @@ async function runSaveDeliveryInTx(
     const mergedDeliveryNotes =
       commonNote || itemNotesJoined || locked.deliveryNotes;
 
-    const dressIsOut =
-      refreshed.bookingItems.some((bi) => bi.isDelivered && !bi.isCancelled) ||
-      refreshed.status === "delivered";
     const nextSecurityHeld =
       locked.status === "incomplete_return"
         ? locked.securityHeld
         : totalSecurity > 0
           ? totalSecurity
-          : dressIsOut && locked.securityDeposit > 0
-            ? locked.securityDeposit
-            : 0;
+          : 0;
 
     const allActiveDelivered =
       refreshed.status === "booked" &&
@@ -1044,15 +1039,12 @@ async function runSaveDeliveryInTx(
   }
 
   const secCollected = data.security_collected ?? locked.securityCollected;
-  const dressIsOut = data.mark_delivered || locked.status === "delivered";
   const nextSecurityHeld =
     locked.status === "incomplete_return"
       ? locked.securityHeld
       : secCollected > 0
         ? secCollected
-        : dressIsOut && locked.securityDeposit > 0
-          ? locked.securityDeposit
-          : 0;
+        : 0;
 
   const totalRemainingCollected = data.remaining_collected ?? locked.remainingCollected;
 

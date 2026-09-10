@@ -1,6 +1,6 @@
 import { describe, it } from "node:test";
 import assert from "node:assert/strict";
-import { unpaidBalanceAfterDelivery } from "./bookingDetails";
+import { unpaidBalanceAfterDelivery, bookingSecurityDisplayAmount } from "./bookingDetails";
 import { preferDistinctDressSizes } from "./mensAvailabilityCollapse";
 
 describe("unpaidBalanceAfterDelivery", () => {
@@ -32,6 +32,77 @@ describe("unpaidBalanceAfterDelivery", () => {
         remainingCollected: 600,
       }),
       1000,
+    );
+  });
+
+  it("subtracts remaining even when security collected matches that amount", () => {
+    assert.equal(
+      unpaidBalanceAfterDelivery({
+        totalRemaining: 700,
+        remainingCollected: 600,
+        securityCollected: 600,
+        securityDeposit: 0,
+      }),
+      100,
+    );
+  });
+
+  it("ignores mirrored remaining+security+deposit overwrite as unpaid remaining", () => {
+    assert.equal(
+      unpaidBalanceAfterDelivery({
+        totalRemaining: 700,
+        remainingCollected: 600,
+        securityCollected: 600,
+        securityDeposit: 600,
+      }),
+      700,
+    );
+  });
+});
+
+describe("bookingSecurityDisplayAmount", () => {
+  it("shows booking deposit before delivery", () => {
+    assert.equal(
+      bookingSecurityDisplayAmount({
+        status: "booked",
+        securityDeposit: 5000,
+        securityCollected: 0,
+      }),
+      5000,
+    );
+  });
+
+  it("shows delivery-collected security after delivery, not booking deposit", () => {
+    assert.equal(
+      bookingSecurityDisplayAmount({
+        status: "delivered",
+        securityDeposit: 5000,
+        securityCollected: 2000,
+      }),
+      2000,
+    );
+  });
+
+  it("shows zero after delivery when nothing was collected at delivery", () => {
+    assert.equal(
+      bookingSecurityDisplayAmount({
+        status: "delivered",
+        securityDeposit: 5000,
+        securityCollected: 0,
+      }),
+      0,
+    );
+  });
+
+  it("uses per-item security collected when booking total was not synced", () => {
+    assert.equal(
+      bookingSecurityDisplayAmount({
+        status: "booked",
+        securityDeposit: 5000,
+        securityCollected: 0,
+        items: [{ itemSecurityCollected: 1500, isDelivered: true }],
+      }),
+      1500,
     );
   });
 });

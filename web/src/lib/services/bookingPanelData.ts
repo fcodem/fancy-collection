@@ -47,6 +47,7 @@ const bookingPanelSelect = {
   advance: true,
   remaining: true,
   commonNotes: true,
+  deliveryNotes: true,
   status: true,
   createdAt: true,
   bookingItems: {
@@ -56,6 +57,7 @@ const bookingPanelSelect = {
       category: true,
       size: true,
       notes: true,
+      itemDeliveryNotes: true,
       isDelivered: true,
       itemRemainingCollected: true,
       itemSecurityCollected: true,
