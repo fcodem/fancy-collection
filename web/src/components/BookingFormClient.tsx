@@ -1276,6 +1276,7 @@ export default function BookingFormClient(props: Props) {
       invalidateClientCache();
       toast("✅ Booking saved — opening delivery", "success");
       router.replace(`/booking-delivery/${bookingId}`);
+      router.refresh();
       return;
     }
 
@@ -1387,7 +1388,11 @@ export default function BookingFormClient(props: Props) {
     }
     else {
       invalidateClientCache();
-      router.replace(props.afterSaveHref || `/booking/${bookingId}`);
+      const base = props.afterSaveHref || `/booking/${bookingId}`;
+      const sep = base.includes("?") ? "&" : "?";
+      // Cache-bust soft-nav RSC payload so the first save shows immediately.
+      router.replace(`${base}${sep}updated=${Date.now()}`);
+      router.refresh();
     }
 
     } catch (e) {

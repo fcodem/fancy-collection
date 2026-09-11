@@ -1,6 +1,6 @@
 "use client";
 
-import { useState, type ReactNode } from "react";
+import { useEffect, useState, type ReactNode } from "react";
 import { useRouter } from "next/navigation";
 import dynamic from "next/dynamic";
 import PrefetchOnIntentLink from "@/components/PrefetchOnIntentLink";
@@ -55,6 +55,14 @@ export default function BookingViewClient({
   const [showCancel, setShowCancel] = useState(false);
   const router = useRouter();
   useRealtimeRefresh(BOOKING_EVENTS, () => router.refresh());
+
+  useEffect(() => {
+    if (typeof window === "undefined") return;
+    const sp = new URLSearchParams(window.location.search);
+    if (!sp.get("updated")) return;
+    router.refresh();
+    router.replace(`/booking/${booking.id}`, { scroll: false });
+  }, [router, booking.id]);
 
   const status = resolveBookingStatus(booking);
   const isDelivered = status === "delivered";

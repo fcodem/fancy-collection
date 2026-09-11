@@ -7,6 +7,8 @@ import { getAllCategories } from "@/lib/categories";
 import { todayIso } from "@/lib/constants";
 import { catalogPhotoRef } from "@/lib/catalogPhotoRef";
 
+export const dynamic = "force-dynamic";
+
 export default async function EditBookingPage({
   params,
   searchParams,

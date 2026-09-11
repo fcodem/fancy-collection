@@ -473,7 +473,7 @@ export default async function BookingPanelPage({
 
   return (
     <>
-      <RealtimePageRefresher />
+      <RealtimePageRefresher refreshOnPageOpen />
       <Suspense fallback={<BookingPanelFallback />}>
         <BookingPanelBody
           year={year}

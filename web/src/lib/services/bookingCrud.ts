@@ -484,8 +484,8 @@ export async function updateBooking(bookingId: number, input: BookingFormInput, 
     if (beforeDresses.join("|") !== afterDresses.join("|")) {
       label += ` · Dress change: ${beforeDresses.join(", ") || "—"} → ${afterDresses.join(", ") || "—"}`;
     }
-    broadcastShopEvent({ type: "booking.updated", bookingId, status: updated.status, by });
-    logActivity({
+    // Await audit first so shop revision advances before cache invalidation / client refresh.
+    await logActivity({
       username: by || "system",
       action: "updated",
       entity: "booking",
@@ -494,6 +494,7 @@ export async function updateBooking(bookingId: number, input: BookingFormInput, 
       before: beforeSnapshot,
       after: snapshotBooking(updated as unknown as Record<string, unknown>),
     });
+    broadcastShopEvent({ type: "booking.updated", bookingId, status: updated.status, by });
   }
   return updated;
 }
