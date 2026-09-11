@@ -53,14 +53,24 @@ export function formatUnitName(baseName: string, unitIndex: number): string {
 
 export function dressDisplayName(name?: string | null, category?: string | null, size?: string | null): string {
   const n = (name || "").trim();
+  const cat = (category || "").trim();
   const sz = (size || "").trim();
-  if (sz) {
-    const low = n.toLowerCase();
-    if (!low.includes(`size ${sz.toLowerCase()}`) && !n.includes(`(${sz})`) && !low.includes("· size")) {
-      return `${n} · Size ${sz}`;
+  let label = n;
+  if (cat) {
+    const alreadyTagged =
+      n.toUpperCase().includes(`(${cat.toUpperCase()})`) ||
+      n.toUpperCase().endsWith(` ${cat.toUpperCase()}`);
+    if (!alreadyTagged) {
+      label = `${n} (${cat})`;
     }
   }
-  return n;
+  if (sz) {
+    const low = label.toLowerCase();
+    if (!low.includes(`size ${sz.toLowerCase()}`) && !label.includes(`(${sz})`) && !low.includes("· size")) {
+      return `${label} · Size ${sz}`;
+    }
+  }
+  return label;
 }
 
 export function buildDressSearchWhere(q: string) {
