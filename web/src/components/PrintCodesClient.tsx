@@ -105,6 +105,7 @@ export default function PrintCodesClient() {
   const [marginsOpen, setMarginsOpen] = useState(false);
   const [marginsSavedMsg, setMarginsSavedMsg] = useState("");
   const [settingsHydrated, setSettingsHydrated] = useState(false);
+  const fetchSeqRef = useRef(0);
 
   useEffect(() => {
     setMargins(loadPrintLabelMargins());
@@ -184,6 +185,7 @@ export default function PrintCodesClient() {
   const fetchItems = useCallback(async () => {
     setLoading(true);
     setLoadError("");
+    const requestId = ++fetchSeqRef.current;
     try {
       const params = new URLSearchParams();
       if (category) params.set("category", category);
@@ -194,11 +196,13 @@ export default function PrintCodesClient() {
         credentials: "same-origin",
         cache: "no-store",
       });
+      if (requestId !== fetchSeqRef.current) return;
       if (!res.ok) {
         setLoadError("Could not load print list. Try again.");
         return;
       }
       const data = await res.json();
+      if (requestId !== fetchSeqRef.current) return;
       const nextItems: InventoryItem[] = data.items || [];
       setItems(nextItems);
       // Refresh QR status for anything already in the print cart.
@@ -214,9 +218,10 @@ export default function PrintCodesClient() {
         return next;
       });
     } catch {
+      if (requestId !== fetchSeqRef.current) return;
       setLoadError("Network error while loading inventory.");
     } finally {
-      setLoading(false);
+      if (requestId === fetchSeqRef.current) setLoading(false);
     }
   }, [category, subCategory, q]);
 
@@ -227,6 +232,15 @@ export default function PrintCodesClient() {
   useRealtimeRefresh([...BOOKING_EVENTS, ...INVENTORY_EVENTS], () => {
     void fetchItems();
   });
+
+  // Live search: keep results in sync with what is typed (debounced).
+  useEffect(() => {
+    if (!settingsHydrated) return;
+    const next = searchInput.trim();
+    if (next === q) return;
+    const t = window.setTimeout(() => setQ(next), next ? 280 : 0);
+    return () => window.clearTimeout(t);
+  }, [searchInput, q, settingsHydrated]);
 
   const runSearch = (e?: FormEvent) => {
     e?.preventDefault();
@@ -765,10 +779,13 @@ export default function PrintCodesClient() {
                   type="search"
                   value={searchInput}
                   onChange={(e) => setSearchInput(e.target.value)}
-                  placeholder="Dress name, SKU, or color…"
+                  placeholder="Type to search dress name, SKU, or color…"
                   className="border rounded px-3 py-2 text-sm w-full"
                   autoComplete="off"
                 />
+                {searchInput.trim() !== q && (
+                  <p className="text-xs text-gray-400 mt-1">Searching…</p>
+                )}
               </div>
               <div>
                 <label className="block text-xs text-gray-500 mb-1">Category</label>

@@ -30,11 +30,14 @@ export async function GET(req: NextRequest) {
     where.subCategory = subCategory;
   }
   if (q) {
-    where.OR = [
-      { name: { contains: q, mode: "insensitive" } },
-      { sku: { contains: q, mode: "insensitive" } },
-      { color: { contains: q, mode: "insensitive" } },
-    ];
+    const words = q.split(/\s+/).map((w) => w.trim()).filter(Boolean);
+    where.AND = words.map((word) => ({
+      OR: [
+        { name: { contains: word, mode: "insensitive" as const } },
+        { sku: { contains: word, mode: "insensitive" as const } },
+        { color: { contains: word, mode: "insensitive" as const } },
+      ],
+    }));
   }
 
   const itemSelect = {
