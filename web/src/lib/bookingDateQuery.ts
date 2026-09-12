@@ -126,6 +126,16 @@ export async function whereReturnInRange(
   return { returnDate: { gte: parseDateQ(fromStr), lt: new Date(Date.UTC(y, m - 1, d + 1)) } };
 }
 
+/** Calendar day: return date falls on `dateStr`. */
+export async function whereReturnOnDate(dateStr: string): Promise<Prisma.BookingWhereInput> {
+  return whereReturnInRange(dateStr, dateStr);
+}
+
+/** Calendar day: delivery date falls on `dateStr`. */
+export async function whereDeliveryOnDate(dateStr: string): Promise<Prisma.BookingWhereInput> {
+  return whereDeliveryInRange(dateStr, dateStr);
+}
+
 export async function whereReturnBefore(fromStr: string): Promise<Prisma.BookingWhereInput> {
   const ids = await sqliteReturnBefore(fromStr);
   if (ids !== null) return idsWhere(ids);

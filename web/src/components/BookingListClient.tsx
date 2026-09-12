@@ -3,9 +3,11 @@
 import { useCallback, useEffect, useMemo, useRef, useState, type CSSProperties } from "react";
 import {
   AlternateBookingTag,
-  BookingWarningPanel,
+  PackingBookingDetailsGrid,
 } from "@/components/BookingDetailsColumns";
 import type { BookingWarningRecord, StandardBookingDetails } from "@/lib/bookingDetails";
+import { WARNING_BOOKED_ON_RETURN, WARNING_RETURNING_ON_DELIVERY } from "@/lib/bookingDetails";
+import { formatInr } from "@/lib/format";
 import { bookingMonthKey, formatBookingMonthLabel } from "@/lib/bookingMonth";
 import { useRealtimeRefresh } from "@/hooks/useRealtimeRefresh";
 import { BOOKING_EVENTS } from "@/lib/realtime/types";
@@ -50,17 +52,20 @@ type BookingRow = StandardBookingDetails & {
   total_advance: number;
   items: ItemRow[];
   reason?: string;
+  alternate_kind?: "returning" | "delivering" | "both";
 };
 
 type ListData = {
   bookings: BookingRow[];
   unavailable: BookingRow[];
+  alternate?: BookingRow[];
   from_date: string;
   to_date: string;
   page: number;
   pageSize: number;
   totalMain: number;
   totalUnavailable: number;
+  totalAlternate?: number;
   totalPagesMain: number;
   totalPagesUnavailable: number;
 };
@@ -85,6 +90,99 @@ function dressLabel(item: ItemRow) {
   return item.display_name || item.dress_name || "—";
 }
 
+function AlternateBookingCard({ booking }: { booking: BookingRow }) {
+  const dresses = booking.items?.length
+    ? booking.items.map(dressLabel)
+    : (booking.dress_names || "")
+        .split(",")
+        .map((s) => s.trim())
+        .filter(Boolean);
+  const kindLabel =
+    booking.alternate_kind === "both"
+      ? `${WARNING_RETURNING_ON_DELIVERY} · ${WARNING_BOOKED_ON_RETURN}`
+      : booking.alternate_kind === "delivering"
+        ? WARNING_BOOKED_ON_RETURN
+        : WARNING_RETURNING_ON_DELIVERY;
+
+  return (
+    <div className="card" style={{ marginBottom: 14, borderLeft: "4px solid #f59e0b" }}>
+      <div
+        className="card-header"
+        style={{
+          padding: "12px 16px",
+          display: "flex",
+          justifyContent: "space-between",
+          gap: 10,
+          flexWrap: "wrap",
+          alignItems: "center",
+          background: "#fffbeb",
+        }}
+      >
+        <div style={{ display: "flex", alignItems: "center", gap: 10, flexWrap: "wrap" }}>
+          <span
+            style={{
+              width: 28,
+              height: 28,
+              borderRadius: "50%",
+              background: "linear-gradient(135deg,#f59e0b,#d97706)",
+              color: "white",
+              display: "inline-flex",
+              alignItems: "center",
+              justifyContent: "center",
+              fontWeight: 700,
+              fontSize: 12,
+            }}
+          >
+            {serialLabel(booking.serial_no)}
+          </span>
+          <strong style={{ fontSize: 15 }}>{booking.customer_name}</strong>
+          {booking.is_star && <StarBookingBadge />}
+          <AlternateBookingTag />
+        </div>
+        <div style={{ fontSize: 12, fontWeight: 700, color: "#b45309" }}>{kindLabel}</div>
+      </div>
+
+      <div className="card-body" style={{ paddingTop: 8 }}>
+        <div className="booked-items-simple-dresses" style={{ marginBottom: 10 }}>
+          {dresses.map((name, i) => (
+            <span key={`${name}-${i}`} className="schedule-highlight schedule-highlight--dress">
+              {name}
+            </span>
+          ))}
+        </div>
+        <div className="booked-items-simple-schedule" style={{ marginBottom: 12 }}>
+          <span className="schedule-highlight schedule-highlight--delivery">
+            <i className="fa-solid fa-truck" style={{ marginRight: 6 }} />
+            Delivery: {booking.delivery_date} {booking.delivery_time}
+          </span>
+          <span className="schedule-highlight schedule-highlight--return">
+            <i className="fa-solid fa-rotate-left" style={{ marginRight: 6 }} />
+            Return: {booking.return_date} {booking.return_time}
+          </span>
+        </div>
+        <PackingBookingDetailsGrid
+          d={booking}
+          extras={{
+            contact_1: booking.contact_1,
+            whatsapp_no: booking.whatsapp_no,
+            venue: booking.venue,
+            staff_names: booking.staff_names,
+            total_advance: booking.total_advance,
+          }}
+        />
+        {booking.items?.map((item, i) =>
+          item.notes ? (
+            <div key={i} style={{ marginTop: 8, fontSize: 12, color: "var(--text-muted)" }}>
+              <strong className="schedule-highlight schedule-highlight--dress">{dressLabel(item)}</strong>
+              {" · "}₹{formatInr(item.price)} · {item.notes}
+            </div>
+          ) : null,
+        )}
+      </div>
+    </div>
+  );
+}
+
 function BookingCard({ booking, isUnavailable }: { booking: BookingRow; isUnavailable?: boolean }) {
   const dresses = booking.items?.length
     ? booking.items.map(dressLabel)
@@ -92,14 +190,10 @@ function BookingCard({ booking, isUnavailable }: { booking: BookingRow; isUnavai
         .split(",")
         .map((s) => s.trim())
         .filter(Boolean);
-  const isAlternate =
-    !isUnavailable && booking.items?.some((i) => i.returning_warning || i.booked_warning);
 
   return (
     <div
-      className={`booked-items-simple-card${isUnavailable ? " booked-items-simple-card--unavailable" : ""}${
-        isAlternate ? " booked-items-simple-card--alternate" : ""
-      }`}
+      className={`booked-items-simple-card${isUnavailable ? " booked-items-simple-card--unavailable" : ""}`}
     >
       <div className="booked-items-simple-customer">
         <span
@@ -109,9 +203,7 @@ function BookingCard({ booking, isUnavailable }: { booking: BookingRow; isUnavai
             borderRadius: "50%",
             background: isUnavailable
               ? "#7b2d2d"
-              : isAlternate
-                ? "linear-gradient(135deg,#f59e0b,#d97706)"
-                : "linear-gradient(135deg,var(--primary),var(--primary-light))",
+              : "linear-gradient(135deg,var(--primary),var(--primary-light))",
             color: "white",
             display: "inline-flex",
             alignItems: "center",
@@ -125,7 +217,6 @@ function BookingCard({ booking, isUnavailable }: { booking: BookingRow; isUnavai
         </span>
         <span>{booking.customer_name}</span>
         {booking.is_star && <StarBookingBadge />}
-        {isAlternate && <AlternateBookingTag />}
       </div>
 
       <div className="booked-items-simple-dresses">
@@ -157,19 +248,6 @@ function BookingCard({ booking, isUnavailable }: { booking: BookingRow; isUnavai
           {booking.reason}
         </div>
       ) : null}
-
-      {/* Full customer/contact/rent details only for the linked alternate booking panels */}
-      {isAlternate &&
-        booking.items?.map((item, i) => (
-          <div key={i} style={{ marginTop: 8 }}>
-            {item.returning_warning && (
-              <BookingWarningPanel w={item.returning_warning} variant="returning" />
-            )}
-            {item.booked_warning && (
-              <BookingWarningPanel w={item.booked_warning} variant="booked" />
-            )}
-          </div>
-        ))}
     </div>
   );
 }
@@ -281,6 +359,7 @@ export default function BookingListClient({
             ...prev,
             bookings: [],
             unavailable: [],
+            alternate: [],
             from_date: from,
             to_date: to || from,
           }));
@@ -324,7 +403,8 @@ export default function BookingListClient({
   }
 
   const { bookings, unavailable } = data;
-  const empty = !bookings.length && !unavailable.length;
+  const alternate = data.alternate || [];
+  const empty = !bookings.length && !unavailable.length && !alternate.length;
   const pdfHeaders = [...STANDARD_BOOKING_HEADERS, "Status"];
 
   const bookingsByMonth = useMemo(() => {
@@ -540,6 +620,11 @@ export default function BookingListClient({
               <strong>{data.totalUnavailable}</strong> not available
             </div>
           )}
+          {!!(data.totalAlternate ?? alternate.length) && (
+            <div style={{ background: "#fff7ed", border: "1.5px solid #f59e0b", borderRadius: 10, padding: "10px 18px", fontSize: 13, color: "#b45309" }}>
+              <strong>{data.totalAlternate ?? alternate.length}</strong> alternate
+            </div>
+          )}
           <div style={{ fontSize: 12, color: "var(--text-muted)", padding: "10px 0" }}>
             Period: <strong>{isoToDisplay(data.from_date)}</strong> to{" "}
             <strong>{isoToDisplay(data.to_date)}</strong>
@@ -583,6 +668,27 @@ export default function BookingListClient({
             ),
           )}
 
+          {!!alternate.length && (
+            <div className="card" style={{ border: "2px solid #f59e0b", marginTop: 28 }}>
+              <div className="card-header" style={{ background: "#fff7ed", flexWrap: "wrap", gap: 8 }}>
+                <h3 className="card-title" style={{ color: "#b45309", fontSize: 14, margin: 0 }}>
+                  <i className="fa-solid fa-right-left" style={{ marginRight: 8 }} />
+                  Alternate Bookings ({alternate.length})
+                </h3>
+                <AlternateBookingTag />
+              </div>
+              <div style={{ padding: "12px 16px", fontSize: 12, color: "#92400e", background: "#fffbeb", borderBottom: "1px solid #fcd34d" }}>
+                Dresses <strong>returning on {isoToDisplay(data.from_date)}</strong> (delivery day) and dresses{" "}
+                <strong>delivering on {isoToDisplay(data.to_date)}</strong> (return day). Full details below.
+              </div>
+              <div style={{ padding: 12 }}>
+                {alternate.map((b) => (
+                  <AlternateBookingCard key={b.id} booking={b} />
+                ))}
+              </div>
+            </div>
+          )}
+
           {!!unavailable.length && (
             <div className="card" style={{ border: "2px solid #e53e3e", marginTop: 28 }}>
               <div className="card-header" style={{ background: "#7b2d2d22" }}>
@@ -598,7 +704,7 @@ export default function BookingListClient({
               <div style={{ padding: "12px 20px", fontSize: 12, color: "#feb2b2", background: "#7b2d2d11", borderBottom: "1px solid #e53e3e44" }}>
                 These dresses were delivered before <strong>{isoToDisplay(data.from_date)}</strong> and
                 return before <strong>{isoToDisplay(data.to_date)}</strong>. They are{" "}
-                <strong>not available</strong> during this period.
+                <strong>not available</strong> during this period (not same-day alternate handovers).
               </div>
               <div style={{ padding: 12 }}>
                 {unavailable.map((b) => (
