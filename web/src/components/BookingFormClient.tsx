@@ -37,6 +37,7 @@ import {
   collapseMensAvailabilityItems,
   mergeAvailabilityItemsById,
 } from "@/lib/mensAvailabilityCollapse";
+import { createTapGuard } from "@/lib/tapWithoutScroll";
 import { todayIso, parseDate, isDateBeforeToday } from "@/lib/constants";
 import { formatInr } from "@/lib/format";
 import { privateMediaUrl } from "@/lib/photoUrl";
@@ -338,6 +339,116 @@ function DressListAccordionHeader({
         {title}
       </h3>
       {badge}
+    </div>
+  );
+}
+
+/** Available-dress list with dedicated scroll buttons; drag/scroll does not select. */
+function DressPickerScroll({
+  long,
+  children,
+}: {
+  long?: boolean;
+  children: ReactNode;
+}) {
+  const listRef = useRef<HTMLDivElement>(null);
+  const [canScrollUp, setCanScrollUp] = useState(false);
+  const [canScrollDown, setCanScrollDown] = useState(false);
+
+  const updateScrollButtons = useCallback(() => {
+    const el = listRef.current;
+    if (!el) {
+      setCanScrollUp(false);
+      setCanScrollDown(false);
+      return;
+    }
+    const max = el.scrollHeight - el.clientHeight;
+    setCanScrollUp(el.scrollTop > 4);
+    setCanScrollDown(max > 4 && el.scrollTop < max - 4);
+  }, []);
+
+  useEffect(() => {
+    const id = requestAnimationFrame(updateScrollButtons);
+    return () => cancelAnimationFrame(id);
+  }, [children, updateScrollButtons]);
+
+  function scrollList(dir: "up" | "down") {
+    const el = listRef.current;
+    if (!el) return;
+    el.scrollBy({ top: dir === "down" ? 220 : -220, behavior: "smooth" });
+    window.setTimeout(updateScrollButtons, 200);
+  }
+
+  return (
+    <div className="dress-picker-shell">
+      {canScrollUp ? (
+        <button
+          type="button"
+          className="dress-picker-scroll-btn dress-picker-scroll-btn--up"
+          aria-label="Scroll dresses up"
+          onPointerDown={(e) => e.preventDefault()}
+          onClick={() => scrollList("up")}
+        >
+          <i className="fa-solid fa-chevron-up" /> Scroll up
+        </button>
+      ) : null}
+      <div
+        ref={listRef}
+        className={`dress-picker-scroll${long ? " dress-picker-scroll--long" : ""}`}
+        onWheel={(e) => e.stopPropagation()}
+        onScroll={updateScrollButtons}
+      >
+        {children}
+      </div>
+      {canScrollDown ? (
+        <button
+          type="button"
+          className="dress-picker-scroll-btn dress-picker-scroll-btn--down"
+          aria-label="Scroll dresses down"
+          onPointerDown={(e) => e.preventDefault()}
+          onClick={() => scrollList("down")}
+        >
+          <i className="fa-solid fa-chevron-down" /> Scroll down
+        </button>
+      ) : null}
+    </div>
+  );
+}
+
+function DressPickerRow({
+  selected,
+  style,
+  onToggle,
+  children,
+}: {
+  selected: boolean;
+  style: CSSProperties;
+  onToggle: () => void;
+  children: ReactNode;
+}) {
+  const guardRef = useRef(createTapGuard());
+
+  return (
+    <div
+      role="button"
+      tabIndex={0}
+      aria-pressed={selected}
+      style={style}
+      onPointerDown={(e) => guardRef.current.onPointerDown(e)}
+      onPointerMove={(e) => guardRef.current.onPointerMove(e)}
+      onPointerCancel={() => guardRef.current.reset()}
+      onClick={() => {
+        if (!guardRef.current.endAsTap()) return;
+        onToggle();
+      }}
+      onKeyDown={(e) => {
+        if (e.key === "Enter" || e.key === " ") {
+          e.preventDefault();
+          onToggle();
+        }
+      }}
+    >
+      {children}
     </div>
   );
 }
@@ -981,7 +1092,6 @@ export default function BookingFormClient(props: Props) {
       }
 
       const base = stripUnitSuffix(item.name || item.display_name || "");
-      if (item.category) setCategoryFilter(item.category);
       setSizeFilter("");
       setNameSearch(base || item.name);
     },
@@ -1904,10 +2014,7 @@ export default function BookingFormClient(props: Props) {
           ) : (
 
             <>
-            <div
-              className={`dress-picker-scroll${filtered.length > 8 ? " dress-picker-scroll--long" : ""}`}
-              onWheel={(e) => e.stopPropagation()}
-            >
+            <DressPickerScroll long={filtered.length > 8}>
 
               {filtered.map((item) => {
 
@@ -1915,7 +2022,12 @@ export default function BookingFormClient(props: Props) {
 
                 return (
 
-                  <div key={item.id} onClick={() => toggleDress(item)} style={rowStyle(item, sel)}>
+                  <DressPickerRow
+                    key={item.id}
+                    selected={sel}
+                    style={rowStyle(item, sel)}
+                    onToggle={() => toggleDress(item)}
+                  >
 
                     <BookingPhotoThumb
                       photo={item.photo}
@@ -1956,13 +2068,13 @@ export default function BookingFormClient(props: Props) {
 
                     </div>
 
-                  </div>
+                  </DressPickerRow>
 
                 );
 
               })}
 
-            </div>
+            </DressPickerScroll>
             {availabilityHasMore && (
               <div style={{ textAlign: "center", marginTop: 12 }}>
                 <button

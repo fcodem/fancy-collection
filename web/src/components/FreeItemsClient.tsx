@@ -454,7 +454,6 @@ export default function FreeItemsClient({ today }: { today: string }) {
               onChange={(e) => setDressSearch(e.target.value)}
               onSuggestSelect={(item) => {
                 setDressSearch(item.name);
-                if (item.category) setCategory(item.category);
               }}
             />
             <div style={{ fontSize: 11, color: "var(--text-muted)", marginTop: 4 }}>

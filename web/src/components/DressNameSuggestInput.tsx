@@ -3,6 +3,7 @@
 import { useCallback, useEffect, useRef, useState } from "react";
 import { isAbortError } from "@/lib/bookingQrClient";
 import { catalogPhotoUrl } from "@/lib/catalogPhotoUrl";
+import { createTapGuard } from "@/lib/tapWithoutScroll";
 
 type SuggestItem = {
   id?: number;
@@ -76,10 +77,20 @@ export default function DressNameSuggestInput({
   const categoryRef = useRef(category);
   const itemTypeRef = useRef(itemType);
   const valueRef = useRef(value);
+  const itemTapGuardsRef = useRef(new Map<string, ReturnType<typeof createTapGuard>>());
 
   categoryRef.current = category;
   itemTypeRef.current = itemType;
   valueRef.current = value;
+
+  function tapGuardFor(key: string) {
+    let guard = itemTapGuardsRef.current.get(key);
+    if (!guard) {
+      guard = createTapGuard();
+      itemTapGuardsRef.current.set(key, guard);
+    }
+    return guard;
+  }
 
   const closeSuggestions = useCallback(() => {
     setOpen(false);
@@ -230,8 +241,8 @@ export default function DressNameSuggestInput({
           props.onFocus?.(e);
         }}
         onBlur={(e) => {
-          // Delay so pointerdown/click on a suggestion can commit first (esp. touch).
-          setTimeout(() => closeSuggestions(), 220);
+          // Delay so a tap on a suggestion can commit after scroll-safe click.
+          setTimeout(() => closeSuggestions(), 280);
           props.onBlur?.(e);
         }}
         onKeyDown={(e) => {
@@ -291,15 +302,25 @@ export default function DressNameSuggestInput({
                 .filter(Boolean)
                 .join(" · ");
               const thumb = showPhotos ? catalogPhotoUrl(item) : "";
+              const key = `${item.id ?? item.name}-${item.sku || idx}`;
+              const guard = tapGuardFor(key);
               return (
                 <button
-                  key={`${item.id ?? item.name}-${item.sku || idx}`}
+                  key={key}
                   type="button"
                   className={`dress-suggest-item${idx === activeIdx ? " active" : ""}`}
                   style={showPhotos ? { display: "flex", alignItems: "center", gap: 10, textAlign: "left" } : undefined}
                   onPointerDown={(e) => {
-                    // Commit before input blur so one tap/click adds (touch + mouse).
+                    // Mouse only: keep input focused so the menu stays open.
+                    // Touch must NOT preventDefault or list scrolling breaks.
+                    if (e.pointerType === "mouse") e.preventDefault();
+                    guard.onPointerDown(e);
+                  }}
+                  onPointerMove={(e) => guard.onPointerMove(e)}
+                  onPointerCancel={() => guard.reset()}
+                  onClick={(e) => {
                     e.preventDefault();
+                    if (!guard.endAsTap()) return;
                     selectItem(item);
                   }}
                 >

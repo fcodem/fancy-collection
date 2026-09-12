@@ -1257,6 +1257,14 @@ a.stat-card:hover {
 }
 
 /* Booking form — scrollable dress pickers (available + selected panels) */
+.dress-picker-shell {
+  position: relative;
+  border: 1px solid var(--border);
+  border-radius: 10px;
+  overflow: hidden;
+  background: var(--card, #fff);
+}
+
 .dress-picker-scroll {
   max-height: min(640px, 70vh);
   overflow-y: auto;
@@ -1269,6 +1277,32 @@ a.stat-card:hover {
 
 .dress-picker-scroll--long {
   max-height: min(76vh, 820px);
+}
+
+.dress-picker-scroll-btn {
+  display: flex;
+  width: 100%;
+  align-items: center;
+  justify-content: center;
+  gap: 8px;
+  border: none;
+  background: linear-gradient(180deg, rgba(123, 31, 69, 0.08), rgba(123, 31, 69, 0.02));
+  color: var(--primary, #7b1f45);
+  font-size: 12px;
+  font-weight: 700;
+  padding: 10px 12px;
+  cursor: pointer;
+  touch-action: manipulation;
+  user-select: none;
+}
+
+.dress-picker-scroll-btn--down {
+  background: linear-gradient(0deg, rgba(123, 31, 69, 0.08), rgba(123, 31, 69, 0.02));
+  border-top: 1px solid var(--border);
+}
+
+.dress-picker-scroll-btn--up {
+  border-bottom: 1px solid var(--border);
 }
 
 /* Selected dresses — full vertical list; page scrolls (never inner scroll box) */
