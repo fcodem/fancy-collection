@@ -4,9 +4,7 @@ import { useCallback, useEffect, useMemo, useRef, useState, type CSSProperties }
 import {
   AlternateBookingTag,
   BookingWarningPanel,
-  PackingBookingDetailsGrid,
 } from "@/components/BookingDetailsColumns";
-import { formatInr } from "@/lib/format";
 import type { BookingWarningRecord, StandardBookingDetails } from "@/lib/bookingDetails";
 import { bookingMonthKey, formatBookingMonthLabel } from "@/lib/bookingMonth";
 import { useRealtimeRefresh } from "@/hooks/useRealtimeRefresh";
@@ -97,98 +95,11 @@ function BookingCard({ booking, isUnavailable }: { booking: BookingRow; isUnavai
   const isAlternate =
     !isUnavailable && booking.items?.some((i) => i.returning_warning || i.booked_warning);
 
-  // Alternate bookings: full details. Normal bookings: compact customer / dress / schedule only.
-  if (isAlternate) {
-    return (
-      <div className="card" style={{ marginBottom: 16, borderLeft: "4px solid #f59e0b" }}>
-        <div
-          className="card-header booking-card-header"
-          style={{ padding: "12px 20px", display: "flex", justifyContent: "space-between", gap: 12, flexWrap: "wrap" }}
-        >
-          <div style={{ display: "flex", alignItems: "center", gap: 12, minWidth: 0 }}>
-            <span
-              style={{
-                width: 28,
-                height: 28,
-                borderRadius: "50%",
-                background: "linear-gradient(135deg,var(--primary),var(--primary-light))",
-                color: "white",
-                display: "inline-flex",
-                alignItems: "center",
-                justifyContent: "center",
-                fontWeight: 700,
-                fontSize: 12,
-                flexShrink: 0,
-              }}
-            >
-              {serialLabel(booking.serial_no)}
-            </span>
-            <div style={{ minWidth: 0 }}>
-              <strong style={{ display: "inline-flex", alignItems: "center", gap: 8, flexWrap: "wrap" }}>
-                {booking.customer_name}
-                {booking.is_star && <StarBookingBadge />}
-                <AlternateBookingTag />
-              </strong>
-            </div>
-          </div>
-          <div className="booked-items-simple-schedule">
-            <span className="schedule-highlight schedule-highlight--delivery">
-              <i className="fa-solid fa-truck" style={{ marginRight: 6 }} />
-              {booking.delivery_date} {booking.delivery_time}
-            </span>
-            <span className="schedule-highlight schedule-highlight--return">
-              <i className="fa-solid fa-rotate-left" style={{ marginRight: 6 }} />
-              {booking.return_date} {booking.return_time}
-            </span>
-          </div>
-        </div>
-
-        <div className="card-body" style={{ paddingTop: 0, paddingBottom: 12 }}>
-          <PackingBookingDetailsGrid
-            d={booking}
-            extras={{
-              contact_1: booking.contact_1,
-              whatsapp_no: booking.whatsapp_no,
-              venue: booking.venue,
-              staff_names: booking.staff_names,
-              total_advance: booking.total_advance,
-            }}
-          />
-        </div>
-
-        <div className="card-body" style={{ paddingTop: 0 }}>
-          <div className="booked-items-simple-dresses" style={{ marginBottom: 12 }}>
-            {dresses.map((name, i) => (
-              <span key={`${name}-${i}`} className="schedule-highlight schedule-highlight--dress">
-                {name}
-              </span>
-            ))}
-          </div>
-          {booking.items?.map((item, i) => (
-            <div key={i} style={{ marginBottom: item.notes || item.returning_warning || item.booked_warning ? 10 : 0 }}>
-              {item.notes ? (
-                <div style={{ fontSize: 12, color: "var(--text-muted)", marginBottom: 6 }}>
-                  <strong className="schedule-highlight schedule-highlight--dress">{dressLabel(item)}</strong>
-                  {" · "}₹{formatInr(item.price)}
-                  {item.notes ? ` · ${item.notes}` : ""}
-                </div>
-              ) : null}
-              {item.returning_warning && (
-                <BookingWarningPanel w={item.returning_warning} variant="returning" />
-              )}
-              {item.booked_warning && (
-                <BookingWarningPanel w={item.booked_warning} variant="booked" />
-              )}
-            </div>
-          ))}
-        </div>
-      </div>
-    );
-  }
-
   return (
     <div
-      className={`booked-items-simple-card${isUnavailable ? " booked-items-simple-card--unavailable" : ""}`}
+      className={`booked-items-simple-card${isUnavailable ? " booked-items-simple-card--unavailable" : ""}${
+        isAlternate ? " booked-items-simple-card--alternate" : ""
+      }`}
     >
       <div className="booked-items-simple-customer">
         <span
@@ -198,7 +109,9 @@ function BookingCard({ booking, isUnavailable }: { booking: BookingRow; isUnavai
             borderRadius: "50%",
             background: isUnavailable
               ? "#7b2d2d"
-              : "linear-gradient(135deg,var(--primary),var(--primary-light))",
+              : isAlternate
+                ? "linear-gradient(135deg,#f59e0b,#d97706)"
+                : "linear-gradient(135deg,var(--primary),var(--primary-light))",
             color: "white",
             display: "inline-flex",
             alignItems: "center",
@@ -212,6 +125,7 @@ function BookingCard({ booking, isUnavailable }: { booking: BookingRow; isUnavai
         </span>
         <span>{booking.customer_name}</span>
         {booking.is_star && <StarBookingBadge />}
+        {isAlternate && <AlternateBookingTag />}
       </div>
 
       <div className="booked-items-simple-dresses">
@@ -243,6 +157,19 @@ function BookingCard({ booking, isUnavailable }: { booking: BookingRow; isUnavai
           {booking.reason}
         </div>
       ) : null}
+
+      {/* Full customer/contact/rent details only for the linked alternate booking panels */}
+      {isAlternate &&
+        booking.items?.map((item, i) => (
+          <div key={i} style={{ marginTop: 8 }}>
+            {item.returning_warning && (
+              <BookingWarningPanel w={item.returning_warning} variant="returning" />
+            )}
+            {item.booked_warning && (
+              <BookingWarningPanel w={item.booked_warning} variant="booked" />
+            )}
+          </div>
+        ))}
     </div>
   );
 }

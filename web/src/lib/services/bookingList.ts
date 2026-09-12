@@ -513,11 +513,11 @@ export async function getBookingListPageBundle(opts: Omit<BookingListQuery, "sec
     ),
   ]);
 
-  const bookings = mainRows
+  const bookingsRaw = mainRows
     .map((b) => serializeBooking(b, categoryFilter))
     .filter((b): b is BookingListRow => b !== null);
 
-  const unavailable = unavailRows
+  const unavailableRaw = unavailRows
     .map((b) => {
       const row = serializeBooking(b, categoryFilter);
       if (!row) return null;
@@ -525,6 +525,11 @@ export async function getBookingListPageBundle(opts: Omit<BookingListQuery, "sec
       return row;
     })
     .filter((b): b is BookingListRow => b !== null);
+
+  const [bookings, unavailable] = await Promise.all([
+    attachBookingListWarnings(mainRows, bookingsRaw),
+    Promise.resolve(unavailableRaw),
+  ]);
 
   return {
     bookings,

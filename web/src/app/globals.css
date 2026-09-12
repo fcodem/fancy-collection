@@ -860,6 +860,11 @@ a.stat-card:hover {
   border-left-color: #e53e3e;
 }
 
+.booked-items-simple-card--alternate {
+  border-left-color: #f59e0b;
+  background: #fffbeb;
+}
+
 .booked-items-simple-customer {
   font-size: 16px;
   font-weight: 800;
