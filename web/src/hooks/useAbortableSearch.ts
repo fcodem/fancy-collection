@@ -5,7 +5,7 @@ import { useCallback, useEffect, useRef } from "react";
 /**
  * Debounced fetch with AbortController — ignores stale responses.
  */
-export function useAbortableSearch(debounceMs = 200) {
+export function useAbortableSearch(debounceMs = 120) {
   const abortRef = useRef<AbortController | null>(null);
   const timerRef = useRef<ReturnType<typeof setTimeout> | null>(null);
   const seqRef = useRef(0);

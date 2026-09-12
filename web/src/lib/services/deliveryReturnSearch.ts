@@ -239,37 +239,47 @@ export async function searchDeliveryOrReturn(opts: {
       }
     }
 
-    // 5. Customer prefix.
+    // 5–6. Customer + dress in parallel (prefix + phrase contains).
     if (!result || !result.rows.length) {
-      mode = "customer";
-      result = await fetchPage({
-        mode: opts.mode,
-        base: scopedBase(searchScoped),
-        search: { customerName: { startsWith: q, mode: "insensitive" } },
-        cursor,
-        limit,
-      });
-    }
-
-    // 6. Dress prefix.
-    if (!result.rows.length) {
-      mode = "dress";
-      result = await fetchPage({
-        mode: opts.mode,
-        base: scopedBase(searchScoped),
-        search: {
-          OR: [
-            { dressName: { startsWith: q, mode: "insensitive" } },
-            { bookingItems: { some: { dressName: { startsWith: q, mode: "insensitive" }, isCancelled: false } } },
-          ],
-        },
-        cursor,
-        limit,
-      });
+      const [customerPrefix, dressPhrase] = await Promise.all([
+        fetchPage({
+          mode: opts.mode,
+          base: scopedBase(searchScoped),
+          search: { customerName: { startsWith: q, mode: "insensitive" } },
+          cursor,
+          limit,
+        }),
+        fetchPage({
+          mode: opts.mode,
+          base: scopedBase(searchScoped),
+          search: {
+            OR: [
+              { dressName: { contains: q, mode: "insensitive" } },
+              {
+                bookingItems: {
+                  some: {
+                    dressName: { contains: q, mode: "insensitive" },
+                    isCancelled: false,
+                  },
+                },
+              },
+            ],
+          },
+          cursor,
+          limit,
+        }),
+      ]);
+      if (customerPrefix.rows.length) {
+        mode = "customer";
+        result = customerPrefix;
+      } else if (dressPhrase.rows.length) {
+        mode = "dress";
+        result = dressPhrase;
+      }
     }
 
     // 7. Bounded fuzzy fallback only after indexed paths miss.
-    if (!result.rows.length && q.length >= 3) {
+    if (!result?.rows.length && q.length >= 3) {
       mode = "fuzzy";
       result = await fetchPage({
         mode: opts.mode,
@@ -278,7 +288,14 @@ export async function searchDeliveryOrReturn(opts: {
           OR: [
             { customerName: { contains: q, mode: "insensitive" } },
             { dressName: { contains: q, mode: "insensitive" } },
-            { bookingItems: { some: { dressName: { contains: q, mode: "insensitive" }, isCancelled: false } } },
+            {
+              bookingItems: {
+                some: {
+                  dressName: { contains: q, mode: "insensitive" },
+                  isCancelled: false,
+                },
+              },
+            },
           ],
         },
         cursor,

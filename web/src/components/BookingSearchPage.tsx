@@ -233,17 +233,18 @@ export default function BookingSearchPage({
     // eslint-disable-next-line react-hooks/exhaustive-deps
   }, [searchDate, category, pageSize, ready]);
 
-  // Debounced text search (operational lists) — keep typing responsive.
+  // Debounced text search — keep typing responsive on every search screen.
   useEffect(() => {
-    if (!isOperationalList || !ready) return;
+    if (!ready) return;
     if (lastDebouncedQueryRef.current === query) return;
     lastDebouncedQueryRef.current = query;
     if (debounceRef.current) clearTimeout(debounceRef.current);
+    const delay = query.trim().length >= 4 || /^\d+$/.test(query.trim()) ? 120 : 180;
     debounceRef.current = setTimeout(() => {
       setPage(1);
       cursorByPageRef.current = new Map([[1, null]]);
       void runSearch(1, null);
-    }, 220);
+    }, delay);
     return () => {
       if (debounceRef.current) clearTimeout(debounceRef.current);
     };

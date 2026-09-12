@@ -249,15 +249,17 @@ export default function DashboardView({
 
   useEffect(() => {
     const controller = new AbortController();
+    const q = dashQuery.trim();
+    const isSerial = /^\d+$/.test(q);
+    if (!q || (!isSerial && q.length < 2)) {
+      setDashResults([]);
+      setDashSearchMode("");
+      setShowDashResults(false);
+      return;
+    }
+    // Shorter wait once the query is informative (dress names are usually 4+ chars).
+    const delayMs = isSerial || q.length >= 4 ? 120 : 200;
     const t = setTimeout(async () => {
-      const q = dashQuery.trim();
-      const isSerial = /^\d+$/.test(q);
-      if (!q || (!isSerial && q.length < 2)) {
-        setDashResults([]);
-        setDashSearchMode("");
-        setShowDashResults(false);
-        return;
-      }
       try {
         const json = await fetchJson<{ mode?: string; results?: Array<Record<string, unknown>> }>(
           `/api/dashboard/search?date=${data.today_iso}&q=${encodeURIComponent(q)}`,
@@ -273,7 +275,7 @@ export default function DashboardView({
         setDashResults([]);
         setShowDashResults(false);
       }
-    }, 250);
+    }, delayMs);
     return () => {
       clearTimeout(t);
       controller.abort();

@@ -4,7 +4,7 @@ import { dressDisplayName } from "@/lib/dress";
 import { formatDate, parseDate } from "@/lib/constants";
 import {
   customerNameWhere,
-  dressNameWhere,
+  dressNameWhereQuick,
   phoneWhere,
 } from "@/lib/services/bookingSearchCore";
 import { jsonOk, requireUser, isResponse } from "@/lib/api";
@@ -102,20 +102,21 @@ export async function GET(req: NextRequest) {
       take: limit,
     });
   } else {
-    const customerRows = await prisma.booking.findMany({
-      where: { ...statusWhere, ...customerNameWhere(q) },
-      include: listInclude,
-      orderBy: [{ deliveryDate: "desc" }],
-      take: limit,
-    });
-    bookings = customerRows.length
-      ? customerRows
-      : await prisma.booking.findMany({
-          where: { ...statusWhere, ...dressNameWhere(q) },
-          include: listInclude,
-          orderBy: [{ deliveryDate: "desc" }],
-          take: limit,
-        });
+    const [customerRows, dressRows] = await Promise.all([
+      prisma.booking.findMany({
+        where: { ...statusWhere, ...customerNameWhere(q) },
+        include: listInclude,
+        orderBy: [{ deliveryDate: "desc" }],
+        take: limit,
+      }),
+      prisma.booking.findMany({
+        where: { ...statusWhere, ...dressNameWhereQuick(q) },
+        include: listInclude,
+        orderBy: [{ deliveryDate: "desc" }],
+        take: limit,
+      }),
+    ]);
+    bookings = customerRows.length ? customerRows : dressRows;
   }
 
   if (date && bookings.length) {

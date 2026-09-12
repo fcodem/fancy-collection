@@ -4,7 +4,7 @@ import { jsonOk, requireUserReadOnly, isResponse } from "@/lib/api";
 import { todayIso } from "@/lib/constants";
 import { createPerfTimer, withServerTiming } from "@/lib/perfTiming";
 import { memoryCachedQuery } from "@/lib/perfCache";
-import { getFreshShopRevision } from "@/lib/realtime/revision";
+import { getShopRevision } from "@/lib/realtime/revision";
 
 export async function GET(req: NextRequest) {
   const perf = createPerfTimer("/api/search-booking");
@@ -24,16 +24,16 @@ export async function GET(req: NextRequest) {
   }
 
   perf.mark("search");
-  const revision = await getFreshShopRevision();
+  const revision = await getShopRevision();
   const result = await memoryCachedQuery(
     ["search-booking", revision, queryText, date, category, page || "", pageSize || ""],
     () => monthBasedSearchBookings(queryText, date, category, page, pageSize),
-    15,
+    20,
   );
   perf.endStage("queryMs", "search");
   perf.addQueries(1);
 
   const res = jsonOk(result);
-  res.headers.set("Cache-Control", "private, max-age=10, stale-while-revalidate=20");
+  res.headers.set("Cache-Control", "private, max-age=15, stale-while-revalidate=30");
   return withServerTiming(res, perf.finish({ kind: "read" }));
 }

@@ -68,7 +68,7 @@ export default function CustomersClient() {
     if (debounceRef.current) clearTimeout(debounceRef.current);
     debounceRef.current = setTimeout(() => {
       void load({ append: false, query: value });
-    }, 300);
+    }, value.trim().length >= 4 ? 120 : 180);
   }
 
   async function handleBulkImport(e: React.ChangeEvent<HTMLInputElement>) {

@@ -32,12 +32,13 @@ export const bookingListInclude = {
       category: true,
       size: true,
       notes: true,
+      itemDeliveryNotes: true,
       itemSecurityCollected: true,
       isDelivered: true,
-      item: { select: { size: true, sku: true } },
+      item: { select: { size: true } },
     },
   },
-  legacyItem: { select: { size: true, category: true, sku: true } },
+  legacyItem: { select: { size: true, category: true } },
 } as const;
 
 const bookingInclude = {
@@ -112,15 +113,36 @@ export function dressNameWhere(q: string): Prisma.BookingWhereInput {
   };
 }
 
-/** Dashboard quick search — dress name only (no SKU joins) for speed. */
+/** Dashboard quick search — full-phrase match (one ILIKE), no SKU joins. */
 export function dressNameWhereQuick(q: string): Prisma.BookingWhereInput {
+  const trimmed = q.trim();
+  if (!trimmed) return {};
+  return {
+    OR: [
+      { dressName: { contains: trimmed, mode: "insensitive" as const } },
+      {
+        bookingItems: {
+          some: { dressName: { contains: trimmed, mode: "insensitive" as const } },
+        },
+      },
+    ],
+  };
+}
+
+/** Word-AND fallback when the full phrase finds nothing. */
+export function dressNameWhereWords(q: string): Prisma.BookingWhereInput {
   const ws = words(q);
   if (!ws.length) return {};
+  if (ws.length === 1) return dressNameWhereQuick(ws[0]);
   return {
     AND: ws.map((w) => ({
       OR: [
         { dressName: { contains: w, mode: "insensitive" as const } },
-        { bookingItems: { some: { dressName: { contains: w, mode: "insensitive" as const } } } },
+        {
+          bookingItems: {
+            some: { dressName: { contains: w, mode: "insensitive" as const } },
+          },
+        },
       ],
     })),
   };
@@ -384,19 +406,37 @@ export async function dashboardSearchBookings(queryText: string, refDateStr?: st
   }
 
   // Prefer customer name hits first; only scan dress names when needed.
-  const customerRows = await quickFetch(customerNameWhere(q));
+  // Run both in parallel so dress-name searches (e.g. RANI RAJMAHAL) do not
+  // wait on an empty customer query.
+  const [customerRows, dressRows] = await Promise.all([
+    quickFetch(customerNameWhere(q)),
+    quickFetch(dressNameWhereQuick(q)),
+  ]);
   if (customerRows.length) {
     return dashboardResults(
       sortByRelevance(customerRows, refDate).slice(0, DASHBOARD_SEARCH_LIMIT),
       "customer",
     );
   }
+  if (dressRows.length) {
+    return dashboardResults(
+      sortByRelevance(dressRows, refDate).slice(0, DASHBOARD_SEARCH_LIMIT),
+      "dress",
+    );
+  }
 
-  const dressRows = await quickFetch(dressNameWhereQuick(q));
-  return dashboardResults(
-    sortByRelevance(dressRows, refDate).slice(0, DASHBOARD_SEARCH_LIMIT),
-    "dress",
-  );
+  // Rare: words appear out of phrase order — one extra AND query.
+  if (words(q).length > 1) {
+    const dressWordRows = await quickFetch(dressNameWhereWords(q));
+    if (dressWordRows.length) {
+      return dashboardResults(
+        sortByRelevance(dressWordRows, refDate).slice(0, DASHBOARD_SEARCH_LIMIT),
+        "dress",
+      );
+    }
+  }
+
+  return dashboardResults([], "mixed");
 }
 
 /** All Record / Advanced Search — full history in year; customer name = lifetime. */
@@ -417,13 +457,12 @@ export async function universalSearchBookings(
     { monthlySerial: "asc" },
   ];
 
+  // Prefer take+1 over COUNT for interactive typing / search.
+  const quickPage = (where: Prisma.BookingWhereInput) =>
+    fetchBookingsPageFast(where, orderBy, page, pageSize);
+
   if (!q) {
-    const pageResult = await fetchBookingsPage(
-      { ...yearFilter, ...catFilter },
-      orderBy,
-      page,
-      pageSize,
-    );
+    const pageResult = await quickPage({ ...yearFilter, ...catFilter });
     return {
       mode: "year",
       results: pageResult.rows.map(serializeBookingForList),
@@ -444,12 +483,11 @@ export async function universalSearchBookings(
       if (Number.isNaN(serial)) {
         return { mode: "serial", results: [], total: 0, page, pageSize, hasMore: false };
       }
-      const pageResult = await fetchBookingsPage(
-        { ...yearFilter, ...catFilter, monthlySerial: serial },
-        orderBy,
-        page,
-        pageSize,
-      );
+      const pageResult = await quickPage({
+        ...yearFilter,
+        ...catFilter,
+        monthlySerial: serial,
+      });
       return {
         mode: "serial",
         results: pageResult.rows.map(serializeBookingForList),
@@ -459,12 +497,11 @@ export async function universalSearchBookings(
         hasMore: pageResult.hasMore,
       };
     }
-    const pageResult = await fetchBookingsPage(
-      { ...phoneWhere(q), ...yearFilter, ...catFilter },
-      orderBy,
-      page,
-      pageSize,
-    );
+    const pageResult = await quickPage({
+      ...phoneWhere(q),
+      ...yearFilter,
+      ...catFilter,
+    });
     return {
       mode: "phone",
       results: sortByRelevance(pageResult.rows, refDate).map(serializeBookingForList),
@@ -476,12 +513,11 @@ export async function universalSearchBookings(
   }
 
   if (classifyNumericSearch(q) === "phone") {
-    const pageResult = await fetchBookingsPage(
-      { ...phoneWhere(q), ...yearFilter, ...catFilter },
-      orderBy,
-      page,
-      pageSize,
-    );
+    const pageResult = await quickPage({
+      ...phoneWhere(q),
+      ...yearFilter,
+      ...catFilter,
+    });
     return {
       mode: "phone",
       results: sortByRelevance(pageResult.rows, refDate).map(serializeBookingForList),
@@ -492,13 +528,12 @@ export async function universalSearchBookings(
     };
   }
 
-  const customerPage = await fetchBookingsPage(
-    { ...customerNameWhere(q), ...catFilter },
-    orderBy,
-    page,
-    pageSize,
-  );
-  if (customerPage.total) {
+  const [customerPage, dressPage] = await Promise.all([
+    quickPage({ ...customerNameWhere(q), ...catFilter }),
+    quickPage({ ...dressNameWhereQuick(q), ...yearFilter, ...catFilter }),
+  ]);
+
+  if (customerPage.rows.length) {
     return {
       mode: "customer",
       results: sortByRelevance(customerPage.rows, refDate).map(serializeBookingForList),
@@ -509,19 +544,42 @@ export async function universalSearchBookings(
     };
   }
 
-  const dressPage = await fetchBookingsPage(
-    { ...dressNameWhere(q), ...yearFilter, ...catFilter },
-    orderBy,
-    page,
-    pageSize,
-  );
+  if (dressPage.rows.length) {
+    return {
+      mode: "dress",
+      results: sortByRelevance(dressPage.rows, refDate).map(serializeBookingForList),
+      total: dressPage.total,
+      page: dressPage.page,
+      pageSize: dressPage.pageSize,
+      hasMore: dressPage.hasMore,
+    };
+  }
+
+  if (words(q).length > 1) {
+    const dressWordPage = await quickPage({
+      ...dressNameWhereWords(q),
+      ...yearFilter,
+      ...catFilter,
+    });
+    if (dressWordPage.rows.length) {
+      return {
+        mode: "dress",
+        results: sortByRelevance(dressWordPage.rows, refDate).map(serializeBookingForList),
+        total: dressWordPage.total,
+        page: dressWordPage.page,
+        pageSize: dressWordPage.pageSize,
+        hasMore: dressWordPage.hasMore,
+      };
+    }
+  }
+
   return {
     mode: "dress",
-    results: sortByRelevance(dressPage.rows, refDate).map(serializeBookingForList),
-    total: dressPage.total,
-    page: dressPage.page,
-    pageSize: dressPage.pageSize,
-    hasMore: dressPage.hasMore,
+    results: [],
+    total: 0,
+    page,
+    pageSize,
+    hasMore: false,
   };
 }
 
@@ -615,6 +673,80 @@ export async function monthBasedSearchBookings(
   const { where: queryWhere, mode: queryMode } = buildActiveQueryWhere(q, category);
   let mode = queryMode;
 
+  // Customer + dress in parallel for text queries so dress names are not delayed.
+  if (queryMode === "customer") {
+    const [customerResult, dressResult] = await Promise.all([
+      fetchBookingsPageFast({ ...queryWhere, ...monthWhere }, orderBy, page, pageSize),
+      fetchBookingsPageFast(
+        { ...activeStatusBookingWhere(category), ...dressNameWhereQuick(q), ...monthWhere },
+        orderBy,
+        page,
+        pageSize,
+      ),
+    ]);
+    if (customerResult.rows.length) {
+      const sorted = sortByRelevance(customerResult.rows, refDate);
+      return {
+        mode: "customer",
+        results: sorted.map(serializeBookingForList),
+        total: customerResult.total,
+        page: customerResult.page,
+        pageSize: customerResult.pageSize,
+        hasMore: customerResult.hasMore,
+      };
+    }
+    if (dressResult.rows.length) {
+      const sorted = sortByRelevance(dressResult.rows, refDate);
+      return {
+        mode: "dress",
+        results: sorted.map(serializeBookingForList),
+        total: dressResult.total,
+        page: dressResult.page,
+        pageSize: dressResult.pageSize,
+        hasMore: dressResult.hasMore,
+      };
+    }
+    // Near-month fallback only when current month is empty.
+    const nearMonth = await nearMonthDeliveryWhere(refDate);
+    const [nearCustomer, nearDress] = await Promise.all([
+      fetchBookingsPageFast({ ...queryWhere, ...nearMonth }, orderBy, page, pageSize),
+      fetchBookingsPageFast(
+        { ...activeStatusBookingWhere(category), ...dressNameWhereQuick(q), ...nearMonth },
+        orderBy,
+        page,
+        pageSize,
+      ),
+    ]);
+    if (nearCustomer.rows.length) {
+      return {
+        mode: "customer",
+        results: sortByRelevance(nearCustomer.rows, refDate).map(serializeBookingForList),
+        total: nearCustomer.total,
+        page: nearCustomer.page,
+        pageSize: nearCustomer.pageSize,
+        hasMore: nearCustomer.hasMore,
+      };
+    }
+    if (nearDress.rows.length) {
+      return {
+        mode: "dress",
+        results: sortByRelevance(nearDress.rows, refDate).map(serializeBookingForList),
+        total: nearDress.total,
+        page: nearDress.page,
+        pageSize: nearDress.pageSize,
+        hasMore: nearDress.hasMore,
+      };
+    }
+    return {
+      mode: "customer",
+      results: [],
+      total: 0,
+      page,
+      pageSize,
+      hasMore: false,
+    };
+  }
+
   // Prefer primary match first; skip COUNT; only fall back when empty.
   let pageResult = await fetchBookingsPageFast(
     { ...queryWhere, ...monthWhere },
@@ -623,20 +755,7 @@ export async function monthBasedSearchBookings(
     pageSize,
   );
 
-  if (!pageResult.rows.length && mode === "customer") {
-    const dressResult = await fetchBookingsPageFast(
-      { ...activeStatusBookingWhere(category), ...dressNameWhereQuick(q), ...monthWhere },
-      orderBy,
-      page,
-      pageSize,
-    );
-    if (dressResult.rows.length) {
-      pageResult = dressResult;
-      mode = "dress";
-    }
-  }
-
-  // Near-month fallback only when current month is empty (one query, no dress SKU joins).
+  // Near-month fallback only when current month is empty (serial/phone paths).
   if (!pageResult.rows.length) {
     const nearMonth = await nearMonthDeliveryWhere(refDate);
     pageResult = await fetchBookingsPageFast(
@@ -645,18 +764,6 @@ export async function monthBasedSearchBookings(
       page,
       pageSize,
     );
-    if (!pageResult.rows.length && mode === "customer") {
-      const nearDress = await fetchBookingsPageFast(
-        { ...activeStatusBookingWhere(category), ...dressNameWhereQuick(q), ...nearMonth },
-        orderBy,
-        page,
-        pageSize,
-      );
-      if (nearDress.rows.length) {
-        pageResult = nearDress;
-        mode = "dress";
-      }
-    }
   }
 
   const sorted = sortByRelevance(pageResult.rows, refDate);

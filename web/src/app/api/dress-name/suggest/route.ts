@@ -1,6 +1,8 @@
 import { NextRequest } from "next/server";
 import { jsonOk, requireUserReadOnly, isResponse } from "@/lib/api";
 import { createPerfTimer, withServerTiming } from "@/lib/perfTiming";
+import { memoryCachedQuery } from "@/lib/perfCache";
+import { getShopRevision } from "@/lib/realtime/revision";
 import { dressSuggestRow, searchInventoryText } from "@/lib/services/inventorySearch";
 
 export const dynamic = "force-dynamic";
@@ -25,15 +27,27 @@ export async function GET(req: NextRequest) {
   }
 
   perf.mark("query");
-  const items = await searchInventoryText({ q, category, itemType, limit, distinctSizes: true });
+  const revision = await getShopRevision();
+  const payload = await memoryCachedQuery(
+    ["dress-name-suggest", revision, q, category, itemType, String(limit)],
+    async () => {
+      const items = await searchInventoryText({
+        q,
+        category,
+        itemType,
+        limit,
+        distinctSizes: true,
+      });
+      return items.map(dressSuggestRow);
+    },
+    20,
+  );
   perf.endStage("queryMs", "query");
   perf.addQueries(1);
-  perf.setItemCount(items.length);
-
-  perf.mark("serialize");
-  const payload = items.map(dressSuggestRow);
-  perf.endStage("serializeMs", "serialize");
+  perf.setItemCount(payload.length);
 
   const timings = perf.finish({ kind: "read" });
-  return withServerTiming(jsonOk(payload), timings);
+  const res = withServerTiming(jsonOk(payload), timings);
+  res.headers.set("Cache-Control", "private, max-age=15, stale-while-revalidate=30");
+  return res;
 }

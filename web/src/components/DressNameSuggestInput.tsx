@@ -46,7 +46,7 @@ export default function DressNameSuggestInput({
   itemType,
   onSuggestSelect,
   minChars = 1,
-  debounceMs = 140,
+  debounceMs = 120,
   suggestLimit = 16,
   showPhotos = false,
   suggestions = true,

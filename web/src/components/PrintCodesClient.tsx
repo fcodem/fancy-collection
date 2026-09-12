@@ -238,7 +238,7 @@ export default function PrintCodesClient() {
     if (!settingsHydrated) return;
     const next = searchInput.trim();
     if (next === q) return;
-    const t = window.setTimeout(() => setQ(next), next ? 280 : 0);
+    const t = window.setTimeout(() => setQ(next), next ? 140 : 0);
     return () => window.clearTimeout(t);
   }, [searchInput, q, settingsHydrated]);
 

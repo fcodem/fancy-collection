@@ -1,6 +1,8 @@
 import { NextRequest } from "next/server";
 import { jsonOk, requireFastReadUser, isResponse } from "@/lib/api";
 import { createPerfTimer, withServerTiming } from "@/lib/perfTiming";
+import { memoryCachedQuery } from "@/lib/perfCache";
+import { getShopRevision } from "@/lib/realtime/revision";
 import { searchDeliveryOrReturn } from "@/lib/services/deliveryReturnSearch";
 
 export const dynamic = "force-dynamic";
@@ -22,21 +24,37 @@ export async function GET(req: NextRequest) {
   perf.endStage("parseMs", "parse");
 
   perf.mark("query");
-  const data = await searchDeliveryOrReturn({
-    mode: "delivery",
-    date,
-    q,
-    category,
-    cursor,
-    limit,
-    page,
-    pageSize,
-  });
+  const revision = await getShopRevision();
+  const data = await memoryCachedQuery(
+    [
+      "delivery-search",
+      revision,
+      date || "",
+      q || "",
+      category || "",
+      cursor || "",
+      limit || "",
+      page || "",
+      pageSize || "",
+    ],
+    () =>
+      searchDeliveryOrReturn({
+        mode: "delivery",
+        date,
+        q,
+        category,
+        cursor,
+        limit,
+        page,
+        pageSize,
+      }),
+    q ? 15 : 20,
+  );
   perf.endStage("queryMs", "query");
   perf.setRowCount(data.results.length);
 
   const timings = perf.finish({ kind: "read" });
   const res = jsonOk(data);
-  res.headers.set("Cache-Control", "private, max-age=10, stale-while-revalidate=20");
+  res.headers.set("Cache-Control", "private, max-age=15, stale-while-revalidate=30");
   return withServerTiming(res, timings);
 }
