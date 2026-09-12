@@ -207,6 +207,37 @@ export async function fetchBookingsPage(
   };
 }
 
+/**
+ * Fast page fetch — skips COUNT (slow with contains / joins).
+ * Uses take+1 to compute hasMore; total is a lower bound for the UI.
+ */
+export async function fetchBookingsPageFast(
+  where: Prisma.BookingWhereInput,
+  orderBy: Prisma.BookingOrderByWithRelationInput | Prisma.BookingOrderByWithRelationInput[],
+  page: number,
+  pageSize: number,
+) {
+  const fullWhere = { ...activeBookingWhere(), ...where };
+  const skip = (page - 1) * pageSize;
+  const rows = (await prisma.booking.findMany({
+    where: fullWhere,
+    include: bookingListInclude,
+    orderBy,
+    skip,
+    take: pageSize + 1,
+  })) as BookingWithItems[];
+  const hasMore = rows.length > pageSize;
+  const pageRows = hasMore ? rows.slice(0, pageSize) : rows;
+  const total = skip + pageRows.length + (hasMore ? 1 : 0);
+  return {
+    rows: pageRows,
+    total,
+    page,
+    pageSize,
+    hasMore,
+  };
+}
+
 /** Dashboard: serial in prev / current / next month (SQLite-safe). */
 export async function searchBySerialMonths(serial: number, refDate: Date) {
   const prevAnchor = new Date(Date.UTC(
@@ -547,7 +578,10 @@ export async function monthBasedSearchBookings(
   const q = queryText.trim();
   const refDate = parseDate(refDateStr || todayIso());
   const { y, m, monthKey } = monthRangeFromRefDate(refDate);
-  const { page, pageSize } = parseSearchPageParams(pageRaw, pageSizeRaw);
+  // Cap page size — 100-row pages with joins are too slow for Search Booking.
+  const parsed = parseSearchPageParams(pageRaw, pageSizeRaw);
+  const page = parsed.page;
+  const pageSize = Math.min(25, parsed.pageSize);
   const orderBy: Prisma.BookingOrderByWithRelationInput[] = [
     { deliveryDate: "asc" },
     { monthlySerial: "asc" },
@@ -555,7 +589,7 @@ export async function monthBasedSearchBookings(
 
   if (!q) {
     const monthWhere = await monthDeliveryWhereFromRefDate(new Date(Date.UTC(y, m, 15)));
-    const pageResult = await fetchBookingsPage(
+    const pageResult = await fetchBookingsPageFast(
       { ...monthWhere, ...activeStatusBookingWhere(category) },
       orderBy,
       page,
@@ -572,7 +606,7 @@ export async function monthBasedSearchBookings(
     };
   }
 
-  if (q.length < 2) {
+  if (q.length < 2 && !/^\d+$/.test(q)) {
     return { mode: "date", results: [], total: 0, page, pageSize, hasMore: false };
   }
 
@@ -581,44 +615,44 @@ export async function monthBasedSearchBookings(
   const { where: queryWhere, mode: queryMode } = buildActiveQueryWhere(q, category);
   let mode = queryMode;
 
-  // Prefer the primary match first (customer/phone/serial). Only run dress or
-  // near-month fallbacks when the current-month primary search is empty.
-  let pageResult = await fetchBookingsPage(
+  // Prefer primary match first; skip COUNT; only fall back when empty.
+  let pageResult = await fetchBookingsPageFast(
     { ...queryWhere, ...monthWhere },
     orderBy,
     page,
     pageSize,
   );
 
-  if (!pageResult.total && mode === "customer") {
-    const dressResult = await fetchBookingsPage(
-      { ...activeStatusBookingWhere(category), ...dressNameWhere(q), ...monthWhere },
+  if (!pageResult.rows.length && mode === "customer") {
+    const dressResult = await fetchBookingsPageFast(
+      { ...activeStatusBookingWhere(category), ...dressNameWhereQuick(q), ...monthWhere },
       orderBy,
       page,
       pageSize,
     );
-    if (dressResult.total) {
+    if (dressResult.rows.length) {
       pageResult = dressResult;
       mode = "dress";
     }
   }
 
-  if (!pageResult.total) {
+  // Near-month fallback only when current month is empty (one query, no dress SKU joins).
+  if (!pageResult.rows.length) {
     const nearMonth = await nearMonthDeliveryWhere(refDate);
-    pageResult = await fetchBookingsPage(
+    pageResult = await fetchBookingsPageFast(
       { ...queryWhere, ...nearMonth },
       orderBy,
       page,
       pageSize,
     );
-    if (!pageResult.total && (mode === "customer" || mode === "dress")) {
-      const nearDress = await fetchBookingsPage(
-        { ...activeStatusBookingWhere(category), ...dressNameWhere(q), ...nearMonth },
+    if (!pageResult.rows.length && mode === "customer") {
+      const nearDress = await fetchBookingsPageFast(
+        { ...activeStatusBookingWhere(category), ...dressNameWhereQuick(q), ...nearMonth },
         orderBy,
         page,
         pageSize,
       );
-      if (nearDress.total) {
+      if (nearDress.rows.length) {
         pageResult = nearDress;
         mode = "dress";
       }

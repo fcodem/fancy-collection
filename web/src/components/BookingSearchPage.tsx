@@ -12,7 +12,6 @@ import { useRealtimeRefresh } from "@/hooks/useRealtimeRefresh";
 import { BOOKING_EVENTS } from "@/lib/realtime/types";
 import DownloadPdfButton from "@/components/DownloadPdfButton";
 import {
-  DEFAULT_SEARCH_PAGE_SIZE,
   OPERATIONAL_LIST_DEFAULT_PAGE_SIZE,
 } from "@/lib/searchPagination";
 import {
@@ -116,7 +115,7 @@ export default function BookingSearchPage({
   const [ready, setReady] = useState(false);
   const [page, setPage] = useState(1);
   const [pageSize, setPageSize] = useState(
-    isOperationalList ? OPERATIONAL_LIST_DEFAULT_PAGE_SIZE : DEFAULT_SEARCH_PAGE_SIZE,
+    isOperationalList ? OPERATIONAL_LIST_DEFAULT_PAGE_SIZE : 25,
   );
   const [total, setTotal] = useState(0);
   const [totalExact, setTotalExact] = useState(true);

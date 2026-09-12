@@ -32,8 +32,14 @@ function mapBooking(b: BookingPick): CustomerLookupRow {
 function dedupeByPhone(bookings: BookingPick[], limit: number): CustomerLookupRow[] {
   const seen = new Map<string, BookingPick>();
   for (const b of bookings) {
+    const contactDigits = b.contact1.replace(/\D/g, "").slice(-10);
+    const waDigits = (b.whatsappNo || "").replace(/\D/g, "").slice(-10);
     const key =
-      b.contact1.replace(/\D/g, "").slice(-10) || b.contact1.trim().toLowerCase();
+      contactDigits ||
+      waDigits ||
+      b.contact1.trim().toLowerCase() ||
+      (b.whatsappNo || "").trim().toLowerCase() ||
+      b.customerName.trim().toLowerCase();
     if (!key || seen.has(key)) continue;
     seen.set(key, b);
     if (seen.size >= limit) break;
@@ -41,7 +47,7 @@ function dedupeByPhone(bookings: BookingPick[], limit: number): CustomerLookupRo
   return [...seen.values()].map(mapBooking);
 }
 
-/** Latest unique customers by phone (fast path for empty search). */
+/** Latest unique customers by phone / WhatsApp (fast path for empty search). */
 export async function lookupRecentCustomers(limit = 20): Promise<CustomerLookupRow[]> {
   if (!isSqliteDb()) {
     const rows = await prisma.$queryRaw<
@@ -65,12 +71,17 @@ export async function lookupRecentCustomers(limit = 20): Promise<CustomerLookupR
           ROW_NUMBER() OVER (
             PARTITION BY COALESCE(
               NULLIF(RIGHT(REGEXP_REPLACE(contact_1, '\\D', '', 'g'), 10), ''),
-              LOWER(TRIM(contact_1))
+              NULLIF(RIGHT(REGEXP_REPLACE(COALESCE(whatsapp_no, ''), '\\D', '', 'g'), 10), ''),
+              LOWER(TRIM(customer_name))
             )
             ORDER BY created_at DESC
           ) AS rn
         FROM bookings
-        WHERE TRIM(contact_1) <> ''
+        WHERE TRIM(customer_name) <> ''
+          AND (
+            TRIM(contact_1) <> ''
+            OR TRIM(COALESCE(whatsapp_no, '')) <> ''
+          )
       ) deduped
       WHERE rn = 1
       ORDER BY created_at DESC
@@ -86,9 +97,13 @@ export async function lookupRecentCustomers(limit = 20): Promise<CustomerLookupR
   }
 
   const bookings = await prisma.booking.findMany({
+    where: {
+      customerName: { not: "" },
+      OR: [{ contact1: { not: "" } }, { whatsappNo: { not: "" } }],
+    },
     select: BOOKING_SELECT,
     orderBy: { createdAt: "desc" },
-    take: limit * 2,
+    take: limit * 3,
   });
   return dedupeByPhone(bookings, limit);
 }

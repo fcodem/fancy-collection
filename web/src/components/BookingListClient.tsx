@@ -507,21 +507,27 @@ export default function BookingListClient({
             </div>
           </div>
           <div
+            className="booked-items-dress-search"
             style={{
               display: "flex",
               gap: 12,
               flexWrap: "wrap",
               alignItems: "flex-end",
               marginBottom: 16,
+              padding: "12px 14px",
+              borderRadius: 10,
+              border: "1px solid var(--border)",
+              background: "#fff8f0",
             }}
           >
-            <div style={{ flex: "1 1 220px", minWidth: 180 }}>
+            <div style={{ flex: "1 1 260px", minWidth: 200 }}>
               <label style={labelStyle}>Search dresses</label>
               <input
                 type="search"
                 className="form-control"
                 value={dressInput}
-                placeholder="Dress name…"
+                placeholder="Type dress name, then click Search…"
+                aria-label="Search dresses in booked items"
                 onChange={(e) => setDressInput(e.target.value)}
                 onKeyDown={(e) => {
                   if (e.key === "Enter") {
@@ -533,11 +539,12 @@ export default function BookingListClient({
             </div>
             <button
               type="button"
-              className="btn btn-primary"
+              className="btn btn-primary btn-lg"
               disabled={loading || !from}
               onClick={() => runDressSearch()}
+              style={{ minWidth: 140 }}
             >
-              <i className={`fa-solid ${loading ? "fa-spinner fa-spin" : "fa-search"}`} style={{ marginRight: 6 }} />
+              <i className={`fa-solid ${loading ? "fa-spinner fa-spin" : "fa-search"}`} style={{ marginRight: 8 }} />
               {loading ? "Searching…" : "Search"}
             </button>
             {(dressQ || dressInput) && (
@@ -553,7 +560,7 @@ export default function BookingListClient({
                   void load(1, { dressOverride: "" });
                 }}
               >
-                Clear dress search
+                Clear
               </button>
             )}
           </div>

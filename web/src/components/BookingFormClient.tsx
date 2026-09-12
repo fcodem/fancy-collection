@@ -460,7 +460,7 @@ export default function BookingFormClient(props: Props) {
 
   useEffect(() => {
     let cancelled = false;
-    void fetch("/api/booking/customer-lookup")
+    void fetch("/api/booking/customer-lookup", { credentials: "same-origin" })
       .then((r) => (r.ok ? r.json() : { customers: [] }))
       .then((data: { customers?: PreviousCustomer[] }) => {
         if (!cancelled) setPrefetchedCustomers(data.customers || []);
@@ -1533,8 +1533,8 @@ export default function BookingFormClient(props: Props) {
                 onClick={() => setShowPreviousCustomers(true)}
                 style={{
                   background: "var(--primary)", color: "#fff", border: "none", borderRadius: 8,
-                  padding: "6px 14px", fontSize: 12, fontWeight: 600, cursor: "pointer",
-                  display: "flex", alignItems: "center", gap: 6,
+                  padding: "8px 14px", fontSize: 12, fontWeight: 600, cursor: "pointer",
+                  display: "inline-flex", alignItems: "center", gap: 6, flexShrink: 0,
                 }}
               >
                 <i className="fa-solid fa-clock-rotate-left" />
@@ -1547,7 +1547,31 @@ export default function BookingFormClient(props: Props) {
 
             <div className="form-group full-width">
 
-              <label className="form-label">Customer Name *</label>
+              <label className="form-label" style={{ display: "flex", justifyContent: "space-between", alignItems: "center", gap: 8, flexWrap: "wrap" }}>
+                <span>Customer Name *</span>
+                {!props.editId && !isProspect && (
+                  <button
+                    type="button"
+                    onClick={() => setShowPreviousCustomers(true)}
+                    style={{
+                      background: "transparent",
+                      color: "var(--primary)",
+                      border: "1px solid var(--primary)",
+                      borderRadius: 8,
+                      padding: "4px 10px",
+                      fontSize: 11,
+                      fontWeight: 700,
+                      cursor: "pointer",
+                      display: "inline-flex",
+                      alignItems: "center",
+                      gap: 5,
+                    }}
+                  >
+                    <i className="fa-solid fa-clock-rotate-left" />
+                    Pick previous
+                  </button>
+                )}
+              </label>
 
               <input className="form-control" value={customerName} onChange={(e) => setCustomerName(e.target.value)} required />
 
@@ -2198,29 +2222,49 @@ export default function BookingFormClient(props: Props) {
               name="bookingPaymentMode"
             />
           )}
-          {(deliveryDate || returnDate) && (
-            <div
-              style={{
-                display: "flex",
-                flexWrap: "wrap",
-                gap: 10,
-                padding: "12px 14px",
-                background: "var(--cream-dark)",
-                borderRadius: 8,
-                fontSize: 14,
-                fontWeight: 600,
-              }}
-            >
-              <span className="schedule-highlight schedule-highlight--delivery">
-                Delivery: {isoToDisplay(deliveryDate) || "—"}
-                {deliveryTime ? ` · ${deliveryTime}` : ""}
+          <div
+            aria-live="polite"
+            style={{
+              display: "grid",
+              gap: 8,
+              padding: "12px 14px",
+              borderRadius: 10,
+              border: "1px solid var(--border)",
+              background: "#fff8f0",
+            }}
+          >
+            <div style={{ fontSize: 11, fontWeight: 800, letterSpacing: "0.04em", color: "var(--text-muted)" }}>
+              SELECTED DELIVERY &amp; RETURN
+            </div>
+            <div style={{ display: "flex", flexWrap: "wrap", gap: 10 }}>
+              <span
+                style={{
+                  display: "inline-block",
+                  padding: "6px 10px",
+                  borderRadius: 8,
+                  background: "rgba(21, 101, 192, 0.12)",
+                  color: "#1565c0",
+                  fontWeight: 800,
+                  fontSize: 14,
+                }}
+              >
+                Delivery: {deliveryDate ? `${isoToDisplay(deliveryDate)} · ${deliveryTime || "—"}` : "—"}
               </span>
-              <span className="schedule-highlight schedule-highlight--return">
-                Return: {isoToDisplay(returnDate) || "—"}
-                {returnTime ? ` · ${returnTime}` : ""}
+              <span
+                style={{
+                  display: "inline-block",
+                  padding: "6px 10px",
+                  borderRadius: 8,
+                  background: "rgba(123, 31, 69, 0.1)",
+                  color: "var(--primary)",
+                  fontWeight: 800,
+                  fontSize: 14,
+                }}
+              >
+                Return: {returnDate ? `${isoToDisplay(returnDate)} · ${returnTime || "—"}` : "—"}
               </span>
             </div>
-          )}
+          </div>
           <div style={{ display: "flex", gap: 12, flexWrap: "wrap", alignItems: "center" }}>
           <button type="button" className="btn btn-primary btn-lg" disabled={saving || !selectedDresses.length || hasHardBlock} onClick={() => void save()}>
             {hasHardBlock ? "Cannot Save — Dress Already Booked" : saving ? "Saving…" : isProspect ? "Save Prospect Lead" : props.editId ? "Update Booking" : "Save Booking"}
@@ -2593,7 +2637,11 @@ function PreviousCustomerModal({
       const url = trimmed.length >= 2
         ? `/api/booking/customer-lookup?q=${encodeURIComponent(trimmed)}`
         : "/api/booking/customer-lookup";
-      const res = await fetch(url, { signal: controller.signal });
+      const res = await fetch(url, { signal: controller.signal, credentials: "same-origin" });
+      if (!res.ok) {
+        if (reqId === reqIdRef.current) setResults([]);
+        return;
+      }
       const data = await res.json() as { customers?: PreviousCustomer[] };
       if (reqId !== reqIdRef.current) return;
       setResults(data.customers || []);
