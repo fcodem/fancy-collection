@@ -352,12 +352,8 @@ export async function dashboardSearchBookings(queryText: string, refDateStr?: st
     return dashboardResults(rows, "phone");
   }
 
-  // Customer + dress in parallel — avoid sequential waterfall.
-  const [customerRows, dressRows] = await Promise.all([
-    quickFetch(customerNameWhere(q)),
-    quickFetch(dressNameWhereQuick(q)),
-  ]);
-
+  // Prefer customer name hits first; only scan dress names when needed.
+  const customerRows = await quickFetch(customerNameWhere(q));
   if (customerRows.length) {
     return dashboardResults(
       sortByRelevance(customerRows, refDate).slice(0, DASHBOARD_SEARCH_LIMIT),
@@ -365,6 +361,7 @@ export async function dashboardSearchBookings(queryText: string, refDateStr?: st
     );
   }
 
+  const dressRows = await quickFetch(dressNameWhereQuick(q));
   return dashboardResults(
     sortByRelevance(dressRows, refDate).slice(0, DASHBOARD_SEARCH_LIMIT),
     "dress",
@@ -584,39 +581,47 @@ export async function monthBasedSearchBookings(
   const { where: queryWhere, mode: queryMode } = buildActiveQueryWhere(q, category);
   let mode = queryMode;
 
-  // Run customer-name + dress-name searches in parallel within current month
-  const [customerResult, dressResult] = await Promise.all([
-    fetchBookingsPage({ ...queryWhere, ...monthWhere }, orderBy, page, pageSize),
-    mode === "customer"
-      ? fetchBookingsPage(
-          { ...activeStatusBookingWhere(category), ...dressNameWhere(q), ...monthWhere },
-          orderBy, page, pageSize,
-        )
-      : Promise.resolve(null),
-  ]);
+  // Prefer the primary match first (customer/phone/serial). Only run dress or
+  // near-month fallbacks when the current-month primary search is empty.
+  let pageResult = await fetchBookingsPage(
+    { ...queryWhere, ...monthWhere },
+    orderBy,
+    page,
+    pageSize,
+  );
 
-  let pageResult = customerResult;
-  if (!pageResult.total && dressResult?.total) {
-    pageResult = dressResult;
-    mode = "dress";
+  if (!pageResult.total && mode === "customer") {
+    const dressResult = await fetchBookingsPage(
+      { ...activeStatusBookingWhere(category), ...dressNameWhere(q), ...monthWhere },
+      orderBy,
+      page,
+      pageSize,
+    );
+    if (dressResult.total) {
+      pageResult = dressResult;
+      mode = "dress";
+    }
   }
 
-  // If nothing in current month, try near months (customer + dress in parallel)
   if (!pageResult.total) {
     const nearMonth = await nearMonthDeliveryWhere(refDate);
-    const [nearCustomer, nearDress] = await Promise.all([
-      fetchBookingsPage({ ...queryWhere, ...nearMonth }, orderBy, page, pageSize),
-      mode === "customer" || mode === "dress"
-        ? fetchBookingsPage(
-            { ...activeStatusBookingWhere(category), ...dressNameWhere(q), ...nearMonth },
-            orderBy, page, pageSize,
-          )
-        : Promise.resolve(null),
-    ]);
-    pageResult = nearCustomer;
-    if (!pageResult.total && nearDress?.total) {
-      pageResult = nearDress;
-      mode = "dress";
+    pageResult = await fetchBookingsPage(
+      { ...queryWhere, ...nearMonth },
+      orderBy,
+      page,
+      pageSize,
+    );
+    if (!pageResult.total && (mode === "customer" || mode === "dress")) {
+      const nearDress = await fetchBookingsPage(
+        { ...activeStatusBookingWhere(category), ...dressNameWhere(q), ...nearMonth },
+        orderBy,
+        page,
+        pageSize,
+      );
+      if (nearDress.total) {
+        pageResult = nearDress;
+        mode = "dress";
+      }
     }
   }
 

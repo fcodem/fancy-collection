@@ -13,6 +13,7 @@ export async function GET(req: NextRequest) {
   const categoryFilter = req.nextUrl.searchParams.get("category") || "";
   const deliveryTimeFilter = req.nextUrl.searchParams.get("delivery_time") || "";
   const returnTimeFilter = req.nextUrl.searchParams.get("return_time") || "";
+  const dressQuery = req.nextUrl.searchParams.get("q") || "";
   const page = parseInt(req.nextUrl.searchParams.get("page") || "1", 10);
 
   try {
@@ -22,6 +23,7 @@ export async function GET(req: NextRequest) {
       categoryFilter,
       deliveryTimeFilter,
       returnTimeFilter,
+      dressQuery,
       page: Number.isFinite(page) ? page : 1,
     });
     perf.finish({ kind: "read" });

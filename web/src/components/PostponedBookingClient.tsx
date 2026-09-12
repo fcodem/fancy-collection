@@ -194,7 +194,11 @@ export default function PostponedBookingClient({ todayIso: today }: { todayIso: 
                           </span>
                         </td>
                         <td style={{ maxWidth: 160, wordBreak: "break-word" }}>{row.dress_names}</td>
-                        <td>{row.delivery_date} {row.delivery_time}</td>
+                        <td>
+                          <span className="schedule-highlight schedule-highlight--delivery">
+                            {row.delivery_date} {row.delivery_time}
+                          </span>
+                        </td>
                         <td>₹{formatInr(row.total_advance ?? 0)}</td>
                         <td>
                           <Link href={`/postponed-booking/${row.id}`} className="btn btn-sm btn-primary">
@@ -298,8 +302,18 @@ export default function PostponedBookingClient({ todayIso: today }: { todayIso: 
                     </div>
                     <div style={{ fontSize: 13, marginBottom: 12, color: "var(--text-muted)" }}>
                       <div><strong>Dress:</strong> {row.dress_names}</div>
-                      <div><strong>Delivery:</strong> {row.delivery_date} {row.delivery_time}</div>
-                      <div><strong>Return:</strong> {row.return_date} {row.return_time}</div>
+                      <div>
+                        <strong>Delivery:</strong>{" "}
+                        <span className="schedule-highlight schedule-highlight--delivery">
+                          {row.delivery_date} {row.delivery_time}
+                        </span>
+                      </div>
+                      <div>
+                        <strong>Return:</strong>{" "}
+                        <span className="schedule-highlight schedule-highlight--return">
+                          {row.return_date} {row.return_time}
+                        </span>
+                      </div>
                       {row.contact_1 && <div><strong>Contact:</strong> {row.contact_1}</div>}
                     </div>
                     <div style={{ display: "flex", gap: 8, flexWrap: "wrap" }}>

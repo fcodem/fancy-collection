@@ -803,6 +803,42 @@ a.stat-card:hover {
   border-color: #f5c6cb;
 }
 
+.alternate-booking-tag {
+  display: inline-flex;
+  align-items: center;
+  padding: 2px 8px;
+  border-radius: 4px;
+  font-size: 10px;
+  font-weight: 800;
+  letter-spacing: 0.06em;
+  background: #f59e0b;
+  color: #1a1a1a;
+  line-height: 1.4;
+  vertical-align: middle;
+}
+
+.schedule-highlight {
+  display: inline-block;
+  padding: 2px 8px;
+  border-radius: 6px;
+  font-weight: 700;
+  line-height: 1.35;
+}
+
+.schedule-highlight--delivery {
+  background: rgba(21, 101, 192, 0.12);
+  color: #1565c0;
+}
+
+.schedule-highlight--return {
+  background: rgba(123, 31, 69, 0.1);
+  color: var(--primary);
+}
+
+.booking-card-header-dates .schedule-highlight {
+  font-size: 12px;
+}
+
 .free-item-block {
   border: 1px solid var(--border);
   border-radius: var(--radius);

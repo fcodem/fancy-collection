@@ -9,6 +9,7 @@ import { useRealtimeRefresh } from "@/hooks/useRealtimeRefresh";
 import { BOOKING_EVENTS } from "@/lib/realtime/types";
 import DownloadPdfButton from "@/components/DownloadPdfButton";
 import StarBookingBadge from "@/components/StarBookingBadge";
+import { AlternateBookingTag } from "@/components/BookingDetailsColumns";
 
 type BookingSide = {
   id: number;
@@ -127,6 +128,7 @@ function CustomerRecordPanel({
   return (
     <div className={isReturn ? "alternate-booking-return" : "alternate-booking-next"}>
       <div className={`alternate-booking-panel-head ${isReturn ? "alternate-booking-panel-head--return" : "alternate-booking-panel-head--next"}`}>
+        <AlternateBookingTag style={{ marginRight: 8 }} />
         <i className={`fa-solid ${isReturn ? "fa-rotate-left" : "fa-truck-fast"}`} />
         {isReturn ? "RETURNING CUSTOMER" : "DELIVERING TO (NEXT CUSTOMER)"}
         <span style={{ marginLeft: "auto", fontSize: 11, opacity: 0.85 }}>#{serialLabel(side.serial)}</span>
@@ -157,12 +159,16 @@ function CustomerRecordPanel({
             </DetailRow>
             <DetailRow label="Venue">{side.venue || "—"}</DetailRow>
             <DetailRow label="Pickup Date & Time">
-              {displayDate(side.delivery_date)}
-              {side.delivery_time ? ` · ${side.delivery_time}` : ""}
+              <span className="schedule-highlight schedule-highlight--delivery">
+                {displayDate(side.delivery_date)}
+                {side.delivery_time ? ` · ${side.delivery_time}` : ""}
+              </span>
             </DetailRow>
             <DetailRow label="Return Date & Time">
-              {displayDate(side.return_date)}
-              {side.return_time ? ` · ${side.return_time}` : ""}
+              <span className="schedule-highlight schedule-highlight--return">
+                {displayDate(side.return_date)}
+                {side.return_time ? ` · ${side.return_time}` : ""}
+              </span>
             </DetailRow>
             <DetailRow label="Total Rent">
               <span className="alternate-booking-rent">₹{formatInr(side.total_rent)}</span>

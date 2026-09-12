@@ -10,7 +10,18 @@ function toUtcDate(d: Date | string): Date | null {
     const date = new Date(`${s.slice(0, 10)}T00:00:00.000Z`);
     return Number.isNaN(date.getTime()) ? null : date;
   }
-  // Display strings from formatDate(..., "display"), e.g. "11 Jul 2026" (UTC calendar day)
+  // Canonical UI date: DD/MM/YYYY (must not use Date(s) — that parses as US MM/DD).
+  const dmy = s.match(/^(\d{1,2})[/-](\d{1,2})[/-](\d{4})$/);
+  if (dmy) {
+    const day = Number(dmy[1]);
+    const month = Number(dmy[2]);
+    const year = Number(dmy[3]);
+    if (month >= 1 && month <= 12 && day >= 1 && day <= 31) {
+      const date = new Date(Date.UTC(year, month - 1, day));
+      return Number.isNaN(date.getTime()) ? null : date;
+    }
+  }
+  // Display strings like "11 Jul 2026" (UTC calendar day)
   const withUtc = new Date(`${s} UTC`);
   if (!Number.isNaN(withUtc.getTime())) return withUtc;
   const parsed = new Date(s);

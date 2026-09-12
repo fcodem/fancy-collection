@@ -420,8 +420,14 @@ export default function DashboardView({
                         {(b.contact_1 as string) ? ` · ${b.contact_1}` : ""}
                       </div>
                       <div style={{ fontSize: 11, marginTop: 4, display: "flex", flexWrap: "wrap", gap: 8 }}>
-                        <span><i className="fa-solid fa-truck" style={{ marginRight: 4 }} />{String(b.delivery_date)} {String(b.delivery_time || "")}</span>
-                        <span><i className="fa-solid fa-rotate-left" style={{ marginRight: 4 }} />{String(b.return_date)} {String(b.return_time || "")}</span>
+                        <span className="schedule-highlight schedule-highlight--delivery">
+                          <i className="fa-solid fa-truck" style={{ marginRight: 4 }} />
+                          {String(b.delivery_date)} {String(b.delivery_time || "")}
+                        </span>
+                        <span className="schedule-highlight schedule-highlight--return">
+                          <i className="fa-solid fa-rotate-left" style={{ marginRight: 4 }} />
+                          {String(b.return_date)} {String(b.return_time || "")}
+                        </span>
                         <span style={{ fontWeight: 600, color: "var(--primary)" }}>₹{formatInr(Number(b.total_rent || b.total_price || 0))}</span>
                         {Number(b.security_deposit) > 0 && (
                           <span>Sec ₹{formatInr(Number(b.security_deposit))}</span>

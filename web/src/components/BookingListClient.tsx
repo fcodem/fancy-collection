@@ -2,6 +2,7 @@
 
 import { useCallback, useEffect, useMemo, useRef, useState, type CSSProperties } from "react";
 import {
+  AlternateBookingTag,
   BookingWarningPanel,
   BookingCardHeaderDates,
   PackingBookingDetailsGrid,
@@ -133,9 +134,14 @@ function BookingCard({ booking, idx, isUnavailable }: { booking: BookingRow; idx
           </div>
         </div>
         <div style={{ display: "flex", flexDirection: "column", alignItems: "flex-end", gap: 6 }}>
-          <span className={`badge ${statusBadgeClass(booking.status)}`} style={{ fontSize: 10 }}>
-            {statusLabel(booking.status)}
-          </span>
+          <div style={{ display: "flex", gap: 6, flexWrap: "wrap", justifyContent: "flex-end" }}>
+            {booking.items.some((i) => i.returning_warning || i.booked_warning) && (
+              <AlternateBookingTag />
+            )}
+            <span className={`badge ${statusBadgeClass(booking.status)}`} style={{ fontSize: 10 }}>
+              {statusLabel(booking.status)}
+            </span>
+          </div>
           <BookingCardHeaderDates d={booking} />
         </div>
       </div>
@@ -242,6 +248,8 @@ export default function BookingListClient({
   const [deliveryTime, setDeliveryTime] = useState("");
   const [returnTime, setReturnTime] = useState("");
   const [category, setCategory] = useState("");
+  const [dressInput, setDressInput] = useState("");
+  const [dressQ, setDressQ] = useState("");
   const [page, setPage] = useState(initialData.page || 1);
   const [data, setData] = useState<ListData>(initialData);
   const [loading, setLoading] = useState(false);
@@ -265,7 +273,7 @@ export default function BookingListClient({
   }, []);
 
   const buildParams = useCallback(
-    (pageNum: number) => {
+    (pageNum: number, dressOverride?: string) => {
       const params = new URLSearchParams({
         delivery_date: from,
         return_date: to || from,
@@ -274,13 +282,15 @@ export default function BookingListClient({
       if (deliveryTime) params.set("delivery_time", deliveryTime);
       if (returnTime) params.set("return_time", returnTime);
       if (category) params.set("category", category);
+      const dress = (dressOverride !== undefined ? dressOverride : dressQ).trim();
+      if (dress) params.set("q", dress);
       return params;
     },
-    [from, to, deliveryTime, returnTime, category],
+    [from, to, deliveryTime, returnTime, category, dressQ],
   );
 
   const load = useCallback(
-    async (pageNum = page, opts?: { soft?: boolean }) => {
+    async (pageNum = page, opts?: { soft?: boolean; dressOverride?: string }) => {
       if (!from) return;
       abortRef.current?.abort();
       const controller = new AbortController();
@@ -289,7 +299,7 @@ export default function BookingListClient({
       // Soft refresh keeps existing rows on screen (SSR hydrate / page-open / realtime).
       if (!opts?.soft) setLoading(true);
       try {
-        const params = buildParams(pageNum);
+        const params = buildParams(pageNum, opts?.dressOverride);
         const key = buildListQueryKey(params);
         const payload = await cachedFetchJson<ListData>(
           key,
@@ -351,6 +361,15 @@ export default function BookingListClient({
       if (debounceRef.current) clearTimeout(debounceRef.current);
     };
   }, [from, to, deliveryTime, returnTime, category, scheduleLoad]);
+
+  function runDressSearch() {
+    const next = dressInput.trim();
+    setDressQ(next);
+    setPage(1);
+    if (debounceRef.current) clearTimeout(debounceRef.current);
+    invalidateClientCache("booking-list:");
+    void load(1, { dressOverride: next });
+  }
 
   const { bookings, unavailable } = data;
   const empty = !bookings.length && !unavailable.length;
@@ -487,10 +506,66 @@ export default function BookingListClient({
               </select>
             </div>
           </div>
+          <div
+            style={{
+              display: "flex",
+              gap: 12,
+              flexWrap: "wrap",
+              alignItems: "flex-end",
+              marginBottom: 16,
+            }}
+          >
+            <div style={{ flex: "1 1 220px", minWidth: 180 }}>
+              <label style={labelStyle}>Search dresses</label>
+              <input
+                type="search"
+                className="form-control"
+                value={dressInput}
+                placeholder="Dress name…"
+                onChange={(e) => setDressInput(e.target.value)}
+                onKeyDown={(e) => {
+                  if (e.key === "Enter") {
+                    e.preventDefault();
+                    runDressSearch();
+                  }
+                }}
+              />
+            </div>
+            <button
+              type="button"
+              className="btn btn-primary"
+              disabled={loading || !from}
+              onClick={() => runDressSearch()}
+            >
+              <i className={`fa-solid ${loading ? "fa-spinner fa-spin" : "fa-search"}`} style={{ marginRight: 6 }} />
+              {loading ? "Searching…" : "Search"}
+            </button>
+            {(dressQ || dressInput) && (
+              <button
+                type="button"
+                className="btn btn-outline"
+                disabled={loading}
+                onClick={() => {
+                  setDressInput("");
+                  setDressQ("");
+                  setPage(1);
+                  invalidateClientCache("booking-list:");
+                  void load(1, { dressOverride: "" });
+                }}
+              >
+                Clear dress search
+              </button>
+            )}
+          </div>
           <p style={{ fontSize: 11, color: "var(--text-muted)", margin: 0 }}>
             <i className="fa-solid fa-info-circle" /> Shows bookings with <strong>delivery (pickup) date</strong>{" "}
             between <strong>From</strong> and <strong>To</strong> (max {data.pageSize || 50} per page). Dresses still
             out from before the period appear under <strong>Not Available</strong>.
+            {dressQ ? (
+              <span style={{ marginLeft: 8 }}>
+                Dress filter: <strong>{dressQ}</strong>
+              </span>
+            ) : null}
             {loading && <span style={{ marginLeft: 8 }}>Updating…</span>}
           </p>
         </div>

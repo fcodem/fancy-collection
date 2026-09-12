@@ -131,8 +131,22 @@ export function BookingRecordDetails({
           />
         )}
         <Field label="Venue" value={d.venue} />
-        <Field label="Delivery" value={`${d.delivery_date} ${d.delivery_time}`} />
-        <Field label="Return" value={`${d.return_date} ${d.return_time}`} />
+        <Field
+          label="Delivery"
+          value={
+            <span className="schedule-highlight schedule-highlight--delivery">
+              {d.delivery_date} {d.delivery_time}
+            </span>
+          }
+        />
+        <Field
+          label="Return"
+          value={
+            <span className="schedule-highlight schedule-highlight--return">
+              {d.return_date} {d.return_time}
+            </span>
+          }
+        />
         <div style={{ gridColumn: "1 / -1" }}>
           <Field
             label="Dress"

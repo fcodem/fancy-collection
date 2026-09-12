@@ -232,10 +232,32 @@ export type BookingListQuery = {
   categoryFilter?: string;
   deliveryTimeFilter?: string;
   returnTimeFilter?: string;
+  dressQuery?: string;
   page?: number;
   pageSize?: number;
   section?: "main" | "unavailable";
 };
+
+function dressNameSearchWhere(dressQuery: string) {
+  const q = dressQuery.trim();
+  if (!q) return {};
+  const words = q.split(/\s+/).map((w) => w.trim()).filter(Boolean);
+  if (!words.length) return {};
+  return {
+    OR: [
+      {
+        AND: words.map((word) => ({
+          bookingItems: { some: { dressName: { contains: word, mode: "insensitive" as const } } },
+        })),
+      },
+      {
+        AND: words.map((word) => ({
+          dressName: { contains: word, mode: "insensitive" as const },
+        })),
+      },
+    ],
+  };
+}
 
 export async function getBookingListData(opts: BookingListQuery) {
   const {
@@ -244,6 +266,7 @@ export async function getBookingListData(opts: BookingListQuery) {
     categoryFilter = "",
     deliveryTimeFilter = "",
     returnTimeFilter = "",
+    dressQuery = "",
     page = 1,
     pageSize = BOOKING_LIST_PAGE_SIZE,
     section = "main",
@@ -306,6 +329,7 @@ export async function getBookingListData(opts: BookingListQuery) {
     ...dateRangeWhere,
     ...timeFilter,
     ...categoryWhere,
+    ...dressNameSearchWhere(dressQuery),
   };
 
   const unavailWhere = {
@@ -313,6 +337,7 @@ export async function getBookingListData(opts: BookingListQuery) {
     ...unavailDateWhere,
     ...timeFilter,
     ...categoryWhere,
+    ...dressNameSearchWhere(dressQuery),
   };
 
   const safePage = Math.max(1, page);
@@ -388,6 +413,7 @@ export async function getBookingListPageBundle(opts: Omit<BookingListQuery, "sec
     categoryFilter = "",
     deliveryTimeFilter = "",
     returnTimeFilter = "",
+    dressQuery = "",
     page = 1,
     pageSize = BOOKING_LIST_PAGE_SIZE,
   } = opts;
@@ -449,6 +475,7 @@ export async function getBookingListPageBundle(opts: Omit<BookingListQuery, "sec
     ...dateRangeWhere,
     ...timeFilter,
     ...categoryWhere,
+    ...dressNameSearchWhere(dressQuery),
   };
 
   const unavailWhere = {
@@ -456,6 +483,7 @@ export async function getBookingListPageBundle(opts: Omit<BookingListQuery, "sec
     ...unavailDateWhere,
     ...timeFilter,
     ...categoryWhere,
+    ...dressNameSearchWhere(dressQuery),
   };
 
   const safePage = Math.max(1, page);
@@ -563,6 +591,7 @@ export function getBookingListDataCached(opts: Omit<BookingListQuery, "section">
         opts.categoryFilter || "",
         opts.deliveryTimeFilter || "",
         opts.returnTimeFilter || "",
+        (opts.dressQuery || "").trim().toLowerCase(),
         String(opts.page ?? 1),
         String(opts.pageSize ?? BOOKING_LIST_PAGE_SIZE),
       ],

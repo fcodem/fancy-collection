@@ -1,4 +1,4 @@
-import type { ReactNode } from "react";
+import type { CSSProperties, ReactNode } from "react";
 import { formatInr } from "@/lib/format";
 import type { StandardBookingDetails } from "@/lib/bookingDetails";
 import StarBookingBadge from "@/components/StarBookingBadge";
@@ -92,12 +92,16 @@ export function StandardBookingTableCells({ d }: { d: StandardBookingDetails }) 
         <NoteCell text={d.common_notes} />
       </td>
       <td className="booking-col-date" style={{ fontSize: 12 }}>
-        <div>{d.delivery_date}</div>
-        <div style={{ fontSize: 11, color: "var(--text-muted)" }}>{d.delivery_time}</div>
+        <div className="schedule-highlight schedule-highlight--delivery">
+          <div>{d.delivery_date}</div>
+          <div style={{ fontSize: 11 }}>{d.delivery_time}</div>
+        </div>
       </td>
       <td className="booking-col-date" style={{ fontSize: 12 }}>
-        <div>{d.return_date}</div>
-        <div style={{ fontSize: 11, color: "var(--text-muted)" }}>{d.return_time}</div>
+        <div className="schedule-highlight schedule-highlight--return">
+          <div>{d.return_date}</div>
+          <div style={{ fontSize: 11 }}>{d.return_time}</div>
+        </div>
       </td>
     </>
   );
@@ -128,11 +132,19 @@ export function StandardBookingDetailsGrid({ d }: { d: StandardBookingDetails })
     { label: "Common Note", value: d.common_notes || "—" },
     {
       label: "Delivery",
-      value: `${d.delivery_date} ${d.delivery_time}`,
+      value: (
+        <span className="schedule-highlight schedule-highlight--delivery">
+          {d.delivery_date} {d.delivery_time}
+        </span>
+      ),
     },
     {
       label: "Return",
-      value: `${d.return_date} ${d.return_time}`,
+      value: (
+        <span className="schedule-highlight schedule-highlight--return">
+          {d.return_date} {d.return_time}
+        </span>
+      ),
     },
   ];
 
@@ -200,8 +212,22 @@ export function PackingBookingDetailsGrid({
     { label: "Dress", value: d.dress_count > 0 ? `${d.dress_count} — ${d.dress_names || "—"}` : d.dress_names || "—" },
     { label: "Dress Notes", value: d.item_notes || "—" },
     { label: "Common Note", value: d.common_notes || "—" },
-    { label: "Delivery", value: `${d.delivery_date} ${d.delivery_time}` },
-    { label: "Return", value: `${d.return_date} ${d.return_time}` },
+    {
+      label: "Delivery",
+      value: (
+        <span className="schedule-highlight schedule-highlight--delivery">
+          {d.delivery_date} {d.delivery_time}
+        </span>
+      ),
+    },
+    {
+      label: "Return",
+      value: (
+        <span className="schedule-highlight schedule-highlight--return">
+          {d.return_date} {d.return_time}
+        </span>
+      ),
+    },
   ];
 
   return (
@@ -218,6 +244,19 @@ export function PackingBookingDetailsGrid({
 
 export type PackingReturningWarning = BookingWarningRecord;
 
+/** Highlighted badge for alternate / handover bookings. */
+export function AlternateBookingTag({ style }: { style?: CSSProperties } = {}) {
+  return (
+    <span
+      className="alternate-booking-tag"
+      style={style}
+      title="Alternate booking — same-day handover"
+    >
+      ALTERNATE
+    </span>
+  );
+}
+
 export function BookingWarningPanel({
   w,
   variant,
@@ -229,6 +268,7 @@ export function BookingWarningPanel({
   return (
     <div className={`packing-returning-warning ${isReturning ? "booking-warning--returning" : "booking-warning--booked"}`}>
       <div className="packing-warning-badge" style={isReturning ? undefined : { background: "rgba(192,57,43,0.12)", color: "var(--danger)" }}>
+        <AlternateBookingTag style={{ marginRight: 8 }} />
         <i className={`fa-solid ${isReturning ? "fa-triangle-exclamation" : "fa-circle-exclamation"}`} style={{ marginRight: 6 }} />
         <span>{isReturning ? WARNING_RETURNING_ON_DELIVERY : WARNING_BOOKED_ON_RETURN}</span>
         <strong style={{ marginLeft: 6 }}>#{String(w.serial_no).padStart(2, "0")}</strong>
@@ -277,11 +317,11 @@ export function BookingCardHeaderDates({
 }) {
   return (
     <div className="booking-card-header-dates">
-      <div>
-        <i className="fa-solid fa-truck" style={{ marginRight: 4, color: "var(--primary)" }} />
+      <div className="schedule-highlight schedule-highlight--delivery">
+        <i className="fa-solid fa-truck" style={{ marginRight: 4 }} />
         {d.delivery_date} {d.delivery_time}
       </div>
-      <div style={{ fontSize: 11, color: "var(--text-muted)" }}>
+      <div className="schedule-highlight schedule-highlight--return" style={{ marginTop: 4 }}>
         <i className="fa-solid fa-rotate-left" style={{ marginRight: 4 }} />
         {d.return_date} {d.return_time}
       </div>

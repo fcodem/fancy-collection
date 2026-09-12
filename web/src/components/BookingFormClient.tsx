@@ -29,7 +29,7 @@ import BookingTimeSelect from "@/components/BookingTimeSelect";
 import PhotoCaptureButton from "@/components/PhotoCaptureButton";
 import TypeableDateInput from "@/components/TypeableDateInput";
 import { generateUuidV4 } from "@/lib/clientUuid";
-import { addDaysIso } from "@/lib/dateInput";
+import { addDaysIso, isoToDisplay } from "@/lib/dateInput";
 import BookingConflictSummary from "@/components/BookingConflictSummary";
 import PaymentModePicker from "@/components/PaymentModePicker";
 import { inventoryItemMatches, stripUnitSuffix } from "@/lib/dress";
@@ -2197,6 +2197,29 @@ export default function BookingFormClient(props: Props) {
               label="Advance Payment Mode *"
               name="bookingPaymentMode"
             />
+          )}
+          {(deliveryDate || returnDate) && (
+            <div
+              style={{
+                display: "flex",
+                flexWrap: "wrap",
+                gap: 10,
+                padding: "12px 14px",
+                background: "var(--cream-dark)",
+                borderRadius: 8,
+                fontSize: 14,
+                fontWeight: 600,
+              }}
+            >
+              <span className="schedule-highlight schedule-highlight--delivery">
+                Delivery: {isoToDisplay(deliveryDate) || "—"}
+                {deliveryTime ? ` · ${deliveryTime}` : ""}
+              </span>
+              <span className="schedule-highlight schedule-highlight--return">
+                Return: {isoToDisplay(returnDate) || "—"}
+                {returnTime ? ` · ${returnTime}` : ""}
+              </span>
+            </div>
           )}
           <div style={{ display: "flex", gap: 12, flexWrap: "wrap", alignItems: "center" }}>
           <button type="button" className="btn btn-primary btn-lg" disabled={saving || !selectedDresses.length || hasHardBlock} onClick={() => void save()}>

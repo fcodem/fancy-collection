@@ -11,6 +11,7 @@ export async function GET(req: NextRequest) {
   const categoryFilter = req.nextUrl.searchParams.get("category") || "";
   const deliveryTimeFilter = req.nextUrl.searchParams.get("delivery_time") || "";
   const returnTimeFilter = req.nextUrl.searchParams.get("return_time") || "";
+  const dressQuery = req.nextUrl.searchParams.get("q") || "";
 
   try {
     const data = await getBookingListExportData({
@@ -19,6 +20,7 @@ export async function GET(req: NextRequest) {
       categoryFilter,
       deliveryTimeFilter,
       returnTimeFilter,
+      dressQuery,
     });
     return jsonOk(data);
   } catch (e) {
