@@ -40,6 +40,7 @@ async function BookingListLoader({ today, tomorrow }: { today: string; tomorrow:
     deliveryDateStr: today,
     returnDateStr: tomorrow,
     page: 1,
+    pageSize: 500,
   });
 
   return (

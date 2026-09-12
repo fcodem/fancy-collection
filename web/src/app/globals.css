@@ -835,8 +835,56 @@ a.stat-card:hover {
   color: var(--primary);
 }
 
+.schedule-highlight--dress {
+  background: rgba(5, 150, 105, 0.12);
+  color: #047857;
+}
+
 .booking-card-header-dates .schedule-highlight {
   font-size: 12px;
+}
+
+.booked-items-simple-card {
+  display: flex;
+  flex-direction: column;
+  gap: 10px;
+  padding: 14px 16px;
+  margin-bottom: 10px;
+  background: #fff;
+  border: 1px solid var(--border);
+  border-radius: 12px;
+  border-left: 4px solid var(--primary);
+}
+
+.booked-items-simple-card--unavailable {
+  border-left-color: #e53e3e;
+}
+
+.booked-items-simple-customer {
+  font-size: 16px;
+  font-weight: 800;
+  color: var(--text);
+  display: inline-flex;
+  align-items: center;
+  gap: 8px;
+  flex-wrap: wrap;
+}
+
+.booked-items-simple-dresses {
+  display: flex;
+  flex-wrap: wrap;
+  gap: 8px;
+}
+
+.booked-items-simple-schedule {
+  display: flex;
+  flex-wrap: wrap;
+  gap: 10px;
+}
+
+.booked-items-simple-schedule .schedule-highlight {
+  font-size: 13px;
+  padding: 6px 10px;
 }
 
 .free-item-block {

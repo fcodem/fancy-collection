@@ -15,6 +15,8 @@ export async function GET(req: NextRequest) {
   const returnTimeFilter = req.nextUrl.searchParams.get("return_time") || "";
   const dressQuery = req.nextUrl.searchParams.get("q") || "";
   const page = parseInt(req.nextUrl.searchParams.get("page") || "1", 10);
+  const pageSizeRaw = parseInt(req.nextUrl.searchParams.get("pageSize") || "", 10);
+  const pageSize = Number.isFinite(pageSizeRaw) && pageSizeRaw > 0 ? pageSizeRaw : undefined;
 
   try {
     const data = await getBookingListDataCached({
@@ -25,6 +27,7 @@ export async function GET(req: NextRequest) {
       returnTimeFilter,
       dressQuery,
       page: Number.isFinite(page) ? page : 1,
+      pageSize,
     });
     perf.finish({ kind: "read" });
     const res = jsonOk(data);

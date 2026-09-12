@@ -4,12 +4,9 @@ import { useCallback, useEffect, useMemo, useRef, useState, type CSSProperties }
 import {
   AlternateBookingTag,
   BookingWarningPanel,
-  BookingCardHeaderDates,
-  PackingBookingDetailsGrid,
 } from "@/components/BookingDetailsColumns";
 import type { BookingWarningRecord, StandardBookingDetails } from "@/lib/bookingDetails";
 import { bookingMonthKey, formatBookingMonthLabel } from "@/lib/bookingMonth";
-import { formatInr } from "@/lib/format";
 import { useRealtimeRefresh } from "@/hooks/useRealtimeRefresh";
 import { BOOKING_EVENTS } from "@/lib/realtime/types";
 import DownloadPdfButton from "@/components/DownloadPdfButton";
@@ -22,6 +19,9 @@ import {
   standardBookingPdfRow,
 } from "@/lib/standardBookingPdfRows";
 import { cachedFetchJson, invalidateClientCache } from "@/lib/clientRequestCache";
+
+/** Load the full filtered period in one list (no page controls). Matches server export cap. */
+const LIST_PAGE_SIZE = 500;
 
 const TIME_SLOTS = [
   "8:00 AM", "9:00 AM", "10:00 AM", "11:00 AM", "12:00 Noon", "1:00 PM", "2:00 PM",
@@ -76,142 +76,94 @@ function serialLabel(n: number) {
   return String(n || 0).padStart(2, "0");
 }
 
-function statusBadgeClass(status: string): string {
-  if (status === "delivered") return "badge-success";
-  if (status === "returned") return "badge-info";
-  if (status === "booked") return "badge-warning";
-  return "badge-secondary";
-}
-
-function statusLabel(status: string): string {
+function statusLabel(status: string) {
   if (status === "delivered") return "DELIVERED";
   return status.toUpperCase();
 }
 
-function BookingCard({ booking, idx, isUnavailable }: { booking: BookingRow; idx: number; isUnavailable?: boolean }) {
+function dressLabel(item: ItemRow) {
+  return item.display_name || item.dress_name || "—";
+}
+
+function BookingCard({ booking, isUnavailable }: { booking: BookingRow; isUnavailable?: boolean }) {
+  const dresses = booking.items?.length
+    ? booking.items.map(dressLabel)
+    : (booking.dress_names || "")
+        .split(",")
+        .map((s) => s.trim())
+        .filter(Boolean);
+  const isAlternate = booking.items?.some((i) => i.returning_warning || i.booked_warning);
+
   return (
-    <div className="card" style={{ marginBottom: 16, borderLeft: isUnavailable ? "4px solid #e53e3e" : undefined }}>
-      <div className="card-header booking-card-header" style={{ padding: "12px 20px" }}>
-        <div style={{ display: "flex", alignItems: "center", gap: 12, flex: 1, minWidth: 0 }}>
-          <span
-            style={{
-              width: 28,
-              height: 28,
-              borderRadius: "50%",
-              background: isUnavailable ? "#7b2d2d" : "linear-gradient(135deg,var(--primary),var(--primary-light))",
-              color: "white",
-              display: "flex",
-              alignItems: "center",
-              justifyContent: "center",
-              fontWeight: 700,
-              fontSize: 12,
-            }}
-          >
-            {serialLabel(booking.serial_no || idx + 1)}
-          </span>
-          <div style={{ minWidth: 0 }}>
-            <strong style={{ display: "inline-flex", alignItems: "center" }}>
-              {booking.customer_name}
-              {booking.is_star && <StarBookingBadge />}
-            </strong>
-            {booking.booking_date ? (
-              <div style={{ fontSize: 11, color: "var(--text-muted)", marginTop: 3 }}>
-                <i className="fa-solid fa-calendar-plus" style={{ marginRight: 4, color: "var(--primary)" }} />
-                Booked {booking.booking_date}
-                {booking.booking_time ? ` ${booking.booking_time}` : ""}
-              </div>
-            ) : null}
-            <div style={{ fontSize: 11, color: "var(--text-muted)", wordBreak: "break-word" }}>
-              Serial #{serialLabel(booking.serial_no)} · {formatInr(booking.total_rent)}
-              {booking.venue ? ` · ${booking.venue}` : ""}
-            </div>
-            {isUnavailable && booking.reason && (
-              <div style={{ fontSize: 11, color: "#fc8181", marginTop: 3 }}>
-                <i className="fa-solid fa-triangle-exclamation" style={{ marginRight: 4 }} />
-                {booking.reason}
-              </div>
-            )}
-          </div>
-        </div>
-        <div style={{ display: "flex", flexDirection: "column", alignItems: "flex-end", gap: 6 }}>
-          <div style={{ display: "flex", gap: 6, flexWrap: "wrap", justifyContent: "flex-end" }}>
-            {booking.items.some((i) => i.returning_warning || i.booked_warning) && (
-              <AlternateBookingTag />
-            )}
-            <span className={`badge ${statusBadgeClass(booking.status)}`} style={{ fontSize: 10 }}>
-              {statusLabel(booking.status)}
-            </span>
-          </div>
-          <BookingCardHeaderDates d={booking} />
-        </div>
-      </div>
-
-      <div className="card-body" style={{ paddingTop: 0, paddingBottom: 12 }}>
-        <PackingBookingDetailsGrid
-          d={booking}
-          extras={{
-            contact_1: booking.contact_1,
-            whatsapp_no: booking.whatsapp_no,
-            venue: booking.venue,
-            staff_names: booking.staff_names,
-            total_advance: booking.total_advance,
+    <div
+      className={`booked-items-simple-card${isUnavailable ? " booked-items-simple-card--unavailable" : ""}`}
+    >
+      <div className="booked-items-simple-customer">
+        <span
+          style={{
+            width: 28,
+            height: 28,
+            borderRadius: "50%",
+            background: isUnavailable
+              ? "#7b2d2d"
+              : "linear-gradient(135deg,var(--primary),var(--primary-light))",
+            color: "white",
+            display: "inline-flex",
+            alignItems: "center",
+            justifyContent: "center",
+            fontWeight: 700,
+            fontSize: 12,
+            flexShrink: 0,
           }}
-        />
+        >
+          {serialLabel(booking.serial_no)}
+        </span>
+        <span>{booking.customer_name}</span>
+        {booking.is_star && <StarBookingBadge />}
+        {isAlternate && <AlternateBookingTag />}
       </div>
 
-      <div className="card-body p-0">
-        {booking.items.map((item, i) => (
-          <div
-            key={i}
-            style={{
-              padding: "12px 20px",
-              borderBottom: "1px solid var(--border)",
-              display: "flex",
-              gap: 12,
-              alignItems: "flex-start",
-            }}
-          >
-            <div
-              style={{
-                width: 48,
-                height: 48,
-                borderRadius: 8,
-                background: "var(--cream-dark)",
-                display: "flex",
-                alignItems: "center",
-                justifyContent: "center",
-                fontSize: 20,
-                flexShrink: 0,
-              }}
-            >
-              👗
-            </div>
-            <div style={{ flex: 1, minWidth: 0 }}>
-              <div style={{ fontWeight: 600, fontSize: 13, wordBreak: "break-word" }}>
-                {item.display_name || item.dress_name}{" "}
-                <span style={{ fontSize: 11, color: "var(--text-muted)" }}>({item.category})</span>
-              </div>
-              <div style={{ fontSize: 12, color: "var(--text-muted)" }}>{formatInr(item.price)}</div>
-              {item.notes && (
-                <div style={{ marginTop: 4, fontSize: 11, color: "var(--primary)", fontStyle: "italic" }}>
-                  <i className="fa-solid fa-note-sticky" style={{ marginRight: 4 }} />
-                  {item.notes}
-                </div>
-              )}
-              {!isUnavailable && item.returning_warning && (
-                <div style={{ marginTop: 8 }}>
-                  <BookingWarningPanel w={item.returning_warning} variant="returning" />
-                </div>
-              )}
-              {!isUnavailable && item.booked_warning && (
-                <div style={{ marginTop: 8 }}>
-                  <BookingWarningPanel w={item.booked_warning} variant="booked" />
-                </div>
-              )}
-            </div>
+      <div className="booked-items-simple-dresses">
+        {dresses.length ? (
+          dresses.map((name, i) => (
+            <span key={`${name}-${i}`} className="schedule-highlight schedule-highlight--dress">
+              {name}
+            </span>
+          ))
+        ) : (
+          <span className="schedule-highlight schedule-highlight--dress">—</span>
+        )}
+      </div>
+
+      <div className="booked-items-simple-schedule">
+        <span className="schedule-highlight schedule-highlight--delivery">
+          <i className="fa-solid fa-truck" style={{ marginRight: 6 }} />
+          Delivery: {booking.delivery_date} {booking.delivery_time}
+        </span>
+        <span className="schedule-highlight schedule-highlight--return">
+          <i className="fa-solid fa-rotate-left" style={{ marginRight: 6 }} />
+          Return: {booking.return_date} {booking.return_time}
+        </span>
+      </div>
+
+      {isUnavailable && booking.reason ? (
+        <div style={{ fontSize: 12, color: "#b91c1c" }}>
+          <i className="fa-solid fa-triangle-exclamation" style={{ marginRight: 4 }} />
+          {booking.reason}
+        </div>
+      ) : null}
+
+      {!isUnavailable &&
+        booking.items?.map((item, i) => (
+          <div key={i}>
+            {item.returning_warning && (
+              <BookingWarningPanel w={item.returning_warning} variant="returning" />
+            )}
+            {item.booked_warning && (
+              <BookingWarningPanel w={item.booked_warning} variant="booked" />
+            )}
           </div>
         ))}
-      </div>
     </div>
   );
 }
@@ -250,7 +202,6 @@ export default function BookingListClient({
   const [category, setCategory] = useState("");
   const [dressInput, setDressInput] = useState("");
   const [dressQ, setDressQ] = useState("");
-  const [page, setPage] = useState(initialData.page || 1);
   const [data, setData] = useState<ListData>(initialData);
   const [loading, setLoading] = useState(false);
   const [categories, setCategories] = useState<Categories | null>(null);
@@ -273,11 +224,12 @@ export default function BookingListClient({
   }, []);
 
   const buildParams = useCallback(
-    (pageNum: number, dressOverride?: string) => {
+    (dressOverride?: string) => {
       const params = new URLSearchParams({
         delivery_date: from,
         return_date: to || from,
-        page: String(pageNum),
+        page: "1",
+        pageSize: String(LIST_PAGE_SIZE),
       });
       if (deliveryTime) params.set("delivery_time", deliveryTime);
       if (returnTime) params.set("return_time", returnTime);
@@ -290,7 +242,7 @@ export default function BookingListClient({
   );
 
   const load = useCallback(
-    async (pageNum = page, opts?: { soft?: boolean; dressOverride?: string }) => {
+    async (opts?: { soft?: boolean; dressOverride?: string }) => {
       if (!from) return;
       abortRef.current?.abort();
       const controller = new AbortController();
@@ -299,7 +251,7 @@ export default function BookingListClient({
       // Soft refresh keeps existing rows on screen (SSR hydrate / page-open / realtime).
       if (!opts?.soft) setLoading(true);
       try {
-        const params = buildParams(pageNum, opts?.dressOverride);
+        const params = buildParams(opts?.dressOverride);
         const key = buildListQueryKey(params);
         const payload = await cachedFetchJson<ListData>(
           key,
@@ -315,7 +267,6 @@ export default function BookingListClient({
         );
         if (!controller.signal.aborted) {
           setData(payload);
-          setPage(payload.page || pageNum);
         }
       } catch (e) {
         if (e instanceof DOMException && e.name === "AbortError") return;
@@ -332,23 +283,19 @@ export default function BookingListClient({
         if (!controller.signal.aborted) setLoading(false);
       }
     },
-    [from, to, buildParams, page],
+    [from, to, buildParams],
   );
 
-  const scheduleLoad = useCallback(
-    (pageNum = 1) => {
-      if (debounceRef.current) clearTimeout(debounceRef.current);
-      debounceRef.current = setTimeout(() => {
-        setPage(pageNum);
-        void load(pageNum);
-      }, 300);
-    },
-    [load],
-  );
+  const scheduleLoad = useCallback(() => {
+    if (debounceRef.current) clearTimeout(debounceRef.current);
+    debounceRef.current = setTimeout(() => {
+      void load();
+    }, 300);
+  }, [load]);
 
   useRealtimeRefresh(BOOKING_EVENTS, () => {
     invalidateClientCache("booking-list:");
-    void load(page, { soft: true });
+    void load({ soft: true });
   });
 
   useEffect(() => {
@@ -356,7 +303,7 @@ export default function BookingListClient({
       skipFirst.current = false;
       return;
     }
-    scheduleLoad(1);
+    scheduleLoad();
     return () => {
       if (debounceRef.current) clearTimeout(debounceRef.current);
     };
@@ -365,10 +312,9 @@ export default function BookingListClient({
   function runDressSearch() {
     const next = dressInput.trim();
     setDressQ(next);
-    setPage(1);
     if (debounceRef.current) clearTimeout(debounceRef.current);
     invalidateClientCache("booking-list:");
-    void load(1, { dressOverride: next });
+    void load({ dressOverride: next });
   }
 
   const { bookings, unavailable } = data;
@@ -393,8 +339,9 @@ export default function BookingListClient({
   }, [bookings]);
 
   async function exportPdfData() {
-    const params = buildParams(1);
+    const params = buildParams();
     params.delete("page");
+    params.delete("pageSize");
     const res = await fetch(`/api/booking-list/export?${params}`, { credentials: "same-origin" });
     if (!res.ok) throw new Error("Export failed");
     const exportData = (await res.json()) as {
@@ -555,9 +502,8 @@ export default function BookingListClient({
                 onClick={() => {
                   setDressInput("");
                   setDressQ("");
-                  setPage(1);
                   invalidateClientCache("booking-list:");
-                  void load(1, { dressOverride: "" });
+                  void load({ dressOverride: "" });
                 }}
               >
                 Clear
@@ -565,9 +511,9 @@ export default function BookingListClient({
             )}
           </div>
           <p style={{ fontSize: 11, color: "var(--text-muted)", margin: 0 }}>
-            <i className="fa-solid fa-info-circle" /> Shows bookings with <strong>delivery (pickup) date</strong>{" "}
-            between <strong>From</strong> and <strong>To</strong> (max {data.pageSize || 50} per page). Dresses still
-            out from before the period appear under <strong>Not Available</strong>.
+            <i className="fa-solid fa-info-circle" /> Shows all bookings with <strong>delivery (pickup) date</strong>{" "}
+            between <strong>From</strong> and <strong>To</strong> on one list. Dresses still out from before the period
+            appear under <strong>Not Available</strong>.
             {dressQ ? (
               <span style={{ marginLeft: 8 }}>
                 Dress filter: <strong>{dressQ}</strong>
@@ -582,11 +528,6 @@ export default function BookingListClient({
         <div style={{ display: "flex", gap: 12, flexWrap: "wrap", marginBottom: 16 }}>
           <div style={{ background: "var(--surface)", border: "1.5px solid var(--border)", borderRadius: 10, padding: "10px 18px", fontSize: 13 }}>
             <strong>{data.totalMain}</strong> booking{data.totalMain !== 1 ? "s" : ""} in period
-            {data.totalPagesMain > 1 && (
-              <span style={{ color: "var(--text-muted)", marginLeft: 6 }}>
-                (page {data.page}/{data.totalPagesMain})
-              </span>
-            )}
           </div>
           {!!data.totalUnavailable && (
             <div style={{ background: "#7b2d2d33", border: "1.5px solid #e53e3e55", borderRadius: 10, padding: "10px 18px", fontSize: 13, color: "#fc8181" }}>
@@ -611,7 +552,7 @@ export default function BookingListClient({
           {!!bookings.length && (
             <div style={{ marginBottom: 8, fontSize: 13, fontWeight: 700, color: "var(--primary)" }}>
               <i className="fa-solid fa-calendar-check" style={{ marginRight: 6 }} />
-              Bookings in Period ({bookings.length} shown) — oldest delivery first
+              Bookings in Period ({bookings.length}) — oldest delivery first
             </div>
           )}
           {bookingsByMonth.map((entry) =>
@@ -632,32 +573,8 @@ export default function BookingListClient({
                 {entry.label}
               </div>
             ) : (
-              <BookingCard key={entry.booking.id} booking={entry.booking} idx={entry.idx} />
+              <BookingCard key={entry.booking.id} booking={entry.booking} />
             ),
-          )}
-
-          {data.totalPagesMain > 1 && (
-            <div style={{ display: "flex", gap: 8, alignItems: "center", marginBottom: 24 }}>
-              <button
-                type="button"
-                className="btn btn-outline btn-sm"
-                disabled={page <= 1 || loading}
-                onClick={() => load(page - 1)}
-              >
-                Previous
-              </button>
-              <span style={{ fontSize: 13 }}>
-                Page {page} / {data.totalPagesMain}
-              </span>
-              <button
-                type="button"
-                className="btn btn-outline btn-sm"
-                disabled={page >= data.totalPagesMain || loading}
-                onClick={() => load(page + 1)}
-              >
-                Next
-              </button>
-            </div>
           )}
 
           {!!unavailable.length && (
@@ -677,9 +594,11 @@ export default function BookingListClient({
                 return before <strong>{isoToDisplay(data.to_date)}</strong>. They are{" "}
                 <strong>not available</strong> during this period.
               </div>
-              {unavailable.map((b, idx) => (
-                <BookingCard key={b.id} booking={b} idx={idx} isUnavailable />
-              ))}
+              <div style={{ padding: 12 }}>
+                {unavailable.map((b) => (
+                  <BookingCard key={b.id} booking={b} isUnavailable />
+                ))}
+              </div>
             </div>
           )}
         </>
