@@ -17,6 +17,7 @@ import {
   canOpenReturn,
   scanRecordReasonLabel,
 } from "@/lib/scanRecordActions";
+import DressNameSuggestInput from "@/components/DressNameSuggestInput";
 import ZoomableImage from "@/components/ZoomableImage";
 import { addDaysIso } from "@/lib/dateInput";
 
@@ -310,6 +311,7 @@ export default function DressAvailabilityScanner({
   );
   const [scanSuccess, setScanSuccess] = useState(false);
   const [manualCode, setManualCode] = useState("");
+  const [dressNameQuery, setDressNameQuery] = useState("");
   const [rows, setRows] = useState<ScanRow[]>([]);
   const [highlightId, setHighlightId] = useState<string | null>(null);
 
@@ -324,6 +326,11 @@ export default function DressAvailabilityScanner({
   const scanHandlerRef = useRef<(code: string) => void>(() => undefined);
   const scanLockedRef = useRef(false);
   const highlightTimerRef = useRef<ReturnType<typeof setTimeout> | null>(null);
+  const activeWindowRef = useRef<ValidatedScanWindow | null>(activeWindow);
+
+  useEffect(() => {
+    activeWindowRef.current = activeWindow;
+  }, [activeWindow]);
 
   const highlight = useCallback((id: string) => {
     setHighlightId(id);
@@ -368,9 +375,11 @@ export default function DressAvailabilityScanner({
           returnTime: saved.returnTime,
         });
         setActiveWindow(window);
+        activeWindowRef.current = window;
       } catch {
         setPhase("dates");
         setActiveWindow(null);
+        activeWindowRef.current = null;
         return;
       }
     }
@@ -427,10 +436,12 @@ export default function DressAvailabilityScanner({
         setScanSuccess(false);
         setFeedback("Ready to scan for the Free Items dates above.");
       }
+      activeWindowRef.current = window;
       setActiveWindow(window);
       setWindowError("");
       setPhase("scanning");
     } catch (error) {
+      activeWindowRef.current = null;
       setActiveWindow(null);
       setPhase("dates");
       setWindowError(
@@ -446,7 +457,8 @@ export default function DressAvailabilityScanner({
   ]);
 
   const drainQueue = useCallback(async function drainQueueInner() {
-    if (requestActiveRef.current || !activeWindow) return;
+    const scanWindow = activeWindowRef.current;
+    if (requestActiveRef.current || !scanWindow) return;
     const next = queueRef.current.shift();
     if (!next) {
       setFeedback("Ready for next scan.");
@@ -467,8 +479,8 @@ export default function DressAvailabilityScanner({
         signal: controller.signal,
         body: JSON.stringify({
           code: next.code,
-          deliveryDateTime: activeWindow.deliveryDateTime,
-          returnDateTime: activeWindow.returnDateTime,
+          deliveryDateTime: scanWindow.deliveryDateTime,
+          returnDateTime: scanWindow.returnDateTime,
           excludeBookingId: null,
         }),
       });
@@ -560,7 +572,7 @@ export default function DressAvailabilityScanner({
         window.setTimeout(() => void drainQueueInner(), 0);
       }
     }
-  }, [activeWindow, highlight, rebuildIndexes]);
+  }, [highlight, rebuildIndexes]);
 
   const enqueue = useCallback(
     (rawCode: string, force = false) => {
@@ -658,6 +670,7 @@ export default function DressAvailabilityScanner({
       generationRef.current += 1;
       scanLockedRef.current = false;
       setScanSuccess(false);
+      activeWindowRef.current = window;
       setActiveWindow(window);
       setWindowError("");
       setCameraError("");
@@ -667,6 +680,93 @@ export default function DressAvailabilityScanner({
       setWindowError(
         error instanceof Error ? error.message : "Enter a valid booking window.",
       );
+    }
+  }
+
+  function ensureScanWindow(): ValidatedScanWindow | null {
+    if (activeWindowRef.current) return activeWindowRef.current;
+    try {
+      const window = validateScanWindow({
+        deliveryDate,
+        deliveryTime,
+        returnDate,
+        returnTime,
+      });
+      activeWindowRef.current = window;
+      setActiveWindow(window);
+      setWindowError("");
+      setPhase("scanning");
+      return window;
+    } catch (error) {
+      const message =
+        error instanceof Error ? error.message : "Enter a valid booking window.";
+      setWindowError(message);
+      setFeedback(message);
+      return null;
+    }
+  }
+
+  function checkDressBySku(sku: string, dressLabel?: string) {
+    const code = sku.trim();
+    if (!code) {
+      setFeedback(
+        dressLabel
+          ? `"${dressLabel}" has no dress code to check.`
+          : "This dress has no code to check.",
+      );
+      return;
+    }
+    if (!ensureScanWindow()) return;
+    setDressNameQuery("");
+    enqueue(code);
+  }
+
+  function onDressNameSuggestSelect(item: {
+    name: string;
+    display_name?: string;
+    sku?: string;
+  }) {
+    checkDressBySku(
+      String(item.sku || ""),
+      item.display_name || item.name,
+    );
+  }
+
+  async function submitDressNameSearch(event: React.FormEvent) {
+    event.preventDefault();
+    const q = dressNameQuery.trim();
+    if (!q) {
+      setFeedback("Type a dress name to search.");
+      return;
+    }
+    if (!ensureScanWindow()) return;
+    try {
+      const params = new URLSearchParams({ q, limit: "8" });
+      const res = await fetch(`/api/dress-name/suggest?${params}`, {
+        credentials: "same-origin",
+      });
+      if (!res.ok) {
+        setFeedback("Could not search dresses by name. Try again.");
+        return;
+      }
+      const list = (await res.json()) as Array<{
+        name: string;
+        display_name?: string;
+        sku?: string;
+      }>;
+      if (!Array.isArray(list) || !list.length) {
+        setFeedback(`No dress found matching “${q}”.`);
+        return;
+      }
+      const exact = list.find(
+        (item) =>
+          (item.display_name || item.name).trim().toLowerCase() ===
+          q.toLowerCase(),
+      );
+      const pick = exact || list[0];
+      checkDressBySku(String(pick.sku || ""), pick.display_name || pick.name);
+    } catch {
+      setFeedback("Could not search dresses by name. Try again.");
     }
   }
 
@@ -681,6 +781,7 @@ export default function DressAvailabilityScanner({
     dressResultRef.current.clear();
     setRows([]);
     setActiveWindow(null);
+    activeWindowRef.current = null;
     setCameraPaused(false);
     setScanSuccess(false);
     setPhase("dates");
@@ -851,6 +952,41 @@ export default function DressAvailabilityScanner({
             >
               <i className="fa-solid fa-camera" /> Start Scanning
             </button>
+
+            <form
+              onSubmit={submitDressNameSearch}
+              style={{
+                display: "flex",
+                gap: 8,
+                marginTop: 18,
+                flexWrap: "wrap",
+                alignItems: "flex-end",
+              }}
+            >
+              <label style={{ flex: "1 1 260px" }}>
+                <span className="form-label">Search dress by name</span>
+                <DressNameSuggestInput
+                  aria-label="Search dress by name"
+                  className="form-control"
+                  value={dressNameQuery}
+                  onChange={(event) => setDressNameQuery(event.target.value)}
+                  onSuggestSelect={onDressNameSuggestSelect}
+                  clearOnSelect
+                  showPhotos
+                  placeholder="Type dress name, pick from list"
+                />
+              </label>
+              <button
+                type="submit"
+                className="btn btn-secondary"
+                style={{ alignSelf: "flex-end" }}
+              >
+                <i className="fa-solid fa-magnifying-glass" /> Check Name
+              </button>
+            </form>
+            <p style={{ color: "var(--text-muted)", fontSize: 12, marginTop: 8, marginBottom: 0 }}>
+              Choosing a name checks availability for the dates above (same as scanning).
+            </p>
           </div>
         </div>
         {feedback.startsWith("Dates changed") ? (
@@ -1133,6 +1269,38 @@ export default function DressAvailabilityScanner({
               style={{ alignSelf: "flex-end" }}
             >
               Check Code
+            </button>
+          </form>
+
+          <form
+            onSubmit={submitDressNameSearch}
+            style={{
+              display: "flex",
+              gap: 8,
+              marginTop: 12,
+              flexWrap: "wrap",
+              alignItems: "flex-end",
+            }}
+          >
+            <label style={{ flex: "1 1 260px" }}>
+              <span className="form-label">Search dress by name</span>
+              <DressNameSuggestInput
+                aria-label="Search dress by name"
+                className="form-control"
+                value={dressNameQuery}
+                onChange={(event) => setDressNameQuery(event.target.value)}
+                onSuggestSelect={onDressNameSuggestSelect}
+                clearOnSelect
+                showPhotos
+                placeholder="Type dress name, pick from list"
+              />
+            </label>
+            <button
+              type="submit"
+              className="btn btn-secondary"
+              style={{ alignSelf: "flex-end" }}
+            >
+              <i className="fa-solid fa-magnifying-glass" /> Check Name
             </button>
           </form>
         </div>

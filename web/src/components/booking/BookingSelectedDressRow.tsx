@@ -166,19 +166,6 @@ function BookingSelectedDressRow({
         </div>
 
         <div>
-          <label className="form-label">Fitting Charges (₹)</label>
-          <input
-            type="number"
-            className="form-control"
-            inputMode="numeric"
-            value={d.fittingCharges}
-            min={0}
-            onWheel={preventInputWheel}
-            onChange={(e) => onUpdateField(i, "fittingCharges", Number(e.target.value))}
-          />
-        </div>
-
-        <div>
           <label className="form-label">Advance Paid (₹)</label>
           <input
             type="number"
@@ -188,6 +175,19 @@ function BookingSelectedDressRow({
             min={0}
             onWheel={preventInputWheel}
             onChange={(e) => onUpdateField(i, "advance", Number(e.target.value))}
+          />
+        </div>
+
+        <div>
+          <label className="form-label">Fitting Charges (₹)</label>
+          <input
+            type="number"
+            className="form-control"
+            inputMode="numeric"
+            value={d.fittingCharges}
+            min={0}
+            onWheel={preventInputWheel}
+            onChange={(e) => onUpdateField(i, "fittingCharges", Number(e.target.value))}
           />
         </div>
       </div>

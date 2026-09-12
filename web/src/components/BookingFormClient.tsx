@@ -571,8 +571,9 @@ export default function BookingFormClient(props: Props) {
 
     setLoading(true);
     const searching = nameSearch.trim().length >= 2;
-    const pageLimit = searching ? Math.max(availabilityPageLimit, 50) : availabilityPageLimit;
-    const maxPages = searching ? 8 : 1;
+    // One tighter page when searching — multi-page fan-out made name filter feel laggy.
+    const pageLimit = searching ? Math.max(availabilityPageLimit, 80) : availabilityPageLimit;
+    const maxPages = searching ? 2 : 1;
     let nextAppend = append;
 
     try {
@@ -741,13 +742,23 @@ export default function BookingFormClient(props: Props) {
     return () => clearTimeout(t);
   }, [deliveryDate, updateSerial, props.editId]);
 
-  // availability depends on both dates
+  // Dates / category / size — load available inventory
   useEffect(() => {
     const t = setTimeout(() => {
       void fetchAvailability();
-    }, 450);
+    }, 350);
     return () => clearTimeout(t);
-  }, [deliveryDate, returnDate, categoryFilter, sizeFilter, nameSearch, fetchAvailability, props.editId]);
+  }, [deliveryDate, returnDate, categoryFilter, sizeFilter, fetchAvailability, props.editId]);
+
+  // Name typing — slower server assist; suggestions + client filter handle the fast path
+  useEffect(() => {
+    const q = nameSearch.trim();
+    if (q.length < 2 || /^\d+$/.test(q)) return;
+    const t = setTimeout(() => {
+      void fetchAvailability();
+    }, 650);
+    return () => clearTimeout(t);
+  }, [nameSearch, fetchAvailability]);
 
   const durationDays = useMemo(() => {
 
@@ -931,6 +942,51 @@ export default function BookingFormClient(props: Props) {
       refocusDressSearch();
     }
   }, [scanBusy, deliveryDate, returnDate, deliveryTime, returnTime, props.editId, selectedDresses, toast, refocusDressSearch, isProspect]);
+
+  /** One-tap add from name suggestions (same availability path as QR scan). */
+  const addDressFromSuggest = useCallback(
+    (item: {
+      id?: number;
+      name: string;
+      display_name?: string;
+      sku?: string;
+      category?: string;
+    }) => {
+      const sku = String(item.sku || "").trim();
+      if (sku) {
+        void handleScanCode(sku);
+        return;
+      }
+
+      const match =
+        (item.id != null
+          ? allFreeItems.find((row) => row.id === item.id)
+          : undefined) ||
+        allFreeItems.find((row) => {
+          const label = (row.display_name || row.name || "").trim().toLowerCase();
+          const want = (item.display_name || item.name || "").trim().toLowerCase();
+          return label === want;
+        });
+
+      if (match) {
+        if (selectedDresses.some((d) => d.id === match.id)) {
+          toast?.("This dress is already added to the booking.", "info");
+          setNameSearch("");
+          return;
+        }
+        if (!confirmAlternateDressAdd(match.returning_warning, match.booked_warning)) return;
+        addSelectedDressFromItem(match);
+        toast?.(`${match.display_name || match.name} added to booking`, "success");
+        return;
+      }
+
+      const base = stripUnitSuffix(item.name || item.display_name || "");
+      if (item.category) setCategoryFilter(item.category);
+      setSizeFilter("");
+      setNameSearch(base || item.name);
+    },
+    [handleScanCode, allFreeItems, selectedDresses, toast],
+  );
 
   const handleDressSearchKeyDown = useCallback((e: React.KeyboardEvent<HTMLInputElement>) => {
     if (scanTimer.current) clearTimeout(scanTimer.current);
@@ -1795,24 +1851,20 @@ export default function BookingFormClient(props: Props) {
             <div style={{ position: "relative", flex: 1, minWidth: 140, display: "flex", gap: 6 }}>
               <DressNameSuggestInput
                 className="form-control"
-                placeholder={scanBusy ? "Checking scanned dress…" : "Filter by dress name, SKU, or scan QR…"}
+                placeholder={scanBusy ? "Checking scanned dress…" : "Search dress name — tap once to add"}
                 value={nameSearch}
-                category={categoryFilter}
                 showPhotos
-                clearOnSelect={false}
-                minChars={2}
+                clearOnSelect
+                minChars={1}
+                debounceMs={120}
+                suggestLimit={16}
                 inputRef={dressSearchInputRef}
                 data-dress-scan="1"
                 autoComplete="off"
                 onChange={(e) => setNameSearch(e.target.value)}
                 onKeyDown={handleDressSearchKeyDown}
                 onBlur={handleDressSearchBlur}
-                onSuggestSelect={(item) => {
-                  const base = stripUnitSuffix(item.name || item.display_name || "");
-                  if (item.category) setCategoryFilter(item.category);
-                  setSizeFilter("");
-                  setNameSearch(base || item.name);
-                }}
+                onSuggestSelect={addDressFromSuggest}
               />
               <button
                 type="button"

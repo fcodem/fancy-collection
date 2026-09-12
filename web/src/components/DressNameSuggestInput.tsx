@@ -23,6 +23,10 @@ type Props = Omit<React.InputHTMLAttributes<HTMLInputElement>, "onSelect"> & {
   itemType?: string;
   onSuggestSelect?: (item: SuggestItem) => void;
   minChars?: number;
+  /** Debounce before fetching suggestions (ms). */
+  debounceMs?: number;
+  /** Max suggestion rows to request from the API. */
+  suggestLimit?: number;
   /** Show dress photo thumbnails in the suggestion dropdown */
   showPhotos?: boolean;
   /** Set false to disable inventory dress suggestions (e.g. mixed booking search fields) */
@@ -41,6 +45,8 @@ export default function DressNameSuggestInput({
   itemType,
   onSuggestSelect,
   minChars = 1,
+  debounceMs = 140,
+  suggestLimit = 16,
   showPhotos = false,
   suggestions = true,
   clearOnSelect = false,
@@ -111,7 +117,8 @@ export default function DressNameSuggestInput({
       (categorySelect ? (document.querySelector(categorySelect) as HTMLSelectElement | null)?.value : "") ||
       "";
 
-    const params = new URLSearchParams({ q, limit: "48" });
+    const limit = Math.max(1, Math.min(48, Math.floor(suggestLimit) || 16));
+    const params = new URLSearchParams({ q, limit: String(limit) });
     if (cat) params.set("category", cat);
     if (itemTypeRef.current) params.set("item_type", itemTypeRef.current);
 
@@ -139,7 +146,7 @@ export default function DressNameSuggestInput({
       if (isAbortError(e)) return;
       closeSuggestions();
     }
-  }, [categorySelect, closeSuggestions, minChars, updateScrollButtons]);
+  }, [categorySelect, closeSuggestions, minChars, suggestLimit, updateScrollButtons]);
 
   useEffect(() => () => suggestAbortRef.current?.abort(), []);
 
@@ -150,11 +157,12 @@ export default function DressNameSuggestInput({
     }
     const q = String(value || "").trim();
     if (timerRef.current) clearTimeout(timerRef.current);
-    timerRef.current = setTimeout(() => void fetchSuggestions(q), 280);
+    const wait = Math.max(0, Math.floor(debounceMs) || 0);
+    timerRef.current = setTimeout(() => void fetchSuggestions(q), wait);
     return () => {
       if (timerRef.current) clearTimeout(timerRef.current);
     };
-  }, [value, fetchSuggestions, skip, closeSuggestions]);
+  }, [value, fetchSuggestions, skip, closeSuggestions, debounceMs]);
 
   useEffect(() => {
     if (skip) return;
@@ -222,8 +230,8 @@ export default function DressNameSuggestInput({
           props.onFocus?.(e);
         }}
         onBlur={(e) => {
-          // Delay so mousedown on suggestion can fire first
-          setTimeout(() => closeSuggestions(), 150);
+          // Delay so pointerdown/click on a suggestion can commit first (esp. touch).
+          setTimeout(() => closeSuggestions(), 220);
           props.onBlur?.(e);
         }}
         onKeyDown={(e) => {
@@ -289,7 +297,8 @@ export default function DressNameSuggestInput({
                   type="button"
                   className={`dress-suggest-item${idx === activeIdx ? " active" : ""}`}
                   style={showPhotos ? { display: "flex", alignItems: "center", gap: 10, textAlign: "left" } : undefined}
-                  onMouseDown={(e) => {
+                  onPointerDown={(e) => {
+                    // Commit before input blur so one tap/click adds (touch + mouse).
                     e.preventDefault();
                     selectItem(item);
                   }}
