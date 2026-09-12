@@ -1,7 +1,6 @@
 import prisma from "@/lib/prisma";
 import {
   whereDeliveryInRange,
-  whereDeliveryOnDate,
   whereReturnOnDate,
   whereUnavailableDuringPeriod,
 } from "@/lib/bookingDateQuery";
@@ -452,12 +451,12 @@ export async function getBookingListPageBundle(opts: Omit<BookingListQuery, "sec
   const toIso = formatDate(rDate, "iso");
   const sameDayPeriod = fromIso === toIso;
 
-  const [dateRangeWhere, unavailDateWhere, returningOnFromWhere, deliveringOnToWhere] =
+  const [dateRangeWhere, unavailDateWhere, returningOnFromWhere, returningOnToWhere] =
     await Promise.all([
       whereDeliveryInRange(deliveryDateStr, rangeEnd),
       whereUnavailableDuringPeriod(deliveryDateStr, rangeEnd),
       whereReturnOnDate(deliveryDateStr),
-      whereDeliveryOnDate(rangeEnd),
+      sameDayPeriod ? Promise.resolve(null) : whereReturnOnDate(rangeEnd),
     ]);
 
   const timeFilter = {
@@ -503,25 +502,28 @@ export async function getBookingListPageBundle(opts: Omit<BookingListQuery, "sec
     ...commonFilters,
   };
 
+  // Alternate returners: return on From (delivery day) OR return on To (return day).
+  // Wrap in AND so category/dress OR filters do not overwrite the return-date OR.
   const alternateReturningWhere = {
     ...activeStatus,
-    ...returningOnFromWhere,
-    ...commonFilters,
-  };
-
-  const alternateDeliveringWhere = {
-    ...activeStatus,
-    ...deliveringOnToWhere,
-    ...commonFilters,
+    AND: [
+      returningOnToWhere
+        ? { OR: [returningOnFromWhere, returningOnToWhere] }
+        : returningOnFromWhere,
+      ...(deliveryTimeFilter || returnTimeFilter ? [timeFilter] : []),
+      ...(categoryFilter ? [categoryWhere] : []),
+      ...(dressQuery.trim() ? [dressNameSearchWhere(dressQuery)] : []),
+    ],
   };
 
   const safePage = Math.max(1, page);
   const take = Math.min(BOOKING_LIST_EXPORT_MAX, Math.max(1, pageSize));
   const skip = (safePage - 1) * take;
 
-  const [totalMain, mainRows, unavailRows, returningRows, deliveringRows] = await Promise.all([
-    limitedDbRead(() => prisma.booking.count({ where: mainWhere })),
-    limitedDbRead(() =>
+  // One semaphore slot, three parallel reads — skip COUNT and skip warning fan-out (slow).
+  // Delivering-on-To is derived from main rows (no 4th query).
+  const [mainRows, unavailRows, returningRows] = await limitedDbRead(() =>
+    Promise.all([
       prisma.booking.findMany({
         where: mainWhere,
         select: bookingListSelect,
@@ -529,8 +531,6 @@ export async function getBookingListPageBundle(opts: Omit<BookingListQuery, "sec
         skip,
         take,
       }),
-    ),
-    limitedDbRead(() =>
       prisma.booking.findMany({
         where: unavailWhere,
         select: bookingListSelect,
@@ -538,54 +538,44 @@ export async function getBookingListPageBundle(opts: Omit<BookingListQuery, "sec
         skip,
         take,
       }),
-    ),
-    limitedDbRead(() =>
       prisma.booking.findMany({
         where: alternateReturningWhere,
         select: bookingListSelect,
         orderBy: [{ returnTime: "asc" }, { monthlySerial: "asc" }],
         take,
       }),
-    ),
-    limitedDbRead(() =>
-      prisma.booking.findMany({
-        where: alternateDeliveringWhere,
-        select: bookingListSelect,
-        orderBy: [{ deliveryTime: "asc" }, { monthlySerial: "asc" }],
-        take,
-      }),
-    ),
-  ]);
+    ]),
+  );
 
-  const returningIds = new Set(returningRows.map((b) => b.id));
-  const deliveringIds = new Set(deliveringRows.map((b) => b.id));
-  // Same-day period: avoid duplicating every delivery into alternate — only returners.
-  const alternateDeliveringForSection = sameDayPeriod ? [] : deliveringRows;
+  const deliveringRows = sameDayPeriod
+    ? []
+    : mainRows.filter((b) => formatDate(b.deliveryDate, "iso") === toIso);
 
   type AlternateLite = BookingLite & { alternate_kind: "returning" | "delivering" | "both" };
   const alternateById = new Map<number, AlternateLite>();
   for (const b of returningRows) {
     alternateById.set(b.id, { ...b, alternate_kind: "returning" });
   }
-  for (const b of alternateDeliveringForSection) {
+  for (const b of deliveringRows) {
     const prev = alternateById.get(b.id);
     if (prev) prev.alternate_kind = "both";
     else alternateById.set(b.id, { ...b, alternate_kind: "delivering" });
   }
   const alternateLite = [...alternateById.values()];
   const alternateIds = new Set(alternateLite.map((b) => b.id));
+  const deliveringIds = new Set(deliveringRows.map((b) => b.id));
 
   const mainFiltered = sameDayPeriod
     ? mainRows
-    : mainRows.filter((b) => !deliveringIds.has(b.id) || returningIds.has(b.id));
+    : mainRows.filter((b) => !deliveringIds.has(b.id));
 
   const unavailFiltered = unavailRows.filter((b) => !alternateIds.has(b.id));
 
-  const bookingsRaw = mainFiltered
+  const bookings = mainFiltered
     .map((b) => serializeBooking(b, categoryFilter))
     .filter((b): b is BookingListRow => b !== null);
 
-  const unavailableRaw = unavailFiltered
+  const unavailable = unavailFiltered
     .map((b) => {
       const row = serializeBooking(b, categoryFilter);
       if (!row) return null;
@@ -594,15 +584,20 @@ export async function getBookingListPageBundle(opts: Omit<BookingListQuery, "sec
     })
     .filter((b): b is BookingListRow => b !== null);
 
-  const alternateRaw = alternateLite
+  const alternate = alternateLite
     .map((b) => {
       const row = serializeBooking(b, categoryFilter);
       if (!row) return null;
       row.alternate_kind = b.alternate_kind;
+      const retIso = formatDate(b.returnDate, "iso");
+      const retDisplay = formatDate(b.returnDate, "display");
       if (b.alternate_kind === "both") {
-        row.reason = `${WARNING_RETURNING_ON_DELIVERY} (${fromDisplay}) · ${WARNING_BOOKED_ON_RETURN} (${toDisplay})`;
+        row.reason = `${WARNING_RETURNING_ON_DELIVERY} · ${WARNING_BOOKED_ON_RETURN} (${toDisplay})`;
       } else if (b.alternate_kind === "returning") {
-        row.reason = `${WARNING_RETURNING_ON_DELIVERY} (${fromDisplay})`;
+        row.reason =
+          retIso === fromIso
+            ? `${WARNING_RETURNING_ON_DELIVERY} (${fromDisplay})`
+            : `Returning on ${retDisplay}`;
       } else {
         row.reason = `${WARNING_BOOKED_ON_RETURN} (${toDisplay})`;
       }
@@ -610,37 +605,19 @@ export async function getBookingListPageBundle(opts: Omit<BookingListQuery, "sec
     })
     .filter((b): b is BookingListRow => b !== null);
 
-  const [bookings, alternate] = await Promise.all([
-    attachBookingListWarnings(mainFiltered, bookingsRaw),
-    attachBookingListWarnings(alternateLite, alternateRaw),
-  ]);
-
-  const kindById = new Map(alternateRaw.map((a) => [a.id, a]));
-  for (const row of alternate) {
-    const raw = kindById.get(row.id);
-    if (raw) {
-      row.alternate_kind = raw.alternate_kind;
-      row.reason = raw.reason;
-    }
-  }
-
-  const movedToAlternate = sameDayPeriod
-    ? 0
-    : deliveringRows.filter((b) => !returningIds.has(b.id)).length;
-
   return {
     bookings,
-    unavailable: unavailableRaw,
+    unavailable,
     alternate,
     from_date: fromIso,
     to_date: toIso,
     page: safePage,
     pageSize: take,
-    totalMain: Math.max(0, totalMain - movedToAlternate),
-    totalUnavailable: unavailFiltered.length,
+    totalMain: bookings.length,
+    totalUnavailable: unavailable.length,
     totalAlternate: alternate.length,
-    totalPagesMain: Math.max(1, Math.ceil(totalMain / take)),
-    totalPagesUnavailable: Math.max(1, Math.ceil(unavailFiltered.length / take)),
+    totalPagesMain: 1,
+    totalPagesUnavailable: 1,
   };
 }
 
@@ -700,7 +677,7 @@ export function getBookingListDataCached(opts: Omit<BookingListQuery, "section">
         String(opts.pageSize ?? BOOKING_LIST_PAGE_SIZE),
       ],
       () => getBookingListPageBundle(opts),
-      25,
+      12,
     ),
   );
 }

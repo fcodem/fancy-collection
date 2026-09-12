@@ -98,11 +98,12 @@ function AlternateBookingCard({ booking }: { booking: BookingRow }) {
         .map((s) => s.trim())
         .filter(Boolean);
   const kindLabel =
-    booking.alternate_kind === "both"
+    booking.reason ||
+    (booking.alternate_kind === "both"
       ? `${WARNING_RETURNING_ON_DELIVERY} · ${WARNING_BOOKED_ON_RETURN}`
       : booking.alternate_kind === "delivering"
         ? WARNING_BOOKED_ON_RETURN
-        : WARNING_RETURNING_ON_DELIVERY;
+        : WARNING_RETURNING_ON_DELIVERY);
 
   return (
     <div className="card" style={{ marginBottom: 14, borderLeft: "4px solid #f59e0b" }}>
@@ -343,11 +344,12 @@ export default function BookingListClient({
             const res = await fetch(`/api/booking-list?${params}`, {
               credentials: "same-origin",
               signal,
+              cache: "no-store",
             });
             if (!res.ok) throw new Error("Failed to load");
             return res.json();
           },
-          { ttlMs: 25_000, signal: controller.signal },
+          { ttlMs: 8_000, signal: controller.signal },
         );
         if (!controller.signal.aborted) {
           setData(payload);
@@ -374,8 +376,10 @@ export default function BookingListClient({
   const scheduleLoad = useCallback(() => {
     if (debounceRef.current) clearTimeout(debounceRef.current);
     debounceRef.current = setTimeout(() => {
-      void load();
-    }, 300);
+      invalidateClientCache("booking-list:");
+      // Soft: keep prior rows visible while the new period loads.
+      void load({ soft: true });
+    }, 120);
   }, [load]);
 
   useRealtimeRefresh(BOOKING_EVENTS, () => {
@@ -399,7 +403,7 @@ export default function BookingListClient({
     setDressQ(next);
     if (debounceRef.current) clearTimeout(debounceRef.current);
     invalidateClientCache("booking-list:");
-    void load({ dressOverride: next });
+    void load({ soft: true, dressOverride: next });
   }
 
   const { bookings, unavailable } = data;
@@ -678,8 +682,9 @@ export default function BookingListClient({
                 <AlternateBookingTag />
               </div>
               <div style={{ padding: "12px 16px", fontSize: 12, color: "#92400e", background: "#fffbeb", borderBottom: "1px solid #fcd34d" }}>
-                Dresses <strong>returning on {isoToDisplay(data.from_date)}</strong> (delivery day) and dresses{" "}
-                <strong>delivering on {isoToDisplay(data.to_date)}</strong> (return day). Full details below.
+                Dresses <strong>returning on {isoToDisplay(data.from_date)}</strong> (delivery day) or{" "}
+                <strong>{isoToDisplay(data.to_date)}</strong> (return day), and dresses{" "}
+                <strong>delivering on {isoToDisplay(data.to_date)}</strong>. Full details below.
               </div>
               <div style={{ padding: 12 }}>
                 {alternate.map((b) => (
