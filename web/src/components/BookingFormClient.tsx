@@ -510,6 +510,7 @@ export default function BookingFormClient(props: Props) {
   const [sizeFilter, setSizeFilter] = useState("");
 
   const [nameSearch, setNameSearch] = useState("");
+  const nameSearchRef = useRef("");
   const [scanBusy, setScanBusy] = useState(false);
   const [showCameraScanner, setShowCameraScanner] = useState(false);
   const scanBuffer = useRef("");
@@ -670,7 +671,7 @@ export default function BookingFormClient(props: Props) {
 
 
   /** Loads free inventory for delivery/return range; aborts stale requests on date change. */
-  const fetchAvailability = useCallback(async (append = false) => {
+  const fetchAvailability = useCallback(async (append = false, searchOverride?: string) => {
     if (!deliveryDate || !returnDate) return;
     if (parseDate(returnDate) < parseDate(deliveryDate)) return;
 
@@ -680,12 +681,14 @@ export default function BookingFormClient(props: Props) {
     availabilityAbortRef.current = controller;
     const version = ++availabilityVersionRef.current;
 
+    const searchQ = (searchOverride !== undefined ? searchOverride : nameSearchRef.current).trim();
+    const searching = searchQ.length >= 2 && !/^\d+$/.test(searchQ);
+
     setLoading(true);
-    const searching = nameSearch.trim().length >= 2 && !/^\d+$/.test(nameSearch.trim());
-    // When searching by name, fetch more matches and ignore category so dresses are findable.
     const pageLimit = searching ? Math.max(availabilityPageLimit, 100) : availabilityPageLimit;
-    const maxPages = searching ? 4 : 1;
+    const maxPages = searching ? 3 : 1;
     let nextAppend = append;
+    let collected: FreeItem[] = [];
 
     try {
       for (let page = 0; page < maxPages; page += 1) {
@@ -695,48 +698,97 @@ export default function BookingFormClient(props: Props) {
           return_date: returnDate,
           category: searching ? "" : categoryFilter,
           size: searching ? "" : sizeFilter,
-          search: searching ? nameSearch.trim() : "",
+          search: searching ? searchQ : "",
           limit: String(pageLimit),
         });
         if (props.editId) params.set("exclude_booking", String(props.editId));
         if (cursor) params.set("cursor", cursor);
-        const cacheKey = `avail:${params.toString()}`;
 
-        const data = await cachedFetchJson<{
+        const res = await fetch(
+          `/api/booking/available-items?${params.toString()}`,
+          { credentials: "same-origin", signal: controller.signal, cache: "no-store" },
+        );
+        const data = (await res.json()) as {
           free_items?: FreeItem[];
           error?: string;
           nextCursor?: string | null;
           hasMore?: boolean;
-        }>(
-          cacheKey,
-          async (signal) => {
-            const res = await fetch(
-              `/api/booking/available-items?${params.toString()}`,
-              { credentials: "same-origin", signal, cache: "no-store" },
-            );
-            const json = await res.json();
-            if (!res.ok) {
-              const err = new Error(String(json?.error || res.status)) as Error & { status?: number };
-              err.status = res.status;
-              throw err;
-            }
-            return json;
-          },
-          { ttlMs: 20_000, signal: controller.signal },
-        );
+        };
+        if (!res.ok) {
+          const err = new Error(String(data?.error || res.status)) as Error & { status?: number };
+          err.status = res.status;
+          throw err;
+        }
 
         if (controller.signal.aborted || version !== availabilityVersionRef.current) return;
-        setAllFreeItems((previous) =>
-          nextAppend
-            ? mergeAvailabilityItemsById(previous, data.free_items || [])
-            : (data.free_items || []),
-        );
+
+        const pageItems = data.free_items || [];
+        collected = nextAppend || page > 0
+          ? mergeAvailabilityItemsById(collected, pageItems)
+          : pageItems;
+
+        setAllFreeItems(collected);
         availabilityCursorRef.current =
           typeof data.nextCursor === "string" ? data.nextCursor : null;
         const more = Boolean(data.hasMore);
         setAvailabilityHasMore(more);
         if (!searching || !more) break;
         nextAppend = true;
+      }
+
+      // Name search with no free matches: still show inventory hits so the dress is visible.
+      if (
+        searching &&
+        collected.length === 0 &&
+        !controller.signal.aborted &&
+        version === availabilityVersionRef.current
+      ) {
+        const suggestParams = new URLSearchParams({ q: searchQ, limit: "24" });
+        const suggestRes = await fetch(`/api/dress-name/suggest?${suggestParams}`, {
+          credentials: "same-origin",
+          signal: controller.signal,
+        });
+        if (suggestRes.ok) {
+          const suggestList = (await suggestRes.json()) as Array<{
+            id?: number;
+            name: string;
+            display_name?: string;
+            sku?: string;
+            category?: string;
+            size?: string;
+            photo?: string;
+          }>;
+          if (
+            Array.isArray(suggestList) &&
+            suggestList.length &&
+            !controller.signal.aborted &&
+            version === availabilityVersionRef.current
+          ) {
+            const fallback: FreeItem[] = suggestList
+              .filter((item) => item.id != null)
+              .map((item) => ({
+                id: item.id as number,
+                name: item.name,
+                display_name: item.display_name || item.name,
+                sku: item.sku || "",
+                category: item.category || "",
+                size: item.size || "",
+                photo: item.photo || "",
+                free_quantity: 0,
+                booked_warning: {
+                  customer_name: "Not free for these dates",
+                  serial_no: 0,
+                  booking_number: "",
+                  delivery_date: "",
+                  return_date: "",
+                },
+              }));
+            if (fallback.length) {
+              setAllFreeItems(fallback);
+              setAvailabilityHasMore(false);
+            }
+          }
+        }
       }
     } catch (e) {
       if (controller.signal.aborted || isAbortError(e) || version !== availabilityVersionRef.current) {
@@ -757,7 +809,6 @@ export default function BookingFormClient(props: Props) {
     props.editId,
     categoryFilter,
     sizeFilter,
-    nameSearch,
     availabilityPageLimit,
   ]);
 
@@ -853,21 +904,29 @@ export default function BookingFormClient(props: Props) {
     return () => clearTimeout(t);
   }, [deliveryDate, updateSerial, props.editId]);
 
-  // Dates / category / size — load available inventory
+  // Dates / category / size — load available inventory (does not re-run on every keystroke)
   useEffect(() => {
     const t = setTimeout(() => {
-      void fetchAvailability();
+      void fetchAvailability(false, nameSearchRef.current);
     }, 350);
     return () => clearTimeout(t);
   }, [deliveryDate, returnDate, categoryFilter, sizeFilter, fetchAvailability, props.editId]);
 
-  // Name typing — server search; keep debounce short so results appear quickly
+  // Name typing — dedicated search path (keeps list in sync with what you type)
   useEffect(() => {
+    nameSearchRef.current = nameSearch;
     const q = nameSearch.trim();
-    if (q.length < 2 || /^\d+$/.test(q)) return;
+    if (q.length < 2 || /^\d+$/.test(q)) {
+      // Cleared / too short: reload unfiltered free list for current dates
+      if (!q) {
+        const t = setTimeout(() => void fetchAvailability(false, ""), 120);
+        return () => clearTimeout(t);
+      }
+      return;
+    }
     const t = setTimeout(() => {
-      void fetchAvailability();
-    }, 180);
+      void fetchAvailability(false, q);
+    }, 150);
     return () => clearTimeout(t);
   }, [nameSearch, fetchAvailability]);
 
@@ -2016,7 +2075,11 @@ export default function BookingFormClient(props: Props) {
 
           ) : filtered.length === 0 ? (
 
-            <p style={{ textAlign: "center", padding: 40, color: "var(--text-muted)" }}>No dresses available for these dates.</p>
+            <p style={{ textAlign: "center", padding: 40, color: "var(--text-muted)" }}>
+              {nameSearch.trim().length >= 2 && !/^\d+$/.test(nameSearch.trim())
+                ? `No dresses matching “${nameSearch.trim()}” for these dates.`
+                : "No dresses available for these dates."}
+            </p>
 
           ) : (
 
@@ -2033,7 +2096,13 @@ export default function BookingFormClient(props: Props) {
                     key={item.id}
                     selected={sel}
                     style={rowStyle(item, sel)}
-                    onToggle={() => toggleDress(item)}
+                    onToggle={() => {
+                      if ((item.free_quantity === 0 || item.booked_warning?.customer_name === "Not free for these dates") && item.sku) {
+                        void handleScanCode(String(item.sku), { keepSearch: true });
+                        return;
+                      }
+                      toggleDress(item);
+                    }}
                   >
 
                     <BookingPhotoThumb

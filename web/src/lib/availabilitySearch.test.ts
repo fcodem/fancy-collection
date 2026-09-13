@@ -23,7 +23,7 @@ function candidateCapFor(limit: number) {
 describe("availability search helpers", () => {
   it("exports limit constants and candidate cap formula", () => {
     assert.match(source, /export const DEFAULT_LIMIT = 30/);
-    assert.match(source, /export const MAX_LIMIT = 50/);
+    assert.match(source, /export const MAX_LIMIT = 100/);
     assert.match(source, /export const CANDIDATE_CAP = 500/);
     assert.match(
       source,
@@ -31,7 +31,7 @@ describe("availability search helpers", () => {
     );
     assert.equal(candidateCapFor(30), Math.min(500, Math.max(50, 31 * 25)));
     assert.equal(candidateCapFor(1), 50);
-    assert.equal(candidateCapFor(50), 500);
+    assert.equal(candidateCapFor(100), 500);
   });
 
   it("exports needsJewelleryOccupancy with men/women skip rules", () => {

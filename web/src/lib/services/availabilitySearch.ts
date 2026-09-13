@@ -24,7 +24,7 @@ function freeItemGroupKey(item: {
 }
 
 export const DEFAULT_LIMIT = 30;
-export const MAX_LIMIT = 50;
+export const MAX_LIMIT = 100;
 export const CANDIDATE_CAP = 500;
 
 export type AvailabilitySearchOpts = {
@@ -124,6 +124,43 @@ type AvailabilityRow = {
 
 export function candidateCapFor(limit: number): number {
   return Math.min(CANDIDATE_CAP, Math.max(50, (limit + 1) * 25));
+}
+
+/** Name/SKU match for availability search — phrase first, then multi-word AND. */
+function inventorySearchSql(search: string): Prisma.Sql {
+  const trimmed = search.trim();
+  if (!trimmed) return Prisma.sql`TRUE`;
+
+  const compact = trimmed.toLowerCase().replace(/[^a-z0-9]/g, "");
+  const phrase = Prisma.sql`(
+    ci.name ILIKE ${`%${trimmed}%`}
+    OR ci.sku = ${trimmed}
+    OR (
+      ${compact} <> ''
+      AND regexp_replace(lower(ci.name), '[^a-z0-9]', '', 'g') LIKE ${`%${compact}%`}
+    )
+    OR (
+      ${compact} <> ''
+      AND regexp_replace(lower(ci.sku), '[^a-z0-9]', '', 'g') LIKE ${`%${compact}%`}
+    )
+  )`;
+
+  const words = trimmed.split(/\s+/).filter((w) => w.length > 0);
+  if (words.length <= 1) return phrase;
+
+  const wordClauses = words.map((word) => {
+    const wordCompact = word.toLowerCase().replace(/[^a-z0-9]/g, "");
+    return Prisma.sql`(
+      ci.name ILIKE ${`%${word}%`}
+      OR (
+        ${wordCompact} <> ''
+        AND regexp_replace(lower(ci.name), '[^a-z0-9]', '', 'g') LIKE ${`%${wordCompact}%`}
+      )
+    )`;
+  });
+
+  // Phrase match OR every typed word appears in the name (MULTI + RAJ → MULTI RAJWADA).
+  return Prisma.sql`(${phrase} OR (${Prisma.join(wordClauses, " AND ")}))`;
 }
 
 export function needsJewelleryOccupancy(
@@ -397,15 +434,7 @@ function buildAvailabilityQuery(opts: {
         AND (${itemType} = '' OR ci.item_type = ${itemType})
         ${groupSql}
         AND (${status} = '' OR ci.status = ${status})
-        AND (
-          ${search} = ''
-          OR ci.name ILIKE ('%' || ${search} || '%')
-          OR ci.sku = ${search}
-          OR regexp_replace(lower(ci.name), '[^a-z0-9]', '', 'g')
-               LIKE ('%' || regexp_replace(lower(${search}), '[^a-z0-9]', '', 'g') || '%')
-          OR regexp_replace(lower(ci.sku), '[^a-z0-9]', '', 'g')
-               LIKE ('%' || regexp_replace(lower(${search}), '[^a-z0-9]', '', 'g') || '%')
-        )
+        AND ${inventorySearchSql(search)}
         ${cursorSql}
       ORDER BY ci.category, ci.name, COALESCE(ci.size, ''), ci.id
       LIMIT ${candidateCap}
