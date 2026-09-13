@@ -21,6 +21,9 @@ import {
   standardBookingPdfRow,
 } from "@/lib/standardBookingPdfRows";
 import { cachedFetchJson, invalidateClientCache } from "@/lib/clientRequestCache";
+import DressNameSuggestInput from "@/components/DressNameSuggestInput";
+import { stripUnitSuffix } from "@/lib/dress";
+import { useToast } from "@/components/ui/Toast";
 
 /** Load the full filtered period in one list (no page controls). Matches server export cap. */
 const LIST_PAGE_SIZE = 500;
@@ -287,12 +290,15 @@ export default function BookingListClient({
   const [category, setCategory] = useState("");
   const [dressInput, setDressInput] = useState("");
   const [dressQ, setDressQ] = useState("");
+  const [showDressScanner, setShowDressScanner] = useState(false);
+  const [scanBusy, setScanBusy] = useState(false);
   const [data, setData] = useState<ListData>(initialData);
   const [loading, setLoading] = useState(false);
   const [categories, setCategories] = useState<Categories | null>(null);
   const skipFirst = useRef(true);
   const abortRef = useRef<AbortController | null>(null);
   const debounceRef = useRef<ReturnType<typeof setTimeout> | null>(null);
+  const toast = useToast();
 
   useEffect(() => {
     cachedFetchJson(
@@ -398,12 +404,56 @@ export default function BookingListClient({
     };
   }, [from, to, deliveryTime, returnTime, category, scheduleLoad]);
 
-  function runDressSearch() {
-    const next = dressInput.trim();
+  function runDressSearch(nextOverride?: string) {
+    const next = (nextOverride !== undefined ? nextOverride : dressInput).trim();
+    setDressInput(next);
     setDressQ(next);
     if (debounceRef.current) clearTimeout(debounceRef.current);
     invalidateClientCache("booking-list:");
     void load({ soft: true, dressOverride: next });
+  }
+
+  async function applyDressFromScan(code: string) {
+    const trimmed = code.trim();
+    if (!trimmed || scanBusy) return;
+    if (!from) {
+      alert("Select From / To dates before scanning a dress.");
+      return;
+    }
+    setScanBusy(true);
+    try {
+      const res = await fetch("/api/booking/scan-add", {
+        method: "POST",
+        headers: { "Content-Type": "application/json" },
+        body: JSON.stringify({
+          code: trimmed,
+          delivery_date: from,
+          return_date: to || from,
+          delivery_time: deliveryTime || "12:00 Noon",
+          return_time: returnTime || "12:00 Noon",
+        }),
+      });
+      const data = (await res.json()) as {
+        status?: string;
+        error?: string;
+        item?: { name?: string } | null;
+      };
+      if (!res.ok) {
+        alert(data.error || "Could not resolve this QR code.");
+        return;
+      }
+      if (data.status === "CODE_NOT_FOUND" || !data.item?.name) {
+        alert("Dress not found for this QR/barcode.");
+        return;
+      }
+      const name = stripUnitSuffix(data.item.name) || data.item.name;
+      toast?.(`Searching bookings for ${name}`, "success");
+      runDressSearch(name);
+    } catch {
+      alert("Failed to look up scanned dress. Please try again.");
+    } finally {
+      setScanBusy(false);
+    }
   }
 
   const { bookings, unavailable } = data;
@@ -557,22 +607,55 @@ export default function BookingListClient({
               background: "#fff8f0",
             }}
           >
-            <div style={{ flex: "1 1 260px", minWidth: 200 }}>
+            <div style={{ flex: "1 1 260px", minWidth: 200, position: "relative", zIndex: 20 }}>
               <label style={labelStyle}>Search dresses</label>
-              <input
-                type="search"
-                className="form-control"
-                value={dressInput}
-                placeholder="Type dress name, then click Search…"
-                aria-label="Search dresses in booked items"
-                onChange={(e) => setDressInput(e.target.value)}
-                onKeyDown={(e) => {
-                  if (e.key === "Enter") {
-                    e.preventDefault();
-                    runDressSearch();
-                  }
-                }}
-              />
+              <div style={{ display: "flex", gap: 6, alignItems: "stretch" }}>
+                <div style={{ flex: 1, minWidth: 0 }}>
+                  <DressNameSuggestInput
+                    className="form-control"
+                    value={dressInput}
+                    placeholder={scanBusy ? "Resolving scanned dress…" : "Type dress name — pick a suggestion"}
+                    aria-label="Search dresses in booked items"
+                    showPhotos
+                    minChars={1}
+                    debounceMs={120}
+                    suggestLimit={16}
+                    clearOnSelect={false}
+                    onChange={(e) => setDressInput(e.target.value)}
+                    onSuggestSelect={(item) => {
+                      const name = stripUnitSuffix(item.name || item.display_name || "") || item.name;
+                      runDressSearch(name);
+                    }}
+                    onKeyDown={(e) => {
+                      if (e.key === "Enter") {
+                        e.preventDefault();
+                        runDressSearch();
+                      }
+                    }}
+                  />
+                </div>
+                <button
+                  type="button"
+                  title="Scan dress QR code"
+                  disabled={scanBusy || loading || !from}
+                  onClick={() => setShowDressScanner(true)}
+                  style={{
+                    background: "var(--success)",
+                    color: "#fff",
+                    border: "none",
+                    borderRadius: 8,
+                    width: 42,
+                    height: 42,
+                    cursor: scanBusy || loading || !from ? "not-allowed" : "pointer",
+                    display: "flex",
+                    alignItems: "center",
+                    justifyContent: "center",
+                    flexShrink: 0,
+                  }}
+                >
+                  <i className={scanBusy ? "fa-solid fa-spinner fa-spin" : "fa-solid fa-camera"} />
+                </button>
+              </div>
             </div>
             <button
               type="button"
@@ -720,6 +803,132 @@ export default function BookingListClient({
           )}
         </>
       )}
+
+      {showDressScanner && (
+        <BookedItemsDressScanModal
+          onScan={(code) => {
+            setShowDressScanner(false);
+            void applyDressFromScan(code);
+          }}
+          onClose={() => setShowDressScanner(false)}
+        />
+      )}
+    </div>
+  );
+}
+
+function BookedItemsDressScanModal({
+  onScan,
+  onClose,
+}: {
+  onScan: (code: string) => void;
+  onClose: () => void;
+}) {
+  const sessionRef = useRef<import("@/lib/cameraScanner").QrCameraSession | null>(null);
+  const [error, setError] = useState<string | null>(null);
+  const [manualCode, setManualCode] = useState("");
+
+  useEffect(() => {
+    let cancelled = false;
+    (async () => {
+      try {
+        const { QrCameraSession, cameraErrorMessage } = await import("@/lib/cameraScanner");
+        if (cancelled) return;
+        const session = new QrCameraSession("booked-items-qr-scan", { qrOnly: true });
+        sessionRef.current = session;
+        await session.start((code) => {
+          if (!cancelled) onScan(code);
+        });
+      } catch (e) {
+        if (!cancelled) {
+          const { cameraErrorMessage } = await import("@/lib/cameraScanner");
+          setError(cameraErrorMessage(e, location.protocol === "https:"));
+        }
+      }
+    })();
+    return () => {
+      cancelled = true;
+      sessionRef.current?.stop();
+    };
+    // eslint-disable-next-line react-hooks/exhaustive-deps
+  }, []);
+
+  return (
+    <div
+      data-suppress-hardware-scan="1"
+      onClick={onClose}
+      style={{
+        position: "fixed",
+        inset: 0,
+        background: "rgba(0,0,0,0.6)",
+        zIndex: 9999,
+        display: "flex",
+        alignItems: "center",
+        justifyContent: "center",
+      }}
+    >
+      <div
+        onClick={(e) => e.stopPropagation()}
+        style={{
+          background: "#fff",
+          borderRadius: 16,
+          padding: 20,
+          width: "90%",
+          maxWidth: 420,
+          boxShadow: "0 8px 32px rgba(0,0,0,0.3)",
+        }}
+      >
+        <div style={{ display: "flex", justifyContent: "space-between", alignItems: "center", marginBottom: 12 }}>
+          <h3 style={{ margin: 0, fontSize: 16 }}>
+            <i className="fa-solid fa-qrcode" style={{ marginRight: 8, color: "var(--success)" }} />
+            Scan dress to search bookings
+          </h3>
+          <button
+            type="button"
+            onClick={onClose}
+            style={{ background: "none", border: "none", fontSize: 20, cursor: "pointer", color: "#6b7280" }}
+          >
+            <i className="fa-solid fa-xmark" />
+          </button>
+        </div>
+
+        <div
+          id="booked-items-qr-scan"
+          style={{
+            width: "100%",
+            minHeight: 260,
+            borderRadius: 12,
+            overflow: "hidden",
+            background: "#111",
+          }}
+        />
+        {error ? (
+          <p style={{ color: "#b42318", fontSize: 13, marginTop: 10 }}>{error}</p>
+        ) : (
+          <p style={{ color: "var(--text-muted)", fontSize: 12, marginTop: 10 }}>
+            Point the camera at the dress QR code. Matching bookings will load for this period.
+          </p>
+        )}
+
+        <form
+          onSubmit={(e) => {
+            e.preventDefault();
+            if (manualCode.trim()) onScan(manualCode.trim());
+          }}
+          style={{ display: "flex", gap: 8, marginTop: 12 }}
+        >
+          <input
+            className="form-control"
+            value={manualCode}
+            onChange={(e) => setManualCode(e.target.value)}
+            placeholder="Or type / USB-scan code"
+            autoComplete="off"
+          />
+          <button type="submit" className="btn btn-primary" disabled={!manualCode.trim()}>
+            Search
+          </button>
+        </form>
+      </div>
     </div>
   );
 }

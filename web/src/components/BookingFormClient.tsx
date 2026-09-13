@@ -681,10 +681,10 @@ export default function BookingFormClient(props: Props) {
     const version = ++availabilityVersionRef.current;
 
     setLoading(true);
-    const searching = nameSearch.trim().length >= 2;
-    // One tighter page when searching — multi-page fan-out made name filter feel laggy.
-    const pageLimit = searching ? Math.max(availabilityPageLimit, 80) : availabilityPageLimit;
-    const maxPages = searching ? 2 : 1;
+    const searching = nameSearch.trim().length >= 2 && !/^\d+$/.test(nameSearch.trim());
+    // When searching by name, fetch more matches and ignore category so dresses are findable.
+    const pageLimit = searching ? Math.max(availabilityPageLimit, 100) : availabilityPageLimit;
+    const maxPages = searching ? 4 : 1;
     let nextAppend = append;
 
     try {
@@ -693,9 +693,9 @@ export default function BookingFormClient(props: Props) {
         const params = new URLSearchParams({
           delivery_date: deliveryDate,
           return_date: returnDate,
-          category: categoryFilter,
-          size: sizeFilter,
-          search: nameSearch.trim(),
+          category: searching ? "" : categoryFilter,
+          size: searching ? "" : sizeFilter,
+          search: searching ? nameSearch.trim() : "",
           limit: String(pageLimit),
         });
         if (props.editId) params.set("exclude_booking", String(props.editId));
@@ -861,13 +861,13 @@ export default function BookingFormClient(props: Props) {
     return () => clearTimeout(t);
   }, [deliveryDate, returnDate, categoryFilter, sizeFilter, fetchAvailability, props.editId]);
 
-  // Name typing — slower server assist; suggestions + client filter handle the fast path
+  // Name typing — server search; keep debounce short so results appear quickly
   useEffect(() => {
     const q = nameSearch.trim();
     if (q.length < 2 || /^\d+$/.test(q)) return;
     const t = setTimeout(() => {
       void fetchAvailability();
-    }, 650);
+    }, 180);
     return () => clearTimeout(t);
   }, [nameSearch, fetchAvailability]);
 
@@ -894,11 +894,19 @@ export default function BookingFormClient(props: Props) {
 
   const filtered = useMemo(() => {
     let list = allFreeItems;
-    if (categoryFilter) list = list.filter((i) => i.category === categoryFilter);
-    if (dressNameFilter) {
-      list = list.filter((i) => inventoryItemMatches(i, nameSearch));
+    const serverNameSearch =
+      nameSearch.trim().length >= 2 && !/^\d+$/.test(nameSearch.trim());
+
+    // While the server is searching by name, trust its results — do not
+    // re-filter by category/name (that hid dresses not already in the first page).
+    if (!serverNameSearch) {
+      if (categoryFilter) list = list.filter((i) => i.category === categoryFilter);
+      if (dressNameFilter) {
+        list = list.filter((i) => inventoryItemMatches(i, nameSearch));
+      }
+      if (sizeFilter) list = list.filter((i) => i.size?.includes(sizeFilter));
     }
-    if (sizeFilter) list = list.filter((i) => i.size?.includes(sizeFilter));
+
     // Men's: one row per size so searching a sherwani shows 36/38/40… not the same size 20 times.
     list = collapseMensAvailabilityItems(list);
     if (
@@ -954,7 +962,7 @@ export default function BookingFormClient(props: Props) {
 
 
 
-  const handleScanCode = useCallback(async (code: string) => {
+  const handleScanCode = useCallback(async (code: string, opts?: { keepSearch?: boolean }) => {
     if (scanBusy) return;
     const trimmed = code.trim();
     if (!trimmed) return;
@@ -1043,18 +1051,18 @@ export default function BookingFormClient(props: Props) {
         notes: "",
         ...scanWarnings,
       }]);
-      setNameSearch("");
+      if (!opts?.keepSearch) setNameSearch("");
       toast?.(`${item.name} added to booking`, "success");
     } catch {
       alert("Failed to look up scanned dress. Please try again.");
     } finally {
       setScanBusy(false);
-      setNameSearch("");
+      if (!opts?.keepSearch) setNameSearch("");
       refocusDressSearch();
     }
   }, [scanBusy, deliveryDate, returnDate, deliveryTime, returnTime, props.editId, selectedDresses, toast, refocusDressSearch, isProspect]);
 
-  /** One-tap add from name suggestions (same availability path as QR scan). */
+  /** Tap suggestion: show matches in the list, and add the dress when SKU is known. */
   const addDressFromSuggest = useCallback(
     (item: {
       id?: number;
@@ -1063,9 +1071,13 @@ export default function BookingFormClient(props: Props) {
       sku?: string;
       category?: string;
     }) => {
+      const label = stripUnitSuffix(item.display_name || item.name || "") || item.name;
+      setNameSearch(label);
+      setSizeFilter("");
+
       const sku = String(item.sku || "").trim();
       if (sku) {
-        void handleScanCode(sku);
+        void handleScanCode(sku, { keepSearch: true });
         return;
       }
 
@@ -1074,26 +1086,21 @@ export default function BookingFormClient(props: Props) {
           ? allFreeItems.find((row) => row.id === item.id)
           : undefined) ||
         allFreeItems.find((row) => {
-          const label = (row.display_name || row.name || "").trim().toLowerCase();
-          const want = (item.display_name || item.name || "").trim().toLowerCase();
-          return label === want;
+          const rowLabel = (row.display_name || row.name || "").trim().toLowerCase();
+          return rowLabel === (item.display_name || item.name || "").trim().toLowerCase();
         });
 
       if (match) {
         if (selectedDresses.some((d) => d.id === match.id)) {
           toast?.("This dress is already added to the booking.", "info");
-          setNameSearch("");
           return;
         }
         if (!confirmAlternateDressAdd(match.returning_warning, match.booked_warning)) return;
         addSelectedDressFromItem(match);
+        setNameSearch(label);
         toast?.(`${match.display_name || match.name} added to booking`, "success");
         return;
       }
-
-      const base = stripUnitSuffix(item.name || item.display_name || "");
-      setSizeFilter("");
-      setNameSearch(base || item.name);
     },
     [handleScanCode, allFreeItems, selectedDresses, toast],
   );
@@ -1961,10 +1968,10 @@ export default function BookingFormClient(props: Props) {
             <div style={{ position: "relative", flex: 1, minWidth: 140, display: "flex", gap: 6 }}>
               <DressNameSuggestInput
                 className="form-control"
-                placeholder={scanBusy ? "Checking scanned dress…" : "Search dress name — tap once to add"}
+                placeholder={scanBusy ? "Checking scanned dress…" : "Search dress name — tap suggestion to add, or browse list"}
                 value={nameSearch}
                 showPhotos
-                clearOnSelect
+                clearOnSelect={false}
                 minChars={1}
                 debounceMs={120}
                 suggestLimit={16}
