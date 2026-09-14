@@ -6,6 +6,7 @@ import BookingFormClient from "@/components/BookingFormClient";
 import { getAllCategories } from "@/lib/categories";
 import { todayIso } from "@/lib/constants";
 import { catalogPhotoRef } from "@/lib/catalogPhotoRef";
+import { photoUrl, pickInventoryThumbRef } from "@/lib/photoUrl";
 
 export const dynamic = "force-dynamic";
 
@@ -26,7 +27,7 @@ export default async function EditBookingPage({
   const booking = await prisma.booking.findUnique({
     where: { id: parseInt(id, 10) },
     include: {
-      bookingItems: { include: { item: { select: { id: true, name: true, size: true, sku: true, category: true, photo: true, status: true } } } },
+      bookingItems: { include: { item: { select: { id: true, name: true, size: true, sku: true, category: true, photo: true, thumbnailPhoto: true, status: true } } } },
       orders: { where: { status: "active" }, orderBy: { id: "asc" } },
     },
   });
@@ -78,7 +79,12 @@ export default async function EditBookingPage({
             name: bi.dressName,
             category: bi.category || "",
             size: bi.size || bi.item?.size || "",
-            photo: bi.item ? catalogPhotoRef(bi.item) : "",
+            photo: bi.item
+              ? photoUrl(
+                  pickInventoryThumbRef(bi.item.thumbnailPhoto, catalogPhotoRef(bi.item)) ||
+                    catalogPhotoRef(bi.item),
+                ) || ""
+              : "",
             price: bi.price,
             fittingCharges: bi.fittingCharges || 0,
             advance: bi.advance,

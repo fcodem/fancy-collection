@@ -2,7 +2,7 @@ import { NextRequest } from "next/server";
 import { jsonError, jsonOk, requireUserReadOnly, isResponse } from "@/lib/api";
 import { createPerfTimer, withServerTiming } from "@/lib/perfTiming";
 import { listInventoryGroupItems } from "@/lib/services/inventoryList";
-import { photoUrl } from "@/lib/photoUrl";
+import { photoUrl, pickInventoryThumbRef } from "@/lib/photoUrl";
 import { dressDisplayName } from "@/lib/dress";
 
 export const dynamic = "force-dynamic";
@@ -30,18 +30,21 @@ export async function GET(
   return withServerTiming(
     jsonOk({
       groupKey,
-      items: items.map((i) => ({
-        id: i.id,
-        sku: i.sku,
-        name: i.name,
-        displayName: dressDisplayName(i.name, i.category, i.size),
-        category: i.category,
-        size: i.size,
-        color: i.color,
-        status: i.status,
-        dailyRate: i.dailyRate,
-        thumbnailUrl: i.thumbnailPhoto ? photoUrl(i.thumbnailPhoto) : null,
-      })),
+      items: items.map((i) => {
+        const thumbRef = pickInventoryThumbRef(i.thumbnailPhoto, i.photo);
+        return {
+          id: i.id,
+          sku: i.sku,
+          name: i.name,
+          displayName: dressDisplayName(i.name, i.category, i.size),
+          category: i.category,
+          size: i.size,
+          color: i.color,
+          status: i.status,
+          dailyRate: i.dailyRate,
+          thumbnailUrl: thumbRef ? photoUrl(thumbRef) : null,
+        };
+      }),
     }),
     timings,
   );

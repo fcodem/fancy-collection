@@ -60,7 +60,8 @@ export default function BookingViewClient({
     if (typeof window === "undefined") return;
     const sp = new URLSearchParams(window.location.search);
     if (!sp.get("updated")) return;
-    router.refresh();
+    // Record page already loaded fresh via ?updated= bypass — only clean the URL.
+    // Do not refresh+strip in the same tick (that re-fetched a stale cached RSC payload).
     router.replace(`/booking/${booking.id}`, { scroll: false });
   }, [router, booking.id]);
 

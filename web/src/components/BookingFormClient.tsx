@@ -32,7 +32,7 @@ import { generateUuidV4 } from "@/lib/clientUuid";
 import { addDaysIso, isoToDisplay } from "@/lib/dateInput";
 import BookingConflictSummary from "@/components/BookingConflictSummary";
 import PaymentModePicker from "@/components/PaymentModePicker";
-import { inventoryItemMatches, stripUnitSuffix } from "@/lib/dress";
+import { inventoryItemMatches, normalizeDressSearchQuery, stripUnitSuffix } from "@/lib/dress";
 import {
   collapseMensAvailabilityItems,
   mergeAvailabilityItemsById,
@@ -541,7 +541,18 @@ export default function BookingFormClient(props: Props) {
     typeof window !== "undefined" && window.matchMedia("(max-width: 767px)").matches ? 20 : 30,
   );
 
-  const [selectedDresses, setSelectedDresses] = useState<SelectedDress[]>(props.initial?.items || []);
+  const [selectedDresses, setSelectedDresses] = useState<SelectedDress[]>(() => {
+    const items = props.initial?.items || [];
+    const seen = new Set<number>();
+    const deduped: SelectedDress[] = [];
+    for (const d of items) {
+      if (d.id == null) continue;
+      if (seen.has(d.id)) continue;
+      seen.add(d.id);
+      deduped.push(d);
+    }
+    return deduped;
+  });
 
   const [orders, setOrders] = useState<OrderRow[]>(props.initial?.orders || []);
 
@@ -567,8 +578,15 @@ export default function BookingFormClient(props: Props) {
   const dateCheckVersionRef = useRef(0);
   const lastSerialYmRef = useRef<string>("");
   const lastRealtimeRefreshRef = useRef(0);
+  const selectedDressIdsRef = useRef<Set<number>>(new Set());
   const formRootRef = useRef<HTMLFieldSetElement>(null);
   useBlockWheelValueChange(formRootRef);
+
+  useEffect(() => {
+    selectedDressIdsRef.current = new Set(
+      selectedDresses.map((d) => d.id).filter((id): id is number => typeof id === "number"),
+    );
+  }, [selectedDresses]);
 
   useEffect(() => {
     let cancelled = false;
@@ -681,7 +699,8 @@ export default function BookingFormClient(props: Props) {
     availabilityAbortRef.current = controller;
     const version = ++availabilityVersionRef.current;
 
-    const searchQ = (searchOverride !== undefined ? searchOverride : nameSearchRef.current).trim();
+    const rawSearch = (searchOverride !== undefined ? searchOverride : nameSearchRef.current).trim();
+    const searchQ = normalizeDressSearchQuery(rawSearch) || rawSearch;
     const searching = searchQ.length >= 2 && !/^\d+$/.test(searchQ);
 
     setLoading(true);
@@ -915,10 +934,11 @@ export default function BookingFormClient(props: Props) {
   // Name typing — dedicated search path (keeps list in sync with what you type)
   useEffect(() => {
     nameSearchRef.current = nameSearch;
-    const q = nameSearch.trim();
+    const raw = nameSearch.trim();
+    const q = normalizeDressSearchQuery(raw) || raw;
     if (q.length < 2 || /^\d+$/.test(q)) {
       // Cleared / too short: reload unfiltered free list for current dates
-      if (!q) {
+      if (!raw) {
         const t = setTimeout(() => void fetchAvailability(false, ""), 120);
         return () => clearTimeout(t);
       }
@@ -984,39 +1004,41 @@ export default function BookingFormClient(props: Props) {
 
 
   function addSelectedDressFromItem(item: FreeItem) {
-    setSelectedDresses((prev) => [...prev, {
-      id: item.id,
-      name: item.name,
-      category: item.category,
-      size: item.size || "",
-      color: item.color || "",
-      photo: item.photo || "",
-      price: 0,
-      fittingCharges: 0,
-      advance: 0,
-      notes: "",
-      returning_warning: item.returning_warning || null,
-      booked_warning: item.booked_warning || null,
-    }]);
+    if (selectedDressIdsRef.current.has(item.id)) return false;
+    selectedDressIdsRef.current.add(item.id);
+    setSelectedDresses((prev) => {
+      if (prev.some((d) => d.id === item.id)) return prev;
+      return [
+        ...prev,
+        {
+          id: item.id,
+          name: item.name,
+          category: item.category,
+          size: item.size || "",
+          color: item.color || "",
+          photo: item.photo || "",
+          price: 0,
+          fittingCharges: 0,
+          advance: 0,
+          notes: "",
+          returning_warning: item.returning_warning || null,
+          booked_warning: item.booked_warning || null,
+        },
+      ];
+    });
     setNameSearch("");
+    return true;
   }
 
   /** Add/remove a dress from the booking. */
   function toggleDress(item: FreeItem) {
-
-    const idx = selectedDresses.findIndex((d) => d.id === item.id);
-
-    if (idx >= 0) {
-
-      setSelectedDresses(selectedDresses.filter((d) => d.id !== item.id));
-
-    } else {
-
-      if (!confirmAlternateDressAdd(item.returning_warning, item.booked_warning)) return;
-      addSelectedDressFromItem(item);
-
+    if (selectedDressIdsRef.current.has(item.id)) {
+      selectedDressIdsRef.current.delete(item.id);
+      setSelectedDresses((prev) => prev.filter((d) => d.id !== item.id));
+      return;
     }
-
+    if (!confirmAlternateDressAdd(item.returning_warning, item.booked_warning)) return;
+    addSelectedDressFromItem(item);
   }
 
 
@@ -1075,10 +1097,6 @@ export default function BookingFormClient(props: Props) {
         alert("This dress is inactive and cannot be booked.");
         return;
       }
-      if (selectedDresses.some((d) => d.id === data.item!.id)) {
-        toast?.("This dress is already added to the booking.", "info");
-        return;
-      }
       if (data.status.startsWith("WARNING_")) {
         const scanWarnings = warningsFromScanRecords(data.warningRecords || []);
         if (!confirmAlternateDressAdd(scanWarnings.returning_warning, scanWarnings.booked_warning)) return;
@@ -1097,19 +1115,31 @@ export default function BookingFormClient(props: Props) {
       const scanWarnings = data.status.startsWith("WARNING_")
         ? warningsFromScanRecords(data.warningRecords || [])
         : { returning_warning: null, booked_warning: null };
-      setSelectedDresses((prev) => [...prev, {
-        id: item.id,
-        name: item.name,
-        category: item.category,
-        size: item.size || "",
-        color: item.color || "",
-        photo: item.photo || "",
-        price: 0,
-        fittingCharges: 0,
-        advance: 0,
-        notes: "",
-        ...scanWarnings,
-      }]);
+
+      if (selectedDressIdsRef.current.has(item.id)) {
+        toast?.("This dress is already added to the booking.", "info");
+        return;
+      }
+      selectedDressIdsRef.current.add(item.id);
+      setSelectedDresses((prev) => {
+        if (prev.some((d) => d.id === item.id)) return prev;
+        return [
+          ...prev,
+          {
+            id: item.id,
+            name: item.name,
+            category: item.category,
+            size: item.size || "",
+            color: item.color || "",
+            photo: item.photo || "",
+            price: 0,
+            fittingCharges: 0,
+            advance: 0,
+            notes: "",
+            ...scanWarnings,
+          },
+        ];
+      });
       if (!opts?.keepSearch) setNameSearch("");
       toast?.(`${item.name} added to booking`, "success");
     } catch {
@@ -1119,7 +1149,7 @@ export default function BookingFormClient(props: Props) {
       if (!opts?.keepSearch) setNameSearch("");
       refocusDressSearch();
     }
-  }, [scanBusy, deliveryDate, returnDate, deliveryTime, returnTime, props.editId, selectedDresses, toast, refocusDressSearch, isProspect]);
+  }, [scanBusy, deliveryDate, returnDate, deliveryTime, returnTime, props.editId, toast, refocusDressSearch, isProspect]);
 
   /** Tap suggestion: show matches in the list, and add the dress when SKU is known. */
   const addDressFromSuggest = useCallback(
@@ -1130,12 +1160,14 @@ export default function BookingFormClient(props: Props) {
       sku?: string;
       category?: string;
     }) => {
-      const label = stripUnitSuffix(item.display_name || item.name || "") || item.name;
-      setNameSearch(label);
+      // Always search by bare inventory name — display_name "(Category) · Size" breaks availability SQL.
+      const bareName = stripUnitSuffix(item.name || "") || item.name;
+      setNameSearch(bareName);
       setSizeFilter("");
 
       const sku = String(item.sku || "").trim();
       if (sku) {
+        // Keep bare-name search so the dress stays visible in the list after add.
         void handleScanCode(sku, { keepSearch: true });
         return;
       }
@@ -1145,23 +1177,22 @@ export default function BookingFormClient(props: Props) {
           ? allFreeItems.find((row) => row.id === item.id)
           : undefined) ||
         allFreeItems.find((row) => {
-          const rowLabel = (row.display_name || row.name || "").trim().toLowerCase();
-          return rowLabel === (item.display_name || item.name || "").trim().toLowerCase();
+          const rowName = stripUnitSuffix(row.name || "").toLowerCase();
+          return rowName === bareName.trim().toLowerCase();
         });
 
       if (match) {
-        if (selectedDresses.some((d) => d.id === match.id)) {
+        if (!confirmAlternateDressAdd(match.returning_warning, match.booked_warning)) return;
+        if (!addSelectedDressFromItem(match)) {
           toast?.("This dress is already added to the booking.", "info");
           return;
         }
-        if (!confirmAlternateDressAdd(match.returning_warning, match.booked_warning)) return;
-        addSelectedDressFromItem(match);
-        setNameSearch(label);
+        setNameSearch(bareName);
         toast?.(`${match.display_name || match.name} added to booking`, "success");
         return;
       }
     },
-    [handleScanCode, allFreeItems, selectedDresses, toast],
+    [handleScanCode, allFreeItems, toast],
   );
 
   const handleDressSearchKeyDown = useCallback((e: React.KeyboardEvent<HTMLInputElement>) => {
@@ -1189,9 +1220,11 @@ export default function BookingFormClient(props: Props) {
   }, [refocusDressSearch]);
 
   function removeDress(index: number) {
-
-    setSelectedDresses(selectedDresses.filter((_, i) => i !== index));
-
+    setSelectedDresses((prev) => {
+      const removed = prev[index];
+      if (removed?.id != null) selectedDressIdsRef.current.delete(removed.id);
+      return prev.filter((_, i) => i !== index);
+    });
   }
 
 
@@ -1326,7 +1359,10 @@ export default function BookingFormClient(props: Props) {
     sendWhatsApp?: boolean;
     openDelivery?: boolean;
   }) {
-    if (readOnly) return;
+    if (readOnly) {
+      setError("This booking is locked. Unlock it before editing.");
+      return;
+    }
     if (submittingRef.current || saving) return;
 
     setError("");
@@ -1352,12 +1388,17 @@ export default function BookingFormClient(props: Props) {
 
     }
 
-    if (isDateBeforeToday(deliveryDate) || isDateBeforeToday(returnDate)) {
-
+    const initialDelivery = (props.initial?.delivery_date || "").slice(0, 10);
+    const initialReturn = (props.initial?.return_date || "").slice(0, 10);
+    const deliveryChanged = deliveryDate.slice(0, 10) !== initialDelivery;
+    const returnChanged = returnDate.slice(0, 10) !== initialReturn;
+    // Existing past dates on edit must remain saveable; only block newly chosen past dates.
+    if (
+      (deliveryChanged && isDateBeforeToday(deliveryDate)) ||
+      (returnChanged && isDateBeforeToday(returnDate))
+    ) {
       setError("Pickup and return dates cannot be before today.");
-
       return;
-
     }
 
     if (hasHardBlock) {
@@ -1622,9 +1663,9 @@ export default function BookingFormClient(props: Props) {
       invalidateClientCache();
       const base = props.afterSaveHref || `/booking/${bookingId}`;
       const sep = base.includes("?") ? "&" : "?";
-      // Cache-bust soft-nav RSC payload so the first save shows immediately.
-      router.replace(`${base}${sep}updated=${Date.now()}`);
-      router.refresh();
+      // Hard navigate so the first paint cannot reuse a stale soft-nav RSC payload.
+      window.location.assign(`${base}${sep}updated=${Date.now()}`);
+      return;
     }
 
     } catch (e) {
@@ -2097,6 +2138,10 @@ export default function BookingFormClient(props: Props) {
                     selected={sel}
                     style={rowStyle(item, sel)}
                     onToggle={() => {
+                      if (selectedDressIdsRef.current.has(item.id)) {
+                        toggleDress(item);
+                        return;
+                      }
                       if ((item.free_quantity === 0 || item.booked_warning?.customer_name === "Not free for these dates") && item.sku) {
                         void handleScanCode(String(item.sku), { keepSearch: true });
                         return;
@@ -2204,7 +2249,7 @@ export default function BookingFormClient(props: Props) {
               const warn = allFreeItems.find((f) => f.id === d.id);
               return (
               <BookingSelectedDressRow
-                key={d.id}
+                key={`${d.id ?? "x"}-${i}`}
                 dress={d}
                 index={i}
                 returningWarning={warn?.returning_warning || d.returning_warning}

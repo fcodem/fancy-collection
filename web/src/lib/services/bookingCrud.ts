@@ -8,7 +8,7 @@ import {
 } from "../booking";
 import { allocateMonthlySerial, previewNextMonthlySerial } from "../bookingSerialCounter";
 import { lockInventoryItemsForBooking } from "../bookingItemLocks";
-import { parseDate, assertBookingDatesNotPast } from "../constants";
+import { parseDate, assertBookingDatesNotPast, formatDate, isDateBeforeToday } from "../constants";
 import { shouldSkipCustomerCreate } from "./customersOps";
 import { broadcastShopEvent } from "../realtime/broadcast";
 import { logActivity, snapshotBooking } from "../activityLog";
@@ -279,7 +279,17 @@ export async function updateBooking(bookingId: number, input: BookingFormInput, 
   if (!booking) throw new Error("Booking not found.");
   const beforeSnapshot = snapshotBooking(booking as unknown as Record<string, unknown>);
 
-  assertBookingDatesNotPast(input.delivery_date, input.return_date);
+  const existingDelivery = formatDate(booking.deliveryDate, "iso");
+  const existingReturn = formatDate(booking.returnDate, "iso");
+  const nextDelivery = input.delivery_date.slice(0, 10);
+  const nextReturn = input.return_date.slice(0, 10);
+  // Allow editing bookings that already have past dates; only reject newly chosen past dates.
+  if (nextDelivery !== existingDelivery && isDateBeforeToday(nextDelivery)) {
+    throw new Error("Pickup (delivery) date cannot be before today.");
+  }
+  if (nextReturn !== existingReturn && isDateBeforeToday(nextReturn)) {
+    throw new Error("Return date cannot be before today.");
+  }
   const deliveryDate = parseDate(input.delivery_date);
   const returnDate = parseDate(input.return_date);
   if (returnDate < deliveryDate) throw new Error("Return date must be on or after delivery date.");

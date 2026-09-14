@@ -7,7 +7,7 @@
 import prisma, { isSqliteDb } from "@/lib/prisma";
 import { dressDisplayName, normalizeDressSearchKey, stripUnitSuffix } from "@/lib/dress";
 import { preferDistinctDressSizes } from "@/lib/mensAvailabilityCollapse";
-import { photoUrl } from "@/lib/photoUrl";
+import { photoUrl, pickInventoryFullRef, pickInventoryThumbRef } from "@/lib/photoUrl";
 
 export type InventorySearchRow = {
   id: number;
@@ -78,13 +78,11 @@ function clampLimit(n?: number) {
   return Math.max(1, Math.min(MAX_LIMIT, v));
 }
 
-function thumbRef(item: { thumbnailPhoto: string | null; photo: string | null }) {
-  return item.thumbnailPhoto || item.photo || "";
-}
-
 function serializeRow(item: RawItem): InventorySearchRow {
-  const thumb = thumbRef(item);
-  const full = item.photo || item.thumbnailPhoto || "";
+  const thumbRef = pickInventoryThumbRef(item.thumbnailPhoto, item.photo);
+  const fullRef = pickInventoryFullRef(item.photo, item.thumbnailPhoto);
+  const thumb = thumbRef ? photoUrl(thumbRef) : "";
+  const full = fullRef ? photoUrl(fullRef) : "";
   return {
     id: item.id,
     name: item.name,
@@ -94,9 +92,9 @@ function serializeRow(item: RawItem): InventorySearchRow {
     size: item.size || "",
     color: item.color || "",
     status: item.status,
-    photo: thumb,
-    photo_url: full ? photoUrl(full) : null,
-    thumbnail_url: thumb ? photoUrl(thumb) : null,
+    photo: thumb || full,
+    photo_url: full || null,
+    thumbnail_url: thumb || full || null,
     sub_category: item.subCategory || "",
     daily_rate: item.dailyRate,
     deposit: item.deposit,

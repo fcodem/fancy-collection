@@ -56,11 +56,6 @@ export type TomorrowPackingPageData = {
   }>;
 };
 
-function isBookingPackingDone(items: TomorrowPackingItem[]): boolean {
-  if (!items.length) return false;
-  return items.every((item) => item.isPackedReady);
-}
-
 export async function getTomorrowPackingPageData(): Promise<TomorrowPackingPageData> {
   const tomorrowIso = addDaysIso(todayIso(), 1);
   const dateWhere = await whereDeliveryInRange(tomorrowIso, tomorrowIso);
@@ -164,8 +159,27 @@ export async function getTomorrowPackingPageData(): Promise<TomorrowPackingPageD
     };
   });
 
-  const packingLeft = sortByDeliverySchedule(mapped.filter((b) => !isBookingPackingDone(b.items)));
-  const packingDone = sortByDeliverySchedule(mapped.filter((b) => isBookingPackingDone(b.items)));
+  // Left list: only dresses still to pack (do not mix already-packed items into "left").
+  const packingLeft = sortByDeliverySchedule(
+    mapped
+      .map((b) => {
+        const items = b.items.filter((i) => !i.isPackedReady);
+        if (!items.length) return null;
+        return { ...b, items, packedCount: 0, pendingCount: items.length };
+      })
+      .filter((b): b is TomorrowPackingBooking => Boolean(b)),
+  );
+
+  // Done list: only packed dresses (including partially packed bookings).
+  const packingDone = sortByDeliverySchedule(
+    mapped
+      .map((b) => {
+        const items = b.items.filter((i) => i.isPackedReady);
+        if (!items.length) return null;
+        return { ...b, items, packedCount: items.length, pendingCount: 0 };
+      })
+      .filter((b): b is TomorrowPackingBooking => Boolean(b)),
+  );
 
   const splitForDivision = (list: TomorrowPackingBooking[], key: string) =>
     list
@@ -186,12 +200,8 @@ export async function getTomorrowPackingPageData(): Promise<TomorrowPackingPageD
       .filter((b): b is TomorrowPackingBooking => Boolean(b));
 
   const divisions = PACKING_DIVISIONS.map((div) => {
-    const left = sortByDeliverySchedule(
-      splitForDivision(packingLeft, div.key).filter((b) => !isBookingPackingDone(b.items)),
-    );
-    const done = sortByDeliverySchedule(
-      splitForDivision(mapped, div.key).filter((b) => isBookingPackingDone(b.items)),
-    );
+    const left = sortByDeliverySchedule(splitForDivision(packingLeft, div.key));
+    const done = sortByDeliverySchedule(splitForDivision(packingDone, div.key));
     return {
       key: div.key,
       label: div.label,
@@ -211,4 +221,35 @@ export async function getTomorrowPackingPageData(): Promise<TomorrowPackingPageD
     doneItemCount: packingDone.reduce((n, b) => n + b.packedCount, 0),
     divisions,
   };
+}
+
+/**
+ * Same pending-dress count as Tomorrow Packing / dashboard card.
+ * Prefer this over ad-hoc SQL so the two surfaces cannot drift.
+ */
+export async function countTomorrowPackingLeftItems(): Promise<number> {
+  const tomorrowIso = addDaysIso(todayIso(), 1);
+  const dateWhere = await whereDeliveryInRange(tomorrowIso, tomorrowIso);
+  const bookings = await prisma.booking.findMany({
+    where: {
+      AND: [{ status: "booked" }, dateWhere],
+    },
+    select: {
+      bookingItems: {
+        where: { isCancelled: false },
+        select: { isPackedReady: true },
+      },
+    },
+  });
+
+  let pending = 0;
+  for (const b of bookings) {
+    if (!b.bookingItems.length) {
+      // Legacy booking with no line items — treated as 1 dress still to pack.
+      pending += 1;
+      continue;
+    }
+    pending += b.bookingItems.filter((i) => !i.isPackedReady).length;
+  }
+  return pending;
 }

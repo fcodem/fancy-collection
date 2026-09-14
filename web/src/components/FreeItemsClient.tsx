@@ -13,7 +13,7 @@ import { BOOKING_EVENTS, INVENTORY_EVENTS } from "@/lib/realtime/types";
 import DownloadPdfButton from "@/components/DownloadPdfButton";
 import { formatJewelleryPartsLabel, type JewelleryPartKey } from "@/lib/jewelleryParts";
 import { addDaysIso } from "@/lib/dateInput";
-import { photoUrl } from "@/lib/photoUrl";
+import { photoUrl, pickInventoryFullRef, pickInventoryThumbRef } from "@/lib/photoUrl";
 import ZoomableImage from "@/components/ZoomableImage";
 import { dressDisplayName, stripUnitSuffix } from "@/lib/dress";
 
@@ -62,11 +62,11 @@ type FreeItem = {
 };
 
 function itemThumbSrc(item: FreeItem): string {
-  return photoUrl(item.thumbnail || item.photo) || "";
+  return photoUrl(pickInventoryThumbRef(item.thumbnail, item.photo) || "") || "";
 }
 
 function itemFullSrc(item: FreeItem): string {
-  return photoUrl(item.photo || item.thumbnail) || itemThumbSrc(item);
+  return photoUrl(pickInventoryFullRef(item.photo, item.thumbnail) || "") || itemThumbSrc(item);
 }
 
 function hasBookedParts(item: FreeItem): boolean {

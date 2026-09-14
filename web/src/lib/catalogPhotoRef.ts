@@ -28,6 +28,7 @@ export type CatalogPhotoVariant =
 
 export type CatalogPhotoItem = Partial<{
   photo: string | null | undefined;
+  thumbnailPhoto: string | null | undefined;
   originalPhoto: string | null | undefined;
   recognitionImage: string | null | undefined;
   enhancedPhoto: string | null | undefined;
@@ -51,7 +52,8 @@ export function inventoryPhotoRef(item: NullableCatalogPhotoItem): string {
   if (isAutoImageEnhancementEnabled() && item.enhancedPhoto) {
     return item.enhancedPhoto;
   }
-  return item.photo || item.originalPhoto || "";
+  // Prefer durable HTTPS catalog photo; fall back to thumbnail / original.
+  return item.photo || item.originalPhoto || item.thumbnailPhoto || "";
 }
 
 /**

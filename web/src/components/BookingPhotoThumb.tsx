@@ -1,6 +1,6 @@
 "use client";
 
-import { useState } from "react";
+import { useEffect, useState } from "react";
 import ZoomableImage from "@/components/ZoomableImage";
 import { photoUrl } from "@/lib/photoUrl";
 
@@ -24,6 +24,10 @@ export default function BookingPhotoThumb({
 }: Props) {
   const [broken, setBroken] = useState(false);
   const src = photoUrl(photo);
+
+  useEffect(() => {
+    setBroken(false);
+  }, [src]);
 
   if (!src || broken) {
     return (

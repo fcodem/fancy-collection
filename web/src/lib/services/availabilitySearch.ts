@@ -55,6 +55,7 @@ export type AvailabilitySearchResult = {
   free_items: Array<{
     id: number;
     name: string;
+    sku?: string;
     display_name: string;
     category: string;
     sub_category: string;
@@ -88,6 +89,7 @@ export type AvailabilitySearchResult = {
 type AvailabilityRow = {
   id: number;
   name: string;
+  sku: string | null;
   category: string;
   subCategory: string | null;
   size: string | null;
@@ -128,7 +130,13 @@ export function candidateCapFor(limit: number): number {
 
 /** Name/SKU match for availability search — phrase first, then multi-word AND. */
 function inventorySearchSql(search: string): Prisma.Sql {
-  const trimmed = search.trim();
+  // Import inline would cycle; normalize display decorations before matching inventory names.
+  const trimmed = search
+    .trim()
+    .replace(/\s*[·|]\s*Size\s+.+$/i, "")
+    .replace(/\s*\([^)]*\)\s*$/g, "")
+    .replace(/\s+#\d+$/i, "")
+    .trim();
   if (!trimmed) return Prisma.sql`TRUE`;
 
   const compact = trimmed.toLowerCase().replace(/[^a-z0-9]/g, "");
@@ -407,6 +415,7 @@ function buildAvailabilityQuery(opts: {
       SELECT
         ci.id,
         ci.name,
+        ci.sku,
         ci.category,
         ci.sub_category AS "subCategory",
         ci.size,
@@ -805,6 +814,7 @@ export async function searchAvailableItems(
     return {
       id: row.id,
       name: row.name,
+      sku: row.sku || "",
       display_name: dressDisplayName(row.name, row.category, row.size),
       category: row.category,
       sub_category: row.subCategory || "Normal",

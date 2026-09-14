@@ -8,6 +8,7 @@ import BookingWarningsAsync from "@/components/BookingWarningsAsync";
 import BookingWarningsSkeleton from "@/components/BookingWarningsSkeleton";
 import { loadCachedBookingRecordCore } from "@/lib/services/bookingRecordCache";
 import {
+  loadBookingRecordCore,
   serializeBookingRecordForView,
   serializeBookingRecordOrders,
 } from "@/lib/services/bookingRecordData";
@@ -15,7 +16,13 @@ import { createBookingRecordPerfTimer } from "@/lib/services/bookingRecordPerf";
 
 export const dynamic = "force-dynamic";
 
-export default async function BookingViewPage({ params }: { params: Promise<{ id: string }> }) {
+export default async function BookingViewPage({
+  params,
+  searchParams,
+}: {
+  params: Promise<{ id: string }>;
+  searchParams: Promise<{ updated?: string }>;
+}) {
   const perf = createBookingRecordPerfTimer();
   perf.mark("auth");
 
@@ -24,13 +31,17 @@ export default async function BookingViewPage({ params }: { params: Promise<{ id
   perf.endStage("authMs", "auth");
 
   const { id } = await params;
+  const { updated } = await searchParams;
   if (id === "new") redirect("/booking/new");
 
   const bookingId = parseInt(id, 10);
   if (!Number.isFinite(bookingId) || bookingId <= 0) notFound();
 
   perf.mark("core");
-  const core = await loadCachedBookingRecordCore(bookingId);
+  // After edit save (?updated=), bypass memory cache so the first paint shows the write.
+  const core = updated
+    ? await loadBookingRecordCore(bookingId)
+    : await loadCachedBookingRecordCore(bookingId);
   perf.endStage("queryMs", "core");
   perf.addQueries(1);
 

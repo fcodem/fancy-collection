@@ -105,23 +105,25 @@ export default function TomorrowPackingClient({ data }: { data: TomorrowPackingP
 
       <div className="stats-grid" style={{ marginBottom: 24 }}>
         <div className="stat-card warning">
-          <div className="stat-value">{data.leftCount}</div>
-          <div className="stat-label">Packing left</div>
+          <div className="stat-value">{data.leftItemCount}</div>
+          <div className="stat-label">Dresses left to pack</div>
           <div style={{ fontSize: 11, opacity: 0.75, marginTop: 4 }}>
-            {data.leftItemCount} item{data.leftItemCount === 1 ? "" : "s"} pending
+            {data.leftCount} booking{data.leftCount === 1 ? "" : "s"}
           </div>
         </div>
         <div className="stat-card success">
-          <div className="stat-value">{data.doneCount}</div>
-          <div className="stat-label">Packing done</div>
+          <div className="stat-value">{data.doneItemCount}</div>
+          <div className="stat-label">Dresses packed</div>
           <div style={{ fontSize: 11, opacity: 0.75, marginTop: 4 }}>
-            {data.doneItemCount} item{data.doneItemCount === 1 ? "" : "s"} packed
+            {data.doneCount} booking{data.doneCount === 1 ? "" : "s"}
           </div>
         </div>
       </div>
 
       {(data.divisions || []).map((div) => {
         if (!div.packingLeft.length && !div.packingDone.length) return null;
+        const leftItems = div.packingLeft.reduce((n, b) => n + b.pendingCount, 0);
+        const doneItems = div.packingDone.reduce((n, b) => n + b.packedCount, 0);
         return (
           <section key={div.key} style={{ marginBottom: 36 }}>
             <div
@@ -136,12 +138,15 @@ export default function TomorrowPackingClient({ data }: { data: TomorrowPackingP
               <h2 className="card-title" style={{ margin: 0, fontSize: 20 }}>
                 {div.label}
                 <span style={{ fontWeight: 500, fontSize: 13, color: "var(--text-muted)", marginLeft: 8 }}>
-                  {div.packingLeft.length} left · {div.packingDone.length} done
+                  {leftItems} dress{leftItems === 1 ? "" : "es"} left · {doneItems} done
                 </span>
               </h2>
             </div>
             <div style={{ marginBottom: 20 }}>
-              <h3 style={{ margin: "0 0 10px", fontSize: 15 }}>Packing left ({div.packingLeft.length})</h3>
+              <h3 style={{ margin: "0 0 10px", fontSize: 15 }}>
+                Packing left ({leftItems} dress{leftItems === 1 ? "" : "es"} · {div.packingLeft.length} booking
+                {div.packingLeft.length === 1 ? "" : "s"})
+              </h3>
               {div.packingLeft.length ? (
                 div.packingLeft.map((b) => (
                   <BookingCard key={`${div.key}-left-${b.id}`} booking={b} tone="left" />
@@ -155,7 +160,10 @@ export default function TomorrowPackingClient({ data }: { data: TomorrowPackingP
               )}
             </div>
             <div>
-              <h3 style={{ margin: "0 0 10px", fontSize: 15 }}>Packing done ({div.packingDone.length})</h3>
+              <h3 style={{ margin: "0 0 10px", fontSize: 15 }}>
+                Packing done ({doneItems} dress{doneItems === 1 ? "" : "es"} · {div.packingDone.length} booking
+                {div.packingDone.length === 1 ? "" : "s"})
+              </h3>
               {div.packingDone.length ? (
                 div.packingDone.map((b) => (
                   <BookingCard key={`${div.key}-done-${b.id}`} booking={b} tone="done" />

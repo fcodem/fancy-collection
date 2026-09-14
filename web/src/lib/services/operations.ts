@@ -7,7 +7,7 @@ import { formatDate, parseDate } from "../constants";
 import { Prisma } from "@prisma/client";
 import { dressDisplayName, bookingItemSize, serializeBookingItems } from "../dress";
 import { catalogPhotoRef } from "../catalogPhotoRef";
-import { photoUrl } from "../photoUrl";
+import { photoUrl, pickInventoryFullRef, pickInventoryThumbRef } from "../photoUrl";
 import { serializeStandardBookingDetails, bookingWarningRecordFrom } from "../bookingDetails";
 import { isStarBooking } from "../starBooking";
 import { getAvailableItemsApi, bookingUsesItem, findItemIdsStillInActiveBookings } from "../booking";
@@ -351,8 +351,8 @@ export async function getDashboardFreeItems(deliveryDateStr: string, returnDateS
         sub_category: i.subCategory || "",
         color: i.color || "",
         size: i.size || "",
-        photo: photoUrl(i.photo || i.thumbnailPhoto) || "",
-        thumbnail: photoUrl(i.thumbnailPhoto || i.photo) || "",
+        photo: photoUrl(pickInventoryFullRef(i.photo, i.thumbnailPhoto) || "") || "",
+        thumbnail: photoUrl(pickInventoryThumbRef(i.thumbnailPhoto, i.photo) || "") || "",
       });
       if (bookedOnReturnInfo[String(i.id)]) warnings[String(i.id)] = bookedOnReturnInfo[String(i.id)];
     }

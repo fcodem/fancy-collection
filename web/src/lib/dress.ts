@@ -46,6 +46,19 @@ export function stripUnitSuffix(name?: string | null): string {
   return (name || "").replace(UNIT_SUFFIX_RE, "").trim();
 }
 
+/**
+ * Strip UI display decorations from a search box value so inventory SQL can match `ci.name`.
+ * e.g. "FIROZI PEACOCK MULTI (Crop Top) · Size M" → "FIROZI PEACOCK MULTI"
+ */
+export function normalizeDressSearchQuery(q: string): string {
+  let s = (q || "").trim();
+  if (!s) return "";
+  s = s.replace(/\s*[·|]\s*Size\s+.+$/i, "");
+  s = s.replace(/\s*\([^)]*\)\s*$/g, "");
+  s = stripUnitSuffix(s);
+  return s.trim();
+}
+
 export function formatUnitName(baseName: string, unitIndex: number): string {
   const base = baseName.trim();
   return unitIndex > 1 ? `${base} #${unitIndex}` : base;
