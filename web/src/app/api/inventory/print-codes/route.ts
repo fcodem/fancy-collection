@@ -3,6 +3,7 @@ import prisma from "@/lib/prisma";
 import { jsonOk, requireUser, isResponse } from "@/lib/api";
 import { collapsePrintItemsByGroup } from "@/lib/printCodesCollapse";
 import { generateDefaultScanCodesInTx } from "@/lib/services/inventoryScanCode";
+import { inventoryPrismaWhere } from "@/lib/search/textMatch";
 
 export const dynamic = "force-dynamic";
 
@@ -30,14 +31,7 @@ export async function GET(req: NextRequest) {
     where.subCategory = subCategory;
   }
   if (q) {
-    const words = q.split(/\s+/).map((w) => w.trim()).filter(Boolean);
-    where.AND = words.map((word) => ({
-      OR: [
-        { name: { contains: word, mode: "insensitive" as const } },
-        { sku: { contains: word, mode: "insensitive" as const } },
-        { color: { contains: word, mode: "insensitive" as const } },
-      ],
-    }));
+    Object.assign(where, inventoryPrismaWhere(q) || {});
   }
 
   const itemSelect = {

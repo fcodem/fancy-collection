@@ -484,25 +484,25 @@ export default function DashboardView({
           <div className="stat-icon"><i className="fa-solid fa-clipboard-list" /></div>
           <div className="stat-value">{data.today_stats.total_orders}</div>
           <div className="stat-label">Today&apos;s Total Orders</div>
-          <div style={{ fontSize: 10, opacity: 0.7, marginTop: 4 }}>Click to open list</div>
+          <div style={{ fontSize: 10, opacity: 0.7, marginTop: 4 }}>Dresses · Click to open list</div>
         </Link>
         <Link href={STAT_LIST_HREF.delivered} className="stat-card success" style={{ textDecoration: "none", color: "inherit", display: "block" }}>
           <div className="stat-icon"><i className="fa-solid fa-truck-fast" /></div>
           <div className="stat-value">{data.today_stats.delivered}</div>
           <div className="stat-label">Delivered Today</div>
-          <div style={{ fontSize: 10, opacity: 0.7, marginTop: 4 }}>Click to open list</div>
+          <div style={{ fontSize: 10, opacity: 0.7, marginTop: 4 }}>Dresses · Click to open list</div>
         </Link>
         <Link href={STAT_LIST_HREF.remaining} className="stat-card warning" style={{ textDecoration: "none", color: "inherit", display: "block" }}>
           <div className="stat-icon"><i className="fa-solid fa-clock" /></div>
           <div className="stat-value">{data.today_stats.all_undelivered}</div>
           <div className="stat-label">Remaining to Deliver</div>
-          <div style={{ fontSize: 10, opacity: 0.7, marginTop: 4 }}>Today: {data.today_stats.remaining_delivery} · Click to open</div>
+          <div style={{ fontSize: 10, opacity: 0.7, marginTop: 4 }}>Today: {data.today_stats.remaining_delivery} dresses · Click to open</div>
         </Link>
         <Link href={STAT_LIST_HREF.returning} className="stat-card info" style={{ textDecoration: "none", color: "inherit", display: "block" }}>
           <div className="stat-icon"><i className="fa-solid fa-rotate-left" /></div>
           <div className="stat-value">{data.today_stats.returning}</div>
           <div className="stat-label">Returning Today</div>
-          <div style={{ fontSize: 10, opacity: 0.7, marginTop: 4 }}>Click to open list</div>
+          <div style={{ fontSize: 10, opacity: 0.7, marginTop: 4 }}>Dresses · Click to open list</div>
         </Link>
         <Link
           href="/dashboard/tomorrow-packing"

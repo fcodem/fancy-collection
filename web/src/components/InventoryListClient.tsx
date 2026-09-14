@@ -103,7 +103,7 @@ export default function InventoryListClient({
   const pathname = usePathname();
   const showToast = useToast();
   const cache = useBoundedQueryCache<ListResponse>({ ttlMs: 45_000 });
-  const search = useAbortableSearch(200);
+  const search = useAbortableSearch(120);
   const skipFilterEffect = useRef(true);
 
   const [groups, setGroups] = useState(initialGroups);

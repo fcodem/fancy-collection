@@ -12,6 +12,11 @@ import {
   searchPageMeta,
   type SearchPageMeta,
 } from "@/lib/searchPagination";
+import {
+  bookingDressPrismaWhere,
+  bookingDressPrismaWhereQuick,
+  customerNamePrismaWhere,
+} from "@/lib/search/textMatch";
 import type { Booking, Prisma } from "@prisma/client";
 
 export type { BookingWithItems } from "@/lib/booking";
@@ -85,67 +90,21 @@ export function dedupeById(list: BookingWithItems[]) {
 }
 
 export function customerNameWhere(q: string): Prisma.BookingWhereInput {
-  const ws = words(q);
-  if (!ws.length) return {};
-  return {
-    AND: ws.map((w) => ({
-      customerName: { contains: w, mode: "insensitive" as const },
-    })),
-  };
+  return customerNamePrismaWhere(q);
 }
 
 export function dressNameWhere(q: string): Prisma.BookingWhereInput {
-  const ws = words(q);
-  if (!ws.length) return {};
-  return {
-    AND: ws.map((w) => ({
-      OR: [
-        { dressName: { contains: w, mode: "insensitive" as const } },
-        { bookingItems: { some: { dressName: { contains: w, mode: "insensitive" as const } } } },
-        { legacyItem: { is: { sku: { contains: w, mode: "insensitive" as const } } } },
-        {
-          bookingItems: {
-            some: { item: { is: { sku: { contains: w, mode: "insensitive" as const } } } },
-          },
-        },
-      ],
-    })),
-  };
+  return bookingDressPrismaWhere(q);
 }
 
-/** Dashboard quick search — full-phrase match (one ILIKE), no SKU joins. */
+/** Dashboard quick search — phrase + word-AND + SKU/color (shared matcher). */
 export function dressNameWhereQuick(q: string): Prisma.BookingWhereInput {
-  const trimmed = q.trim();
-  if (!trimmed) return {};
-  return {
-    OR: [
-      { dressName: { contains: trimmed, mode: "insensitive" as const } },
-      {
-        bookingItems: {
-          some: { dressName: { contains: trimmed, mode: "insensitive" as const } },
-        },
-      },
-    ],
-  };
+  return bookingDressPrismaWhereQuick(q);
 }
 
 /** Word-AND fallback when the full phrase finds nothing. */
 export function dressNameWhereWords(q: string): Prisma.BookingWhereInput {
-  const ws = words(q);
-  if (!ws.length) return {};
-  if (ws.length === 1) return dressNameWhereQuick(ws[0]);
-  return {
-    AND: ws.map((w) => ({
-      OR: [
-        { dressName: { contains: w, mode: "insensitive" as const } },
-        {
-          bookingItems: {
-            some: { dressName: { contains: w, mode: "insensitive" as const } },
-          },
-        },
-      ],
-    })),
-  };
+  return bookingDressPrismaWhere(q);
 }
 
 export function phoneWhere(q: string): Prisma.BookingWhereInput {

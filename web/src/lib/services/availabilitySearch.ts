@@ -8,6 +8,7 @@ import {
 import type { JewelleryPartKey } from "@/lib/jewelleryParts";
 import { BASE_JEWELLERY, BASE_MENS, BASE_WOMENS } from "@/lib/constants";
 import { photoUrl, pickInventoryFullRef, pickInventoryThumbRef } from "@/lib/photoUrl";
+import { inventoryMatchSql } from "@/lib/search/inventoryMatchSql";
 
 function freeItemGroupKey(item: {
   inventoryGroupId?: string | null;
@@ -120,6 +121,8 @@ type AvailabilityRow = {
   ringsBusy: boolean;
   longHarBusy: boolean;
   wholeJewelleryBusy: boolean;
+  isOccupied: boolean;
+  busyBookingId: number | null;
   returningWarning: Record<string, unknown> | null;
   bookedWarning: Record<string, unknown> | null;
 };
@@ -128,47 +131,9 @@ export function candidateCapFor(limit: number): number {
   return Math.min(CANDIDATE_CAP, Math.max(50, (limit + 1) * 25));
 }
 
-/** Name/SKU match for availability search — phrase first, then multi-word AND. */
+/** Name/SKU/color match — shared site-wide inventory search rules. */
 function inventorySearchSql(search: string): Prisma.Sql {
-  // Import inline would cycle; normalize display decorations before matching inventory names.
-  const trimmed = search
-    .trim()
-    .replace(/\s*[·|]\s*Size\s+.+$/i, "")
-    .replace(/\s*\([^)]*\)\s*$/g, "")
-    .replace(/\s+#\d+$/i, "")
-    .trim();
-  if (!trimmed) return Prisma.sql`TRUE`;
-
-  const compact = trimmed.toLowerCase().replace(/[^a-z0-9]/g, "");
-  const phrase = Prisma.sql`(
-    ci.name ILIKE ${`%${trimmed}%`}
-    OR ci.sku = ${trimmed}
-    OR (
-      ${compact} <> ''
-      AND regexp_replace(lower(ci.name), '[^a-z0-9]', '', 'g') LIKE ${`%${compact}%`}
-    )
-    OR (
-      ${compact} <> ''
-      AND regexp_replace(lower(ci.sku), '[^a-z0-9]', '', 'g') LIKE ${`%${compact}%`}
-    )
-  )`;
-
-  const words = trimmed.split(/\s+/).filter((w) => w.length > 0);
-  if (words.length <= 1) return phrase;
-
-  const wordClauses = words.map((word) => {
-    const wordCompact = word.toLowerCase().replace(/[^a-z0-9]/g, "");
-    return Prisma.sql`(
-      ci.name ILIKE ${`%${word}%`}
-      OR (
-        ${wordCompact} <> ''
-        AND regexp_replace(lower(ci.name), '[^a-z0-9]', '', 'g') LIKE ${`%${wordCompact}%`}
-      )
-    )`;
-  });
-
-  // Phrase match OR every typed word appears in the name (MULTI + RAJ → MULTI RAJWADA).
-  return Prisma.sql`(${phrase} OR (${Prisma.join(wordClauses, " AND ")}))`;
+  return inventoryMatchSql(search, "ci.");
 }
 
 export function needsJewelleryOccupancy(
@@ -279,6 +244,8 @@ function buildAvailabilityQuery(opts: {
   cursorSql: Prisma.Sql;
   groupSql: Prisma.Sql;
   finalLimitSql: Prisma.Sql;
+  /** When true (name search), keep occupied dresses visible with booked warnings. */
+  includeOccupied: boolean;
 }) {
   const {
     deliveryStart,
@@ -296,6 +263,7 @@ function buildAvailabilityQuery(opts: {
     excludeId,
     cursorSql,
     finalLimitSql,
+    includeOccupied,
   } = opts;
 
   const jewelleryBookingBoundariesCte = jewelleryChecks
@@ -518,13 +486,16 @@ function buildAvailabilityQuery(opts: {
       GROUP BY item_id
     ),
     busy_booking_items AS (
-      SELECT DISTINCT item_id
+      SELECT item_id, MIN(booking_id) AS booking_id
       FROM (
         SELECT * FROM active_booking_occupancy
         UNION ALL
         SELECT * FROM legacy_booking_occupancy
+        UNION ALL
+        SELECT * FROM jewellery_booking_boundaries
       ) o
       WHERE occupancy_kind = 'busy'
+      GROUP BY item_id
     ),
     rental_occupancy AS (
       SELECT DISTINCT ri.item_id
@@ -538,30 +509,46 @@ function buildAvailabilityQuery(opts: {
     ),
     ${jewelleryPartOccupancyCte}
     final_availability AS (
-      SELECT ci.*
+      SELECT
+        ci.*,
+        (
+          busy.item_id IS NOT NULL
+          OR rental.item_id IS NOT NULL
+          OR (
+            ci."itemType" = 'jewellery'
+            AND COALESCE(jew.whole_busy, false) = true
+          )
+        ) AS "isOccupied",
+        busy.booking_id AS "busyBookingId"
       FROM candidate_inventory ci
       LEFT JOIN busy_booking_items busy ON busy.item_id = ci.id
       LEFT JOIN rental_occupancy rental ON rental.item_id = ci.id
       LEFT JOIN jewellery_part_occupancy jew ON jew.item_id = ci.id
-      WHERE rental.item_id IS NULL
-        AND busy.item_id IS NULL
-        AND (
-          ci."itemType" <> 'jewellery'
-          OR COALESCE(jew.whole_busy, false) = false
-        )
-        AND (
-          ci."itemType" <> 'jewellery'
-          OR NOT (
-            (NOT ci."hasNecklace" OR COALESCE(jew.necklace_busy, false))
-            AND (NOT ci."hasEarrings" OR COALESCE(jew.earrings_busy, false))
-            AND (NOT ci."hasTeeka" OR COALESCE(jew.teeka_busy, false))
-            AND (NOT ci."hasPasa" OR COALESCE(jew.pasa_busy, false))
-            AND (NOT ci."hasSheeshpatti" OR COALESCE(jew.sheeshpatti_busy, false))
-            AND (NOT ci."hasNath" OR COALESCE(jew.nath_busy, false))
-            AND (NOT ci."hasHathfool" OR COALESCE(jew.hathfool_busy, false))
-            AND (NOT ci."hasKamarband" OR COALESCE(jew.kamarband_busy, false))
-            AND (NOT ci."hasRings" OR COALESCE(jew.rings_busy, false))
-            AND (NOT ci."hasLongHar" OR COALESCE(jew.long_har_busy, false))
+      WHERE
+        (
+          ${includeOccupied}
+          OR (
+            rental.item_id IS NULL
+            AND busy.item_id IS NULL
+            AND (
+              ci."itemType" <> 'jewellery'
+              OR COALESCE(jew.whole_busy, false) = false
+            )
+            AND (
+              ci."itemType" <> 'jewellery'
+              OR NOT (
+                (NOT ci."hasNecklace" OR COALESCE(jew.necklace_busy, false))
+                AND (NOT ci."hasEarrings" OR COALESCE(jew.earrings_busy, false))
+                AND (NOT ci."hasTeeka" OR COALESCE(jew.teeka_busy, false))
+                AND (NOT ci."hasPasa" OR COALESCE(jew.pasa_busy, false))
+                AND (NOT ci."hasSheeshpatti" OR COALESCE(jew.sheeshpatti_busy, false))
+                AND (NOT ci."hasNath" OR COALESCE(jew.nath_busy, false))
+                AND (NOT ci."hasHathfool" OR COALESCE(jew.hathfool_busy, false))
+                AND (NOT ci."hasKamarband" OR COALESCE(jew.kamarband_busy, false))
+                AND (NOT ci."hasRings" OR COALESCE(jew.rings_busy, false))
+                AND (NOT ci."hasLongHar" OR COALESCE(jew.long_har_busy, false))
+              )
+            )
           )
         )
       ORDER BY ci.category, ci.name, COALESCE(ci.size, ''), ci.id
@@ -587,6 +574,7 @@ export async function searchAvailableItems(
   const group = opts.group?.trim() || "";
   const status = opts.status?.trim() || "";
   const search = opts.search?.trim() || "";
+  const includeOccupied = search.length >= 2;
   const excludeId = opts.excludeBookingId ?? null;
   const cursorSql = cursor
     ? typeof cursor.size === "string"
@@ -640,6 +628,7 @@ export async function searchAvailableItems(
     cursorSql,
     groupSql,
     finalLimitSql: Prisma.sql`LIMIT ${limit + 1}`,
+    includeOccupied,
   });
 
   const queryStart = performance.now();
@@ -659,14 +648,20 @@ export async function searchAvailableItems(
       COALESCE(jew.long_har_busy, false) AS "longHarBusy",
       COALESCE(jew.whole_busy, false) AS "wholeJewelleryBusy",
       ${availabilityBookingWarnJson("rb")} AS "returningWarning",
-      ${availabilityBookingWarnJson("bb")} AS "bookedWarning"
+      COALESCE(
+        ${availabilityBookingWarnJson("bb")},
+        ${availabilityBookingWarnJson("busy_b")}
+      ) AS "bookedWarning"
     FROM final_availability fa
     LEFT JOIN jewellery_part_occupancy jew ON jew.item_id = fa.id
     LEFT JOIN same_day_return_warnings rw ON rw.item_id = fa.id
     LEFT JOIN bookings rb ON rb.id = rw.booking_id
     LEFT JOIN same_day_delivery_warnings bw ON bw.item_id = fa.id
     LEFT JOIN bookings bb ON bb.id = bw.booking_id
-    ORDER BY fa.category, fa.name, COALESCE(fa.size, ''), fa.id
+    LEFT JOIN bookings busy_b ON busy_b.id = fa."busyBookingId"
+    ORDER BY
+      CASE WHEN COALESCE(fa."isOccupied", false) THEN 1 ELSE 0 END,
+      fa.category, fa.name, COALESCE(fa.size, ''), fa.id
   `;
   const queryMs = Math.round(performance.now() - queryStart);
 
@@ -685,6 +680,7 @@ export async function searchAvailableItems(
 
   const freeCountByGroup = new Map<string, number>();
   for (const row of visible) {
+    if (row.isOccupied) continue;
     const key = freeItemGroupKey(row);
     freeCountByGroup.set(key, (freeCountByGroup.get(key) || 0) + 1);
   }
@@ -799,18 +795,30 @@ export async function searchAvailableItems(
     const thumb = thumbRef ? photoUrl(thumbRef) : null;
     const full = fullRef ? photoUrl(fullRef) : null;
     const key = freeItemGroupKey(row);
-    const freeQty = freeCountByGroup.get(key) || 1;
+    const occupied = Boolean(row.isOccupied);
+    const freeQty = occupied ? 0 : freeCountByGroup.get(key) || 1;
     const isMens = BASE_MENS.some((c) => c.toLowerCase() === (row.category || "").toLowerCase());
-    let totalQty = freeQty;
+    let totalQty = freeQty || 1;
     if (isMens) {
       const mensKey = `${stripUnitSuffix(row.name).toLowerCase()}|${(row.category || "").toLowerCase()}|${normSize(row.size).toLowerCase()}`;
-      totalQty = mensSizeTotal.get(mensKey) || freeQty;
+      totalQty = mensSizeTotal.get(mensKey) || freeQty || 1;
     } else if (row.inventoryGroupId) {
       totalQty =
-        totalByGroupSize.get(`${row.inventoryGroupId}|${normSize(row.size)}`) || freeQty;
+        totalByGroupSize.get(`${row.inventoryGroupId}|${normSize(row.size)}`) || freeQty || 1;
     } else {
-      totalQty = totalByLegacyKey.get(key) || freeQty;
+      totalQty = totalByLegacyKey.get(key) || freeQty || 1;
     }
+    const bookedWarning =
+      warningShape(row.bookedWarning) ||
+      (occupied
+        ? {
+            customer_name: "Not free for these dates",
+            serial_no: 0,
+            booking_number: "",
+            delivery_date: "",
+            return_date: "",
+          }
+        : null);
     return {
       id: row.id,
       name: row.name,
@@ -840,7 +848,7 @@ export async function searchAvailableItems(
       booked_parts: isJewellery ? partsFor(row, true) : [],
       available_parts: isJewellery ? partsFor(row, false) : [],
       returning_warning: warningShape(row.returningWarning),
-      booked_warning: warningShape(row.bookedWarning),
+      booked_warning: bookedWarning,
     };
   });
 

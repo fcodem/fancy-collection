@@ -1,62 +1,44 @@
-/** Compact key for space/punctuation-insensitive matching ("High Light" ≈ "highlight"). */
-export function normalizeDressSearchKey(text?: string | null): string {
-  return (text || "").toLowerCase().replace(/[^a-z0-9]+/g, "");
-}
+import { inventoryFieldsMatch, inventoryPrismaWhere } from "@/lib/search/textMatch";
+import {
+  dressNameWords as _dressNameWords,
+  normalizeDressSearchKey as _normalizeDressSearchKey,
+  normalizeDressSearchQuery as _normalizeDressSearchQuery,
+  stripUnitSuffix as _stripUnitSuffix,
+} from "@/lib/search/normalize";
 
-export function dressNameWords(q: string): string[] {
-  return (q || "")
-    .toLowerCase()
-    .split(/[^a-z0-9]+/)
-    .map((w) => w.trim())
-    .filter(Boolean);
-}
+/** Compact key for space/punctuation-insensitive matching ("High Light" ≈ "highlight"). */
+export const normalizeDressSearchKey = _normalizeDressSearchKey;
+export const dressNameWords = _dressNameWords;
+export const normalizeDressSearchQuery = _normalizeDressSearchQuery;
+export const stripUnitSuffix = _stripUnitSuffix;
 
 export function dressNameMatches(text: string, q: string): boolean {
   const words = dressNameWords(q);
   if (!words.length) return true;
   const textL = (text || "").toLowerCase();
   if (words.every((w) => textL.includes(w))) return true;
-  // Also match with spaces/punctuation ignored: "highlightcutwork" ↔ "HIGHLIGHT CUTWORK"
   const compactText = normalizeDressSearchKey(text);
   const compactQuery = normalizeDressSearchKey(q);
   if (compactQuery && compactText.includes(compactQuery)) return true;
   return words.every((w) => compactText.includes(w));
 }
 
-/** Client-side inventory filter — name, display label, or SKU/item code. */
+/** Client-side inventory filter — name, display label, SKU, or color. */
 export function inventoryItemMatches(
-  item: { name?: string | null; display_name?: string | null; sku?: string | null },
+  item: {
+    name?: string | null;
+    display_name?: string | null;
+    sku?: string | null;
+    color?: string | null;
+    conditionNotes?: string | null;
+  },
   q: string,
 ): boolean {
-  if (!q.trim()) return true;
-  return (
-    dressNameMatches(item.name || "", q) ||
-    dressNameMatches(item.display_name || "", q) ||
-    dressNameMatches(item.sku || "", q)
-  );
+  return inventoryFieldsMatch(item, q);
 }
 
 export function isSherwaniCategory(category?: string | null): boolean {
   return (category || "").trim().toLowerCase() === "sherwani";
-}
-
-const UNIT_SUFFIX_RE = /\s+#\d+$/;
-
-export function stripUnitSuffix(name?: string | null): string {
-  return (name || "").replace(UNIT_SUFFIX_RE, "").trim();
-}
-
-/**
- * Strip UI display decorations from a search box value so inventory SQL can match `ci.name`.
- * e.g. "FIROZI PEACOCK MULTI (Crop Top) · Size M" → "FIROZI PEACOCK MULTI"
- */
-export function normalizeDressSearchQuery(q: string): string {
-  let s = (q || "").trim();
-  if (!s) return "";
-  s = s.replace(/\s*[·|]\s*Size\s+.+$/i, "");
-  s = s.replace(/\s*\([^)]*\)\s*$/g, "");
-  s = stripUnitSuffix(s);
-  return s.trim();
 }
 
 export function formatUnitName(baseName: string, unitIndex: number): string {
@@ -87,17 +69,7 @@ export function dressDisplayName(name?: string | null, category?: string | null,
 }
 
 export function buildDressSearchWhere(q: string) {
-  const words = dressNameWords(q);
-  if (!words.length) return undefined;
-  return {
-    AND: words.map((word) => ({
-      OR: [
-        { name: { contains: word, mode: "insensitive" as const } },
-        { sku: { contains: word, mode: "insensitive" as const } },
-        { conditionNotes: { contains: word, mode: "insensitive" as const } },
-      ],
-    })),
-  };
+  return inventoryPrismaWhere(q);
 }
 
 export function bookingItemSize(bi: { size?: string | null; item?: { size?: string | null } | null }): string {

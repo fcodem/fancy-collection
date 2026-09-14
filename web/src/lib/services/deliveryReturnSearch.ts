@@ -10,6 +10,7 @@ import {
   OPERATIONAL_LIST_DEFAULT_PAGE_SIZE,
   OPERATIONAL_LIST_MAX_PAGE_SIZE,
 } from "@/lib/searchPagination";
+import { customerNameWhere, dressNameWhereWords } from "@/lib/services/bookingSearchCore";
 import {
   decodeOperationalSearchCursor,
   encodeOperationalSearchCursor,
@@ -239,42 +240,30 @@ export async function searchDeliveryOrReturn(opts: {
       }
     }
 
-    // 5–6. Customer + dress in parallel (prefix + phrase contains).
+    // 5–6. Customer + dress in parallel (word-AND / shared dress matcher).
     if (!result || !result.rows.length) {
-      const [customerPrefix, dressPhrase] = await Promise.all([
+      const [customerHits, dressHits] = await Promise.all([
         fetchPage({
           mode: opts.mode,
           base: scopedBase(searchScoped),
-          search: { customerName: { startsWith: q, mode: "insensitive" } },
+          search: customerNameWhere(q),
           cursor,
           limit,
         }),
         fetchPage({
           mode: opts.mode,
           base: scopedBase(searchScoped),
-          search: {
-            OR: [
-              { dressName: { contains: q, mode: "insensitive" } },
-              {
-                bookingItems: {
-                  some: {
-                    dressName: { contains: q, mode: "insensitive" },
-                    isCancelled: false,
-                  },
-                },
-              },
-            ],
-          },
+          search: dressNameWhereWords(q),
           cursor,
           limit,
         }),
       ]);
-      if (customerPrefix.rows.length) {
+      if (customerHits.rows.length) {
         mode = "customer";
-        result = customerPrefix;
-      } else if (dressPhrase.rows.length) {
+        result = customerHits;
+      } else if (dressHits.rows.length) {
         mode = "dress";
-        result = dressPhrase;
+        result = dressHits;
       }
     }
 
@@ -285,18 +274,7 @@ export async function searchDeliveryOrReturn(opts: {
         mode: opts.mode,
         base: scopedBase(true),
         search: {
-          OR: [
-            { customerName: { contains: q, mode: "insensitive" } },
-            { dressName: { contains: q, mode: "insensitive" } },
-            {
-              bookingItems: {
-                some: {
-                  dressName: { contains: q, mode: "insensitive" },
-                  isCancelled: false,
-                },
-              },
-            },
-          ],
+          OR: [customerNameWhere(q), dressNameWhereWords(q)],
         },
         cursor,
         limit,

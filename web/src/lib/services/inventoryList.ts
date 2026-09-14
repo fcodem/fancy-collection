@@ -5,6 +5,8 @@ import prisma, { isSqliteDb } from "@/lib/prisma";
 import { photoUrl, pickInventoryFullRef, pickInventoryThumbRef } from "@/lib/photoUrl";
 import { stripUnitSuffix } from "@/lib/dress";
 import { MENS_CATEGORIES } from "@/lib/constants";
+import { inventoryMatchSql } from "@/lib/search/inventoryMatchSql";
+import { inventoryPrismaWhere } from "@/lib/search/textMatch";
 
 export type MensSizeSummary = {
   size: string;
@@ -496,9 +498,7 @@ async function listInventoryGroupsPostgres(opts: {
         )
         AND (
           ${q} = ''
-          OR lower(name) LIKE '%' || lower(${q}) || '%'
-          OR lower(sku) LIKE '%' || lower(${q}) || '%'
-          OR lower(COALESCE(condition_notes, '')) LIKE '%' || lower(${q}) || '%'
+          OR ${inventoryMatchSql(q, "")}
         )
     ),
     size_agg AS (
@@ -759,15 +759,7 @@ async function listInventoryGroupsPrismaFallback(opts: {
           ? { OR: [{ subCategory: "Normal" }, { subCategory: null }, { subCategory: "" }] }
           : { subCategory: opts.subCategory }
         : {}),
-      ...(opts.q
-        ? {
-            OR: [
-              { name: { contains: opts.q, mode: "insensitive" } },
-              { sku: { contains: opts.q, mode: "insensitive" } },
-              { conditionNotes: { contains: opts.q, mode: "insensitive" } },
-            ],
-          }
-        : {}),
+      ...(opts.q ? (inventoryPrismaWhere(opts.q) ?? {}) : {}),
     },
     select: ITEM_SELECT,
     orderBy: opts.sortNewest

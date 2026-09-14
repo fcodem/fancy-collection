@@ -5,6 +5,7 @@ import {
   whereUnavailableDuringPeriod,
 } from "@/lib/bookingDateQuery";
 import { dressDisplayName } from "@/lib/dress";
+import { bookingDressPrismaWhereQuick } from "@/lib/search/textMatch";
 import {
   bookingListRecordFrom,
   WARNING_BOOKED_ON_RETURN,
@@ -244,32 +245,7 @@ export type BookingListQuery = {
 };
 
 function dressNameSearchWhere(dressQuery: string) {
-  const q = dressQuery.trim();
-  if (!q) return {};
-  // Phrase-first (fast); word-AND only as OR alternative for reordered words.
-  const words = q.split(/\s+/).map((w) => w.trim()).filter(Boolean);
-  const phrase = {
-    OR: [
-      { bookingItems: { some: { dressName: { contains: q, mode: "insensitive" as const } } } },
-      { dressName: { contains: q, mode: "insensitive" as const } },
-    ],
-  };
-  if (words.length <= 1) return phrase;
-  return {
-    OR: [
-      phrase,
-      {
-        AND: words.map((word) => ({
-          bookingItems: { some: { dressName: { contains: word, mode: "insensitive" as const } } },
-        })),
-      },
-      {
-        AND: words.map((word) => ({
-          dressName: { contains: word, mode: "insensitive" as const },
-        })),
-      },
-    ],
-  };
+  return bookingDressPrismaWhereQuick(dressQuery);
 }
 
 export async function getBookingListData(opts: BookingListQuery) {

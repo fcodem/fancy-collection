@@ -5,6 +5,7 @@ import { useRouter } from "next/navigation";
 import { BookingRecordDetails } from "@/components/BookingRecordDetails";
 import { BookingWarningPanel, BookingCardHeaderDates } from "@/components/BookingDetailsColumns";
 import { serializeStandardBookingDetails, WARNING_BOOKED_ON_RETURN, WARNING_RETURNING_ON_DELIVERY, type BookingWarningRecord } from "@/lib/bookingDetails";
+import { inventoryFieldsMatch } from "@/lib/search/textMatch";
 
 function buildStoredNote(warning: string | null, userNote: string | null): string | null {
   const parts = [warning, userNote?.trim()].filter(Boolean) as string[];
@@ -357,11 +358,17 @@ export default function JewellerySelectionClient({
   }
 
   const filteredAvail = appliedSearch.trim()
-    ? avail.filter((i) => {
-        const q = appliedSearch.trim().toLowerCase();
-        const hay = [i.display_name, i.name, i.category, i.size, i.color].filter(Boolean).join(" ").toLowerCase();
-        return hay.includes(q);
-      })
+    ? avail.filter((i) =>
+        inventoryFieldsMatch(
+          {
+            name: i.name,
+            display_name: i.display_name,
+            color: i.color,
+            sku: (i as { sku?: string }).sku,
+          },
+          appliedSearch,
+        ),
+      )
     : avail;
 
   const freeItems = filteredAvail.filter((i) => !i.returning_warning && !i.booked_warning);

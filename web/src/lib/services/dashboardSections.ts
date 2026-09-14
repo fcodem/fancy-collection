@@ -38,46 +38,144 @@ export async function getDashboardEssentialData() {
                 }>
               >`
             SELECT
-              COUNT(*) FILTER (
-                WHERE b.status NOT IN ('cancelled', 'postponed')
-                  AND b.delivery_date >= ${today}::timestamptz
-                  AND b.delivery_date < (${today}::timestamptz + interval '1 day')
-              )::int AS "totalOrders",
-              COUNT(*) FILTER (
-                WHERE b.status = 'delivered'
-                  AND b.delivery_date >= ${today}::timestamptz
-                  AND b.delivery_date < (${today}::timestamptz + interval '1 day')
-              )::int AS delivered,
-              COUNT(*) FILTER (
-                WHERE b.status = 'booked'
-                  AND b.delivery_date >= ${today}::timestamptz
-                  AND b.delivery_date < (${today}::timestamptz + interval '1 day')
-              )::int AS "remainingToday",
-              COUNT(*) FILTER (
-                WHERE b.status IN ('booked', 'delivered')
-                  AND b.return_date >= ${today}::timestamptz
-                  AND b.return_date < (${today}::timestamptz + interval '1 day')
-              )::int AS returning,
-              COUNT(*) FILTER (
-                WHERE b.status = 'delivered' AND b.return_date < ${today}::timestamptz
-              )::int AS "lateReturns",
-              COUNT(*) FILTER (
-                WHERE b.status = 'booked'
-                  AND b.delivery_date < (${today}::timestamptz + interval '1 day')
-                  AND (
-                    NOT EXISTS (
-                      SELECT 1 FROM booking_items bi WHERE bi.booking_id = b.id
-                    )
-                    OR EXISTS (
+              (
+                (
+                  SELECT COUNT(*)::int
+                  FROM booking_items bi
+                  JOIN bookings bb ON bb.id = bi.booking_id
+                  WHERE bb.status NOT IN ('cancelled', 'postponed')
+                    AND bb.delivery_date >= ${today}::timestamptz
+                    AND bb.delivery_date < (${today}::timestamptz + interval '1 day')
+                    AND bi.is_cancelled = false
+                )
+                +
+                (
+                  SELECT COUNT(*)::int
+                  FROM bookings bb
+                  WHERE bb.status NOT IN ('cancelled', 'postponed')
+                    AND bb.delivery_date >= ${today}::timestamptz
+                    AND bb.delivery_date < (${today}::timestamptz + interval '1 day')
+                    AND NOT EXISTS (
                       SELECT 1 FROM booking_items bi
-                      WHERE bi.booking_id = b.id
-                        AND bi.is_delivered = false
-                        AND bi.is_cancelled = false
+                      WHERE bi.booking_id = bb.id AND bi.is_cancelled = false
                     )
-                  )
+                )
+              )::int AS "totalOrders",
+              (
+                (
+                  SELECT COUNT(*)::int
+                  FROM booking_items bi
+                  JOIN bookings bb ON bb.id = bi.booking_id
+                  WHERE bb.delivery_date >= ${today}::timestamptz
+                    AND bb.delivery_date < (${today}::timestamptz + interval '1 day')
+                    AND bi.is_cancelled = false
+                    AND bi.is_delivered = true
+                )
+                +
+                (
+                  SELECT COUNT(*)::int
+                  FROM bookings bb
+                  WHERE bb.status = 'delivered'
+                    AND bb.delivery_date >= ${today}::timestamptz
+                    AND bb.delivery_date < (${today}::timestamptz + interval '1 day')
+                    AND NOT EXISTS (
+                      SELECT 1 FROM booking_items bi
+                      WHERE bi.booking_id = bb.id AND bi.is_cancelled = false
+                    )
+                )
+              )::int AS delivered,
+              (
+                (
+                  SELECT COUNT(*)::int
+                  FROM booking_items bi
+                  JOIN bookings bb ON bb.id = bi.booking_id
+                  WHERE bb.status = 'booked'
+                    AND bb.delivery_date >= ${today}::timestamptz
+                    AND bb.delivery_date < (${today}::timestamptz + interval '1 day')
+                    AND bi.is_cancelled = false
+                    AND bi.is_delivered = false
+                )
+                +
+                (
+                  SELECT COUNT(*)::int
+                  FROM bookings bb
+                  WHERE bb.status = 'booked'
+                    AND bb.delivery_date >= ${today}::timestamptz
+                    AND bb.delivery_date < (${today}::timestamptz + interval '1 day')
+                    AND NOT EXISTS (
+                      SELECT 1 FROM booking_items bi
+                      WHERE bi.booking_id = bb.id AND bi.is_cancelled = false
+                    )
+                )
+              )::int AS "remainingToday",
+              (
+                (
+                  SELECT COUNT(*)::int
+                  FROM booking_items bi
+                  JOIN bookings bb ON bb.id = bi.booking_id
+                  WHERE bb.status IN ('booked', 'delivered')
+                    AND bb.return_date >= ${today}::timestamptz
+                    AND bb.return_date < (${today}::timestamptz + interval '1 day')
+                    AND bi.is_cancelled = false
+                )
+                +
+                (
+                  SELECT COUNT(*)::int
+                  FROM bookings bb
+                  WHERE bb.status IN ('booked', 'delivered')
+                    AND bb.return_date >= ${today}::timestamptz
+                    AND bb.return_date < (${today}::timestamptz + interval '1 day')
+                    AND NOT EXISTS (
+                      SELECT 1 FROM booking_items bi
+                      WHERE bi.booking_id = bb.id AND bi.is_cancelled = false
+                    )
+                )
+              )::int AS returning,
+              (
+                (
+                  SELECT COUNT(*)::int
+                  FROM booking_items bi
+                  JOIN bookings bb ON bb.id = bi.booking_id
+                  WHERE bb.status = 'delivered'
+                    AND bb.return_date < ${today}::timestamptz
+                    AND bi.is_cancelled = false
+                    AND bi.is_returned = false
+                )
+                +
+                (
+                  SELECT COUNT(*)::int
+                  FROM bookings bb
+                  WHERE bb.status = 'delivered'
+                    AND bb.return_date < ${today}::timestamptz
+                    AND NOT EXISTS (
+                      SELECT 1 FROM booking_items bi
+                      WHERE bi.booking_id = bb.id AND bi.is_cancelled = false
+                    )
+                )
+              )::int AS "lateReturns",
+              (
+                (
+                  SELECT COUNT(*)::int
+                  FROM booking_items bi
+                  JOIN bookings bb ON bb.id = bi.booking_id
+                  WHERE bb.status = 'booked'
+                    AND bb.delivery_date < (${today}::timestamptz + interval '1 day')
+                    AND bi.is_cancelled = false
+                    AND bi.is_delivered = false
+                )
+                +
+                (
+                  SELECT COUNT(*)::int
+                  FROM bookings bb
+                  WHERE bb.status = 'booked'
+                    AND bb.delivery_date < (${today}::timestamptz + interval '1 day')
+                    AND NOT EXISTS (
+                      SELECT 1 FROM booking_items bi
+                      WHERE bi.booking_id = bb.id AND bi.is_cancelled = false
+                    )
+                )
               )::int AS "allUndelivered"
-            FROM bookings b
-          `,
+            `,
               ),
             runDashboardRead(() => countTomorrowPackingLeftItems()),
           ]);

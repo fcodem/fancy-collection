@@ -587,7 +587,7 @@ export default function InventorySearchClient() {
       setTextData(null);
       return;
     }
-    textTimerRef.current = setTimeout(() => void runTextSearch(q, category), q.trim().length >= 4 ? 120 : 180);
+    textTimerRef.current = setTimeout(() => void runTextSearch(q, category), 120);
     return () => {
       if (textTimerRef.current) clearTimeout(textTimerRef.current);
     };

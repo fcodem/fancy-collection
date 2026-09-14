@@ -377,7 +377,7 @@ export default function FreeItemsClient({ today }: { today: string }) {
   }, [deliveryDate, returnDate, group, category, size, subCat, dressSearch, nextCursor, pageLimit]);
 
   useEffect(() => {
-    const timer = setTimeout(() => void search(false), 300);
+    const timer = setTimeout(() => void search(false), 150);
     return () => {
       clearTimeout(timer);
       abortRef.current?.abort();

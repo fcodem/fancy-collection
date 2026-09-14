@@ -276,10 +276,12 @@ async function searchInventoryTextPostgres(opts: {
         WHEN ${allowFuzzy} AND (
           lower(name) LIKE ${"%" + qLower + "%"}
           OR lower(sku) LIKE ${"%" + qLower + "%"}
+          OR lower(coalesce(color, '')) LIKE ${"%" + qLower + "%"}
           OR lower(regexp_replace(name, '\\s+#\\d+$', '')) LIKE ${"%" + qLower + "%"}
           OR regexp_replace(lower(name), '[^a-z0-9]', '', 'g') LIKE ${"%" + qCompact + "%"}
           OR regexp_replace(lower(regexp_replace(name, '\\s+#\\d+$', '')), '[^a-z0-9]', '', 'g') LIKE ${"%" + qCompact + "%"}
           OR regexp_replace(lower(sku), '[^a-z0-9]', '', 'g') LIKE ${"%" + qCompact + "%"}
+          OR regexp_replace(lower(name || ' ' || coalesce(color, '')), '[^a-z0-9]', '', 'g') LIKE ${"%" + qCompact + "%"}
         ) THEN 5
         WHEN ${allowFuzzy} AND (
           lower(coalesce(condition_notes, '')) LIKE ${"%" + qLower + "%"}
@@ -306,9 +308,11 @@ async function searchInventoryTextPostgres(opts: {
             OR lower(regexp_replace(name, '\\s+#\\d+$', '')) LIKE ${qLower + "%"}
             OR lower(name) LIKE ${"%" + qLower + "%"}
             OR lower(sku) LIKE ${"%" + qLower + "%"}
+            OR lower(coalesce(color, '')) LIKE ${"%" + qLower + "%"}
             OR regexp_replace(lower(name), '[^a-z0-9]', '', 'g') LIKE ${"%" + qCompact + "%"}
             OR regexp_replace(lower(regexp_replace(name, '\\s+#\\d+$', '')), '[^a-z0-9]', '', 'g') LIKE ${"%" + qCompact + "%"}
             OR regexp_replace(lower(sku), '[^a-z0-9]', '', 'g') LIKE ${"%" + qCompact + "%"}
+            OR regexp_replace(lower(name || ' ' || coalesce(color, '')), '[^a-z0-9]', '', 'g') LIKE ${"%" + qCompact + "%"}
             OR lower(coalesce(condition_notes, '')) LIKE ${"%" + qLower + "%"}
           )
         )

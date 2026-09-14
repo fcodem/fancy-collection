@@ -55,7 +55,7 @@ export default function BookingSearchSuggestInput({
   useEffect(() => {
     const q = String(value || "").trim();
     if (timerRef.current) clearTimeout(timerRef.current);
-    timerRef.current = setTimeout(() => fetchSuggestions(q), 280);
+    timerRef.current = setTimeout(() => fetchSuggestions(q), 140);
     return () => { if (timerRef.current) clearTimeout(timerRef.current); };
   }, [value, fetchSuggestions]);
 

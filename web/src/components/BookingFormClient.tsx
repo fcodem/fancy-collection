@@ -755,20 +755,16 @@ export default function BookingFormClient(props: Props) {
         nextAppend = true;
       }
 
-      // Name search with no free matches: still show inventory hits so the dress is visible.
-      if (
-        searching &&
-        collected.length === 0 &&
-        !controller.signal.aborted &&
-        version === availabilityVersionRef.current
-      ) {
+      // Name search: always merge inventory suggest hits so booked / fuzzy matches stay visible.
+      if (searching && !controller.signal.aborted && version === availabilityVersionRef.current) {
         const suggestParams = new URLSearchParams({ q: searchQ, limit: "24" });
         const suggestRes = await fetch(`/api/dress-name/suggest?${suggestParams}`, {
           credentials: "same-origin",
           signal: controller.signal,
         });
         if (suggestRes.ok) {
-          const suggestList = (await suggestRes.json()) as Array<{
+          const suggestJson = await suggestRes.json();
+          const suggestList = (Array.isArray(suggestJson) ? suggestJson : []) as Array<{
             id?: number;
             name: string;
             display_name?: string;
@@ -783,8 +779,9 @@ export default function BookingFormClient(props: Props) {
             !controller.signal.aborted &&
             version === availabilityVersionRef.current
           ) {
-            const fallback: FreeItem[] = suggestList
-              .filter((item) => item.id != null)
+            const have = new Set(collected.map((i) => i.id));
+            const extras: FreeItem[] = suggestList
+              .filter((item) => item.id != null && !have.has(item.id as number))
               .map((item) => ({
                 id: item.id as number,
                 name: item.name,
@@ -795,16 +792,17 @@ export default function BookingFormClient(props: Props) {
                 photo: item.photo || "",
                 free_quantity: 0,
                 booked_warning: {
-                  customer_name: "Not free for these dates",
+                  customer_name: "Check dates — may already be booked",
                   serial_no: 0,
                   booking_number: "",
                   delivery_date: "",
                   return_date: "",
                 },
               }));
-            if (fallback.length) {
-              setAllFreeItems(fallback);
-              setAvailabilityHasMore(false);
+            if (extras.length || collected.length) {
+              collected = mergeAvailabilityItemsById(collected, extras);
+              setAllFreeItems(collected);
+              if (!collected.length) setAvailabilityHasMore(false);
             }
           }
         }
@@ -2031,7 +2029,15 @@ export default function BookingFormClient(props: Props) {
           title="Available Dresses"
           iconClass="fa-solid fa-shirt"
           iconColor="var(--success)"
-          badge={<span className="badge badge-available">{loading ? "…" : `${filtered.length} available`}</span>}
+          badge={
+            <span className="badge badge-available">
+              {loading
+                ? "…"
+                : nameSearch.trim().length >= 2 && !/^\d+$/.test(nameSearch.trim())
+                  ? `${filtered.length} match${filtered.length === 1 ? "" : "es"}`
+                  : `${filtered.length} available`}
+            </span>
+          }
         />
 
         {dressListExpanded && (
@@ -2118,7 +2124,7 @@ export default function BookingFormClient(props: Props) {
 
             <p style={{ textAlign: "center", padding: 40, color: "var(--text-muted)" }}>
               {nameSearch.trim().length >= 2 && !/^\d+$/.test(nameSearch.trim())
-                ? `No dresses matching “${nameSearch.trim()}” for these dates.`
+                ? `No dresses matching “${nameSearch.trim()}”. Try fewer words, or check spelling in Manage Inventory.`
                 : "No dresses available for these dates."}
             </p>
 
