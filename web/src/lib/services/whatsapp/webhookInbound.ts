@@ -3,6 +3,7 @@ import "server-only";
 import prisma from "@/lib/prisma";
 import { Prisma } from "@prisma/client";
 import { handleInboundAutoReply } from "./autoReply";
+import { notifyStaffOfInboundCustomerMessage } from "./staffInboundNotify";
 import { logWebhookProcessingResult } from "./webhookSignature";
 import { storeWhatsAppInboundMedia } from "./webhookMedia";
 import type {
@@ -295,6 +296,18 @@ export async function acceptWhatsAppWebhookPayload(
 
 export async function processInboundFollowUp(payload: InboundFollowUpPayload): Promise<void> {
   if (payload.messageType === "reaction") return;
+
+  try {
+    await notifyStaffOfInboundCustomerMessage({
+      customerPhone: payload.phone,
+      inboundText: payload.inboundText,
+      messageType: payload.messageType,
+      metaMessageId: payload.metaMessageId,
+    });
+  } catch (e) {
+    console.error("[whatsapp] staff inbound alert failed", e);
+  }
+
   if (payload.media) {
     const privateUrl = await storeWhatsAppInboundMedia(payload.media);
     if (privateUrl) {
