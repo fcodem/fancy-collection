@@ -3,6 +3,9 @@ import { parseQrScanPayload } from "@/lib/bookingQrClient";
 /** Max gap between keystrokes to treat input as a USB wedge scanner (not human typing). */
 export const HARDWARE_SCAN_MAX_GAP_MS = 50;
 
+/** Min rapid keystrokes before Enter counts as a hardware scan burst. */
+export const HARDWARE_SCAN_MIN_RAPID_KEYS = 3;
+
 export function isBookingQrScanPayload(raw: string): boolean {
   const parsed = parseQrScanPayload(raw);
   return Boolean(parsed?.token && parsed.sig);
@@ -10,6 +13,35 @@ export function isBookingQrScanPayload(raw: string): boolean {
 
 export function normalizeHardwareScanCode(raw: string): string {
   return raw.replace(/[\r\n\u2028\u2029]+/g, "").trim();
+}
+
+/**
+ * True when typed/scanned text is a QR/barcode/SKU — not a dress name.
+ * Dress names usually have spaces or are letter-only words; scan codes are compact
+ * and include digits, separators, or booking QR URL shape.
+ */
+export function looksLikeDressScanCode(raw: string): boolean {
+  const code = normalizeHardwareScanCode(raw);
+  if (!code || code.length < 3) return false;
+  if (/\s/.test(code)) return false;
+
+  if (isBookingQrScanPayload(code)) return true;
+  if (/\/booking\/qr\//i.test(code)) return true;
+  if (/^[0-9a-f]{8}-[0-9a-f]{4}-[0-9a-f]{4}-[0-9a-f]{4}-[0-9a-f]{12}$/i.test(code)) {
+    return true;
+  }
+  // Numeric barcode / serial
+  if (/^\d{4,}$/.test(code)) return true;
+  // SKU / internal codes: must include a digit or separator (avoids "LEHENGA", "ANARKALI")
+  if (
+    /^[A-Za-z0-9._\-]+$/.test(code) &&
+    /[\d\-_]/.test(code) &&
+    code.length >= 4 &&
+    code.length <= 128
+  ) {
+    return true;
+  }
+  return false;
 }
 
 export type HardwareScanListenerOptions = {

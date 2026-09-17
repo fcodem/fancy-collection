@@ -42,7 +42,13 @@ import { todayIso, parseDate, isDateBeforeToday } from "@/lib/constants";
 import { formatInr } from "@/lib/format";
 import { privateMediaUrl } from "@/lib/photoUrl";
 import { isAbortError } from "@/lib/bookingQrClient";
-import { refocusInput } from "@/lib/hardwareScanner";
+import {
+  HARDWARE_SCAN_MAX_GAP_MS,
+  HARDWARE_SCAN_MIN_RAPID_KEYS,
+  looksLikeDressScanCode,
+  normalizeHardwareScanCode,
+  refocusInput,
+} from "@/lib/hardwareScanner";
 import { useToast } from "@/components/ui/Toast";
 import { downloadBookingSlipPdf } from "@/lib/bookingSlipClient";
 import { useRealtimeRefresh } from "@/hooks/useRealtimeRefresh";
@@ -514,7 +520,8 @@ export default function BookingFormClient(props: Props) {
   const [scanBusy, setScanBusy] = useState(false);
   const [showCameraScanner, setShowCameraScanner] = useState(false);
   const scanBuffer = useRef("");
-  const scanTimer = useRef<ReturnType<typeof setTimeout> | null>(null);
+  const scanRapidCount = useRef(0);
+  const scanLastKeyAt = useRef(0);
   const dressSearchInputRef = useRef<HTMLInputElement>(null);
   const scanKeepFocusRef = useRef(false);
 
@@ -536,6 +543,8 @@ export default function BookingFormClient(props: Props) {
   const [selectedListExpanded, setSelectedListExpanded] = useState(true);
 
   const [allFreeItems, setAllFreeItems] = useState<FreeItem[]>([]);
+  const allFreeItemsRef = useRef<FreeItem[]>([]);
+  allFreeItemsRef.current = allFreeItems;
   const [availabilityHasMore, setAvailabilityHasMore] = useState(false);
   const [availabilityPageLimit] = useState(() =>
     typeof window !== "undefined" && window.matchMedia("(max-width: 767px)").matches ? 20 : 30,
@@ -704,64 +713,63 @@ export default function BookingFormClient(props: Props) {
     const searching = searchQ.length >= 2 && !/^\d+$/.test(searchQ);
 
     setLoading(true);
-    const pageLimit = searching ? Math.max(availabilityPageLimit, 100) : availabilityPageLimit;
-    const maxPages = searching ? 3 : 1;
+    // Name search: one fast page + parallel suggest merge (avoid multi-page crawl that feels like a hang).
+    const pageLimit = searching ? Math.max(availabilityPageLimit, 48) : availabilityPageLimit;
     let nextAppend = append;
     let collected: FreeItem[] = [];
 
     try {
-      for (let page = 0; page < maxPages; page += 1) {
-        const cursor = nextAppend ? availabilityCursorRef.current : null;
-        const params = new URLSearchParams({
-          delivery_date: deliveryDate,
-          return_date: returnDate,
-          category: searching ? "" : categoryFilter,
-          size: searching ? "" : sizeFilter,
-          search: searching ? searchQ : "",
-          limit: String(pageLimit),
-        });
-        if (props.editId) params.set("exclude_booking", String(props.editId));
-        if (cursor) params.set("cursor", cursor);
+      const cursor = nextAppend ? availabilityCursorRef.current : null;
+      const params = new URLSearchParams({
+        delivery_date: deliveryDate,
+        return_date: returnDate,
+        category: searching ? "" : categoryFilter,
+        size: searching ? "" : sizeFilter,
+        search: searching ? searchQ : "",
+        limit: String(pageLimit),
+      });
+      if (props.editId) params.set("exclude_booking", String(props.editId));
+      if (cursor) params.set("cursor", cursor);
 
-        const res = await fetch(
-          `/api/booking/available-items?${params.toString()}`,
-          { credentials: "same-origin", signal: controller.signal, cache: "no-store" },
-        );
-        const data = (await res.json()) as {
-          free_items?: FreeItem[];
-          error?: string;
-          nextCursor?: string | null;
-          hasMore?: boolean;
-        };
-        if (!res.ok) {
-          const err = new Error(String(data?.error || res.status)) as Error & { status?: number };
-          err.status = res.status;
-          throw err;
-        }
+      const availPromise = fetch(
+        `/api/booking/available-items?${params.toString()}`,
+        { credentials: "same-origin", signal: controller.signal, cache: "no-store" },
+      );
 
-        if (controller.signal.aborted || version !== availabilityVersionRef.current) return;
+      const suggestPromise = searching
+        ? fetch(`/api/dress-name/suggest?${new URLSearchParams({ q: searchQ, limit: "16" })}`, {
+            credentials: "same-origin",
+            signal: controller.signal,
+          })
+        : null;
 
-        const pageItems = data.free_items || [];
-        collected = nextAppend || page > 0
-          ? mergeAvailabilityItemsById(collected, pageItems)
-          : pageItems;
-
-        setAllFreeItems(collected);
-        availabilityCursorRef.current =
-          typeof data.nextCursor === "string" ? data.nextCursor : null;
-        const more = Boolean(data.hasMore);
-        setAvailabilityHasMore(more);
-        if (!searching || !more) break;
-        nextAppend = true;
+      const res = await availPromise;
+      const data = (await res.json()) as {
+        free_items?: FreeItem[];
+        error?: string;
+        nextCursor?: string | null;
+        hasMore?: boolean;
+      };
+      if (!res.ok) {
+        const err = new Error(String(data?.error || res.status)) as Error & { status?: number };
+        err.status = res.status;
+        throw err;
       }
 
-      // Name search: always merge inventory suggest hits so booked / fuzzy matches stay visible.
-      if (searching && !controller.signal.aborted && version === availabilityVersionRef.current) {
-        const suggestParams = new URLSearchParams({ q: searchQ, limit: "24" });
-        const suggestRes = await fetch(`/api/dress-name/suggest?${suggestParams}`, {
-          credentials: "same-origin",
-          signal: controller.signal,
-        });
+      if (controller.signal.aborted || version !== availabilityVersionRef.current) return;
+
+      collected = nextAppend
+        ? mergeAvailabilityItemsById(allFreeItemsRef.current, data.free_items || [])
+        : (data.free_items || []);
+
+      setAllFreeItems(collected);
+      availabilityCursorRef.current =
+        typeof data.nextCursor === "string" ? data.nextCursor : null;
+      setAvailabilityHasMore(Boolean(data.hasMore));
+
+      // Name search: merge inventory suggest hits so booked / fuzzy matches stay visible.
+      if (suggestPromise && !controller.signal.aborted && version === availabilityVersionRef.current) {
+        const suggestRes = await suggestPromise;
         if (suggestRes.ok) {
           const suggestJson = await suggestRes.json();
           const suggestList = (Array.isArray(suggestJson) ? suggestJson : []) as Array<{
@@ -944,7 +952,7 @@ export default function BookingFormClient(props: Props) {
     }
     const t = setTimeout(() => {
       void fetchAvailability(false, q);
-    }, 150);
+    }, 100);
     return () => clearTimeout(t);
   }, [nameSearch, fetchAvailability]);
 
@@ -1194,20 +1202,42 @@ export default function BookingFormClient(props: Props) {
   );
 
   const handleDressSearchKeyDown = useCallback((e: React.KeyboardEvent<HTMLInputElement>) => {
-    if (scanTimer.current) clearTimeout(scanTimer.current);
     if (e.key === "Enter") {
       e.preventDefault();
-      const code = scanBuffer.current || e.currentTarget.value;
+      const rapid = normalizeHardwareScanCode(scanBuffer.current);
+      const typed = normalizeHardwareScanCode(e.currentTarget.value);
+      const wasRapidWedge =
+        scanRapidCount.current >= HARDWARE_SCAN_MIN_RAPID_KEYS && rapid.length >= 4;
       scanBuffer.current = "";
-      if (code.trim().length >= 4) {
-        void handleScanCode(code.trim());
+      scanRapidCount.current = 0;
+      scanLastKeyAt.current = 0;
+
+      // USB wedge: rapid burst + Enter → always treat as scan/QR.
+      // Human typing a dress name + Enter → name filter only (never hit scan-add).
+      // Slow typed SKU/barcode/QR → still allow scan when it clearly looks like a code.
+      const code = wasRapidWedge
+        ? rapid
+        : looksLikeDressScanCode(typed)
+          ? typed
+          : "";
+      if (code) {
+        void handleScanCode(code);
       }
       return;
     }
-    if (e.key.length === 1) {
+    if (e.key.length !== 1) return;
+    if (e.ctrlKey || e.metaKey || e.altKey) return;
+
+    const now = Date.now();
+    const gap = scanLastKeyAt.current ? now - scanLastKeyAt.current : 0;
+    if (scanLastKeyAt.current && gap > HARDWARE_SCAN_MAX_GAP_MS) {
+      scanBuffer.current = e.key;
+      scanRapidCount.current = 1;
+    } else {
       scanBuffer.current += e.key;
-      scanTimer.current = setTimeout(() => { scanBuffer.current = ""; }, 120);
+      scanRapidCount.current += 1;
     }
+    scanLastKeyAt.current = now;
   }, [handleScanCode]);
 
   const handleDressSearchBlur = useCallback((e: React.FocusEvent<HTMLInputElement>) => {
@@ -2074,13 +2104,13 @@ export default function BookingFormClient(props: Props) {
             <div style={{ position: "relative", flex: 1, minWidth: 140, display: "flex", gap: 6 }}>
               <DressNameSuggestInput
                 className="form-control"
-                placeholder={scanBusy ? "Checking scanned dress…" : "Search dress name — tap suggestion to add, or browse list"}
+                placeholder={scanBusy ? "Checking scanned dress…" : "Type dress name — Enter picks suggestion; scan QR/SKU to add"}
                 value={nameSearch}
                 showPhotos
                 clearOnSelect={false}
                 minChars={1}
-                debounceMs={120}
-                suggestLimit={16}
+                debounceMs={80}
+                suggestLimit={12}
                 inputRef={dressSearchInputRef}
                 data-dress-scan="1"
                 autoComplete="off"

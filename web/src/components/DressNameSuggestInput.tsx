@@ -257,9 +257,10 @@ export default function DressNameSuggestInput({
               setActiveIdx((i) => Math.max(i - 1, 0));
               return;
             }
-            if (e.key === "Enter" && activeIdx >= 0) {
+            if (e.key === "Enter") {
               e.preventDefault();
-              selectItem(items[activeIdx]);
+              // Prefer highlighted row; otherwise first match — never fall through to QR scan.
+              selectItem(items[activeIdx >= 0 ? activeIdx : 0]);
               return;
             }
             if (e.key === "Escape") {
