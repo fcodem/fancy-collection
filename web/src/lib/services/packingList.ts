@@ -14,6 +14,7 @@ import { isStarBooking } from "@/lib/starBooking";
 import { serializeActiveOrders } from "@/lib/slipBookingData";
 import { decodePackingCursor, encodePackingCursor } from "@/lib/packingCursor";
 import { sortByDeliverySchedule } from "@/lib/bookingDeliverySort";
+import { catalogPhotoRef } from "@/lib/catalogPhotoRef";
 import type { Prisma } from "@prisma/client";
 
 const DEFAULT_LIMIT = 20;
@@ -26,6 +27,7 @@ type PackingListItemRow = {
   category: string;
   sub_category: string;
   size: string;
+  photo: string;
   prepared_by: string;
   checked_by: string;
   is_packed_ready: boolean;
@@ -56,6 +58,7 @@ export async function getPackingListPage(opts: {
   const division = parsePackingDivisionFilter(rawCategory);
   const category = division ? "" : rawCategory;
   const categoryLists = division ? await getCategoryDivisionLists() : null;
+  const divisionCategories = division && categoryLists ? [...categoryLists[division]] : [];
   const cursor = decodePackingCursor(opts.cursor);
   const dateWhere = await whereDeliveryInRange(
     opts.deliveryFrom,
@@ -84,7 +87,61 @@ export async function getPackingListPage(opts: {
           { bookingItems: { none: {} }, legacyItem: { is: { category } } },
         ],
       }
-    : {};
+    : division && divisionCategories.length
+      ? {
+          OR: [
+            {
+              bookingItems: {
+                some: {
+                  isCancelled: false,
+                  category: { in: divisionCategories },
+                },
+              },
+            },
+            {
+              bookingItems: {
+                some: {
+                  isCancelled: false,
+                  item: {
+                    is: {
+                      OR: [
+                        { category: { in: divisionCategories } },
+                        { subCategory: { in: divisionCategories } },
+                      ],
+                    },
+                  },
+                },
+              },
+            },
+            {
+              bookingItems: { none: {} },
+              legacyItem: { is: { category: { in: divisionCategories } } },
+            },
+          ],
+        }
+      : {};
+
+  const bookingItemCategoryWhere: Prisma.BookingItemWhereInput | undefined = category
+    ? {
+        OR: [{ category }, { item: { is: { category } } }],
+      }
+    : division && divisionCategories.length
+      ? {
+          OR: [
+            { category: { in: divisionCategories } },
+            {
+              item: {
+                is: {
+                  OR: [
+                    { category: { in: divisionCategories } },
+                    { subCategory: { in: divisionCategories } },
+                  ],
+                },
+              },
+            },
+          ],
+        }
+      : undefined;
 
   const bookings = await prisma.booking.findMany({
     where: {
@@ -117,11 +174,7 @@ export async function getPackingListPage(opts: {
       bookingItems: {
         where: {
           isCancelled: false,
-          ...(category
-            ? {
-                OR: [{ category }, { item: { is: { category } } }],
-              }
-            : {}),
+          ...(bookingItemCategoryWhere || {}),
         },
         select: {
           id: true,
@@ -135,7 +188,16 @@ export async function getPackingListPage(opts: {
           checkedBy: true,
           isPackedReady: true,
           packingNote: true,
-          item: { select: { size: true, category: true, subCategory: true } },
+          item: {
+            select: {
+              size: true,
+              category: true,
+              subCategory: true,
+              photo: true,
+              thumbnailPhoto: true,
+              originalPhoto: true,
+            },
+          },
         },
       },
       orders: {
@@ -152,7 +214,15 @@ export async function getPackingListPage(opts: {
         },
         orderBy: [{ deliveryDate: "asc" }, { id: "asc" }],
       },
-      legacyItem: { select: { size: true, category: true } },
+      legacyItem: {
+        select: {
+          size: true,
+          category: true,
+          photo: true,
+          thumbnailPhoto: true,
+          originalPhoto: true,
+        },
+      },
     },
   });
 
@@ -240,6 +310,7 @@ export async function getPackingListPage(opts: {
             category: resolveEffectiveCategory(item.category, item.item?.category, item.item?.subCategory),
             sub_category: item.item?.subCategory || "",
             size: bookingItemSize(item),
+            photo: item.item ? catalogPhotoRef(item.item) : "",
             prepared_by: item.preparedBy || "",
             checked_by: item.checkedBy || "",
             is_packed_ready: item.isPackedReady,
@@ -282,6 +353,7 @@ export async function getPackingListPage(opts: {
             category: booking.legacyItem?.category || "",
             sub_category: "",
             size: booking.legacyItem?.size || "",
+            photo: booking.legacyItem ? catalogPhotoRef(booking.legacyItem) : "",
             prepared_by: "",
             checked_by: "",
             is_packed_ready: false,

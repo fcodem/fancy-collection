@@ -94,14 +94,16 @@ export default function CategorySelect({
   return (
     <select id={id} className={className} value={value} onChange={(e) => onChange?.(e.target.value)}>
       <option value="">All Categories</option>
-      <optgroup label="Men's">
-        {divisionOptions
-          .filter((option) => option.key === "mens")
-          .map((option) => (
+      {divisionOptions.length > 0 ? (
+        <optgroup label="Whole division">
+          {divisionOptions.map((option) => (
             <option key={option.value} value={option.value}>
               {option.label}
             </option>
           ))}
+        </optgroup>
+      ) : null}
+      <optgroup label="Men's">
         {cats.mens_categories.map((c) => (
           <option key={c} value={c}>
             {c}
@@ -109,13 +111,6 @@ export default function CategorySelect({
         ))}
       </optgroup>
       <optgroup label="Women's">
-        {divisionOptions
-          .filter((option) => option.key === "womens")
-          .map((option) => (
-            <option key={option.value} value={option.value}>
-              {option.label}
-            </option>
-          ))}
         {cats.womens_categories.map((c) => (
           <option key={c} value={c}>
             {c}
@@ -123,13 +118,6 @@ export default function CategorySelect({
         ))}
       </optgroup>
       <optgroup label="Jewellery">
-        {divisionOptions
-          .filter((option) => option.key === "jewellery")
-          .map((option) => (
-            <option key={option.value} value={option.value}>
-              {option.label}
-            </option>
-          ))}
         {cats.jewellery_categories.map((c) => (
           <option key={c} value={c}>
             {c}

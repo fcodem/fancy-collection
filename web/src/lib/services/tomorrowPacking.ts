@@ -8,6 +8,7 @@ import { resolveEffectiveCategory } from "@/lib/categoryDivision";
 import { getCategoryDivisionLists } from "@/lib/categories";
 import { packingDivision, PACKING_DIVISIONS } from "@/lib/packingDivision";
 import { sortByDeliverySchedule } from "@/lib/bookingDeliverySort";
+import { catalogPhotoRef } from "@/lib/catalogPhotoRef";
 
 export type TomorrowPackingItem = {
   biId: number | null;
@@ -16,6 +17,7 @@ export type TomorrowPackingItem = {
   category: string;
   inventorySubCategory: string;
   size: string;
+  photo: string;
   isPackedReady: boolean;
   preparedBy: string;
   checkedBy: string;
@@ -94,10 +96,29 @@ export async function getTomorrowPackingPageData(): Promise<TomorrowPackingPageD
           checkedBy: true,
           isPackedReady: true,
           packingNote: true,
-          item: { select: { size: true, name: true, category: true, subCategory: true } },
+          item: {
+            select: {
+              size: true,
+              name: true,
+              category: true,
+              subCategory: true,
+              photo: true,
+              thumbnailPhoto: true,
+              originalPhoto: true,
+            },
+          },
         },
       },
-      legacyItem: { select: { size: true, category: true, name: true } },
+      legacyItem: {
+        select: {
+          size: true,
+          category: true,
+          name: true,
+          photo: true,
+          thumbnailPhoto: true,
+          originalPhoto: true,
+        },
+      },
     },
   });
 
@@ -115,6 +136,7 @@ export async function getTomorrowPackingPageData(): Promise<TomorrowPackingPageD
             category,
             inventorySubCategory,
             size,
+            photo: item.item ? catalogPhotoRef(item.item) : "",
             isPackedReady: item.isPackedReady,
             preparedBy: item.preparedBy || "",
             checkedBy: item.checkedBy || "",
@@ -132,6 +154,7 @@ export async function getTomorrowPackingPageData(): Promise<TomorrowPackingPageD
               category: b.legacyItem?.category || "",
               inventorySubCategory: "",
               size,
+              photo: b.legacyItem ? catalogPhotoRef(b.legacyItem) : "",
               isPackedReady: false,
               preparedBy: "",
               checkedBy: "",

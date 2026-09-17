@@ -3,6 +3,7 @@
 import Link from "next/link";
 import PrefetchOnIntentLink from "@/components/PrefetchOnIntentLink";
 import StarBookingBadge from "@/components/StarBookingBadge";
+import BookingPhotoThumb from "@/components/BookingPhotoThumb";
 import { formatDate } from "@/lib/constants";
 import type { TomorrowPackingBooking, TomorrowPackingPageData } from "@/lib/services/tomorrowPacking";
 
@@ -54,14 +55,21 @@ function BookingCard({ booking, tone }: { booking: TomorrowPackingBooking; tone:
                   : "var(--bg)",
             }}
           >
-            <div style={{ minWidth: 0 }}>
-              <strong>{item.displayName || item.dressName}</strong>
-              {item.category ? (
-                <div style={{ fontSize: 12, color: "var(--text-muted)" }}>{item.category}</div>
-              ) : null}
-              {item.packingNote?.trim() ? (
-                <div style={{ fontSize: 12, marginTop: 4 }}>Note: {item.packingNote.trim()}</div>
-              ) : null}
+            <div style={{ display: "flex", gap: 10, alignItems: "flex-start", minWidth: 0, flex: 1 }}>
+              <BookingPhotoThumb
+                photo={item.photo}
+                size={64}
+                alt={item.displayName || item.dressName || "Dress"}
+              />
+              <div style={{ minWidth: 0 }}>
+                <strong>{item.displayName || item.dressName}</strong>
+                {item.category ? (
+                  <div style={{ fontSize: 12, color: "var(--text-muted)" }}>{item.category}</div>
+                ) : null}
+                {item.packingNote?.trim() ? (
+                  <div style={{ fontSize: 12, marginTop: 4 }}>Note: {item.packingNote.trim()}</div>
+                ) : null}
+              </div>
             </div>
             <div style={{ fontSize: 12, textAlign: "right", color: "var(--text-muted)" }}>
               <div style={{ color: item.isPackedReady ? "#2f855a" : "#c53030", fontWeight: 600 }}>

@@ -686,11 +686,27 @@ a.stat-card:hover {
 
 .packing-item-dress {
   display: flex;
+  align-items: flex-start;
+  flex-wrap: nowrap;
+  gap: 12px;
+  margin-bottom: 0;
+  font-size: 14px;
+}
+
+.packing-item-photo {
+  flex-shrink: 0;
+  border: 1px solid var(--border);
+  border-radius: 8px;
+  background: var(--bg);
+}
+
+.packing-item-dress-text {
+  display: flex;
   align-items: baseline;
   flex-wrap: wrap;
   gap: 10px;
-  margin-bottom: 0;
-  font-size: 14px;
+  min-width: 0;
+  flex: 1;
 }
 
 .packing-item-dress-label {

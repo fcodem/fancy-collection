@@ -12,12 +12,13 @@ import type { StandardBookingDetails } from "@/lib/bookingDetails";
 import { useRealtimeRefresh } from "@/hooks/useRealtimeRefresh";
 import { BOOKING_EVENTS } from "@/lib/realtime/types";
 import DownloadPdfButton from "@/components/DownloadPdfButton";
+import BookingPhotoThumb from "@/components/BookingPhotoThumb";
 import { CustomOrdersSection, type SlipOrderDisplay } from "@/components/BookingSlip";
 import { panelsForItemWarnings } from "@/lib/bookingWarningPdf";
 import { STANDARD_BOOKING_HEADERS, flattenBookingPdfRows, standardBookingPdfRow } from "@/lib/standardBookingPdfRows";
 import StarBookingBadge from "@/components/StarBookingBadge";
 import { addDaysIso } from "@/lib/dateInput";
-import { packingDivision, PACKING_DIVISIONS, parsePackingDivisionFilter, formatPackingCategoryFilterLabel, type CategoryDivisionLists } from "@/lib/packingDivision";
+import { packingDivision, PACKING_DIVISIONS, parsePackingDivisionFilter, formatPackingCategoryFilterLabel, packingDivisionFilterValue, type CategoryDivisionLists, type PackingDivision } from "@/lib/packingDivision";
 import { countPackingItemsByDivision, packingSectionsForRows } from "@/lib/packingListSections";
 import { sortByDeliverySchedule } from "@/lib/bookingDeliverySort";
 
@@ -31,6 +32,7 @@ type PackingItem = {
   packing_note: string;
   category?: string;
   sub_category?: string;
+  photo?: string;
   /** Per-dress note entered on the booking (shown highlighted for staff). */
   dress_note?: string;
   returning_warning?: PackingReturningWarning | null;
@@ -305,12 +307,48 @@ export default function PackingListClient({
               <input type="date" className="form-control" value={to} onChange={(e) => setTo(e.target.value)} />
             </div>
             <div>
-              <label className="form-label">Category</label>
+              <label className="form-label">Category (optional)</label>
               <CategorySelect value={category} onChange={setCategory} includeDivisionFilters />
             </div>
             <button className="btn btn-primary" onClick={() => void load(false)} disabled={loading}>
               {loading ? "Loading…" : "Load"}
             </button>
+          </div>
+          <div style={{ marginTop: 14 }}>
+            <label className="form-label" style={{ marginBottom: 8 }}>
+              Division — pack one full community
+            </label>
+            <div style={{ display: "flex", flexWrap: "wrap", gap: 8 }}>
+              {(
+                [
+                  { key: "" as const, label: "All divisions" },
+                  ...PACKING_DIVISIONS.map((d) => ({
+                    key: packingDivisionFilterValue(d.key),
+                    label: d.label,
+                  })),
+                ] as Array<{ key: string; label: string }>
+              ).map((opt) => {
+                const selected = category === opt.key;
+                return (
+                  <button
+                    key={opt.key || "all"}
+                    type="button"
+                    className={selected ? "btn btn-primary btn-sm" : "btn btn-outline btn-sm"}
+                    disabled={loading}
+                    aria-pressed={selected}
+                    onClick={() => setCategory(opt.key)}
+                    style={{ minWidth: 110 }}
+                  >
+                    {opt.label}
+                  </button>
+                );
+              })}
+            </div>
+            {activeDivision ? (
+              <p className="form-hint" style={{ marginTop: 8, marginBottom: 0 }}>
+                Showing {formatPackingCategoryFilterLabel(category)} only — Load More keeps scrolling this division.
+              </p>
+            ) : null}
           </div>
         </div>
       </div>
@@ -322,14 +360,38 @@ export default function PackingListClient({
       )}
 
       {loaded && (
-        <div style={{ marginBottom: 16, fontSize: 13 }}>
-          <strong>{allItems.length}</strong> items · <strong style={{ color: "#68d391" }}>{packed}</strong> packed ·{" "}
-          <strong style={{ color: "#fc8181" }}>{allItems.length - packed}</strong> pending
+        <div style={{ marginBottom: 16, fontSize: 13, display: "flex", flexWrap: "wrap", gap: 8, alignItems: "center" }}>
+          <span>
+            <strong>{allItems.length}</strong> items · <strong style={{ color: "#68d391" }}>{packed}</strong> packed ·{" "}
+            <strong style={{ color: "#fc8181" }}>{allItems.length - packed}</strong> pending
+          </span>
           {!activeDivision ? (
-            <span style={{ color: "var(--text-muted)", marginLeft: 8 }}>
-              · Men {divisionCounts.mens} · Women {divisionCounts.womens} · Jewellery {divisionCounts.jewellery}
+            <span style={{ display: "inline-flex", flexWrap: "wrap", gap: 6 }}>
+              {(Object.keys(divisionCounts) as PackingDivision[]).map((key) => (
+                <button
+                  key={key}
+                  type="button"
+                  className="btn btn-outline btn-sm"
+                  disabled={loading || !divisionCounts[key]}
+                  title={`Show only ${PACKING_DIVISIONS.find((d) => d.key === key)?.label}`}
+                  onClick={() => setCategory(packingDivisionFilterValue(key))}
+                  style={{ fontSize: 12, padding: "4px 10px" }}
+                >
+                  {PACKING_DIVISIONS.find((d) => d.key === key)?.label} {divisionCounts[key]}
+                </button>
+              ))}
             </span>
-          ) : null}
+          ) : (
+            <button
+              type="button"
+              className="btn btn-outline btn-sm"
+              disabled={loading}
+              onClick={() => setCategory("")}
+              style={{ fontSize: 12, padding: "4px 10px" }}
+            >
+              Clear division filter
+            </button>
+          )}
         </div>
       )}
 
@@ -390,22 +452,30 @@ export default function PackingListClient({
               <div key={item.bi_id || idx} className="packing-item-block">
                 <div className="packing-item-details-line">
                   <div className="packing-item-dress">
-                    <span className="packing-item-dress-label">Dress</span>
-                    <strong>{item.display_name || item.dress_name}</strong>
-                    {b.common_notes?.trim() ? (
-                      <span className="packing-dress-note packing-common-note" title="Common note from booking">
-                        <i className="fa-solid fa-note-sticky" aria-hidden />
-                        <span className="packing-dress-note-label">Common</span>
-                        <span className="packing-dress-note-text">{b.common_notes.trim()}</span>
-                      </span>
-                    ) : null}
-                    {item.dress_note?.trim() ? (
-                      <span className="packing-dress-note" title="Dress note from booking">
-                        <i className="fa-solid fa-sticky-note" aria-hidden />
-                        <span className="packing-dress-note-label">Note</span>
-                        <span className="packing-dress-note-text">{item.dress_note.trim()}</span>
-                      </span>
-                    ) : null}
+                    <BookingPhotoThumb
+                      photo={item.photo}
+                      size={72}
+                      alt={item.display_name || item.dress_name || "Dress"}
+                      className="packing-item-photo"
+                    />
+                    <div className="packing-item-dress-text">
+                      <span className="packing-item-dress-label">Dress</span>
+                      <strong>{item.display_name || item.dress_name}</strong>
+                      {b.common_notes?.trim() ? (
+                        <span className="packing-dress-note packing-common-note" title="Common note from booking">
+                          <i className="fa-solid fa-note-sticky" aria-hidden />
+                          <span className="packing-dress-note-label">Common</span>
+                          <span className="packing-dress-note-text">{b.common_notes.trim()}</span>
+                        </span>
+                      ) : null}
+                      {item.dress_note?.trim() ? (
+                        <span className="packing-dress-note" title="Dress note from booking">
+                          <i className="fa-solid fa-sticky-note" aria-hidden />
+                          <span className="packing-dress-note-label">Note</span>
+                          <span className="packing-dress-note-text">{item.dress_note.trim()}</span>
+                        </span>
+                      ) : null}
+                    </div>
                   </div>
                   {item.returning_warning && (
                     <PackingReturningWarningPanel w={item.returning_warning} />

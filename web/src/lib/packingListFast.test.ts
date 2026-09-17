@@ -28,8 +28,17 @@ describe("fast packing list contracts", () => {
     assert.match(service, /take: limit \+ 1/);
     assert.match(service, /isCancelled: false/);
     assert.match(service, /bookingItems: \{ some: \{ category, isCancelled: false \} \}/);
-    assert.doesNotMatch(service, /item: \{[\s\S]*photo:/);
+    // Dress photos help packing staff avoid mix-ups; keep select narrow (photo fields only).
+    assert.match(service, /photo: true/);
+    assert.match(service, /catalogPhotoRef/);
     assert.match(service, /visibleItemIds/);
+  });
+
+  it("filters whole Men / Women / Jewellery divisions in SQL", () => {
+    assert.match(service, /parsePackingDivisionFilter/);
+    assert.match(service, /divisionCategories/);
+    assert.match(service, /category: \{ in: divisionCategories \}/);
+    assert.match(service, /subCategory: \{ in: divisionCategories \}/);
   });
 
   it("loads active custom orders only for the visible booking page", () => {
@@ -37,6 +46,17 @@ describe("fast packing list contracts", () => {
     const orderSelect = service.slice(start, service.indexOf("legacyItem:", start));
     assert.match(orderSelect, /where: \{ status: "active" \}/);
     assert.doesNotMatch(orderSelect, /photo: true/);
+  });
+
+  it("shows dress thumbnails in the packing list UI", () => {
+    assert.match(client, /BookingPhotoThumb/);
+    assert.match(client, /item\.photo/);
+  });
+
+  it("exposes whole-division Men / Women / Jewellery selection", () => {
+    assert.match(client, /Division — pack one full community/);
+    assert.match(client, /packingDivisionFilterValue/);
+    assert.match(client, /All divisions/);
   });
 
   it("coalesces text edits, immediately saves checkboxes and supports retry", () => {
