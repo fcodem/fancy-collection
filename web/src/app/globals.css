@@ -897,6 +897,19 @@ a.stat-card:hover {
   gap: 8px;
 }
 
+.booked-item-dress-chip {
+  display: inline-flex;
+  align-items: center;
+  gap: 8px;
+  max-width: 100%;
+}
+
+.booked-item-dress-chip .booking-photo-thumb,
+.booked-item-dress-chip .booking-photo-thumb-empty,
+.booked-item-dress-chip .booking-photo-thumb-zoomable {
+  flex-shrink: 0;
+}
+
 .booked-items-simple-schedule {
   display: flex;
   flex-wrap: wrap;

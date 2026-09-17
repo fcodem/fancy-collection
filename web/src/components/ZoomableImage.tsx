@@ -24,6 +24,7 @@ export default function ZoomableImage({
   decoding,
   width,
   height,
+  openSignal,
 }: {
   src: string;
   /** Full-resolution (or catalog) URL for the lightbox. Falls back to `src`. */
@@ -37,6 +38,8 @@ export default function ZoomableImage({
   decoding?: "async" | "auto" | "sync";
   width?: number | string;
   height?: number | string;
+  /** Increment to open the lightbox from a parent click (e.g. dress row). */
+  openSignal?: number;
 }) {
   const [open, setOpen] = useState(false);
   const [mounted, setMounted] = useState(false);
@@ -54,6 +57,16 @@ export default function ZoomableImage({
   useEffect(() => {
     setDisplaySrc(src || "");
   }, [src]);
+
+  useEffect(() => {
+    if (openSignal == null || openSignal <= 0) return;
+    const sharp = (fullSrc && String(fullSrc).trim()) || displaySrc || src;
+    if (!sharp) return;
+    setLightboxSrc(sharp);
+    setScale(1);
+    setPan({ x: 0, y: 0 });
+    setOpen(true);
+  }, [openSignal, fullSrc, displaySrc, src]);
 
   const resetZoom = useCallback(() => {
     setScale(1);

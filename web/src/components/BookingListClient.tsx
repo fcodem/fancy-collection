@@ -22,8 +22,16 @@ import {
 } from "@/lib/standardBookingPdfRows";
 import { cachedFetchJson, invalidateClientCache } from "@/lib/clientRequestCache";
 import DressNameSuggestInput from "@/components/DressNameSuggestInput";
+import CategorySelect from "@/components/CategorySelect";
+import BookingPhotoThumb from "@/components/BookingPhotoThumb";
 import { stripUnitSuffix } from "@/lib/dress";
 import { useToast } from "@/components/ui/Toast";
+import {
+  PACKING_DIVISIONS,
+  formatPackingCategoryFilterLabel,
+  packingDivisionFilterValue,
+  parsePackingDivisionFilter,
+} from "@/lib/packingDivision";
 
 /** Load the full filtered period in one list (no page controls). Matches server export cap. */
 const LIST_PAGE_SIZE = 50;
@@ -40,6 +48,7 @@ type ItemRow = {
   category: string;
   price: number;
   notes: string;
+  photo?: string;
   returning_warning: BookingWarningRecord | null;
   booked_warning: BookingWarningRecord | null;
 };
@@ -73,13 +82,6 @@ type ListData = {
   totalPagesUnavailable: number;
 };
 
-type Categories = {
-  mens_categories: string[];
-  womens_categories: string[];
-  jewellery_categories: string[];
-  accessory_categories: string[];
-};
-
 function serialLabel(n: number) {
   return String(n || 0).padStart(2, "0");
 }
@@ -94,12 +96,22 @@ function dressLabel(item: ItemRow) {
 }
 
 function AlternateBookingCard({ booking }: { booking: BookingRow }) {
-  const dresses = booking.items?.length
-    ? booking.items.map(dressLabel)
+  const items = booking.items?.length
+    ? booking.items
     : (booking.dress_names || "")
         .split(",")
         .map((s) => s.trim())
-        .filter(Boolean);
+        .filter(Boolean)
+        .map((name) => ({
+          dress_name: name,
+          display_name: name,
+          category: "",
+          price: 0,
+          notes: "",
+          photo: "",
+          returning_warning: null,
+          booked_warning: null,
+        }));
   const kindLabel =
     booking.reason ||
     (booking.alternate_kind === "both"
@@ -148,9 +160,14 @@ function AlternateBookingCard({ booking }: { booking: BookingRow }) {
 
       <div className="card-body" style={{ paddingTop: 8 }}>
         <div className="booked-items-simple-dresses" style={{ marginBottom: 10 }}>
-          {dresses.map((name, i) => (
-            <span key={`${name}-${i}`} className="schedule-highlight schedule-highlight--dress">
-              {name}
+          {items.map((item, i) => (
+            <span key={`${dressLabel(item)}-${i}`} className="booked-item-dress-chip">
+              <BookingPhotoThumb
+                photo={item.photo}
+                size={44}
+                alt={dressLabel(item)}
+              />
+              <span className="schedule-highlight schedule-highlight--dress">{dressLabel(item)}</span>
             </span>
           ))}
         </div>
@@ -188,12 +205,22 @@ function AlternateBookingCard({ booking }: { booking: BookingRow }) {
 }
 
 function BookingCard({ booking, isUnavailable }: { booking: BookingRow; isUnavailable?: boolean }) {
-  const dresses = booking.items?.length
-    ? booking.items.map(dressLabel)
+  const items = booking.items?.length
+    ? booking.items
     : (booking.dress_names || "")
         .split(",")
         .map((s) => s.trim())
-        .filter(Boolean);
+        .filter(Boolean)
+        .map((name) => ({
+          dress_name: name,
+          display_name: name,
+          category: "",
+          price: 0,
+          notes: "",
+          photo: "",
+          returning_warning: null,
+          booked_warning: null,
+        }));
 
   return (
     <div
@@ -224,10 +251,15 @@ function BookingCard({ booking, isUnavailable }: { booking: BookingRow; isUnavai
       </div>
 
       <div className="booked-items-simple-dresses">
-        {dresses.length ? (
-          dresses.map((name, i) => (
-            <span key={`${name}-${i}`} className="schedule-highlight schedule-highlight--dress">
-              {name}
+        {items.length ? (
+          items.map((item, i) => (
+            <span key={`${dressLabel(item)}-${i}`} className="booked-item-dress-chip">
+              <BookingPhotoThumb
+                photo={item.photo}
+                size={48}
+                alt={dressLabel(item)}
+              />
+              <span className="schedule-highlight schedule-highlight--dress">{dressLabel(item)}</span>
             </span>
           ))
         ) : (
@@ -294,25 +326,11 @@ export default function BookingListClient({
   const [scanBusy, setScanBusy] = useState(false);
   const [data, setData] = useState<ListData>(initialData);
   const [loading, setLoading] = useState(false);
-  const [categories, setCategories] = useState<Categories | null>(null);
   const skipFirst = useRef(true);
   const abortRef = useRef<AbortController | null>(null);
   const debounceRef = useRef<ReturnType<typeof setTimeout> | null>(null);
   const toast = useToast();
-
-  useEffect(() => {
-    cachedFetchJson(
-      "categories:all",
-      async (signal) => {
-        const res = await fetch("/api/categories", { credentials: "same-origin", signal });
-        if (!res.ok) throw new Error("Failed to load categories");
-        return res.json() as Promise<Categories>;
-      },
-      { ttlMs: 25_000 },
-    )
-      .then(setCategories)
-      .catch(() => setCategories(null));
-  }, []);
+  const activeDivision = parsePackingDivisionFilter(category);
 
   const buildParams = useCallback(
     (dressOverride?: string) => {
@@ -556,42 +574,49 @@ export default function BookingListClient({
               </select>
             </div>
             <div>
-              <label style={labelStyle}>Category</label>
-              <select
-                className="form-control"
+              <label style={labelStyle}>Category (optional)</label>
+              <CategorySelect
                 value={category}
-                onChange={(e) => setCategory(e.target.value)}
-                disabled={!categories}
-              >
-                <option value="">All Categories</option>
-                {categories ? (
-                  <>
-                    <optgroup label="Men's">
-                      {categories.mens_categories.map((c) => (
-                        <option key={c} value={c}>{c}</option>
-                      ))}
-                    </optgroup>
-                    <optgroup label="Women's">
-                      {categories.womens_categories.map((c) => (
-                        <option key={c} value={c}>{c}</option>
-                      ))}
-                    </optgroup>
-                    <optgroup label="Jewellery">
-                      {categories.jewellery_categories.map((c) => (
-                        <option key={c} value={c}>{c}</option>
-                      ))}
-                    </optgroup>
-                    <optgroup label="Accessories">
-                      {categories.accessory_categories.map((c) => (
-                        <option key={c} value={c}>{c}</option>
-                      ))}
-                    </optgroup>
-                  </>
-                ) : (
-                  <option value="" disabled>Loading categories…</option>
-                )}
-              </select>
+                onChange={setCategory}
+                includeDivisionFilters
+              />
             </div>
+          </div>
+          <div style={{ marginBottom: 16 }}>
+            <label style={{ ...labelStyle, marginBottom: 8, display: "block" }}>
+              Division — pack one full community
+            </label>
+            <div style={{ display: "flex", flexWrap: "wrap", gap: 8 }}>
+              {(
+                [
+                  { key: "" as const, label: "All divisions" },
+                  ...PACKING_DIVISIONS.map((d) => ({
+                    key: packingDivisionFilterValue(d.key),
+                    label: d.label,
+                  })),
+                ] as Array<{ key: string; label: string }>
+              ).map((opt) => {
+                const selected = category === opt.key;
+                return (
+                  <button
+                    key={opt.key || "all"}
+                    type="button"
+                    className={selected ? "btn btn-primary btn-sm" : "btn btn-outline btn-sm"}
+                    disabled={loading}
+                    aria-pressed={selected}
+                    onClick={() => setCategory(opt.key)}
+                    style={{ minWidth: 110 }}
+                  >
+                    {opt.label}
+                  </button>
+                );
+              })}
+            </div>
+            {activeDivision ? (
+              <p className="form-hint" style={{ marginTop: 8, marginBottom: 0 }}>
+                Showing {formatPackingCategoryFilterLabel(category)} booked items only.
+              </p>
+            ) : null}
           </div>
           <div
             className="booked-items-dress-search"

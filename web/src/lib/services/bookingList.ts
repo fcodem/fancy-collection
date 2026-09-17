@@ -26,6 +26,15 @@ import { getFreshShopRevision } from "@/lib/realtime/revision";
 import { formatJewelleryPartsLabel } from "@/lib/jewelleryParts";
 import { limitedDbRead } from "@/lib/readDbLimit";
 import { BOOKING_LIST_PAGE_SIZE } from "@/lib/menuPerf";
+import { getCategoryDivisionLists } from "@/lib/categories";
+import {
+  packingDivision,
+  parsePackingDivisionFilter,
+  type CategoryDivisionLists,
+  type PackingDivision,
+} from "@/lib/packingDivision";
+import { catalogPhotoRef } from "@/lib/catalogPhotoRef";
+import type { Prisma } from "@prisma/client";
 
 /** Full export for PDF — separate from paginated list (max 500 rows). */
 export const BOOKING_LIST_EXPORT_MAX = 500;
@@ -37,6 +46,7 @@ type ItemRow = {
   size: string;
   price: number;
   notes: string;
+  photo: string;
   returning_warning: BookingWarningRecord | null;
   booked_warning: BookingWarningRecord | null;
 };
@@ -51,6 +61,111 @@ export type BookingListRow = ReturnType<typeof bookingListRecordFrom> & {
   /** Booked Items alternate section: returning on From / delivering on To. */
   alternate_kind?: "returning" | "delivering" | "both";
 };
+
+type ListCategoryFilter = {
+  /** Exact dress category, or empty when filtering by whole division / none. */
+  exactCategory: string;
+  division: PackingDivision | null;
+  divisionCategories: string[];
+  categoryLists: CategoryDivisionLists | null;
+  /** True when any category or division filter is active. */
+  active: boolean;
+  /** Raw query value (used in cache keys). */
+  raw: string;
+};
+
+async function resolveListCategoryFilter(raw: string): Promise<ListCategoryFilter> {
+  const value = (raw || "").trim();
+  const division = parsePackingDivisionFilter(value);
+  if (division) {
+    const categoryLists = await getCategoryDivisionLists();
+    return {
+      exactCategory: "",
+      division,
+      divisionCategories: [...categoryLists[division]],
+      categoryLists,
+      active: true,
+      raw: value,
+    };
+  }
+  return {
+    exactCategory: value,
+    division: null,
+    divisionCategories: [],
+    categoryLists: null,
+    active: Boolean(value),
+    raw: value,
+  };
+}
+
+function bookingListCategoryWhere(filter: ListCategoryFilter): Prisma.BookingWhereInput {
+  if (filter.exactCategory) {
+    const category = filter.exactCategory;
+    return {
+      OR: [
+        { bookingItems: { some: { category } } },
+        {
+          selectedJewellery: {
+            some: { status: "active", category },
+          },
+        },
+        {
+          AND: [
+            { bookingItems: { none: {} } },
+            { legacyItem: { is: { category } } },
+          ],
+        },
+      ],
+    };
+  }
+  if (filter.division && filter.divisionCategories.length) {
+    const cats = filter.divisionCategories;
+    return {
+      OR: [
+        { bookingItems: { some: { category: { in: cats } } } },
+        {
+          bookingItems: {
+            some: {
+              item: {
+                is: {
+                  OR: [{ category: { in: cats } }, { subCategory: { in: cats } }],
+                },
+              },
+            },
+          },
+        },
+        {
+          selectedJewellery: {
+            some: {
+              status: "active",
+              OR: [{ category: { in: cats } }, { item: { is: { category: { in: cats } } } }],
+            },
+          },
+        },
+        {
+          AND: [
+            { bookingItems: { none: {} } },
+            { legacyItem: { is: { category: { in: cats } } } },
+          ],
+        },
+      ],
+    };
+  }
+  return {};
+}
+
+function itemMatchesListCategoryFilter(
+  category: string,
+  dressName: string,
+  filter: ListCategoryFilter,
+): boolean {
+  if (!filter.active) return true;
+  if (filter.exactCategory) return category === filter.exactCategory;
+  if (filter.division && filter.categoryLists) {
+    return packingDivision(category, dressName, null, filter.categoryLists) === filter.division;
+  }
+  return true;
+}
 
 export const bookingListSelect = {
   id: true,
@@ -89,9 +204,24 @@ export const bookingListSelect = {
       notes: true,
       isDelivered: true,
       itemSecurityCollected: true,
+      item: {
+        select: {
+          photo: true,
+          thumbnailPhoto: true,
+          originalPhoto: true,
+        },
+      },
     },
   },
-  legacyItem: { select: { size: true, category: true } },
+  legacyItem: {
+    select: {
+      size: true,
+      category: true,
+      photo: true,
+      thumbnailPhoto: true,
+      originalPhoto: true,
+    },
+  },
   selectedJewellery: {
     where: { status: "active" },
     select: {
@@ -99,11 +229,19 @@ export const bookingListSelect = {
       itemId: true,
       name: true,
       category: true,
+      photo: true,
       note: true,
       pickNecklace: true,
       pickEarrings: true,
       pickTeeka: true,
       pickPasa: true,
+      item: {
+        select: {
+          photo: true,
+          thumbnailPhoto: true,
+          originalPhoto: true,
+        },
+      },
     },
   },
 } as const;
@@ -114,7 +252,7 @@ type BookingLite = Awaited<
 
 function buildItems(
   b: BookingLite,
-  categoryFilter: string,
+  categoryFilter: ListCategoryFilter,
   returningMap?: Map<string, WarningInfo[]>,
   bookedMap?: Map<string, WarningInfo[]>,
 ): ItemRow[] {
@@ -124,7 +262,9 @@ function buildItems(
 
   if (b.bookingItems.length) {
     for (const bi of b.bookingItems) {
-      if (categoryFilter && bi.category !== categoryFilter) continue;
+      if (!itemMatchesListCategoryFilter(bi.category || "", bi.dressName || "", categoryFilter)) {
+        continue;
+      }
       const sz = bi.size || "";
       rows.push({
         dress_name: bi.dressName,
@@ -133,6 +273,7 @@ function buildItems(
         size: sz,
         price: bi.price,
         notes: bi.notes || "",
+        photo: bi.item ? catalogPhotoRef(bi.item) : "",
         returning_warning:
           returningMap && bookedMap
             ? pickWarning(returningMap, delIso, bi.itemId ?? undefined, b.id)
@@ -145,7 +286,7 @@ function buildItems(
     }
   } else if (b.itemId && b.dressName) {
     const cat = b.legacyItem?.category || "";
-    if (categoryFilter && cat !== categoryFilter) return [];
+    if (!itemMatchesListCategoryFilter(cat, b.dressName, categoryFilter)) return [];
     const sz = b.legacyItem?.size || "";
     rows.push({
       dress_name: b.dressName,
@@ -154,6 +295,7 @@ function buildItems(
       size: sz,
       price: b.price,
       notes: b.notes || "",
+      photo: b.legacyItem ? catalogPhotoRef(b.legacyItem) : "",
       returning_warning:
         returningMap && bookedMap
           ? pickWarning(returningMap, delIso, b.itemId, b.id)
@@ -167,7 +309,7 @@ function buildItems(
 
   for (const j of b.selectedJewellery || []) {
     const cat = j.category || "Jewellery";
-    if (categoryFilter && cat !== categoryFilter) continue;
+    if (!itemMatchesListCategoryFilter(cat, j.name || "", categoryFilter)) continue;
     const partsLabel = formatJewelleryPartsLabel({
       pickNecklace: j.pickNecklace,
       pickEarrings: j.pickEarrings,
@@ -182,6 +324,7 @@ function buildItems(
       size: "",
       price: 0,
       notes: noteParts.join(" - "),
+      photo: catalogPhotoRef(j.item) || catalogPhotoRef({ photo: j.photo }) || "",
       returning_warning:
         returningMap && bookedMap && j.itemId
           ? pickWarning(returningMap, delIso, j.itemId, b.id)
@@ -198,15 +341,19 @@ function buildItems(
 
 function serializeBooking(
   b: BookingLite,
-  categoryFilter: string,
+  categoryFilter: ListCategoryFilter,
   returningMap?: Map<string, WarningInfo[]>,
   bookedMap?: Map<string, WarningInfo[]>,
   reason?: string,
 ): BookingListRow | null {
   const items = buildItems(b, categoryFilter, returningMap, bookedMap);
-  if (!items.length && categoryFilter) return null;
+  if (!items.length && categoryFilter.active) return null;
 
-  const record = bookingListRecordFrom({ ...b, id: b.id, monthlySerial: b.monthlySerial });
+  const record = bookingListRecordFrom({
+    ...b,
+    id: b.id,
+    monthlySerial: b.monthlySerial,
+  } as Parameters<typeof bookingListRecordFrom>[0]);
   const status = resolveBookingStatus(b);
 
   return {
@@ -294,24 +441,8 @@ export async function getBookingListData(opts: BookingListQuery) {
     ...(returnTimeFilter ? { returnTime: returnTimeFilter } : {}),
   };
 
-  const categoryWhere = categoryFilter
-    ? {
-        OR: [
-          { bookingItems: { some: { category: categoryFilter } } },
-          {
-            selectedJewellery: {
-              some: { status: "active", category: categoryFilter },
-            },
-          },
-          {
-            AND: [
-              { bookingItems: { none: {} } },
-              { legacyItem: { is: { category: categoryFilter } } },
-            ],
-          },
-        ],
-      }
-    : {};
+  const listCategoryFilter = await resolveListCategoryFilter(categoryFilter);
+  const categoryWhere = bookingListCategoryWhere(listCategoryFilter);
 
   const mainWhere = {
     status: { in: ["booked", "delivered"] as string[] },
@@ -358,7 +489,7 @@ export async function getBookingListData(opts: BookingListQuery) {
   const bookings =
     section === "main"
       ? pageBookings
-          .map((b) => serializeBooking(b, categoryFilter))
+          .map((b) => serializeBooking(b, listCategoryFilter))
           .filter((b): b is BookingListRow => b !== null)
       : [];
 
@@ -366,7 +497,7 @@ export async function getBookingListData(opts: BookingListQuery) {
     section === "unavailable"
       ? pageBookings
           .map((b) => {
-            const row = serializeBooking(b, categoryFilter);
+            const row = serializeBooking(b, listCategoryFilter);
             if (!row) return null;
             row.reason = `Delivered ${formatDate(b.deliveryDate, "display")} (before ${fromDisplay}) - returns ${formatDate(b.returnDate, "display")} (before ${toDisplay})`;
             return row;
@@ -448,24 +579,8 @@ export async function getBookingListPageBundle(opts: Omit<BookingListQuery, "sec
     ...(returnTimeFilter ? { returnTime: returnTimeFilter } : {}),
   };
 
-  const categoryWhere = categoryFilter
-    ? {
-        OR: [
-          { bookingItems: { some: { category: categoryFilter } } },
-          {
-            selectedJewellery: {
-              some: { status: "active", category: categoryFilter },
-            },
-          },
-          {
-            AND: [
-              { bookingItems: { none: {} } },
-              { legacyItem: { is: { category: categoryFilter } } },
-            ],
-          },
-        ],
-      }
-    : {};
+  const listCategoryFilter = await resolveListCategoryFilter(categoryFilter);
+  const categoryWhere = bookingListCategoryWhere(listCategoryFilter);
 
   const activeStatus = { status: { in: ["booked", "delivered"] as string[] } };
   const commonFilters = {
@@ -495,7 +610,7 @@ export async function getBookingListPageBundle(opts: Omit<BookingListQuery, "sec
         ? { OR: [returningOnFromWhere, returningOnToWhere] }
         : returningOnFromWhere,
       ...(deliveryTimeFilter || returnTimeFilter ? [timeFilter] : []),
-      ...(categoryFilter ? [categoryWhere] : []),
+      ...(listCategoryFilter.active ? [categoryWhere] : []),
       ...(dressQuery.trim() ? [dressNameSearchWhere(dressQuery)] : []),
     ],
   };
@@ -556,12 +671,12 @@ export async function getBookingListPageBundle(opts: Omit<BookingListQuery, "sec
   const unavailFiltered = unavailRows.filter((b) => !alternateIds.has(b.id));
 
   const bookings = mainFiltered
-    .map((b) => serializeBooking(b, categoryFilter))
+    .map((b) => serializeBooking(b, listCategoryFilter))
     .filter((b): b is BookingListRow => b !== null);
 
   const unavailable = unavailFiltered
     .map((b) => {
-      const row = serializeBooking(b, categoryFilter);
+      const row = serializeBooking(b, listCategoryFilter);
       if (!row) return null;
       row.reason = `Delivered ${formatDate(b.deliveryDate, "display")} (before ${fromDisplay}) - returns ${formatDate(b.returnDate, "display")} (before ${toDisplay})`;
       return row;
@@ -570,7 +685,7 @@ export async function getBookingListPageBundle(opts: Omit<BookingListQuery, "sec
 
   const alternate = alternateLite
     .map((b) => {
-      const row = serializeBooking(b, categoryFilter);
+      const row = serializeBooking(b, listCategoryFilter);
       if (!row) return null;
       row.alternate_kind = b.alternate_kind;
       const retIso = formatDate(b.returnDate, "iso");
@@ -640,7 +755,20 @@ export async function attachBookingListWarnings(
   return bookings
     .map((b) => {
       const reason = serialized.find((s) => s.id === b.id)?.reason;
-      return serializeBooking(b, "", returningMap, bookedMap, reason);
+      return serializeBooking(
+        b,
+        {
+          exactCategory: "",
+          division: null,
+          divisionCategories: [],
+          categoryLists: null,
+          active: false,
+          raw: "",
+        },
+        returningMap,
+        bookedMap,
+        reason,
+      );
     })
     .filter((b): b is BookingListRow => b !== null);
 }

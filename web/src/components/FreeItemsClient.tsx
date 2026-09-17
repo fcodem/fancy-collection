@@ -163,20 +163,41 @@ function FreeItemBlock({ item }: { item: FreeItem }) {
   const freeLabel = formatJewelleryPartsLabel(item.available_parts || []);
   const bookedLabel = formatJewelleryPartsLabel(item.booked_parts || []);
   const thumb = itemThumbSrc(item);
+  const full = itemFullSrc(item);
   const label = item.display_name || item.name;
   const freeQty = item.free_quantity || 1;
   const totalQty = item.total_quantity || freeQty;
   const showFreeQty = totalQty > 1;
+  const [openSignal, setOpenSignal] = useState(0);
+
+  function openDressPhoto() {
+    if (!thumb && !full) return;
+    setOpenSignal((n) => n + 1);
+  }
 
   return (
     <div className="free-item-block">
-      <div className="free-item-summary">
-        {thumb ? (
+      <div
+        className="free-item-summary"
+        role={thumb || full ? "button" : undefined}
+        tabIndex={thumb || full ? 0 : undefined}
+        title={thumb || full ? "Click to view dress photo" : undefined}
+        onClick={openDressPhoto}
+        onKeyDown={(e) => {
+          if (e.key === "Enter" || e.key === " ") {
+            e.preventDefault();
+            openDressPhoto();
+          }
+        }}
+        style={{ cursor: thumb || full ? "zoom-in" : undefined }}
+      >
+        {thumb || full ? (
           <ZoomableImage
-            src={thumb}
-            fullSrc={itemFullSrc(item)}
+            src={thumb || full}
+            fullSrc={full || thumb}
             alt={label}
             overlayCaption={label}
+            openSignal={openSignal}
             style={{
               width: 40,
               height: 40,
