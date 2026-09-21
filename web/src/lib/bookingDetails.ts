@@ -241,11 +241,42 @@ export function sumItemSecurityCollected(
   return items.reduce((s, row) => s + (row.itemSecurityCollected || 0), 0);
 }
 
+/**
+ * Detect the old delivery-form bug: full booking deposit was prefilled on every dress,
+ * so 2 dresses × ₹2000 deposit became ₹4000 security held.
+ */
+export function undoubleRepeatedDepositSecurity(
+  total: number,
+  securityDeposit: number | null | undefined,
+  items: ReadonlyArray<{ itemSecurityCollected?: number | null }> = [],
+): number {
+  const deposit = securityDeposit || 0;
+  if (!(deposit > 0) || !(total > deposit) || items.length < 2) return total;
+  const positive = items
+    .map((row) => row.itemSecurityCollected || 0)
+    .filter((amount) => amount > 0);
+  if (
+    positive.length > 1 &&
+    positive.every((amount) => amount === deposit) &&
+    positive.length * deposit === total
+  ) {
+    return deposit;
+  }
+  // Booking-level total only (per-item amounts missing): N dresses × deposit.
+  if (positive.length === 0 && items.length * deposit === total) {
+    return deposit;
+  }
+  return total;
+}
+
 export function effectiveSecurityCollected(
   bookingCollected: number | null | undefined,
   items: ReadonlyArray<{ itemSecurityCollected?: number | null }> = [],
+  securityDeposit?: number | null,
 ): number {
-  return Math.max(bookingCollected || 0, sumItemSecurityCollected(items));
+  const fromItems = sumItemSecurityCollected(items);
+  const total = Math.max(bookingCollected || 0, fromItems);
+  return undoubleRepeatedDepositSecurity(total, securityDeposit, items);
 }
 
 /** Security shown on lists/records: delivery-collected wins once dress is out. */
@@ -261,7 +292,11 @@ export function bookingSecurityDisplayAmount(opts: {
   }>;
 }): number {
   const items = opts.items || [];
-  const collected = effectiveSecurityCollected(opts.securityCollected, items);
+  const collected = effectiveSecurityCollected(
+    opts.securityCollected,
+    items,
+    opts.securityDeposit,
+  );
   const deposit = opts.securityDeposit || 0;
   const dressOut =
     items.some((i) => i.isDelivered) ||
@@ -299,14 +334,19 @@ export function incompleteReturnSecuritySummary(opts: {
   }>;
 }): IncompleteSecuritySummary {
   const totalSecurity = Math.max(
-    effectiveSecurityCollected(opts.securityCollected, opts.items),
+    effectiveSecurityCollected(opts.securityCollected, opts.items, opts.securityDeposit),
     opts.securityDeposit || 0,
   );
   const heldFromItems = sumItemSecurityHeld(opts.items || []);
-  const securityHeld =
+  const rawHeld =
     opts.securityHeld != null && opts.securityHeld > 0
       ? opts.securityHeld
       : heldFromItems;
+  const securityHeld = undoubleRepeatedDepositSecurity(
+    rawHeld,
+    opts.securityDeposit,
+    opts.items || [],
+  );
   const securityReturned = Math.max(0, totalSecurity - securityHeld);
   return { totalSecurity, securityReturned, securityHeld };
 }
@@ -339,18 +379,22 @@ export function securityCurrentlyHeld(opts: {
     return 0;
   }
 
-  const collected = effectiveSecurityCollected(securityCollected, items);
+  const collected = effectiveSecurityCollected(
+    securityCollected,
+    items,
+    securityDeposit,
+  );
 
   if (status === "incomplete_return") {
-    return (securityHeld != null && securityHeld > 0) ? securityHeld : collected;
+    const held =
+      securityHeld != null && securityHeld > 0 ? securityHeld : collected;
+    return undoubleRepeatedDepositSecurity(held, securityDeposit, items);
   }
 
   if (securityHeld != null && securityHeld > 0) {
-    // Legacy overwrite set securityHeld === securityDeposit === collected; ignore that mirror.
-    if (securityDeposit === securityHeld && collected === securityHeld) return 0;
     // Held only copied from booking-time deposit with nothing collected at delivery.
     if (securityDeposit === securityHeld && collected === 0) return 0;
-    return securityHeld;
+    return undoubleRepeatedDepositSecurity(securityHeld, securityDeposit, items);
   }
   if (collected > 0) return collected;
   // After delivery, do not fall back to booking-time deposit — delivery amount is source of truth.

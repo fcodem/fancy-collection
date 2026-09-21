@@ -13,7 +13,7 @@ import {
   isLateReturn,
   itemReturnCondition,
 } from "@/lib/slipConstants";
-import { incompleteReturnSecuritySummary } from "@/lib/bookingDetails";
+import { incompleteReturnSecuritySummary, undoubleRepeatedDepositSecurity } from "@/lib/bookingDetails";
 import type { ReturnSlipResolve } from "@/lib/bookingStatus";
 import type { ReturnSlipProps } from "@/components/ReturnSlip";
 import type { DeliverySlipProps } from "@/components/DeliverySlip";
@@ -244,9 +244,10 @@ export function buildDeliverySlipData(
       (s, i) => s + (i.itemRemainingCollected ?? 0),
       0,
     );
-    securityCollected = sourceItems.reduce(
-      (s, i) => s + (i.itemSecurityCollected ?? 0),
-      0,
+    securityCollected = undoubleRepeatedDepositSecurity(
+      sourceItems.reduce((s, i) => s + (i.itemSecurityCollected ?? 0), 0),
+      booking.securityDeposit,
+      sourceItems,
     );
     securityDeposit = securityCollected;
     deliveryNotes =
@@ -496,7 +497,11 @@ export function buildReturnSlipData(
   totalAdvance = sourceItems.reduce((s, i) => s + i.advance, 0);
   totalRemaining = sourceItems.reduce((s, i) => s + i.remaining, 0);
   remainingPaid = sourceItems.reduce((s, i) => s + (i.itemRemainingCollected ?? 0), 0);
-  securityDeposit = sourceItems.reduce((s, i) => s + (i.itemSecurityCollected ?? 0), 0);
+  securityDeposit = undoubleRepeatedDepositSecurity(
+    sourceItems.reduce((s, i) => s + (i.itemSecurityCollected ?? 0), 0),
+    booking.securityDeposit,
+    sourceItems,
+  );
   securityRefunded = 0;
   damageCharge = sourceItems.reduce((s, i) => s + (i.itemSecurityHeld ?? 0), 0);
   const balanceDue = Math.max(0, totalRemaining - remainingPaid);

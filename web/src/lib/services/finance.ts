@@ -22,6 +22,7 @@ import {
   financeItemDivisionForBookingItem,
 } from "../financeGenderTotals";
 import { type PackingDivision, packingDivision } from "../packingDivision";
+import { undoubleRepeatedDepositSecurity } from "../bookingDetails";
 import {
   allocateAdvanceByCategory,
   allocateBalanceByCategory,
@@ -982,11 +983,24 @@ export async function getSecurityDepositSummary(fromStr?: string, toStr?: string
     orderBy: { deliveredAt: "desc" },
   });
 
-  const total_collected = bookings.reduce((s, b) => s + (b.securityCollected || 0), 0);
+  const total_collected = bookings.reduce(
+    (s, b) =>
+      s +
+      undoubleRepeatedDepositSecurity(
+        b.securityCollected || 0,
+        b.securityDeposit,
+        b.bookingItems || [],
+      ),
+    0,
+  );
   const total_held = bookings.reduce((s, b) => {
     if (b.status === "returned" || b.status === "cancelled" || b.status === "postponed") return s;
-    if (b.status === "incomplete_return") return s + (b.securityHeld || b.securityCollected || 0);
-    if (b.status === "delivered") return s + (b.securityHeld || b.securityCollected || 0);
+    const held = undoubleRepeatedDepositSecurity(
+      b.securityHeld || b.securityCollected || 0,
+      b.securityDeposit,
+      b.bookingItems || [],
+    );
+    if (b.status === "incomplete_return" || b.status === "delivered") return s + held;
     return s;
   }, 0);
 
@@ -1000,11 +1014,23 @@ export async function getSecurityDepositSummary(fromStr?: string, toStr?: string
       id: b.id,
       customer_name: b.customerName,
       serial: b.monthlySerial,
-      security_collected: b.securityCollected,
+      security_collected: undoubleRepeatedDepositSecurity(
+        b.securityCollected || 0,
+        b.securityDeposit,
+        b.bookingItems || [],
+      ),
       security_held:
         b.status === "delivered" || b.status === "incomplete_return"
-          ? b.securityHeld || b.securityCollected || 0
-          : b.securityHeld || 0,
+          ? undoubleRepeatedDepositSecurity(
+              b.securityHeld || b.securityCollected || 0,
+              b.securityDeposit,
+              b.bookingItems || [],
+            )
+          : undoubleRepeatedDepositSecurity(
+              b.securityHeld || 0,
+              b.securityDeposit,
+              b.bookingItems || [],
+            ),
       status: b.status,
       delivered_at: b.deliveredAt?.toISOString() || null,
       returned_at: b.returnedAt?.toISOString() || null,

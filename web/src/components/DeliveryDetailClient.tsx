@@ -118,23 +118,40 @@ function resolveRemainingCollectedInput(raw: string | undefined, dueAmount: numb
   return Number.isFinite(n) && n >= 0 ? n : Math.max(0, dueAmount || 0);
 }
 
-function initialDeliveryItemForm(
-  it: ItemRow,
+/**
+ * Prefill delivery security once for the booking — not once per dress.
+ * Old bug copied the full deposit onto every dress (2 × ₹2000 → ₹4000 held).
+ */
+export function initialDeliveryItemForms(
+  items: ItemRow[],
   securityDeposit: number,
-): ItemFormState {
-  const remainingPrefill =
-    (it.itemRemainingCollected || 0) > 0
-      ? it.itemRemainingCollected
-      : it.remaining || 0;
-  const securityPrefill =
-    (it.itemSecurityCollected || 0) > 0
-      ? it.itemSecurityCollected
-      : securityDeposit || 0;
-  return {
-    remaining: String(remainingPrefill || ""),
-    security: String(securityPrefill || ""),
-    notes: it.itemDeliveryNotes || "",
-  };
+): Record<number, ItemFormState> {
+  const init: Record<number, ItemFormState> = {};
+  const deposit = Math.max(0, Number(securityDeposit) || 0);
+  const anySavedSecurity = items.some((it) => (it.itemSecurityCollected || 0) > 0);
+  let depositAssigned = false;
+
+  for (const it of items) {
+    const remainingPrefill =
+      (it.itemRemainingCollected || 0) > 0
+        ? it.itemRemainingCollected
+        : it.remaining || 0;
+
+    let securityPrefill = 0;
+    if ((it.itemSecurityCollected || 0) > 0) {
+      securityPrefill = it.itemSecurityCollected;
+    } else if (!anySavedSecurity && !depositAssigned && deposit > 0) {
+      securityPrefill = deposit;
+      depositAssigned = true;
+    }
+
+    init[it.id] = {
+      remaining: String(remainingPrefill || ""),
+      security: String(securityPrefill || ""),
+      notes: it.itemDeliveryNotes || "",
+    };
+  }
+  return init;
 }
 
 type SaveItemResponse = {
@@ -168,14 +185,9 @@ export default function DeliveryDetailClient({
 }) {
   const [localItems, setLocalItems] = useState(initialItems);
   const [bookingStatus, setBookingStatus] = useState(booking.status);
-  const [itemForms, setItemForms] = useState<Record<number, ItemFormState>>(() => {
-    const init: Record<number, ItemFormState> = {};
-    const deposit = Number(booking.securityDeposit || 0);
-    for (const it of initialItems) {
-      init[it.id] = initialDeliveryItemForm(it, deposit);
-    }
-    return init;
-  });
+  const [itemForms, setItemForms] = useState<Record<number, ItemFormState>>(() =>
+    initialDeliveryItemForms(initialItems, Number(booking.securityDeposit || 0)),
+  );
   const [saving, setSaving] = useState(false);
   const op = useMutationOperationId();
   const toast = useToast();

@@ -5,7 +5,7 @@ import {
   whereReturnInRange,
 } from "./bookingDateQuery";
 import { dressDisplayName, buildDressSearchWhere, serializeBookingItems } from "./dress";
-import { bookingListRecordFrom, bookingWarningRecordFrom, balanceLeftToCollect, securityCurrentlyHeld } from "./bookingDetails";
+import { bookingListRecordFrom, bookingWarningRecordFrom, balanceLeftToCollect, securityCurrentlyHeld, effectiveSecurityCollected } from "./bookingDetails";
 import { isStarBooking } from "./starBooking";
 import { generateNumber } from "./serial";
 import { previewNextMonthlySerial } from "./bookingSerialCounter";
@@ -286,7 +286,11 @@ export function serializeBookingForList(b: BookingWithItems) {
     total_price: b.totalPrice,
     total_remaining: totalRemaining,
     remaining_collected: remainingCollected,
-    security_collected: b.securityCollected ?? 0,
+    security_collected: effectiveSecurityCollected(
+      b.securityCollected,
+      deliveryItems,
+      b.securityDeposit,
+    ),
     security_held: securityCurrentlyHeld({
       status,
       securityHeld: b.securityHeld,

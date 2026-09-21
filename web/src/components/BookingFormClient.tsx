@@ -723,8 +723,8 @@ export default function BookingFormClient(props: Props) {
       const params = new URLSearchParams({
         delivery_date: deliveryDate,
         return_date: returnDate,
-        category: searching ? "" : categoryFilter,
-        size: searching ? "" : sizeFilter,
+        category: categoryFilter,
+        size: sizeFilter,
         search: searching ? searchQ : "",
         limit: String(pageLimit),
       });
@@ -736,8 +736,10 @@ export default function BookingFormClient(props: Props) {
         { credentials: "same-origin", signal: controller.signal, cache: "no-store" },
       );
 
+      const suggestParams = new URLSearchParams({ q: searchQ, limit: "16" });
+      if (categoryFilter) suggestParams.set("category", categoryFilter);
       const suggestPromise = searching
-        ? fetch(`/api/dress-name/suggest?${new URLSearchParams({ q: searchQ, limit: "16" })}`, {
+        ? fetch(`/api/dress-name/suggest?${suggestParams}`, {
             credentials: "same-origin",
             signal: controller.signal,
           })
@@ -789,7 +791,12 @@ export default function BookingFormClient(props: Props) {
           ) {
             const have = new Set(collected.map((i) => i.id));
             const extras: FreeItem[] = suggestList
-              .filter((item) => item.id != null && !have.has(item.id as number))
+              .filter((item) => {
+                if (item.id == null || have.has(item.id as number)) return false;
+                if (categoryFilter && (item.category || "") !== categoryFilter) return false;
+                if (sizeFilter && !(item.size || "").includes(sizeFilter)) return false;
+                return true;
+              })
               .map((item) => ({
                 id: item.id as number,
                 name: item.name,
@@ -982,14 +989,14 @@ export default function BookingFormClient(props: Props) {
     const serverNameSearch =
       nameSearch.trim().length >= 2 && !/^\d+$/.test(nameSearch.trim());
 
-    // While the server is searching by name, trust its results — do not
-    // re-filter by category/name (that hid dresses not already in the first page).
-    if (!serverNameSearch) {
-      if (categoryFilter) list = list.filter((i) => i.category === categoryFilter);
-      if (dressNameFilter) {
-        list = list.filter((i) => inventoryItemMatches(i, nameSearch));
-      }
-      if (sizeFilter) list = list.filter((i) => i.size?.includes(sizeFilter));
+    // Always honour category / size from the filter bar.
+    if (categoryFilter) list = list.filter((i) => i.category === categoryFilter);
+    if (sizeFilter) list = list.filter((i) => i.size?.includes(sizeFilter));
+
+    // While the server is searching by name, trust its name ranking — do not
+    // re-filter by typed text (that hid dresses not already in the first page).
+    if (!serverNameSearch && dressNameFilter) {
+      list = list.filter((i) => inventoryItemMatches(i, nameSearch));
     }
 
     // Men's: one row per size so searching a sherwani shows 36/38/40… not the same size 20 times.
@@ -2106,6 +2113,7 @@ export default function BookingFormClient(props: Props) {
                 className="form-control"
                 placeholder={scanBusy ? "Checking scanned dress…" : "Type dress name — Enter picks suggestion; scan QR/SKU to add"}
                 value={nameSearch}
+                category={categoryFilter}
                 showPhotos
                 clearOnSelect={false}
                 minChars={1}
