@@ -22,9 +22,9 @@ function candidateCapFor(limit: number) {
 
 describe("availability search helpers", () => {
   it("exports limit constants and candidate cap formula", () => {
-    assert.match(source, /export const DEFAULT_LIMIT = 2000/);
-    assert.match(source, /export const MAX_LIMIT = 2000/);
-    assert.match(source, /export const CANDIDATE_CAP = 5000/);
+    assert.match(source, /export const DEFAULT_LIMIT = 100/);
+    assert.match(source, /export const MAX_LIMIT = 100/);
+    assert.match(source, /export const CANDIDATE_CAP = 800/);
     assert.match(
       source,
       /Math\.min\(CANDIDATE_CAP, Math\.max\(50, \(limit \+ 1\) \* 25\)\)/,

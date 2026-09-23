@@ -24,9 +24,10 @@ function freeItemGroupKey(item: {
   return `legacy:${stripUnitSuffix(item.name)}|${item.category}|${item.size || ""}|${item.color || ""}`;
 }
 
-export const DEFAULT_LIMIT = 2000;
-export const MAX_LIMIT = 2000;
-export const CANDIDATE_CAP = 5000;
+export const DEFAULT_LIMIT = 100;
+export const MAX_LIMIT = 100;
+/** Candidate pool before occupancy filter — keep bounded for serverless time limits. */
+export const CANDIDATE_CAP = 800;
 
 export type AvailabilitySearchOpts = {
   deliveryDate: string;

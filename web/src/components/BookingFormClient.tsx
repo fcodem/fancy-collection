@@ -546,7 +546,7 @@ export default function BookingFormClient(props: Props) {
   const allFreeItemsRef = useRef<FreeItem[]>([]);
   allFreeItemsRef.current = allFreeItems;
   const [availabilityHasMore, setAvailabilityHasMore] = useState(false);
-  const [availabilityPageLimit] = useState(2000);
+  const [availabilityPageLimit] = useState(100);
 
   const [selectedDresses, setSelectedDresses] = useState<SelectedDress[]>(() => {
     const items = props.initial?.items || [];
@@ -766,6 +766,46 @@ export default function BookingFormClient(props: Props) {
       availabilityCursorRef.current =
         typeof data.nextCursor === "string" ? data.nextCursor : null;
       setAvailabilityHasMore(Boolean(data.hasMore));
+
+      // Browse mode: keep fetching pages until the full list is on screen (no Load More).
+      if (!searching) {
+        let cursor =
+          data.hasMore && typeof data.nextCursor === "string" ? data.nextCursor : null;
+        let pages = 1;
+        while (cursor && pages < 50) {
+          if (controller.signal.aborted || version !== availabilityVersionRef.current) return;
+          const moreParams = new URLSearchParams({
+            delivery_date: deliveryDate,
+            return_date: returnDate,
+            category: categoryFilter,
+            size: sizeFilter,
+            search: "",
+            limit: String(pageLimit),
+          });
+          if (props.editId) moreParams.set("exclude_booking", String(props.editId));
+          moreParams.set("cursor", cursor);
+          const moreRes = await fetch(
+            `/api/booking/available-items?${moreParams.toString()}`,
+            { credentials: "same-origin", signal: controller.signal, cache: "no-store" },
+          );
+          if (!moreRes.ok) break;
+          const moreData = (await moreRes.json()) as {
+            free_items?: FreeItem[];
+            nextCursor?: string | null;
+            hasMore?: boolean;
+          };
+          if (controller.signal.aborted || version !== availabilityVersionRef.current) return;
+          collected = mergeAvailabilityItemsById(collected, moreData.free_items || []);
+          setAllFreeItems(collected);
+          cursor =
+            moreData.hasMore && typeof moreData.nextCursor === "string"
+              ? moreData.nextCursor
+              : null;
+          pages += 1;
+        }
+        availabilityCursorRef.current = null;
+        setAvailabilityHasMore(false);
+      }
 
       // Name search: merge inventory suggest hits so booked / fuzzy matches stay visible.
       if (suggestPromise && !controller.signal.aborted && version === availabilityVersionRef.current) {

@@ -327,9 +327,9 @@ export default function FreeItemsClient({ today }: { today: string }) {
   const [free, setFree] = useState<FreeItem[]>([]);
   const [loaded, setLoaded] = useState(false);
   const [loading, setLoading] = useState(false);
-  const [pageLimit] = useState(2000);
-  const [nextCursor, setNextCursor] = useState<string | null>(null);
-  const [hasMore, setHasMore] = useState(false);
+  const [loadError, setLoadError] = useState("");
+  /** Page size stays serverless-safe; we auto-fetch every page so the UI still shows the full list. */
+  const pageLimit = 100;
   const abortRef = useRef<AbortController | null>(null);
   const requestSeqRef = useRef(0);
 
@@ -356,47 +356,67 @@ export default function FreeItemsClient({ today }: { today: string }) {
     };
   }, []);
 
-  const search = useCallback(async (append = false) => {
+  const search = useCallback(async () => {
     const seq = ++requestSeqRef.current;
     abortRef.current?.abort();
     const controller = new AbortController();
     abortRef.current = controller;
     setLoading(true);
+    setLoadError("");
     try {
-      const params = new URLSearchParams({
-        delivery_date: deliveryDate,
-        return_date: returnDate,
-        group,
-        category,
-        size,
-        subcategory: subCat,
-        limit: String(pageLimit),
-      });
-      if (dressSearch.trim()) params.set("search", dressSearch.trim());
-      if (append && nextCursor) params.set("cursor", nextCursor);
-      const res = await fetch(
-        `/api/booking/available-items?${params.toString()}`,
-        { cache: "no-store", signal: controller.signal },
-      );
-      if (!res.ok) return;
-      const data = await res.json();
-      if (seq !== requestSeqRef.current) return;
-      const items: FreeItem[] = data.free_items || [];
-      setFree((previous) => (append ? [...previous, ...items] : items));
-      setNextCursor(typeof data.nextCursor === "string" ? data.nextCursor : null);
-      setHasMore(Boolean(data.hasMore));
-      setLoaded(true);
+      let cursor: string | null = null;
+      let collected: FreeItem[] = [];
+      let pages = 0;
+      const maxPages = 50;
+
+      do {
+        const params = new URLSearchParams({
+          delivery_date: deliveryDate,
+          return_date: returnDate,
+          group,
+          category,
+          size,
+          subcategory: subCat,
+          limit: String(pageLimit),
+        });
+        if (dressSearch.trim()) params.set("search", dressSearch.trim());
+        if (cursor) params.set("cursor", cursor);
+
+        const res = await fetch(
+          `/api/booking/available-items?${params.toString()}`,
+          { cache: "no-store", signal: controller.signal },
+        );
+        if (seq !== requestSeqRef.current) return;
+
+        if (!res.ok) {
+          setLoadError("Could not load free items. Try Search again.");
+          setLoaded(true);
+          return;
+        }
+
+        const data = await res.json();
+        if (seq !== requestSeqRef.current) return;
+
+        const items: FreeItem[] = data.free_items || [];
+        collected = pages === 0 ? items : [...collected, ...items];
+        setFree(collected);
+        setLoaded(true);
+
+        cursor = typeof data.nextCursor === "string" && data.hasMore ? data.nextCursor : null;
+        pages += 1;
+      } while (cursor && pages < maxPages && !controller.signal.aborted);
     } catch (error) {
       if (error instanceof DOMException && error.name === "AbortError") return;
-      /* ignore transient network errors (e.g. dev recompile during poll refresh) */
+      if (seq !== requestSeqRef.current) return;
+      setLoadError("Could not load free items. Try Search again.");
       setLoaded(true);
     } finally {
       if (seq === requestSeqRef.current) setLoading(false);
     }
-  }, [deliveryDate, returnDate, group, category, size, subCat, dressSearch, nextCursor, pageLimit]);
+  }, [deliveryDate, returnDate, group, category, size, subCat, dressSearch]);
 
   useEffect(() => {
-    const timer = setTimeout(() => void search(false), 150);
+    const timer = setTimeout(() => void search(), 150);
     return () => {
       clearTimeout(timer);
       abortRef.current?.abort();
@@ -404,7 +424,7 @@ export default function FreeItemsClient({ today }: { today: string }) {
   }, [deliveryDate, returnDate, group, category, size, subCat, dressSearch]); // eslint-disable-line react-hooks/exhaustive-deps
 
   useRealtimeRefresh([...BOOKING_EVENTS, ...INVENTORY_EVENTS], () => {
-    if (loaded) void search(false);
+    if (loaded) void search();
   });
 
   const totallyFree = collapseMultiUnitFreeItems(
@@ -535,7 +555,7 @@ export default function FreeItemsClient({ today }: { today: string }) {
             </div>
           </div>
           <div style={{ display: "flex", flexWrap: "wrap", gap: 10, alignItems: "center", marginTop: 16 }}>
-            <button className="btn btn-primary" onClick={() => void search(false)} disabled={loading}>
+            <button className="btn btn-primary" onClick={() => void search()} disabled={loading}>
               {loading ? "Searching…" : "Search"}
             </button>
             {!showQrScan ? (
@@ -586,8 +606,27 @@ export default function FreeItemsClient({ today }: { today: string }) {
         </div>
       )}
 
+      {loadError && (
+        <div className="alert alert-error" style={{ marginBottom: 16 }}>
+          {loadError}
+        </div>
+      )}
+
+      {loading && !loaded && (
+        <div style={{ textAlign: "center", padding: 40, color: "var(--text-muted)" }}>
+          <i className="fa-solid fa-spinner fa-spin" style={{ marginRight: 8 }} />
+          Loading free items…
+        </div>
+      )}
+
       {loaded && (
         <>
+          {loading && free.length > 0 && (
+            <p style={{ textAlign: "center", fontSize: 12, color: "var(--text-muted)", marginBottom: 12 }}>
+              <i className="fa-solid fa-spinner fa-spin" style={{ marginRight: 6 }} />
+              Loading remaining items… ({free.length} so far)
+            </p>
+          )}
           <FreeItemsSection title="Totally Free" titleColor="var(--success)" items={totallyFree} />
           <FreeItemsSection title="Some Parts Booked (parts still free)" titleColor="#E65100" items={partialParts} />
           <FreeItemsSection title={WARNING_RETURNING_ON_DELIVERY} titleColor="#E65100" items={returning} />
@@ -596,7 +635,7 @@ export default function FreeItemsClient({ today }: { today: string }) {
         </>
       )}
 
-      {loaded && !free.length && (
+      {loaded && !loading && !free.length && !loadError && (
         <div style={{ textAlign: "center", padding: 40, color: "var(--text-muted)" }}>
           No free items found for selected dates.
         </div>
