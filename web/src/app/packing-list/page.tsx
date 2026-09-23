@@ -39,7 +39,7 @@ async function PackingListLoader({
   const initialPage = await getPackingListPage({
     deliveryFrom: today,
     deliveryTo: tomorrow,
-    limit: 20,
+    limit: 2000,
   });
 
   return (
@@ -47,8 +47,8 @@ async function PackingListLoader({
       today={today}
       categoryLists={categoryLists}
       initialRows={initialPage.results}
-      initialNextCursor={initialPage.nextCursor}
-      initialHasMore={initialPage.hasMore}
+      initialNextCursor={null}
+      initialHasMore={false}
       initialLoaded
     />
   );

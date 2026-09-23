@@ -595,10 +595,10 @@ export async function monthBasedSearchBookings(
   const q = queryText.trim();
   const refDate = parseDate(refDateStr || todayIso());
   const { y, m, monthKey } = monthRangeFromRefDate(refDate);
-  // Cap page size — 100-row pages with joins are too slow for Search Booking.
+  // Prefer one full result set for Search Booking (no repeated Show more / Next).
   const parsed = parseSearchPageParams(pageRaw, pageSizeRaw);
   const page = parsed.page;
-  const pageSize = Math.min(25, parsed.pageSize);
+  const pageSize = parsed.pageSize;
   const orderBy: Prisma.BookingOrderByWithRelationInput[] = [
     { deliveryDate: "asc" },
     { monthlySerial: "asc" },

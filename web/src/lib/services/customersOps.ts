@@ -361,7 +361,7 @@ export async function listCustomersPage(opts: {
   cursor?: string | null;
   limit?: number;
 }): Promise<CustomerListPage> {
-  const pageSize = Math.min(Math.max(opts.limit ?? 50, 10), 100);
+  const pageSize = Math.min(Math.max(opts.limit ?? 2000, 10), 2000);
   const q = (opts.q || "").trim();
   const category = (opts.category || "").trim();
   const cursor = opts.cursor ? decodeCustomerCursor(opts.cursor) : null;

@@ -327,9 +327,7 @@ export default function FreeItemsClient({ today }: { today: string }) {
   const [free, setFree] = useState<FreeItem[]>([]);
   const [loaded, setLoaded] = useState(false);
   const [loading, setLoading] = useState(false);
-  const [pageLimit] = useState(() =>
-    typeof window !== "undefined" && window.matchMedia("(max-width: 767px)").matches ? 20 : 30,
-  );
+  const [pageLimit] = useState(2000);
   const [nextCursor, setNextCursor] = useState<string | null>(null);
   const [hasMore, setHasMore] = useState(false);
   const abortRef = useRef<AbortController | null>(null);
@@ -595,13 +593,6 @@ export default function FreeItemsClient({ today }: { today: string }) {
           <FreeItemsSection title={WARNING_RETURNING_ON_DELIVERY} titleColor="#E65100" items={returning} />
           <FreeItemsSection title={WARNING_BOOKED_ON_RETURN} titleColor="var(--danger)" items={booked} />
           <FreeItemsSection title={`${WARNING_RETURNING_ON_DELIVERY} & ${WARNING_BOOKED_ON_RETURN}`} items={both} />
-          {hasMore && (
-            <div style={{ textAlign: "center", margin: "8px 0 24px" }}>
-              <button type="button" className="btn btn-outline" disabled={loading} onClick={() => void search(true)}>
-                {loading ? "Loading…" : "Load More"}
-              </button>
-            </div>
-          )}
         </>
       )}
 

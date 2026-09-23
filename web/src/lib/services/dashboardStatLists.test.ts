@@ -21,7 +21,7 @@ describe("dashboardStatLists paging", () => {
       pageSize: DASHBOARD_STAT_DEFAULT_PAGE_SIZE,
       skip: 0,
     });
-    assert.deepEqual(parseDashboardStatPageParams("2", "999"), {
+    assert.deepEqual(parseDashboardStatPageParams("2", "9999"), {
       page: 2,
       pageSize: DASHBOARD_STAT_MAX_PAGE_SIZE,
       skip: DASHBOARD_STAT_MAX_PAGE_SIZE,

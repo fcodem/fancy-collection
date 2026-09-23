@@ -100,7 +100,7 @@ export default function PackingListClient({
         delivery_from: from,
         delivery_to: to || from,
         category,
-        limit: "20",
+        limit: "2000",
       });
       if (append && nextCursorRef.current) params.set("cursor", nextCursorRef.current);
       const res = await fetch(
@@ -346,7 +346,7 @@ export default function PackingListClient({
             </div>
             {activeDivision ? (
               <p className="form-hint" style={{ marginTop: 8, marginBottom: 0 }}>
-                Showing {formatPackingCategoryFilterLabel(category)} only — Load More keeps scrolling this division.
+                Showing {formatPackingCategoryFilterLabel(category)} only.
               </p>
             ) : null}
           </div>
@@ -582,14 +582,6 @@ export default function PackingListClient({
               </div>
             </div>
           ))}
-
-      {hasMore && (
-        <div style={{ textAlign: "center", margin: "8px 0 24px" }}>
-          <button type="button" className="btn btn-outline" disabled={loading} onClick={() => void load(true)}>
-            {loading ? "Loading…" : "Load More Bookings"}
-          </button>
-        </div>
-      )}
 
       {loaded && !rows.length && (
         <div className="card">

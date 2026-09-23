@@ -34,7 +34,7 @@ import {
 } from "@/lib/packingDivision";
 
 /** Load the full filtered period in one list (no page controls). Matches server export cap. */
-const LIST_PAGE_SIZE = 50;
+const LIST_PAGE_SIZE = 500;
 
 const TIME_SLOTS = [
   "8:00 AM", "9:00 AM", "10:00 AM", "11:00 AM", "12:00 Noon", "1:00 PM", "2:00 PM",

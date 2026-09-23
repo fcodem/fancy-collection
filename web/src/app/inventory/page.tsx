@@ -67,7 +67,7 @@ async function InventoryListLoader({
   const category = sp.category || "";
   const subCategory = sp.sub_category || sp.subcategory || "";
   const status = sp.status || "";
-  const pageSize = 40;
+  const pageSize = 2000;
 
   perf.mark("query");
   const result = await listInventoryGroups({

@@ -13,8 +13,8 @@ import { join } from "node:path";
 
 describe("deliveryReturnSearch contracts", () => {
   it("keeps operational page size within target bounds", () => {
-    assert.equal(OPERATIONAL_LIST_DEFAULT_PAGE_SIZE, 25);
-    assert.equal(OPERATIONAL_LIST_MAX_PAGE_SIZE, 50);
+    assert.equal(OPERATIONAL_LIST_DEFAULT_PAGE_SIZE, 2000);
+    assert.equal(OPERATIONAL_LIST_MAX_PAGE_SIZE, 2000);
     assert.ok(OPERATIONAL_LIST_DEFAULT_PAGE_SIZE <= OPERATIONAL_LIST_MAX_PAGE_SIZE);
   });
 
@@ -49,9 +49,8 @@ describe("deliveryReturnSearch contracts", () => {
     const positions = [
       "1. Exact booking ID",
       "2. Exact monthly serial",
-      "3. Exact normalized phone",
-      "5. Customer prefix",
-      "6. Dress prefix",
+      "3. Exact normalized phone, then 4. suffix",
+      "5–6. Customer + dress in parallel",
       "7. Bounded fuzzy fallback",
     ].map((marker) => source.indexOf(marker));
     assert.ok(positions.every((position) => position >= 0));

@@ -168,7 +168,7 @@ export type InventoryListResult = {
   rowCount: number;
 };
 
-const MAX_LIMIT = 60;
+const MAX_LIMIT = 2000;
 const DEFAULT_LIMIT = 40;
 
 function clampLimit(n?: number) {

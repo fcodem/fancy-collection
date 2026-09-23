@@ -546,9 +546,7 @@ export default function BookingFormClient(props: Props) {
   const allFreeItemsRef = useRef<FreeItem[]>([]);
   allFreeItemsRef.current = allFreeItems;
   const [availabilityHasMore, setAvailabilityHasMore] = useState(false);
-  const [availabilityPageLimit] = useState(() =>
-    typeof window !== "undefined" && window.matchMedia("(max-width: 767px)").matches ? 20 : 30,
-  );
+  const [availabilityPageLimit] = useState(2000);
 
   const [selectedDresses, setSelectedDresses] = useState<SelectedDress[]>(() => {
     const items = props.initial?.items || [];
@@ -2240,18 +2238,6 @@ export default function BookingFormClient(props: Props) {
               })}
 
             </DressPickerScroll>
-            {availabilityHasMore && (
-              <div style={{ textAlign: "center", marginTop: 12 }}>
-                <button
-                  type="button"
-                  className="btn btn-outline btn-sm"
-                  disabled={loading}
-                  onClick={() => void fetchAvailability(true)}
-                >
-                  {loading ? "Loading…" : "Load More Available Items"}
-                </button>
-              </div>
-            )}
             </>
 
           )}

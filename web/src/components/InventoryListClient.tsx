@@ -1000,24 +1000,6 @@ export default function InventoryListClient({
         {!groups.length && <p className="inv-empty">No inventory matches.</p>}
       </div>
 
-      {nextCursor && (
-        <div style={{ textAlign: "center", marginTop: 16 }}>
-          <button
-            type="button"
-            className="btn btn-outline inv-touch"
-            disabled={loadingMore}
-            onClick={() =>
-              fetchPage(deferredQuery, statusVal, categoryVal, subCategoryVal, nextCursor, {
-                append: true,
-                debounce: false,
-              })
-            }
-          >
-            {loadingMore ? "Loading…" : "Load more"}
-          </button>
-        </div>
-      )}
-
       {drawer && (() => {
         const drawerIsMens =
           Boolean(drawer.isMensProduct) || MENS_SET.has(drawer.category.toLowerCase());

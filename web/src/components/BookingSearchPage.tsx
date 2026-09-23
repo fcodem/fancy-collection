@@ -12,6 +12,7 @@ import { useRealtimeRefresh } from "@/hooks/useRealtimeRefresh";
 import { BOOKING_EVENTS } from "@/lib/realtime/types";
 import DownloadPdfButton from "@/components/DownloadPdfButton";
 import {
+  DEFAULT_SEARCH_PAGE_SIZE,
   OPERATIONAL_LIST_DEFAULT_PAGE_SIZE,
 } from "@/lib/searchPagination";
 import {
@@ -114,8 +115,8 @@ export default function BookingSearchPage({
   const [loading, setLoading] = useState(false);
   const [ready, setReady] = useState(false);
   const [page, setPage] = useState(1);
-  const [pageSize, setPageSize] = useState(
-    isOperationalList ? OPERATIONAL_LIST_DEFAULT_PAGE_SIZE : 25,
+  const [pageSize] = useState(
+    isOperationalList ? OPERATIONAL_LIST_DEFAULT_PAGE_SIZE : DEFAULT_SEARCH_PAGE_SIZE,
   );
   const [total, setTotal] = useState(0);
   const [totalExact, setTotalExact] = useState(true);
@@ -185,7 +186,6 @@ export default function BookingSearchPage({
         const incomingCursor = typeof data.nextCursor === "string" ? data.nextCursor : null;
         if (incomingCursor) cursorByPageRef.current.set(activePage + 1, incomingCursor);
         if (typeof data.page === "number") setPage(data.page);
-        if (typeof data.pageSize === "number") setPageSize(data.pageSize);
       }
       setLoaded(true);
     } catch (e) {
@@ -200,12 +200,8 @@ export default function BookingSearchPage({
   }, [apiPath, searchDate, query, category, page, pageSize, isOperationalList]);
 
   useEffect(() => {
-    if (isOperationalList) {
-      const mobile = window.matchMedia("(max-width: 767px), (pointer: coarse)").matches;
-      setPageSize(mobile ? 15 : OPERATIONAL_LIST_DEFAULT_PAGE_SIZE);
-    }
     setReady(true);
-  }, [isOperationalList]);
+  }, []);
 
   useEffect(
     () => () => {
@@ -257,23 +253,12 @@ export default function BookingSearchPage({
     void runSearch(1, null);
   }
 
-  function goToPage(nextPage: number) {
-    if (nextPage < 1) return;
-    const cursor = cursorByPageRef.current.get(nextPage);
-    if (isOperationalList && nextPage > 1 && cursor === undefined) return;
-    setPage(nextPage);
-    void runSearch(nextPage, cursor ?? null);
-  }
-
-  const pageStart = total === 0 ? 0 : (page - 1) * pageSize + 1;
-  const pageEnd = Math.min(page * pageSize, total);
-
   const colSpan = 10 + (showRemaining ? 1 : 0) + (showStatus ? 1 : 0) + (showDeliveryInfo ? 1 : 0);
   const suggestMode = apiPath.includes("return") ? "return" : "delivery";
   const exactDeliveryDate = apiPath.includes("/delivery/search");
   const modeHints = exactDeliveryDate ? MODE_HINTS_DELIVERY : MODE_HINTS;
   const defaultHint = monthBased
-    ? "Pick any date in a month — only active booked records for that month appear below (delivered and returned are hidden). Use Search to filter by customer, dress, phone, or serial. Large lists are paginated — use Next/Previous at the bottom."
+    ? "Pick any date in a month — only active booked records for that month appear below (delivered and returned are hidden). Use Search to filter by customer, dress, phone, or serial."
     : exactDeliveryDate
       ? "Deliveries scheduled on the selected date only (defaults to today), grouped by month, earliest first. Use Search or Category to filter within that day."
       : monthGroupField
@@ -441,7 +426,7 @@ export default function BookingSearchPage({
                 ? `Delivery month: ${new Date(`${searchMonth}-15T00:00:00.000Z`).toLocaleDateString("en-IN", { month: "long", year: "numeric", timeZone: "UTC" })} · `
                 : ""}
               {modeHints[searchMode]} · {total.toLocaleString()} result{total === 1 ? "" : "s"}
-              {total > 0 ? ` · showing ${pageStart.toLocaleString()}–${pageEnd.toLocaleString()}` : ""}
+              {total > 0 ? ` · showing ${rows.length.toLocaleString()}` : ""}
             </div>
           )}
           <div className="card-body p-0">
@@ -581,49 +566,9 @@ export default function BookingSearchPage({
                 }}
               >
                 <div style={{ fontSize: 12, color: "var(--text-muted)" }}>
-                  Page {page} · {pageStart.toLocaleString()}–{pageEnd.toLocaleString()}
-                  {totalExact ? ` of ${total.toLocaleString()}` : hasMore ? " · more available" : ""}
-                </div>
-                <div style={{ display: "flex", gap: 8, alignItems: "center", flexWrap: "wrap" }}>
-                  <label style={{ fontSize: 12, color: "var(--text-muted)" }}>
-                    Per page
-                    <select
-                      className="form-control"
-                      style={{ marginLeft: 8, width: 80, display: "inline-block", padding: "4px 8px" }}
-                      value={pageSize}
-                      onChange={(e) => setPageSize(Number(e.target.value))}
-                    >
-                      {isOperationalList ? (
-                        <>
-                          <option value={15}>15</option>
-                          <option value={25}>25</option>
-                          <option value={50}>50</option>
-                        </>
-                      ) : (
-                        <>
-                          <option value={50}>50</option>
-                          <option value={100}>100</option>
-                          <option value={200}>200</option>
-                        </>
-                      )}
-                    </select>
-                  </label>
-                  <button
-                    type="button"
-                    className="btn btn-sm btn-outline"
-                    disabled={page <= 1}
-                    onClick={() => goToPage(page - 1)}
-                  >
-                    Previous
-                  </button>
-                  <button
-                    type="button"
-                    className="btn btn-sm btn-outline"
-                    disabled={!hasMore}
-                    onClick={() => goToPage(page + 1)}
-                  >
-                    Next
-                  </button>
+                  Showing {rows.length.toLocaleString()}
+                  {totalExact ? ` of ${total.toLocaleString()}` : ""} booking
+                  {rows.length === 1 ? "" : "s"}
                 </div>
               </div>
             )}

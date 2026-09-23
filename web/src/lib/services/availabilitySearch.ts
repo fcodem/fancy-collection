@@ -24,9 +24,9 @@ function freeItemGroupKey(item: {
   return `legacy:${stripUnitSuffix(item.name)}|${item.category}|${item.size || ""}|${item.color || ""}`;
 }
 
-export const DEFAULT_LIMIT = 30;
-export const MAX_LIMIT = 100;
-export const CANDIDATE_CAP = 500;
+export const DEFAULT_LIMIT = 2000;
+export const MAX_LIMIT = 2000;
+export const CANDIDATE_CAP = 5000;
 
 export type AvailabilitySearchOpts = {
   deliveryDate: string;

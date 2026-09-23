@@ -17,8 +17,8 @@ import { sortByDeliverySchedule } from "@/lib/bookingDeliverySort";
 import { catalogPhotoRef } from "@/lib/catalogPhotoRef";
 import type { Prisma } from "@prisma/client";
 
-const DEFAULT_LIMIT = 20;
-const MAX_LIMIT = 50;
+const DEFAULT_LIMIT = 2000;
+const MAX_LIMIT = 2000;
 
 type PackingListItemRow = {
   bi_id: number | null;

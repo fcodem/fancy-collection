@@ -22,9 +22,9 @@ function candidateCapFor(limit: number) {
 
 describe("availability search helpers", () => {
   it("exports limit constants and candidate cap formula", () => {
-    assert.match(source, /export const DEFAULT_LIMIT = 30/);
-    assert.match(source, /export const MAX_LIMIT = 100/);
-    assert.match(source, /export const CANDIDATE_CAP = 500/);
+    assert.match(source, /export const DEFAULT_LIMIT = 2000/);
+    assert.match(source, /export const MAX_LIMIT = 2000/);
+    assert.match(source, /export const CANDIDATE_CAP = 5000/);
     assert.match(
       source,
       /Math\.min\(CANDIDATE_CAP, Math\.max\(50, \(limit \+ 1\) \* 25\)\)/,
@@ -59,8 +59,9 @@ describe("single-query availability contracts", () => {
     assert.match(source, /LIMIT \$\{candidateCap\}/);
     assert.match(source, /LIMIT \$\{limit \+ 1\}/);
     assert.match(source, /WHERE false/);
-    assert.match(source, /COALESCE\(ci\.thumbnail_photo, ci\.photo\) AS thumbnail/);
-    assert.match(source, /photo: thumb/);
+    assert.match(source, /ci\.thumbnail_photo AS "thumbnailPhoto"/);
+    assert.match(source, /pickInventoryThumbRef/);
+    assert.match(source, /photo: full \|\| thumb/);
     assert.match(source, /jewelleryChecks && row\.itemType === "jewellery"/);
     assert.doesNotMatch(source, /original_photo|enhanced_photo|embedding|recognition/i);
   });

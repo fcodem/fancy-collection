@@ -39,7 +39,7 @@ export default function CustomersClient() {
     if (append) setLoadingMore(true);
     else setLoading(true);
     try {
-      const params = new URLSearchParams({ limit: "50", page: "1" });
+      const params = new URLSearchParams({ limit: "2000", page: "1" });
       if (query.trim()) params.set("q", query.trim());
       if (opts?.cursor) params.set("cursor", opts.cursor);
       const res = await fetch(`/api/customers?${params}`);
@@ -194,18 +194,6 @@ export default function CustomersClient() {
               )}
             </tbody>
           </table>
-          {hasMore && (
-            <div style={{ padding: 16, textAlign: "center", borderTop: "1px solid var(--border)" }}>
-              <button
-                type="button"
-                className="btn btn-outline"
-                disabled={loadingMore}
-                onClick={() => load({ append: true, cursor: nextCursor })}
-              >
-                {loadingMore ? "Loading…" : "Load more"}
-              </button>
-            </div>
-          )}
         </div>
       </div>
     </div>
