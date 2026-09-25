@@ -262,7 +262,7 @@ function StandardTable({
                 )}
                 <td className="booking-col-actions">
                   <div className="booking-col-actions-inner">
-                    <PrefetchOnIntentLink href={`/booking/${b.id}`} className="btn btn-sm btn-outline">View</PrefetchOnIntentLink>
+                    <PrefetchOnIntentLink href={`/booking/${b.id}`} className="btn btn-sm btn-outline">See Booking</PrefetchOnIntentLink>
                     {listType === "remaining-to-deliver" && b.status === "booked" && (
                       <PrefetchOnIntentLink href={`/booking-delivery/${b.id}`} className="btn btn-sm btn-primary">Deliver</PrefetchOnIntentLink>
                     )}
@@ -344,7 +344,7 @@ function RemainingTable({ rows, todayIso }: { rows: DashboardStatBookingRow[]; t
                 <span style={{ fontSize: 12, fontWeight: 700, color: "#fc8181", flexShrink: 0 }}>₹{formatInr(rem)}</span>
               )}
               <div className="list-row-actions" style={{ display: "flex", gap: 6, flexShrink: 0 }}>
-                <PrefetchOnIntentLink href={`/booking/${b.id}`} className="btn btn-outline btn-sm">View</PrefetchOnIntentLink>
+                <PrefetchOnIntentLink href={`/booking/${b.id}`} className="btn btn-outline btn-sm">See Booking</PrefetchOnIntentLink>
                 <PrefetchOnIntentLink href={`/booking-delivery/${b.id}`} className="btn btn-primary btn-sm">
                   <i className="fa-solid fa-truck" /> Deliver
                 </PrefetchOnIntentLink>

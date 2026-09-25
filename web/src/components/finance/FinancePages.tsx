@@ -18,6 +18,7 @@ import {
 } from "@/lib/finance/safeNumbers";
 import { formatInr } from "@/lib/format";
 import { formatFinanceCategoryLabel, sortFinanceDressCategoryKeys } from "@/lib/packingDivision";
+import ViewBookingButton from "@/components/ViewBookingButton";
 
 function FinanceStatus({ loading, error }: { loading: boolean; error: string }) {
   const [mounted, setMounted] = useState(false);
@@ -661,6 +662,7 @@ export function FinanceSecurityDeposit({
                   <th style={{ cursor: "pointer", userSelect: "none" }} onClick={() => toggleSort("status")}>
                     Status{sortIndicator("status")}
                   </th>
+                  <th>Action</th>
                 </tr>
               </thead>
               <tbody>
@@ -673,6 +675,9 @@ export function FinanceSecurityDeposit({
                     <td>₹{formatInr(Number(b.security_collected))}</td>
                     <td>₹{formatInr(Number(b.security_held || 0))}</td>
                     <td>{String(b.status)}</td>
+                    <td>
+                      <ViewBookingButton bookingId={b.id as number | string} />
+                    </td>
                   </tr>
                 ))}
               </tbody>

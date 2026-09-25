@@ -2,6 +2,7 @@ import type { CSSProperties, ReactNode } from "react";
 import { formatInr } from "@/lib/format";
 import type { StandardBookingDetails } from "@/lib/bookingDetails";
 import StarBookingBadge from "@/components/StarBookingBadge";
+import ViewBookingButton from "@/components/ViewBookingButton";
 import {
   WARNING_BOOKED_ON_RETURN,
   WARNING_RETURNING_ON_DELIVERY,
@@ -267,11 +268,25 @@ export function BookingWarningPanel({
   const isReturning = variant === "returning";
   return (
     <div className={`packing-returning-warning ${isReturning ? "booking-warning--returning" : "booking-warning--booked"}`}>
-      <div className="packing-warning-badge" style={isReturning ? undefined : { background: "rgba(192,57,43,0.12)", color: "var(--danger)" }}>
+      <div
+        className="packing-warning-badge"
+        style={{
+          ...(isReturning ? {} : { background: "rgba(192,57,43,0.12)", color: "var(--danger)" }),
+          display: "flex",
+          alignItems: "center",
+          flexWrap: "wrap",
+          gap: 6,
+        }}
+      >
         <AlternateBookingTag style={{ marginRight: 8 }} />
         <i className={`fa-solid ${isReturning ? "fa-triangle-exclamation" : "fa-circle-exclamation"}`} style={{ marginRight: 6 }} />
         <span>{isReturning ? WARNING_RETURNING_ON_DELIVERY : WARNING_BOOKED_ON_RETURN}</span>
         <strong style={{ marginLeft: 6 }}>#{String(w.serial_no).padStart(2, "0")}</strong>
+        {w.booking_id ? (
+          <span style={{ marginLeft: "auto" }}>
+            <ViewBookingButton bookingId={w.booking_id} />
+          </span>
+        ) : null}
       </div>
       <PackingBookingDetailsGrid
         d={{

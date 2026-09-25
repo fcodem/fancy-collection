@@ -1,7 +1,7 @@
 import prisma from "./prisma";
 import { BRAND_FULL_NAME } from "./branding";
 
-export const BACKUP_VERSION = "2.2";
+export const BACKUP_VERSION = "2.3";
 
 export type BackupMeta = {
   app: string;
@@ -63,7 +63,7 @@ function collectPhotoManifest(
 
 async function fetchBookings() {
   const rows = await prisma.booking.findMany({
-    include: { bookingItems: true },
+    include: { bookingItems: true, orders: true, selectedJewellery: true },
     orderBy: { id: "asc" },
   });
   return rows.map((b) => ({
@@ -77,6 +77,19 @@ async function fetchBookings() {
     bookingItems: b.bookingItems.map((bi) => ({
       ...bi,
       deliveredAt: dateStr(bi.deliveredAt),
+    })),
+    orders: b.orders.map((o) => ({
+      ...o,
+      deliveryDate: dateStr(o.deliveryDate),
+      collectedAt: dateStr(o.collectedAt),
+      readyAt: dateStr(o.readyAt),
+      cancelledAt: dateStr(o.cancelledAt),
+      reminderSentAt: dateStr(o.reminderSentAt),
+      createdAt: dateStr(o.createdAt),
+    })),
+    jewellery: b.selectedJewellery.map((j) => ({
+      ...j,
+      createdAt: dateStr(j.createdAt),
     })),
   }));
 }
@@ -245,6 +258,8 @@ export async function buildFullBackup(exportedBy: string): Promise<BackupPayload
   const paymentCount = invoices.reduce((s, inv) => s + inv.payments.length, 0);
   const rentalItemCount = rentals.reduce((s, r) => s + r.items.length, 0);
   const bookingItemCount = bookings.reduce((s, b) => s + b.bookingItems.length, 0);
+  const bookingOrderCount = bookings.reduce((s, b) => s + (b.orders?.length || 0), 0);
+  const bookingJewelleryCount = bookings.reduce((s, b) => s + (b.jewellery?.length || 0), 0);
   const prospectItemCount = prospectLeads.reduce((s, pl) => s + pl.items.length, 0);
   const photoManifest = collectPhotoManifest(inventory, bookings);
 
@@ -258,6 +273,8 @@ export async function buildFullBackup(exportedBy: string): Promise<BackupPayload
       record_counts: {
         bookings: bookings.length,
         booking_items: bookingItemCount,
+        booking_orders: bookingOrderCount,
+        booking_jewellery: bookingJewelleryCount,
         inventory: inventory.length,
         inventory_ai_profiles: inventoryAiProfiles.length,
         customers: customers.length,

@@ -103,8 +103,9 @@ function BookingPanelDataRow({
       </td>
       <td className="booking-col-actions">
         <div className="booking-col-actions-inner">
-          <PrefetchOnIntentLink href={`/booking/${b.id}`} className="btn btn-outline btn-sm">
-            <i className="fa-solid fa-eye" />
+          <PrefetchOnIntentLink href={`/booking/${b.id}`} className="btn btn-outline btn-sm" title="See Booking">
+            <i className="fa-solid fa-eye" style={{ marginRight: 4 }} />
+            See Booking
           </PrefetchOnIntentLink>
           <PrefetchOnIntentLink
             href={`/jewellery-selection/${b.id}`}

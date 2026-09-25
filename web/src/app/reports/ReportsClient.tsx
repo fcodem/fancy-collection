@@ -105,7 +105,9 @@ export default function ReportsClient({ isOwner = false }: { isOwner?: boolean }
         </h2>
         <p style={{ fontSize: 13, color: "var(--text-muted)", margin: 0 }}>
           Download Word reports for bookings, CSV exports for Excel, and full data backups for safety.
-          <strong style={{ color: "var(--primary)", marginLeft: 6 }}>Recommended: Take a full backup every day.</strong>
+          <strong style={{ color: "var(--primary)", marginLeft: 6 }}>
+            Automatic full backup runs daily at 2:15 AM (Asia/Kolkata) to secure cloud storage.
+          </strong>
         </p>
       </div>
 
@@ -191,7 +193,7 @@ export default function ReportsClient({ isOwner = false }: { isOwner?: boolean }
         icon="fa-database"
         iconColor="#C62828"
         title="Full Data Backup (JSON)"
-        sub="Downloads every single record stored in this website — bookings, inventory, customers, staff, and all other data."
+        sub="Automatic daily cloud backup plus on-demand download. Includes bookings, orders, jewellery selections, inventory, customers, staff, and all other data."
       />
 
       <div className="card" style={{ borderLeft: "4px solid #C62828", marginBottom: 32 }}>
@@ -203,18 +205,19 @@ export default function ReportsClient({ isOwner = false }: { isOwner?: boolean }
                 Complete System Backup
               </div>
               <p style={{ fontSize: 13, color: "var(--text-muted)", marginBottom: 12 }}>
-                Downloads a <code style={{ background: "var(--cream-dark)", padding: "1px 6px", borderRadius: 4 }}>.json</code> file containing <strong>every record</strong> in the system:
+                A full <code style={{ background: "var(--cream-dark)", padding: "1px 6px", borderRadius: 4 }}>.json</code> backup is created{" "}
+                <strong>automatically every day</strong> and uploaded to private cloud storage. You can also download one anytime:
               </p>
               <div style={{ display: "grid", gridTemplateColumns: "1fr 1fr", gap: "4px 20px", fontSize: 13, color: "var(--text-muted)" }}>
                 {[
                   "All Bookings & Items",
+                  "Custom Orders & Jewellery picks",
                   "Complete Inventory",
                   "Customers & Staff",
                   "Users & Categories",
                   "Attendance & Suppliers",
                   "Rentals, Invoices & Payments",
-                  "Prospect Leads & Enquiries",
-                  "Activity Log (audit trail)",
+                  "Prospect Leads, Enquiries & Activity Log",
                 ].map((item) => (
                   <div key={item} style={{ display: "flex", alignItems: "center", gap: 6 }}>
                     <i className="fa-solid fa-check" style={{ color: "var(--success)", fontSize: 11 }} />
@@ -241,11 +244,11 @@ export default function ReportsClient({ isOwner = false }: { isOwner?: boolean }
                 }
               </button>
               <div style={{ fontSize: 11, color: "var(--text-muted)", lineHeight: 1.6 }}>
-                <i className="fa-solid fa-circle-info" style={{ marginRight: 5 }} />
-                File: <code>fancy-collection-backup-YYYY-MM-DD.json</code>
+                <i className="fa-solid fa-cloud" style={{ marginRight: 5 }} />
+                Auto backup: daily 2:15 AM → private Blob storage
                 <br />
-                <i className="fa-solid fa-clock" style={{ marginRight: 5 }} />
-                Recommended: download daily and store on USB or Google Drive.
+                <i className="fa-solid fa-download" style={{ marginRight: 5 }} />
+                Manual file: <code>fancy-collection-backup-YYYY-MM-DD.json</code>
               </div>
             </div>
           </div>

@@ -201,11 +201,15 @@ export default async function IncompleteReturnPage() {
                       <td>{b.returnedAt ? formatDate(b.returnedAt, "display") : "—"}</td>
                       <td>
                         <div style={{ display: "flex", gap: 6, flexWrap: "wrap" }}>
+                          <PrefetchOnIntentLink href={`/booking/${b.id}`} className="btn btn-sm btn-outline">
+                            <i className="fa-solid fa-eye" style={{ marginRight: 4 }} />
+                            See Booking
+                          </PrefetchOnIntentLink>
                           <PrefetchOnIntentLink href={`/booking/${b.id}/incomplete-slip`} className="btn btn-sm btn-outline" style={{ color: "#c2410c", borderColor: "#f39c12" }}>
                             <i className="fa-solid fa-receipt" style={{ marginRight: 4 }} />Slip
                           </PrefetchOnIntentLink>
                           <ResolveButton bookingId={b.id} />
-                          <PrefetchOnIntentLink href={`/return/${b.id}`} className="btn btn-sm btn-outline">View</PrefetchOnIntentLink>
+                          <PrefetchOnIntentLink href={`/return/${b.id}`} className="btn btn-sm btn-outline">Return</PrefetchOnIntentLink>
                         </div>
                       </td>
                     </tr>

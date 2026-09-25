@@ -24,6 +24,7 @@ import { cachedFetchJson, invalidateClientCache } from "@/lib/clientRequestCache
 import DressNameSuggestInput from "@/components/DressNameSuggestInput";
 import CategorySelect from "@/components/CategorySelect";
 import BookingPhotoThumb from "@/components/BookingPhotoThumb";
+import ViewBookingButton from "@/components/ViewBookingButton";
 import { stripUnitSuffix } from "@/lib/dress";
 import { useToast } from "@/components/ui/Toast";
 import {
@@ -155,7 +156,10 @@ function AlternateBookingCard({ booking }: { booking: BookingRow }) {
           {booking.is_star && <StarBookingBadge />}
           <AlternateBookingTag />
         </div>
-        <div style={{ fontSize: 12, fontWeight: 700, color: "#b45309" }}>{kindLabel}</div>
+        <div style={{ display: "flex", alignItems: "center", gap: 8, flexWrap: "wrap" }}>
+          <div style={{ fontSize: 12, fontWeight: 700, color: "#b45309" }}>{kindLabel}</div>
+          <ViewBookingButton bookingId={booking.id} />
+        </div>
       </div>
 
       <div className="card-body" style={{ paddingTop: 8 }}>
@@ -246,8 +250,9 @@ function BookingCard({ booking, isUnavailable }: { booking: BookingRow; isUnavai
         >
           {serialLabel(booking.serial_no)}
         </span>
-        <span>{booking.customer_name}</span>
+        <span style={{ flex: 1, minWidth: 0 }}>{booking.customer_name}</span>
         {booking.is_star && <StarBookingBadge />}
+        <ViewBookingButton bookingId={booking.id} />
       </div>
 
       <div className="booked-items-simple-dresses">

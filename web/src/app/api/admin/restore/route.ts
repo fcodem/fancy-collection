@@ -73,6 +73,8 @@ export async function POST(req: NextRequest) {
       await tx.$executeRawUnsafe(`DELETE FROM "activity_logs"`);
       await tx.$executeRawUnsafe(`DELETE FROM "login_attempts"`);
       await tx.$executeRawUnsafe(`DELETE FROM "prospect_lead_items"`);
+      await tx.$executeRawUnsafe(`DELETE FROM "booking_jewellery"`);
+      await tx.$executeRawUnsafe(`DELETE FROM "booking_orders"`);
       await tx.$executeRawUnsafe(`DELETE FROM "booking_items"`);
       await tx.$executeRawUnsafe(`DELETE FROM "rental_items"`);
       await tx.$executeRawUnsafe(`DELETE FROM "payments"`);
@@ -290,6 +292,8 @@ export async function POST(req: NextRequest) {
 
       if (backup.bookings?.length) {
         let itemCount = 0;
+        let orderCount = 0;
+        let jewelleryCount = 0;
         for (const b of backup.bookings) {
           await tx.$executeRawUnsafe(
             `INSERT INTO "bookings" ("id","booking_number","monthly_serial","customer_name","customer_address","contact_1","whatsapp_no","delivery_date","delivery_time","return_date","return_time","venue","security_deposit","total_price","total_advance","total_remaining","common_notes","staff_names","status","created_at","delivery_notes","remaining_collected","security_collected","delivered_at","returned_at","incomplete_notes","incomplete_photo","id_photo_1","id_photo_2","security_held","item_id","dress_name","price","advance","remaining","notes","contact_2","qr_token","refund_amount","refunded_at") VALUES (${ph(40)})`,
@@ -366,10 +370,71 @@ export async function POST(req: NextRequest) {
             );
             itemCount++;
           }
+
+          const orders = (b.orders ?? b.booking_orders ?? []) as Array<Record<string, unknown>>;
+          for (const o of orders) {
+            await tx.$executeRawUnsafe(
+              `INSERT INTO "booking_orders" ("id","booking_id","description","cost","advance","balance","photo","delivery_date","delivery_time","advance_payment_mode","balance_collected","collected_at","collect_payment_mode","status","ready_at","cancelled_at","refund_amount","reminder_sent_at","created_at") VALUES (${ph(19)})`,
+              o.id,
+              o.bookingId ?? o.booking_id ?? b.id,
+              o.description ?? "",
+              o.cost ?? 0,
+              o.advance ?? 0,
+              o.balance ?? 0,
+              o.photo ?? null,
+              dateParamReq((o.deliveryDate ?? o.delivery_date) as string),
+              o.deliveryTime ?? o.delivery_time ?? "",
+              o.advancePaymentMode ?? o.advance_payment_mode ?? null,
+              o.balanceCollected ?? o.balance_collected ?? 0,
+              dateParam((o.collectedAt ?? o.collected_at) as string),
+              o.collectPaymentMode ?? o.collect_payment_mode ?? null,
+              o.status ?? "active",
+              dateParam((o.readyAt ?? o.ready_at) as string),
+              dateParam((o.cancelledAt ?? o.cancelled_at) as string),
+              o.refundAmount ?? o.refund_amount ?? 0,
+              dateParam((o.reminderSentAt ?? o.reminder_sent_at) as string),
+              dateParamReq((o.createdAt ?? o.created_at) as string),
+            );
+            orderCount++;
+          }
+
+          const jewellery = (b.jewellery ?? b.selectedJewellery ?? b.booking_jewellery ?? []) as Array<
+            Record<string, unknown>
+          >;
+          for (const j of jewellery) {
+            await tx.$executeRawUnsafe(
+              `INSERT INTO "booking_jewellery" ("id","booking_id","item_id","name","category","photo","source","note","pick_necklace","pick_earrings","pick_teeka","pick_pasa","pick_sheeshpatti","pick_nath","pick_hathfool","pick_kamarband","pick_rings","pick_long_har","status","created_at") VALUES (${ph(20)})`,
+              j.id,
+              j.bookingId ?? j.booking_id ?? b.id,
+              j.itemId ?? j.item_id ?? null,
+              j.name ?? "",
+              j.category ?? null,
+              j.photo ?? null,
+              j.source ?? "manual",
+              j.note ?? null,
+              boolParam(j.pickNecklace ?? j.pick_necklace, false),
+              boolParam(j.pickEarrings ?? j.pick_earrings, false),
+              boolParam(j.pickTeeka ?? j.pick_teeka, false),
+              boolParam(j.pickPasa ?? j.pick_pasa, false),
+              boolParam(j.pickSheeshpatti ?? j.pick_sheeshpatti, false),
+              boolParam(j.pickNath ?? j.pick_nath, false),
+              boolParam(j.pickHathfool ?? j.pick_hathfool, false),
+              boolParam(j.pickKamarband ?? j.pick_kamarband, false),
+              boolParam(j.pickRings ?? j.pick_rings, false),
+              boolParam(j.pickLongHar ?? j.pick_long_har, false),
+              j.status ?? "active",
+              dateParamReq((j.createdAt ?? j.created_at) as string),
+            );
+            jewelleryCount++;
+          }
         }
         counts.bookings = backup.bookings.length;
         counts.booking_items = itemCount;
-        log.push(`Restored ${backup.bookings.length} bookings with ${itemCount} items`);
+        counts.booking_orders = orderCount;
+        counts.booking_jewellery = jewelleryCount;
+        log.push(
+          `Restored ${backup.bookings.length} bookings with ${itemCount} items, ${orderCount} orders, ${jewelleryCount} jewellery`,
+        );
       }
 
       if (backup.prospect_leads?.length) {

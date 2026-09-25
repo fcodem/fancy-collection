@@ -214,7 +214,7 @@ function CustomerRecordPanel({
             className={`btn btn-sm ${isReturn ? "btn-outline" : "btn-outline"}`}
           >
             <i className="fa-solid fa-eye" style={{ marginRight: 6 }} />
-            View Record
+            See Booking
           </PrefetchOnIntentLink>
           {!isReturn && (
             <PrefetchOnIntentLink href={`/booking-delivery/${side.id}`} className="btn btn-sm btn-primary">

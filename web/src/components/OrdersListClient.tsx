@@ -177,7 +177,7 @@ export default function OrdersListClient({ orders, todayIso }: { orders: OrderLi
                   <td>
                     <div style={{ display: "flex", gap: 6, flexWrap: "wrap" }}>
                       <PrefetchOnIntentLink href={`/booking/${o.bookingId}`} className="btn btn-sm btn-outline">
-                        View Booking
+                        See Booking
                       </PrefetchOnIntentLink>
                       {isReadySection ? (
                         <button type="button" className="btn btn-sm btn-outline" disabled={busyId === o.id} onClick={() => toggleReady(o, false)}>

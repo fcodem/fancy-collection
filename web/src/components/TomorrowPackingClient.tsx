@@ -82,7 +82,7 @@ function BookingCard({ booking, tone }: { booking: TomorrowPackingBooking; tone:
         ))}
         <div style={{ display: "flex", gap: 8, flexWrap: "wrap" }}>
           <PrefetchOnIntentLink href={`/booking/${booking.id}`} className="btn btn-sm btn-outline">
-            Open booking
+            See Booking
           </PrefetchOnIntentLink>
           <PrefetchOnIntentLink href="/packing-list" className="btn btn-sm btn-primary">
             Open packing list

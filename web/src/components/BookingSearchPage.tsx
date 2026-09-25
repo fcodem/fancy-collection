@@ -513,7 +513,7 @@ export default function BookingSearchPage({
                           {showRecordActions ? (
                             <div className="booking-col-actions-inner">
                               <PrefetchOnIntentLink href={`/booking/${b.id}`} className="btn btn-sm btn-outline">
-                                <i className="fa-solid fa-eye" /> View
+                                <i className="fa-solid fa-eye" /> See Booking
                               </PrefetchOnIntentLink>
                               {b.status === "booked" && (
                                 <PrefetchOnIntentLink href={`/booking-delivery/${b.id}`} className="btn btn-sm btn-primary">
@@ -527,9 +527,14 @@ export default function BookingSearchPage({
                               )}
                             </div>
                           ) : (
-                            <a href={detailHref.replace("{id}", String(b.id))} className="btn btn-sm btn-primary">
-                              <i className={`fa-solid ${actionIcon}`} /> {actionLabel}
-                            </a>
+                            <div className="booking-col-actions-inner">
+                              <PrefetchOnIntentLink href={`/booking/${b.id}`} className="btn btn-sm btn-outline">
+                                <i className="fa-solid fa-eye" /> See Booking
+                              </PrefetchOnIntentLink>
+                              <a href={detailHref.replace("{id}", String(b.id))} className="btn btn-sm btn-primary">
+                                <i className={`fa-solid ${actionIcon}`} /> {actionLabel}
+                              </a>
+                            </div>
                           )}
                         </td>
                       </tr>

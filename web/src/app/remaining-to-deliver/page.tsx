@@ -81,7 +81,7 @@ export default async function RemainingToDeliverPage() {
                         </td>
                         <td className="booking-col-actions">
                           <div className="booking-col-actions-inner">
-                            <Link href={`/booking/${b.id}`} className="btn btn-sm btn-outline">View</Link>
+                            <Link href={`/booking/${b.id}`} className="btn btn-sm btn-outline">See Booking</Link>
                             <Link href={`/booking-delivery/${b.id}`} className="btn btn-sm btn-primary">Deliver</Link>
                           </div>
                         </td>

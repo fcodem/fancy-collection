@@ -17,6 +17,7 @@ import { CustomOrdersSection, type SlipOrderDisplay } from "@/components/Booking
 import { panelsForItemWarnings } from "@/lib/bookingWarningPdf";
 import { STANDARD_BOOKING_HEADERS, flattenBookingPdfRows, standardBookingPdfRow } from "@/lib/standardBookingPdfRows";
 import StarBookingBadge from "@/components/StarBookingBadge";
+import ViewBookingButton from "@/components/ViewBookingButton";
 import { addDaysIso } from "@/lib/dateInput";
 import { packingDivision, PACKING_DIVISIONS, parsePackingDivisionFilter, formatPackingCategoryFilterLabel, packingDivisionFilterValue, type CategoryDivisionLists, type PackingDivision } from "@/lib/packingDivision";
 import { countPackingItemsByDivision, packingSectionsForRows } from "@/lib/packingListSections";
@@ -433,7 +434,10 @@ export default function PackingListClient({
               #{String(b.serial_no).padStart(2, "0")} — {b.customer_name}
               {b.is_star && <StarBookingBadge />}
             </h3>
-            <BookingCardHeaderDates d={b} />
+            <div style={{ display: "flex", alignItems: "center", gap: 8, flexWrap: "wrap", marginLeft: "auto" }}>
+              <BookingCardHeaderDates d={b} />
+              <ViewBookingButton bookingId={b.id} />
+            </div>
           </div>
           <div className="card-body packing-booking-details" style={{ paddingTop: 0, paddingBottom: 16 }}>
             <PackingBookingDetailsGrid
@@ -575,7 +579,10 @@ export default function PackingListClient({
                 <h3 className="card-title">
                   #{String(b.serial_no).padStart(2, "0")} — {b.customer_name}
                 </h3>
-                <BookingCardHeaderDates d={b} />
+                <div style={{ display: "flex", alignItems: "center", gap: 8, flexWrap: "wrap", marginLeft: "auto" }}>
+                  <BookingCardHeaderDates d={b} />
+                  <ViewBookingButton bookingId={b.id} />
+                </div>
               </div>
               <div className="card-body" style={{ paddingTop: 0 }}>
                 <CustomOrdersSection orders={b.orders || []} showPhoto={false} />

@@ -128,7 +128,7 @@ export default function LateReturnClient({ initial }: { initial: PageData }) {
                         <div className="booking-col-actions-inner" style={{ display: "flex", gap: 6, flexWrap: "wrap" }}>
                           <PrefetchOnIntentLink href={`/booking/${b.id}`} className="btn btn-sm btn-outline">
                             <i className="fa-solid fa-eye" style={{ marginRight: 4 }} />
-                            Record
+                            See Booking
                           </PrefetchOnIntentLink>
                           <PrefetchOnIntentLink href={`/return/${b.id}`} className="btn btn-sm btn-primary">
                             Process Return

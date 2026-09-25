@@ -231,7 +231,7 @@ export default function BookingCalendarClient() {
                       <td>{b.dressCount}</td>
                       <td><span className={`badge ${statusBadge(b.status)}`}>{statusLabel(b.status)}</span></td>
                       <td>
-                        <a href={`/booking/${b.id}`} className="btn btn-sm btn-outline">View</a>
+                        <a href={`/booking/${b.id}`} className="btn btn-sm btn-outline">See Booking</a>
                       </td>
                     </tr>
                   ))}
