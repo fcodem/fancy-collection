@@ -397,7 +397,9 @@ export default function FreeItemsClient({ today }: { today: string }) {
         const data = await res.json();
         if (seq !== requestSeqRef.current) return;
 
-        const items: FreeItem[] = data.free_items || [];
+        const items: FreeItem[] = (data.free_items || []).filter(
+          (i: { occupied?: boolean }) => !i.occupied,
+        );
         collected = pages === 0 ? items : [...collected, ...items];
         setFree(collected);
         setLoaded(true);

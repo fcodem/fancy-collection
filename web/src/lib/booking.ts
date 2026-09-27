@@ -132,10 +132,19 @@ export async function findFirstItemConflict(
       status: { in: ["booked", "delivered"] },
       OR: [
         { itemId: { in: itemIds } },
-        { bookingItems: { some: { itemId: { in: itemIds } } } },
+        {
+          bookingItems: {
+            some: { itemId: { in: itemIds }, isCancelled: false, isReturned: false },
+          },
+        },
       ],
     },
-    include: { bookingItems: { select: { itemId: true } } },
+    include: {
+      bookingItems: {
+        where: { isCancelled: false, isReturned: false },
+        select: { itemId: true },
+      },
+    },
   });
 
   for (const itemId of itemIds) {

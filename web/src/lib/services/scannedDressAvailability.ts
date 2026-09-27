@@ -541,6 +541,20 @@ export function createScannedDressAvailabilityService(db: AvailabilityDb) {
     );
     const hasBookedWarning = freeUnits.some((u) => warnBookedUnitIds.has(u.id));
 
+    // The returned dress id is the unit that gets added to the booking, so it must be free.
+    const isClean = (u: LookupInventory) =>
+      !warnReturningUnitIds.has(u.id) && !warnBookedUnitIds.has(u.id);
+    const pickedUnit =
+      freeUnits.find((u) => u.id === inventory.id && isClean(u)) ||
+      freeUnits.find(isClean) ||
+      freeUnits.find((u) => u.id === inventory.id) ||
+      freeUnits[0];
+    if (pickedUnit && pickedUnit.id !== dress.id) {
+      dress.id = pickedUnit.id;
+      dress.sku = pickedUnit.sku;
+      dress.status = pickedUnit.status;
+    }
+
     let status: ScannedDressAvailabilityStatus = "AVAILABLE";
     if (free_quantity === 0) {
       status = "BOOKED";

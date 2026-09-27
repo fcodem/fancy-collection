@@ -38,6 +38,8 @@ type BookingSelectedDressRowProps = {
   index: number;
   returningWarning?: DressWarning | null;
   bookedWarning?: DressWarning | null;
+  /** Hard double-booking for the chosen dates — save stays blocked until removed. */
+  conflict?: DressWarning | null;
   onRemove: (index: number) => void;
   onUpdateField: (index: number, field: "price" | "fittingCharges" | "advance" | "notes", value: string | number) => void;
 };
@@ -83,6 +85,7 @@ function BookingSelectedDressRow({
   index: i,
   returningWarning,
   bookedWarning,
+  conflict,
   onRemove,
   onUpdateField,
 }: BookingSelectedDressRowProps) {
@@ -121,13 +124,23 @@ function BookingSelectedDressRow({
             {d.color ? ` · ${d.color}` : ""}
           </div>
 
-          {returningWarning && (
+          {conflict && (
+            <div style={{ fontSize: 11, color: "var(--danger)", marginTop: 4, lineHeight: 1.3, fontWeight: 600 }}>
+              <i className="fa-solid fa-ban" /> <strong>Already booked for these dates</strong> · {warnCustomer(conflict)}
+              {conflict.serial_no ? ` · Serial #${String(conflict.serial_no).padStart(2, "0")}` : ""}
+              {conflict.delivery_date ? ` · ${conflict.delivery_date}` : ""}
+              {conflict.return_date ? ` → ${conflict.return_date}` : ""}
+              {" "}— remove this dress
+            </div>
+          )}
+
+          {!conflict && returningWarning && (
             <div style={{ fontSize: 10, color: "#E65100", marginTop: 4, lineHeight: 1.3 }}>
               <i className="fa-solid fa-triangle-exclamation" /> {formatReturningWarning(returningWarning)}
             </div>
           )}
 
-          {bookedWarning && (
+          {!conflict && bookedWarning && (
             <div style={{ fontSize: 10, color: "var(--danger)", marginTop: 4, lineHeight: 1.3 }}>
               <i className="fa-solid fa-circle-exclamation" /> {formatBookedWarning(bookedWarning)}
             </div>

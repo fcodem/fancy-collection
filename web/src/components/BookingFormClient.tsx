@@ -126,6 +126,18 @@ function formatBookedWarning(w: WarningInfo) {
   );
 }
 
+function formatOccupiedWarning(w?: WarningInfo | null) {
+  if (!w || !w.serial_no) return <strong>Already booked for these dates</strong>;
+  return (
+    <>
+      <strong>Already booked for these dates</strong> · {warnCustomer(w)} · Serial #{String(w.serial_no).padStart(2, "0")}
+      {w.delivery_date ? ` · ${w.delivery_date}` : ""}
+      {w.return_date ? ` → ${w.return_date}` : ""}
+      {warnContact(w) ? ` · ${warnContact(w)}` : ""}
+    </>
+  );
+}
+
 type DateCheckResult = {
   item_id: number;
   item_name: string;
@@ -174,6 +186,10 @@ type FreeItem = {
   returning_warning?: WarningInfo | null;
 
   booked_warning?: WarningInfo | null;
+
+  occupied?: boolean;
+
+  occupied_booking?: WarningInfo | null;
 
 };
 
@@ -1762,6 +1778,8 @@ export default function BookingFormClient(props: Props) {
 
     if (selected) bg = "rgba(123,31,69,0.06)";
 
+    else if (item.occupied) bg = "#F3F3F3";
+
     else if (item.returning_warning && item.booked_warning) bg = "#FFF3E0";
 
     else if (item.returning_warning) bg = "#FFF8E1";
@@ -2224,8 +2242,12 @@ export default function BookingFormClient(props: Props) {
                         toggleDress(item);
                         return;
                       }
-                      if ((item.free_quantity === 0 || item.booked_warning?.customer_name === "Not free for these dates") && item.sku) {
-                        void handleScanCode(String(item.sku), { keepSearch: true });
+                      if (item.occupied || item.free_quantity === 0) {
+                        if (item.sku) {
+                          void handleScanCode(String(item.sku), { keepSearch: true });
+                        } else {
+                          alert(`${item.display_name || item.name} is already booked for these dates.`);
+                        }
                         return;
                       }
                       toggleDress(item);
@@ -2250,6 +2272,12 @@ export default function BookingFormClient(props: Props) {
                           : ""}
 
                       </div>
+
+                      {item.occupied && (
+                        <div style={{ fontSize: 10, color: "var(--danger)", marginTop: 2, lineHeight: 1.3 }}>
+                          <i className="fa-solid fa-ban" /> {formatOccupiedWarning(item.occupied_booking)}
+                        </div>
+                      )}
 
                       {item.returning_warning && (
                         <div style={{ fontSize: 10, color: "#E65100", marginTop: 2, lineHeight: 1.3 }}>
@@ -2317,11 +2345,13 @@ export default function BookingFormClient(props: Props) {
 
             selectedDresses.map((d, i) => {
               const warn = allFreeItems.find((f) => f.id === d.id);
+              const check = dateCheckResults.find((r) => r.item_id === d.id);
               return (
               <BookingSelectedDressRow
                 key={`${d.id ?? "x"}-${i}`}
                 dress={d}
                 index={i}
+                conflict={check?.status === "hard_conflict" ? check.conflict || { serial_no: 0 } : null}
                 returningWarning={warn?.returning_warning || d.returning_warning}
                 bookedWarning={warn?.booked_warning || d.booked_warning}
                 onRemove={removeDress}

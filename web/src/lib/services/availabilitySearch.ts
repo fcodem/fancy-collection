@@ -78,6 +78,9 @@ export type AvailabilitySearchResult = {
     available_parts: JewelleryPartKey[];
     returning_warning: Record<string, unknown> | null;
     booked_warning: Record<string, unknown> | null;
+    /** True when this unit is already booked/rented across the requested dates (name search only). */
+    occupied: boolean;
+    occupied_booking: Record<string, unknown> | null;
   }>;
   returning_on_delivery: Array<Record<string, unknown>>;
   booked_on_return: Array<Record<string, unknown>>;
@@ -126,6 +129,7 @@ type AvailabilityRow = {
   busyBookingId: number | null;
   returningWarning: Record<string, unknown> | null;
   bookedWarning: Record<string, unknown> | null;
+  busyWarning: Record<string, unknown> | null;
 };
 
 export function candidateCapFor(limit: number): number {
@@ -649,10 +653,8 @@ export async function searchAvailableItems(
       COALESCE(jew.long_har_busy, false) AS "longHarBusy",
       COALESCE(jew.whole_busy, false) AS "wholeJewelleryBusy",
       ${availabilityBookingWarnJson("rb")} AS "returningWarning",
-      COALESCE(
-        ${availabilityBookingWarnJson("bb")},
-        ${availabilityBookingWarnJson("busy_b")}
-      ) AS "bookedWarning"
+      ${availabilityBookingWarnJson("bb")} AS "bookedWarning",
+      ${availabilityBookingWarnJson("busy_b")} AS "busyWarning"
     FROM final_availability fa
     LEFT JOIN jewellery_part_occupancy jew ON jew.item_id = fa.id
     LEFT JOIN same_day_return_warnings rw ON rw.item_id = fa.id
@@ -809,17 +811,15 @@ export async function searchAvailableItems(
     } else {
       totalQty = totalByLegacyKey.get(key) || freeQty || 1;
     }
-    const bookedWarning =
-      warningShape(row.bookedWarning) ||
-      (occupied
-        ? {
-            customer_name: "Not free for these dates",
-            serial_no: 0,
-            booking_number: "",
-            delivery_date: "",
-            return_date: "",
-          }
-        : null);
+    const occupiedBooking = occupied
+      ? warningShape(row.busyWarning) || {
+          customer_name: "Not free for these dates",
+          serial_no: 0,
+          booking_number: "",
+          delivery_date: "",
+          return_date: "",
+        }
+      : null;
     return {
       id: row.id,
       name: row.name,
@@ -848,8 +848,10 @@ export async function searchAvailableItems(
       has_long_har: row.hasLongHar,
       booked_parts: isJewellery ? partsFor(row, true) : [],
       available_parts: isJewellery ? partsFor(row, false) : [],
-      returning_warning: warningShape(row.returningWarning),
-      booked_warning: bookedWarning,
+      returning_warning: occupied ? null : warningShape(row.returningWarning),
+      booked_warning: occupied ? null : warningShape(row.bookedWarning),
+      occupied,
+      occupied_booking: occupiedBooking,
     };
   });
 

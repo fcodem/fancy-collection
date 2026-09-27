@@ -146,6 +146,9 @@ function fakeDb(opts: {
             (row) => row.inventoryGroupId === args.where.inventoryGroupId,
           );
         }
+        if (typeof args.where.size === "string") {
+          rows = rows.filter((row) => row.size === args.where.size);
+        }
         if (args.orderBy?.id === "asc") {
           rows = [...rows].sort((a, b) => a.id - b.id);
         } else if (args.orderBy?.id === "desc") {
@@ -890,6 +893,8 @@ describe("LRG-001 legacy printed SKU fixture", () => {
     const result = await service.checkScannedDressAvailability(REQUEST);
     assert.equal(result.status, "AVAILABLE");
     assert.equal(result.dress?.name, "Red Bridal Lehenga");
+    assert.notEqual(result.dress?.id, unit1.id, "scanned unit is booked — must hand back a free unit");
+    assert.equal(result.dress?.id, unit2.id);
     assert.equal(result.free_quantity, 2);
     assert.equal(result.total_quantity, 3);
     assert.equal(result.blockingRecords.length, 1);
