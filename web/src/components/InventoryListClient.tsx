@@ -16,6 +16,7 @@ import { BOOKING_EVENTS, INVENTORY_EVENTS } from "@/lib/realtime/types";
 import PrefetchOnIntentLink from "@/components/PrefetchOnIntentLink";
 import DressNameSuggestInput from "@/components/DressNameSuggestInput";
 import CategorySelect from "@/components/CategorySelect";
+import InventoryAddUnitsButton from "@/components/InventoryAddUnitsButton";
 import ZoomableImage from "@/components/ZoomableImage";
 import { useAbortableSearch } from "@/hooks/useAbortableSearch";
 import { useBoundedQueryCache } from "@/hooks/useBoundedQueryCache";
@@ -789,6 +790,29 @@ export default function InventoryListClient({
                     <button type="button" onClick={() => expandGroup(g.groupKey)}>
                       Show units
                     </button>
+                  )}
+                  {isOwner && !isMens && (
+                    <>
+                      <PrefetchOnIntentLink href={`/inventory/${g.primaryId}/edit`}>
+                        Edit product
+                      </PrefetchOnIntentLink>
+                      <InventoryAddUnitsButton
+                        itemId={g.primaryId}
+                        onAdded={() => {
+                          setMenuOpen(null);
+                          setExpanded((prev) => {
+                            const next = { ...prev };
+                            delete next[g.groupKey];
+                            return next;
+                          });
+                          cache.clear();
+                          void fetchPage(query, statusVal, categoryVal, subCategoryVal, null, {
+                            append: false,
+                            debounce: false,
+                          });
+                        }}
+                      />
+                    </>
                   )}
                   {isOwner && !isMens && g.totalQuantity === 1 && (
                     <button

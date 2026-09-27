@@ -3,6 +3,8 @@ import { redirect, notFound } from "next/navigation";
 import prisma from "@/lib/prisma";
 import { getCurrentUserReadOnly, isOwner } from "@/lib/auth";
 import InventoryDeleteButton from "@/components/InventoryDeleteButton";
+import InventoryAddUnitsButton from "@/components/InventoryAddUnitsButton";
+import { isMensInventoryCategory } from "@/lib/services/inventoryList";
 import InventoryDetailPhoto from "@/components/InventoryDetailPhoto";
 import InventoryScanCodeManager from "@/components/InventoryScanCodeManager";
 import InventoryReferencePhotosClient from "@/components/InventoryReferencePhotosClient";
@@ -154,6 +156,9 @@ export default async function InventoryDetailPage({ params }: { params: Promise<
               <Link href={`/inventory/${item.id}/edit`} className="btn btn-primary btn-sm">
                 Edit
               </Link>
+            )}
+            {owner && !isMensInventoryCategory(item.category) && (
+              <InventoryAddUnitsButton itemId={item.id} refreshRoute />
             )}
             {owner && <InventoryDeleteButton id={item.id} label={displayName} />}
           </div>

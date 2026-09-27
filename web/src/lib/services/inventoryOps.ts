@@ -875,6 +875,109 @@ export async function setMensProductSizeQuantity(opts: {
 }
 
 /**
+ * Add more units to an existing non-men's item group (copies photo/rates from the newest unit).
+ * Works regardless of the current status of existing units (rented, maintenance, …).
+ */
+export async function addInventoryUnits(opts: {
+  seedItemId: number;
+  quantity?: number;
+  by?: string;
+}) {
+  const quantity = Math.max(1, Math.min(Number(opts.quantity) || 1, 50));
+
+  const seed = await prisma.clothingItem.findUnique({ where: { id: opts.seedItemId } });
+  if (!seed) throw new Error("Item not found.");
+  if (MENS_CATEGORIES.includes(seed.category)) {
+    throw new Error("Use Sizes on the men's product to add units.");
+  }
+
+  const baseName = seed.name.replace(/\s+#\d+$/, "").trim();
+  let groupUnits = seed.inventoryGroupId
+    ? await prisma.clothingItem.findMany({ where: { inventoryGroupId: seed.inventoryGroupId } })
+    : [];
+  if (!groupUnits.length) {
+    const sizeWhere: Prisma.ClothingItemWhereInput = seed.size?.trim()
+      ? { size: seed.size }
+      : { OR: [{ size: null }, { size: "" }] };
+    const colorWhere: Prisma.ClothingItemWhereInput = seed.color?.trim()
+      ? { color: seed.color }
+      : { OR: [{ color: null }, { color: "" }] };
+    const candidates = await prisma.clothingItem.findMany({
+      where: {
+        category: seed.category,
+        inventoryGroupId: null,
+        AND: [sizeWhere, colorWhere],
+      },
+      take: 200,
+    });
+    groupUnits = candidates.filter(
+      (r) => r.name.replace(/\s+#\d+$/, "").trim().toLowerCase() === baseName.toLowerCase(),
+    );
+    if (!groupUnits.some((u) => u.id === seed.id)) groupUnits.push(seed);
+  }
+
+  const template = [...groupUnits].sort((a, b) => b.id - a.id)[0]!;
+  const groupId = seed.inventoryGroupId || generateUuidV4();
+  const maxIdx = Math.max(...groupUnits.map((u) => unitIndexFromName(u.name)));
+
+  const created = await prisma.$transaction(async (tx) => {
+    if (!seed.inventoryGroupId) {
+      await tx.clothingItem.updateMany({
+        where: { id: { in: groupUnits.map((u) => u.id) } },
+        data: { inventoryGroupId: groupId },
+      });
+    }
+    const skus = await allocateInventorySkus(quantity, tx);
+    const rows = Array.from({ length: quantity }, (_, idx) => ({
+      name: formatUnitName(baseName, maxIdx + 1 + idx),
+      sku: skus[idx]!,
+      category: template.category,
+      size: template.size,
+      color: template.color || "",
+      dailyRate: template.dailyRate,
+      deposit: template.deposit,
+      conditionNotes: template.conditionNotes || "",
+      itemType: template.itemType || itemTypeForCategory(template.category),
+      photo: template.photo || null,
+      thumbnailPhoto: template.thumbnailPhoto ?? null,
+      originalPhoto: template.originalPhoto || template.photo || null,
+      subCategory: template.subCategory || "Normal",
+      hasNecklace: template.hasNecklace,
+      hasEarrings: template.hasEarrings,
+      hasTeeka: template.hasTeeka,
+      hasPasa: template.hasPasa,
+      hasSheeshpatti: template.hasSheeshpatti,
+      hasNath: template.hasNath,
+      hasHathfool: template.hasHathfool,
+      hasKamarband: template.hasKamarband,
+      hasRings: template.hasRings,
+      hasLongHar: template.hasLongHar,
+      inventoryGroupId: groupId,
+    }));
+    return tx.clothingItem.createManyAndReturn({ data: rows });
+  });
+
+  const addedIds = created.map((c) => c.id);
+  broadcastShopEvent({ type: "inventory.changed", itemIds: addedIds, by: opts.by });
+  for (const item of created) {
+    void logActivity({
+      username: opts.by || "system",
+      action: "created",
+      entity: "inventory",
+      entityId: item.id,
+      label: `Added unit ${item.name} (${item.sku}) to ${baseName}`,
+      after: snapshotInventory(item as unknown as Record<string, unknown>),
+    });
+  }
+
+  return {
+    addedIds,
+    inventoryGroupId: groupId,
+    totalQuantity: groupUnits.length + created.length,
+  };
+}
+
+/**
  * Remove one size from a men's product (all units of that size).
  */
 export async function removeMensProductSize(opts: {
