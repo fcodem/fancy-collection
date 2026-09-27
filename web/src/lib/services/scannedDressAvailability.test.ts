@@ -439,6 +439,48 @@ describe("checkScannedDressAvailability", () => {
     assert.equal(result.warningRecords[0].reason, "BOOKED_ON_RETURN_DAY");
   });
 
+  describe("shop rule: existing booking 24→26 Nov", () => {
+    const existing = () =>
+      booking({
+        customerName: "SHRISTI",
+        deliveryDate: "2026-11-24",
+        returnDate: "2026-11-26",
+        deliveryTime: "5:00 PM",
+        returnTime: "12:00 Noon",
+        bookingItems: [activeItem(DRESS.id)],
+      });
+    const check = (from: string, to: string, fromTime = "5:00 PM", toTime = "12:00 Noon") =>
+      serviceWith([existing()]).service.checkScannedDressAvailability({
+        rawCode: "fc-d-7k4p9x2m",
+        deliveryDateTime: buildKolkataDateTimeFromBookingForm(from, fromTime),
+        returnDateTime: buildKolkataDateTimeFromBookingForm(to, toTime),
+      });
+
+    it("allows 23→24 with a booked-on-return-date warning", async () => {
+      const r = await check("2026-11-23", "2026-11-24", "5:00 PM", "12:00 Noon");
+      assert.equal(r.status, "WARNING_BOOKED_ON_RETURN_DAY");
+    });
+
+    it("allows 26→27 with a returning-on-delivery-date warning", async () => {
+      const r = await check("2026-11-26", "2026-11-27", "5:00 PM", "12:00 Noon");
+      assert.equal(r.status, "WARNING_RETURNING_ON_DELIVERY_DAY");
+    });
+
+    for (const [from, to] of [
+      ["2026-11-24", "2026-11-25"],
+      ["2026-11-25", "2026-11-26"],
+      ["2026-11-24", "2026-11-26"],
+      ["2026-11-23", "2026-11-27"],
+      ["2026-11-25", "2026-11-25"],
+    ] as const) {
+      it(`blocks ${from.slice(8)}→${to.slice(8)}`, async () => {
+        const r = await check(from, to, "10:00 AM", "8:00 PM");
+        assert.equal(r.status, "BOOKED");
+        assert.equal(r.free_quantity, 0);
+      });
+    }
+  });
+
   it("returns WARNING_BOTH_BOUNDARIES when both boundary handovers occur", async () => {
     const { service } = serviceWith([
       booking({

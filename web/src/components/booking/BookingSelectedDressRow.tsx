@@ -57,8 +57,8 @@ function formatReturningWarning(w: DressWarning) {
     <>
       <strong>Returning on the date of delivery</strong> · {warnCustomer(w)} · Serial #
       {String(w.serial_no).padStart(2, "0")}
-      {w.return_time ? ` · by ${w.return_time}` : ""}
-      {w.return_date ? ` · Return ${w.return_date}` : ""}
+      {w.delivery_date || w.return_date ? ` · Booked ${w.delivery_date || "?"} → ${w.return_date || "?"}` : ""}
+      {w.return_time ? ` · Returns by ${w.return_time}` : ""}
       {w.total_rent ? ` · ₹${formatInr(w.total_rent)}` : ""}
       {w.venue ? ` · ${w.venue}` : ""}
       {warnContact(w) ? ` · ${warnContact(w)}` : ""}
@@ -71,8 +71,8 @@ function formatBookedWarning(w: DressWarning) {
     <>
       <strong>Booked on the return date</strong> · {warnCustomer(w)} · Serial #
       {String(w.serial_no).padStart(2, "0")}
+      {w.delivery_date || w.return_date ? ` · Booked ${w.delivery_date || "?"} → ${w.return_date || "?"}` : ""}
       {w.delivery_time ? ` · Pickup ${w.delivery_time}` : ""}
-      {w.delivery_date ? ` · Delivery ${w.delivery_date}` : ""}
       {w.total_rent ? ` · ₹${formatInr(w.total_rent)}` : ""}
       {w.venue ? ` · ${w.venue}` : ""}
       {warnContact(w) ? ` · ${warnContact(w)}` : ""}

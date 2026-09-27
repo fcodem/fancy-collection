@@ -104,8 +104,8 @@ function formatReturningWarning(w: WarningInfo) {
   return (
     <>
       <strong>Returning on the date of delivery</strong> · {warnCustomer(w)} · Serial #{String(w.serial_no).padStart(2, "0")}
-      {w.return_time ? ` · by ${w.return_time}` : ""}
-      {w.return_date ? ` · Return ${w.return_date}` : ""}
+      {w.delivery_date || w.return_date ? ` · Booked ${w.delivery_date || "?"} → ${w.return_date || "?"}` : ""}
+      {w.return_time ? ` · Returns by ${w.return_time}` : ""}
       {w.total_rent ? ` · ₹${formatInr(w.total_rent)}` : ""}
       {w.venue ? ` · ${w.venue}` : ""}
       {warnContact(w) ? ` · ${warnContact(w)}` : ""}
@@ -117,8 +117,8 @@ function formatBookedWarning(w: WarningInfo) {
   return (
     <>
       <strong>Booked on the return date</strong> · {warnCustomer(w)} · Serial #{String(w.serial_no).padStart(2, "0")}
+      {w.delivery_date || w.return_date ? ` · Booked ${w.delivery_date || "?"} → ${w.return_date || "?"}` : ""}
       {w.delivery_time ? ` · Pickup ${w.delivery_time}` : ""}
-      {w.delivery_date ? ` · Delivery ${w.delivery_date}` : ""}
       {w.total_rent ? ` · ₹${formatInr(w.total_rent)}` : ""}
       {w.venue ? ` · ${w.venue}` : ""}
       {warnContact(w) ? ` · ${warnContact(w)}` : ""}
@@ -1790,7 +1790,11 @@ export default function BookingFormClient(props: Props) {
 
       display: "flex", alignItems: "center", gap: 12, padding: "10px 16px",
 
-      borderBottom: "1px solid var(--border)", cursor: "pointer", background: bg,
+      borderBottom: "1px solid var(--border)", background: bg,
+
+      cursor: item.occupied && !selected ? "not-allowed" : "pointer",
+
+      opacity: item.occupied && !selected ? 0.75 : 1,
 
     };
 
@@ -2296,11 +2300,20 @@ export default function BookingFormClient(props: Props) {
 
                     </div>
 
+                    {item.occupied && !sel ? (
+                      <span
+                        style={{ fontSize: 10, fontWeight: 700, color: "var(--danger)", border: "1px solid var(--danger)", borderRadius: 999, padding: "3px 8px", flexShrink: 0, whiteSpace: "nowrap" }}
+                        aria-label="Already booked — cannot select"
+                      >
+                        <i className="fa-solid fa-lock" /> BOOKED
+                      </span>
+                    ) : (
                     <div style={{ width: 28, height: 28, borderRadius: "50%", border: `2px solid ${sel ? "var(--primary)" : "var(--border)"}`, background: sel ? "var(--primary)" : "transparent", display: "flex", alignItems: "center", justifyContent: "center", color: "white", flexShrink: 0 }}>
 
                       {sel ? "✓" : ""}
 
                     </div>
+                    )}
 
                   </DressPickerRow>
 
