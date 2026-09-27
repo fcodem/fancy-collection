@@ -2243,11 +2243,14 @@ export default function BookingFormClient(props: Props) {
                         return;
                       }
                       if (item.occupied || item.free_quantity === 0) {
-                        if (item.sku) {
-                          void handleScanCode(String(item.sku), { keepSearch: true });
-                        } else {
-                          alert(`${item.display_name || item.name} is already booked for these dates.`);
-                        }
+                        const b = item.occupied_booking;
+                        alert(
+                          `${item.display_name || item.name} is already booked for these dates and cannot be selected.` +
+                            (b && b.serial_no
+                              ? `\n\nBooked by: ${warnCustomer(b)} (Serial #${String(b.serial_no).padStart(2, "0")})` +
+                                (b.delivery_date ? `\n${b.delivery_date} → ${b.return_date || ""}` : "")
+                              : ""),
+                        );
                         return;
                       }
                       toggleDress(item);

@@ -89,6 +89,8 @@ export type ScannedDressAvailabilityTimings = {
 export type ScannedDressAvailabilityResult = {
   status: ScannedDressAvailabilityStatus;
   dress: ScannedDressSummary | null;
+  /** Exact name of the unit `dress.id` points to (keeps the "#2" suffix). */
+  unitName?: string;
   /** Units free for the requested window (group-aware). */
   free_quantity: number;
   /** Bookable units in the dress group (excludes maintenance/inactive). */
@@ -554,6 +556,7 @@ export function createScannedDressAvailabilityService(db: AvailabilityDb) {
       dress.sku = pickedUnit.sku;
       dress.status = pickedUnit.status;
     }
+    const unitName = (pickedUnit || displayUnit).name;
 
     let status: ScannedDressAvailabilityStatus = "AVAILABLE";
     if (free_quantity === 0) {
@@ -572,6 +575,7 @@ export function createScannedDressAvailabilityService(db: AvailabilityDb) {
     return {
       status,
       dress,
+      unitName,
       free_quantity,
       total_quantity,
       blockingRecords,

@@ -16,6 +16,17 @@ import { runDashboardRead } from "@/lib/services/dashboardRead";
 import { countTomorrowPackingLeftItems } from "@/lib/services/tomorrowPacking";
 
 const LIST_LIMIT = 10;
+/** Essential cards are the main dashboard view — allow a slow/cold DB more time, then retry once. */
+const ESSENTIAL_TIMEOUT_MS = 8_000;
+
+async function essentialRead<T>(task: () => Promise<T>): Promise<T> {
+  try {
+    return await runDashboardRead(task, ESSENTIAL_TIMEOUT_MS);
+  } catch (error) {
+    console.warn("[dashboard] essential read failed, retrying once:", error instanceof Error ? error.message : error);
+    return runDashboardRead(task, ESSENTIAL_TIMEOUT_MS);
+  }
+}
 
 export async function getDashboardEssentialData() {
   return cachedQuery(
@@ -26,7 +37,7 @@ export async function getDashboardEssentialData() {
         async () => {
           const today = localTodayStart();
           const [rows, tomorrowPackingLeft] = await Promise.all([
-            runDashboardRead(() =>
+            essentialRead(() =>
               prisma.$queryRaw<
                 Array<{
                   totalOrders: number;
@@ -177,7 +188,12 @@ export async function getDashboardEssentialData() {
               )::int AS "allUndelivered"
             `,
               ),
-            runDashboardRead(() => countTomorrowPackingLeftItems()),
+            runDashboardRead(() => countTomorrowPackingLeftItems(), ESSENTIAL_TIMEOUT_MS).catch(
+              (error) => {
+                console.warn("[dashboard] tomorrow packing count failed:", error instanceof Error ? error.message : error);
+                return 0;
+              },
+            ),
           ]);
           const r = rows[0];
           const todayString = todayIso();
@@ -217,6 +233,7 @@ export async function getDashboardEssentialData() {
           };
         },
         15,
+        { staleOnError: true },
       ),
     15,
   );

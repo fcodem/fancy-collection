@@ -1,5 +1,6 @@
 import Link from "next/link";
 import DashboardView from "@/components/DashboardView";
+import DashboardEssentialFallback from "@/components/DashboardEssentialFallback";
 import DashboardStaffWidgetsClient from "@/components/DashboardStaffWidgetsClient";
 import {
   getDashboardAiHealth,
@@ -45,7 +46,13 @@ export function DashboardShellSkeleton() {
 }
 
 export async function DashboardEssentialSection({ isOwner }: { isOwner: boolean }) {
-  const data = await getDashboardEssentialData();
+  let data: Awaited<ReturnType<typeof getDashboardEssentialData>>;
+  try {
+    data = await getDashboardEssentialData();
+  } catch (error) {
+    console.error("[dashboard] essential section failed:", error instanceof Error ? error.message : error);
+    return <DashboardEssentialFallback />;
+  }
   return (
     <DashboardView
       data={data}

@@ -56,7 +56,7 @@ export async function POST(req: NextRequest) {
       status: result.status,
       item: {
         id: result.dress.id,
-        name: result.dress.name,
+        name: result.unitName || result.dress.name,
         category: result.dress.category,
         size: result.dress.size || "",
         color: result.dress.color || "",
