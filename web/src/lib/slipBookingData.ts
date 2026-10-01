@@ -37,6 +37,7 @@ type BookingWithItems = {
   totalPrice: number;
   totalAdvance: number;
   totalRemaining: number;
+  totalFittingCharges?: number | null;
   remainingCollected: number;
   securityCollected: number;
   remainingPaymentMode?: string | null;
@@ -60,6 +61,7 @@ type BookingWithItems = {
     price: number;
     advance: number;
     remaining: number;
+    fittingCharges?: number | null;
     notes: string | null;
     isDelivered?: boolean;
     isCancelled?: boolean;
@@ -578,6 +580,7 @@ export function buildBookingSlipData(booking: BookingWithItems): {
           price: bi.price,
           advance: bi.advance,
           remaining: bi.remaining,
+          fittingCharges: bi.isCancelled ? 0 : bi.fittingCharges || 0,
           notes: bi.notes,
           photoUrl: bi.item ? photoUrl(inventoryPhotoRef(bi.item)) || null : null,
         }))
@@ -616,6 +619,9 @@ export function buildBookingSlipData(booking: BookingWithItems): {
       totalPrice: booking.totalPrice,
       totalAdvance: booking.totalAdvance,
       totalRemaining: booking.totalRemaining,
+      totalFittingCharges:
+        booking.totalFittingCharges ||
+        items.reduce((s, it) => s + ((it as { fittingCharges?: number }).fittingCharges || 0), 0),
       commonNotes: booking.commonNotes,
       status: booking.status,
       createdAt: booking.createdAt.toISOString(),

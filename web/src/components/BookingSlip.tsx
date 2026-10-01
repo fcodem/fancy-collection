@@ -29,6 +29,7 @@ export type BookingSlipProps = {
     totalPrice: number;
     totalAdvance: number;
     totalRemaining: number;
+    totalFittingCharges?: number | null;
     commonNotes?: string | null;
     status: string;
     createdAt: string;
@@ -41,6 +42,7 @@ export type BookingSlipProps = {
     price: number;
     advance: number;
     remaining: number;
+    fittingCharges?: number | null;
     notes?: string | null;
     photoUrl?: string | null;
   }>;
@@ -166,6 +168,13 @@ export default function BookingSlip(props: BookingSlipProps) {
   const termsLeft = TERMS.slice(0, half);
   const termsRight = TERMS.slice(half);
   const outfitItems = items.filter((it) => it.photoUrl);
+
+  const totalFitting =
+    b.totalFittingCharges || items.reduce((s, it) => s + (it.fittingCharges || 0), 0);
+  const showFitting = totalFitting > 0;
+  const itemGrid = showFitting
+    ? "28px 1fr 74px 46px 54px 64px 60px 64px 64px"
+    : "28px 1fr 80px 52px 60px 70px 70px 68px";
 
   const inclusiveRent = b.totalPrice;
   const taxableAmount = Math.round(inclusiveRent / (1 + GST_RATE / 100));
@@ -358,7 +367,7 @@ export default function BookingSlip(props: BookingSlipProps) {
             {/* Header */}
             <div style={{
               display: "grid",
-              gridTemplateColumns: "28px 1fr 80px 52px 60px 70px 70px 68px",
+              gridTemplateColumns: itemGrid,
               background: G,
               color: "#fff",
               fontSize: 10,
@@ -372,6 +381,7 @@ export default function BookingSlip(props: BookingSlipProps) {
               <div>Size</div>
               <div>Color</div>
               <div style={{ textAlign: "right" }}>Price</div>
+              {showFitting && <div style={{ textAlign: "right" }}>Fitting</div>}
               <div style={{ textAlign: "right" }}>Advance</div>
               <div style={{ textAlign: "right" }}>Balance</div>
             </div>
@@ -380,7 +390,7 @@ export default function BookingSlip(props: BookingSlipProps) {
             {items.map((item, i) => (
               <div key={i} style={{
                 display: "grid",
-                gridTemplateColumns: "28px 1fr 80px 52px 60px 70px 70px 68px",
+                gridTemplateColumns: itemGrid,
                 background: i % 2 === 0 ? "#fff" : "#f9fbf9",
                 borderBottom: `1px solid #e8f0e8`,
                 padding: "7px 10px",
@@ -409,6 +419,11 @@ export default function BookingSlip(props: BookingSlipProps) {
                   ) : <span style={{ fontSize: 10, color: "#bbb" }}>—</span>}
                 </div>
                 <div style={{ textAlign: "right", fontWeight: 500 }}>{rs(item.price)}</div>
+                {showFitting && (
+                  <div style={{ textAlign: "right", fontWeight: 500, color: item.fittingCharges ? "#8a6d1a" : "#bbb" }}>
+                    {item.fittingCharges ? rs(item.fittingCharges) : "—"}
+                  </div>
+                )}
                 <div style={{ textAlign: "right", color: SUCCESS, fontWeight: 500 }}>{rs(item.advance)}</div>
                 <div style={{ textAlign: "right", fontWeight: 600, color: item.remaining > 0 ? "#d97706" : GREY }}>
                   {rs(item.remaining)}
@@ -419,7 +434,7 @@ export default function BookingSlip(props: BookingSlipProps) {
             {/* Totals row */}
             <div style={{
               display: "grid",
-              gridTemplateColumns: "28px 1fr 80px 52px 60px 70px 70px 68px",
+              gridTemplateColumns: itemGrid,
               background: LIGHT_GREEN,
               borderTop: `2px solid ${G}`,
               padding: "8px 10px",
@@ -430,6 +445,7 @@ export default function BookingSlip(props: BookingSlipProps) {
               <div />
               <div style={{ gridColumn: "2 / 6", color: G, fontSize: 11, textTransform: "uppercase", letterSpacing: "0.05em" }}>Total</div>
               <div style={{ textAlign: "right", color: "#1a1a1a" }}>{rs(b.totalPrice)}</div>
+              {showFitting && <div style={{ textAlign: "right", color: "#8a6d1a" }}>{rs(totalFitting)}</div>}
               <div style={{ textAlign: "right", color: SUCCESS }}>{rs(b.totalAdvance)}</div>
               <div style={{ textAlign: "right", color: b.totalRemaining > 0 ? RED : G }}>{rs(b.totalRemaining)}</div>
             </div>
@@ -479,6 +495,13 @@ export default function BookingSlip(props: BookingSlipProps) {
                 <span style={{ fontSize: 13, color: GREY }}>Total Rental (Incl. GST @ {GST_RATE}%)</span>
                 <span style={{ fontSize: 14, fontWeight: 700, color: "#1a1a1a" }}>{rs(inclusiveRent)}</span>
               </div>
+
+              {showFitting && (
+                <div style={{ display: "flex", justifyContent: "space-between", alignItems: "center", padding: "10px 16px", borderBottom: `1px solid ${BORDER}` }}>
+                  <span style={{ fontSize: 13, color: GREY }}>Fitting Charges</span>
+                  <span style={{ fontSize: 14, fontWeight: 700, color: "#8a6d1a" }}>{rs(totalFitting)}</span>
+                </div>
+              )}
 
               {/* Advance Paid */}
               <div style={{ display: "flex", justifyContent: "space-between", alignItems: "center", padding: "10px 16px", borderBottom: `1px solid ${BORDER}` }}>
