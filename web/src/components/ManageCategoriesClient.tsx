@@ -46,7 +46,7 @@ export default function ManageCategoriesClient({
   async function load() {
     try {
       const [catRes, subRes] = await Promise.all([
-        fetch("/api/categories"),
+        fetch("/api/categories?groups=1"),
         fetch("/api/sub-categories"),
       ]);
       if (catRes.ok) {

@@ -3,11 +3,15 @@ import { jsonOk, jsonError, requireUserReadOnly, requireOwner, isResponse, requi
 import { getAllCategories } from "@/lib/categories";
 import { addCustomCategory, getManagedCategoryGroups } from "@/lib/services/adminOps";
 
-export async function GET() {
+export async function GET(req: NextRequest) {
   const user = await requireUserReadOnly();
   if (isResponse(user)) return user;
-  const [categories, groups] = await Promise.all([getAllCategories(), getManagedCategoryGroups()]);
-  const res = jsonOk({ ...categories, groups });
+  const wantGroups = req.nextUrl.searchParams.get("groups") === "1";
+  const [categories, groups] = await Promise.all([
+    getAllCategories(),
+    wantGroups ? getManagedCategoryGroups() : Promise.resolve(undefined),
+  ]);
+  const res = jsonOk(groups ? { ...categories, groups } : categories);
   res.headers.set("Cache-Control", "private, no-cache");
   return res;
 }

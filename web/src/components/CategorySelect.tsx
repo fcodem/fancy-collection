@@ -22,6 +22,30 @@ export type CategoryLists = {
   other_categories?: string[];
 };
 
+/** Loads the full category list (built-in + custom), retrying transient failures. */
+export function fetchCategoryLists(): Promise<CategoryLists> {
+  return cachedFetchJson(
+    "categories:all",
+    async (signal) => {
+      let lastError: unknown;
+      for (let attempt = 0; attempt < 3; attempt++) {
+        if (attempt > 0) await new Promise((r) => setTimeout(r, 800 * attempt));
+        try {
+          const res = await fetch("/api/categories", { credentials: "same-origin", signal, cache: "no-store" });
+          if (res.ok) return (await res.json()) as CategoryLists;
+          lastError = new Error(`Failed to load categories (${res.status})`);
+          if (res.status === 401 || res.status === 403) break;
+        } catch (e) {
+          if (signal.aborted) throw e;
+          lastError = e;
+        }
+      }
+      throw lastError;
+    },
+    { ttlMs: 25_000 },
+  );
+}
+
 const FALLBACK: CategoryLists = {
   mens_categories: BASE_MENS,
   womens_categories: BASE_WOMENS,
@@ -54,15 +78,7 @@ export default function CategorySelect({
       return;
     }
     let cancelled = false;
-    cachedFetchJson(
-      "categories:all",
-      async (signal) => {
-        const res = await fetch("/api/categories", { credentials: "same-origin", signal });
-        if (!res.ok) throw new Error("Failed to load categories");
-        return res.json() as Promise<CategoryLists>;
-      },
-      { ttlMs: 25_000 },
-    )
+    fetchCategoryLists()
       .then((data) => {
         if (!cancelled) setLoaded(data);
       })

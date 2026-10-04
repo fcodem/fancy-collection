@@ -25,8 +25,7 @@ import {
   useMutationOperationId,
   type MutationApiError,
 } from "@/lib/useMutationOperationId";
-import { cachedFetchJson } from "@/lib/clientRequestCache";
-import type { CategoryLists } from "@/components/CategorySelect";
+import { fetchCategoryLists, type CategoryLists } from "@/components/CategorySelect";
 
 const CATEGORY_FALLBACK: CategoryLists = {
   mens_categories: BASE_MENS,
@@ -238,15 +237,7 @@ export default function InventoryFormClient({
       return;
     }
     let cancelled = false;
-    cachedFetchJson(
-      "categories:all",
-      async (signal) => {
-        const res = await fetch("/api/categories", { credentials: "same-origin", signal });
-        if (!res.ok) throw new Error("Failed to load categories");
-        return res.json() as Promise<CategoryLists>;
-      },
-      { ttlMs: 25_000 },
-    )
+    fetchCategoryLists()
       .then((data) => {
         if (!cancelled) setCategories(data);
       })
