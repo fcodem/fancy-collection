@@ -8,7 +8,7 @@ export async function GET() {
   if (isResponse(user)) return user;
   const [categories, groups] = await Promise.all([getAllCategories(), getManagedCategoryGroups()]);
   const res = jsonOk({ ...categories, groups });
-  res.headers.set("Cache-Control", "private, max-age=120, stale-while-revalidate=300");
+  res.headers.set("Cache-Control", "private, no-cache");
   return res;
 }
 

@@ -8,6 +8,7 @@ import {
   BASE_WOMENS,
   todayIso,
 } from "@/lib/constants";
+import { getAllCategories } from "@/lib/categories";
 import {
   categoriesInList,
   DASHBOARD_STAT_LISTS,
@@ -33,12 +34,9 @@ export default async function DashboardStatListPage({
   const meta = DASHBOARD_STAT_LISTS[listType];
   const firstPage = await getDashboardStatListPage(listType, { page: 1 });
   const listCategories = categoriesInList(firstPage.bookings);
-  const allCategories = [
-    ...BASE_MENS,
-    ...BASE_WOMENS,
-    ...BASE_JEWELLERY,
-    ...BASE_ACCESSORY,
-  ];
+  const allCategories = await getAllCategories()
+    .then((c) => c.all_categories.filter((n) => n !== "Other"))
+    .catch(() => [...BASE_MENS, ...BASE_WOMENS, ...BASE_JEWELLERY, ...BASE_ACCESSORY]);
   const categories = [
     ...new Set([...listCategories, ...allCategories].filter(Boolean)),
   ].sort((a, b) => a.localeCompare(b));

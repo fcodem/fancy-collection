@@ -73,8 +73,11 @@ async function loadAllCategoriesFromDatabase() {
   };
 }
 
+// Per-instance memory is only an outage fallback. The shared tagged cache must
+// always load from the database, otherwise another serverless instance can
+// re-seed it with a list from before a category was added.
 const categoryMemoryCache = createStaleValueCache(loadAllCategoriesFromDatabase, {
-  ttlMs: CATEGORY_TTL_SECONDS * 1000,
+  ttlMs: 0,
   onRefreshError: () => {
     console.warn("[categories] refresh failed; serving last known successful categories when available");
   },

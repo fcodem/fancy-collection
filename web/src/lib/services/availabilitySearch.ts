@@ -7,6 +7,7 @@ import {
 } from "@/lib/availabilityCursor";
 import type { JewelleryPartKey } from "@/lib/jewelleryParts";
 import { BASE_JEWELLERY, BASE_MENS, BASE_WOMENS } from "@/lib/constants";
+import { getAllCategories } from "@/lib/categories";
 import { photoUrl, pickInventoryFullRef, pickInventoryThumbRef } from "@/lib/photoUrl";
 import { inventoryMatchSql } from "@/lib/search/inventoryMatchSql";
 
@@ -604,13 +605,21 @@ export async function searchAvailableItems(
           OR (ci.category = ${cursor.category} AND ci.name = ${cursor.name} AND ci.id > ${cursor.id})
         )`
     : Prisma.empty;
+  const divisionLists =
+    group === "men" || group === "women" || group === "jewellery"
+      ? await getAllCategories().catch(() => ({
+          mens_categories: BASE_MENS,
+          womens_categories: BASE_WOMENS,
+          jewellery_categories: BASE_JEWELLERY,
+        }))
+      : null;
   const groupSql =
     group === "men"
-      ? Prisma.sql`AND ci.category IN (${Prisma.join(BASE_MENS)})`
+      ? Prisma.sql`AND ci.category IN (${Prisma.join(divisionLists!.mens_categories)})`
       : group === "women"
-        ? Prisma.sql`AND ci.category IN (${Prisma.join(BASE_WOMENS)})`
+        ? Prisma.sql`AND ci.category IN (${Prisma.join(divisionLists!.womens_categories)})`
         : group === "jewellery"
-          ? Prisma.sql`AND ci.category IN (${Prisma.join(BASE_JEWELLERY)}) AND ci.category <> 'Bridal Jewellery'`
+          ? Prisma.sql`AND ci.category IN (${Prisma.join(divisionLists!.jewellery_categories)}) AND ci.category <> 'Bridal Jewellery'`
           : group === "bridal"
             ? Prisma.sql`AND ci.category = 'Bridal Jewellery'`
             : Prisma.empty;
