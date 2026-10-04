@@ -17,6 +17,7 @@ import { BOOKING_EVENTS, INVENTORY_EVENTS } from "@/lib/realtime/types";
 import type { SerializedDashboardData } from "@/lib/services/core";
 import ZoomableImage from "@/components/ZoomableImage";
 import { photoUrl } from "@/lib/photoUrl";
+import { fetchCategoryLists } from "@/components/CategorySelect";
 
 type BookingRow = {
   id: number;
@@ -146,7 +147,27 @@ export default function DashboardView({
   } | null>(null);
   const [freeItemCount, setFreeItemCount] = useState("Search");
 
-  const allCats = [...data.categories.mens, ...data.categories.womens, ...data.categories.jewellery, ...data.categories.accessory];
+  const [loadedCats, setLoadedCats] = useState<string[] | null>(null);
+  useEffect(() => {
+    let cancelled = false;
+    fetchCategoryLists()
+      .then((c) => {
+        if (cancelled) return;
+        setLoadedCats([
+          ...c.mens_categories,
+          ...c.womens_categories,
+          ...c.jewellery_categories,
+          ...c.accessory_categories,
+          ...(c.other_categories || []).filter((n) => n.trim().toLowerCase() !== "other"),
+        ]);
+      })
+      .catch(() => {});
+    return () => {
+      cancelled = true;
+    };
+  }, []);
+  const allCats =
+    loadedCats ?? [...data.categories.mens, ...data.categories.womens, ...data.categories.jewellery, ...data.categories.accessory];
 
   useEffect(() => {
     if (!fiCategory) { setFiSubCategories([]); setFiSubCategory(""); return; }
