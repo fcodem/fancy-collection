@@ -11,6 +11,8 @@ import { pdfCurrency } from "@/lib/pdfFormat";
 import { useRealtimeRefresh } from "@/hooks/useRealtimeRefresh";
 import { BOOKING_EVENTS } from "@/lib/realtime/types";
 import DownloadPdfButton from "@/components/DownloadPdfButton";
+import SizeSortBar, { useIsMensCategory } from "@/components/SizeSortBar";
+import { applySizeFilterSort, sizesFromDressNames, uniqueSortedSizes } from "@/lib/sizeSort";
 import {
   DEFAULT_SEARCH_PAGE_SIZE,
   OPERATIONAL_LIST_DEFAULT_PAGE_SIZE,
@@ -106,7 +108,28 @@ export default function BookingSearchPage({
   const [searchDate, setSearchDate] = useState(todayIso);
   const [query, setQuery] = useState("");
   const [category, setCategory] = useState("");
-  const [rows, setRows] = useState<BookingRow[]>([]);
+  const [allRows, setRows] = useState<BookingRow[]>([]);
+  const showSizeBar = useIsMensCategory(showCategoryFilter ? category : "");
+  const [sizeFilter, setSizeFilter] = useState("");
+  const [sizeSortOn, setSizeSortOn] = useState(false);
+  useEffect(() => {
+    setSizeFilter("");
+  }, [category]);
+  const activeSize = showSizeBar ? sizeFilter : "";
+  const activeSizeSort = showSizeBar && sizeSortOn;
+  const sizeActive = Boolean(activeSize || activeSizeSort);
+  const availableSizes = useMemo(
+    () => uniqueSortedSizes(allRows.map((b) => sizesFromDressNames(b.dress_names))),
+    [allRows],
+  );
+  const rows = useMemo(
+    () =>
+      applySizeFilterSort(allRows, (b) => sizesFromDressNames(b.dress_names), {
+        selected: activeSize,
+        sortOn: activeSizeSort,
+      }),
+    [allRows, activeSize, activeSizeSort],
+  );
   const [searchMode, setSearchMode] = useState("");
   const [searchMonth, setSearchMonth] = useState("");
   const isOperationalList =
@@ -267,7 +290,7 @@ export default function BookingSearchPage({
 
   const tableBodyRows = useMemo(() => {
     if (!rows.length) return null;
-    if (!monthGroupField) {
+    if (!monthGroupField || sizeActive) {
       return rows.map((b) => ({ type: "booking" as const, booking: b }));
     }
     const out: Array<
@@ -285,7 +308,7 @@ export default function BookingSearchPage({
       out.push({ type: "booking", booking: b });
     }
     return out;
-  }, [rows, monthGroupField]);
+  }, [rows, monthGroupField, sizeActive]);
 
   const pdfHeaders = [
     ...STANDARD_BOOKING_HEADERS,
@@ -407,6 +430,18 @@ export default function BookingSearchPage({
               <i className={`fa-solid ${loading ? "fa-spinner fa-spin" : "fa-search"}`} /> {loading ? "Searching…" : "Search"}
             </button>
           </div>
+          {showSizeBar ? (
+            <div style={{ marginTop: 14 }}>
+              <SizeSortBar
+                sizes={availableSizes}
+                selected={sizeFilter}
+                onSelect={setSizeFilter}
+                sortOn={sizeSortOn}
+                onToggleSort={() => setSizeSortOn((v) => !v)}
+                disabled={loading}
+              />
+            </div>
+          ) : null}
         </div>
       </div>
 

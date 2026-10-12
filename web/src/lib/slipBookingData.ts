@@ -40,6 +40,7 @@ type BookingWithItems = {
   totalFittingCharges?: number | null;
   remainingCollected: number;
   securityCollected: number;
+  advancePaymentMode?: string | null;
   remainingPaymentMode?: string | null;
   securityPaymentMode?: string | null;
   commonNotes: string | null;
@@ -463,6 +464,9 @@ export function buildReturnSlipData(
         totalRemaining,
         remainingCollected: remainingPaid,
         securityRefunded,
+        advancePaymentMode: booking.advancePaymentMode ?? null,
+        remainingPaymentMode: booking.remainingPaymentMode ?? null,
+        securityPaymentMode: booking.securityPaymentMode ?? null,
         lateFee: late ? 0 : 0,
         damageCharge,
         finalSettlement,
@@ -541,6 +545,9 @@ export function buildReturnSlipData(
       totalRemaining,
       remainingCollected: remainingPaid,
       securityRefunded,
+      advancePaymentMode: booking.advancePaymentMode ?? null,
+      remainingPaymentMode: booking.remainingPaymentMode ?? null,
+      securityPaymentMode: booking.securityPaymentMode ?? null,
       lateFee: 0,
       damageCharge,
       finalSettlement,

@@ -45,6 +45,9 @@ export type ReturnSlipProps = {
     totalRemaining: number;
     remainingCollected?: number;
     securityRefunded?: number;
+    advancePaymentMode?: string | null;
+    remainingPaymentMode?: string | null;
+    securityPaymentMode?: string | null;
     lateFee?: number;
     damageCharge?: number;
     finalSettlement?: number;
@@ -83,6 +86,11 @@ function normalizeCondition(raw?: string | null): "good" | "damaged" | "stained"
   if (input.includes("stain")) return "stained";
   if (input.includes("damage") || input.includes("tear") || input.includes("broken")) return "damaged";
   return "good";
+}
+
+function payMode(mode?: string | null) {
+  if (!mode?.trim()) return "";
+  return ` (${mode.toUpperCase()})`;
 }
 
 export default function ReturnSlip(props: ReturnSlipProps) {
@@ -476,13 +484,19 @@ export default function ReturnSlip(props: ReturnSlipProps) {
                 <strong>{slipRs(b.totalPrice)}</strong>
               </div>
               <div style={{ display: "flex", justifyContent: "space-between", padding: "7px 0", borderBottom: `1px solid ${SLIP_BORDER}` }}>
-                <span style={{ color: SLIP_GREY }}>Advance Paid</span>
+                <span style={{ color: SLIP_GREY }}>Advance Paid{b.totalAdvance > 0 ? payMode(b.advancePaymentMode) : ""}</span>
                 <strong style={{ color: SLIP_SUCCESS }}>{slipRs(b.totalAdvance)}</strong>
               </div>
               <div style={{ display: "flex", justifyContent: "space-between", padding: "7px 0", borderBottom: `1px solid ${SLIP_BORDER}` }}>
-                <span style={{ color: SLIP_GREY }}>Remaining Collected</span>
+                <span style={{ color: SLIP_GREY }}>Remaining Collected{remainingCollected > 0 ? payMode(b.remainingPaymentMode) : ""}</span>
                 <strong>{slipRs(remainingCollected)}</strong>
               </div>
+              {b.securityDeposit > 0 ? (
+                <div style={{ display: "flex", justifyContent: "space-between", padding: "7px 0", borderBottom: `1px solid ${SLIP_BORDER}` }}>
+                  <span style={{ color: SLIP_GREY }}>Security Deposited{payMode(b.securityPaymentMode)}</span>
+                  <strong>{slipRs(b.securityDeposit)}</strong>
+                </div>
+              ) : null}
               <div style={{ display: "flex", justifyContent: "space-between", padding: "7px 0", borderBottom: `1px solid ${SLIP_BORDER}` }}>
                 <span style={{ color: SLIP_GREY }}>Security Refund</span>
                 <strong>{slipRs(securityRefunded)}</strong>

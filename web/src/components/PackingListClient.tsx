@@ -22,6 +22,12 @@ import { addDaysIso } from "@/lib/dateInput";
 import { packingDivision, PACKING_DIVISIONS, parsePackingDivisionFilter, formatPackingCategoryFilterLabel, packingDivisionFilterValue, type CategoryDivisionLists, type PackingDivision } from "@/lib/packingDivision";
 import { countPackingItemsByDivision, packingSectionsForRows } from "@/lib/packingListSections";
 import { sortByDeliverySchedule } from "@/lib/bookingDeliverySort";
+import SizeSortBar, { useIsMensCategory } from "@/components/SizeSortBar";
+import { applySizeFilterSort, normalizeSize, uniqueSortedSizes } from "@/lib/sizeSort";
+
+function packingBookingSizes(b: { items: PackingItem[] }): string[] {
+  return b.items.map((i) => i.size || "").filter(Boolean);
+}
 
 type PackingItem = {
   bi_id: number | null;
@@ -33,6 +39,7 @@ type PackingItem = {
   packing_note: string;
   category?: string;
   sub_category?: string;
+  size?: string;
   photo?: string;
   /** Per-dress note entered on the booking (shown highlighted for staff). */
   dress_note?: string;
@@ -229,10 +236,25 @@ export default function PackingListClient({
     // eslint-disable-next-line react-hooks/exhaustive-deps
   }, []);
 
-  const allItems = rows.flatMap((b) => (Array.isArray(b.items) ? b.items : []));
+  const showSizeBar = useIsMensCategory(category);
+  const [sizeFilter, setSizeFilter] = useState("");
+  const [sizeSortOn, setSizeSortOn] = useState(false);
+  useEffect(() => {
+    setSizeFilter("");
+  }, [category]);
+  const activeSize = showSizeBar ? normalizeSize(sizeFilter) : "";
+  const activeSizeSort = showSizeBar && sizeSortOn;
+  const availableSizes = uniqueSortedSizes(rows.map(packingBookingSizes));
+  const sizedRows = activeSize
+    ? rows
+        .map((b) => ({ ...b, items: b.items.filter((i) => normalizeSize(i.size) === activeSize) }))
+        .filter((b) => b.items.length > 0)
+    : rows;
+
+  const allItems = sizedRows.flatMap((b) => (Array.isArray(b.items) ? b.items : []));
   const packed = allItems.filter((i) => i.is_packed_ready).length;
-  const divisionCounts = countPackingItemsByDivision(rows, categoryLists);
-  const packingSections = packingSectionsForRows(rows, categoryLists, visibleDivisions);
+  const divisionCounts = countPackingItemsByDivision(sizedRows, categoryLists);
+  const packingSections = packingSectionsForRows(sizedRows, categoryLists, visibleDivisions);
 
   function buildPdfData() {
     const headers = [
@@ -243,7 +265,7 @@ export default function PackingListClient({
       "Packing Note",
       "Ready",
     ];
-    const results = rows.flatMap((b) =>
+    const results = sizedRows.flatMap((b) =>
       (b.items || []).map((item) =>
         standardBookingPdfRow(
           b.serial_no,
@@ -351,6 +373,18 @@ export default function PackingListClient({
               </p>
             ) : null}
           </div>
+          {showSizeBar ? (
+            <div style={{ marginTop: 14 }}>
+              <SizeSortBar
+                sizes={availableSizes}
+                selected={activeSize}
+                onSelect={setSizeFilter}
+                sortOn={sizeSortOn}
+                onToggleSort={() => setSizeSortOn((v) => !v)}
+                disabled={loading}
+              />
+            </div>
+          ) : null}
         </div>
       </div>
 
@@ -398,7 +432,12 @@ export default function PackingListClient({
 
       {loaded &&
         packingSections.map(({ division: div, rows: sectionRows }) => {
-          const sortedRows = sortByDeliverySchedule(sectionRows);
+          const sortedRows = activeSizeSort
+            ? applySizeFilterSort(sortByDeliverySchedule(sectionRows), packingBookingSizes, {
+                selected: "",
+                sortOn: true,
+              })
+            : sortByDeliverySchedule(sectionRows);
           const sectionItemCount = divisionCounts[div.key];
           if (!sortedRows.length && activeDivision) return null;
           return (

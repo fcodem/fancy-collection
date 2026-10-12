@@ -97,6 +97,15 @@ export async function getAllCategories() {
   return getTaggedCategories();
 }
 
+/** For background jobs (WhatsApp bot, workers) that may run outside a Next request cache context. */
+export async function getAllCategoriesAnyContext() {
+  try {
+    return await getTaggedCategories();
+  } catch {
+    return categoryMemoryCache.get();
+  }
+}
+
 /** Men / Women / Jewellery lists for packing and finance division (includes accessories). */
 export async function getCategoryDivisionLists(): Promise<CategoryDivisionLists> {
   return categoryDivisionListsFromAllCategories(await getAllCategories());

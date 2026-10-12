@@ -547,6 +547,12 @@ export default function DashboardView({
           <div className="stat-value">{data.late_return_count}</div>
           <div className="stat-label">Late Returns</div>
         </Link>
+        <Link href="/orders" className="stat-card" style={{ textDecoration: "none", display: "block", background: "linear-gradient(135deg,#b8860b,#8a6d1a)", color: "white" }}>
+          <div className="stat-icon" style={{ background: "rgba(255,255,255,0.15)", color: "white" }}><i className="fa-solid fa-scissors" /></div>
+          <div className="stat-value">{data.today_stats.active_orders ?? 0}</div>
+          <div className="stat-label">Orders</div>
+          <div style={{ fontSize: 10, opacity: 0.8, marginTop: 4 }}>Custom orders from bookings · Click to open</div>
+        </Link>
         {showOrdersDueCard && (
           <Link href="/orders" className="stat-card" style={{ textDecoration: "none", background: "linear-gradient(135deg,#b8860b,#8a6d1a)", color: "white" }}>
             <div className="stat-icon" style={{ background: "rgba(255,255,255,0.15)", color: "white" }}><i className="fa-solid fa-scissors" /></div>

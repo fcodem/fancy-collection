@@ -156,25 +156,42 @@ export function containsKeyword(hay: string, keywords: string[]): boolean {
   return false;
 }
 
-export function extractCategory(text: string): string | null {
+/**
+ * `shopCategories` is the live inventory list (built-in + owner-added) so new
+ * categories such as "Farshi" are recognised without a code change.
+ */
+export function extractCategory(text: string, shopCategories?: string[]): string | null {
   const hay = normalizeBotText(text);
+  // Longest names first so "Fishcut Crop-Top" wins over "Crop Top".
+  const inventory = [...new Set([...(shopCategories || []), ...BASE_WOMENS, ...BASE_MENS, ...BASE_JEWELLERY])]
+    .filter((c) => c.trim() && c.trim().toLowerCase() !== "other")
+    .sort((a, b) => normalizeBotText(b).length - normalizeBotText(a).length);
+  const custom = new Set((shopCategories || []).map((c) => c.toLowerCase()));
+  for (const cat of inventory) {
+    if (!custom.has(cat.toLowerCase())) continue;
+    const token = normalizeBotText(cat).trim();
+    if (token && hay.includes(` ${token} `) && !isBuiltInKeywordCategory(cat)) return cat;
+  }
   for (const row of CATEGORY_KEYWORDS) {
     for (const kw of row.keywords) {
       if (hay.includes(` ${kw.trim()} `)) return row.category;
     }
   }
-  // Match inventory base categories
-  const all = [...BASE_WOMENS, ...BASE_MENS, ...BASE_JEWELLERY];
-  for (const cat of all) {
-    const token = cat.toLowerCase();
-    if (hay.includes(` ${token} `)) return cat;
+  for (const cat of inventory) {
+    const token = normalizeBotText(cat).trim();
+    if (token && hay.includes(` ${token} `)) return cat;
   }
   return null;
 }
 
-export function isBookingIntent(text: string): boolean {
+function isBuiltInKeywordCategory(cat: string): boolean {
+  const lower = cat.toLowerCase();
+  return CATEGORY_KEYWORDS.some((row) => row.category.toLowerCase() === lower);
+}
+
+export function isBookingIntent(text: string, shopCategories?: string[]): boolean {
   const hay = normalizeBotText(text);
-  return containsKeyword(hay, BOOKING_START_KEYWORDS) || extractCategory(text) !== null;
+  return containsKeyword(hay, BOOKING_START_KEYWORDS) || extractCategory(text, shopCategories) !== null;
 }
 
 export function isHandoverIntent(text: string): boolean {
@@ -391,6 +408,7 @@ function processFlowStep(
   text: string,
   state: BotConversationState,
   settings: WhatsAppBotSettings,
+  shopCategories?: string[],
 ): BotProcessResult {
   const trimmed = text.trim();
 
@@ -400,7 +418,7 @@ function processFlowStep(
       if (quick && quick !== "__start_booking__" && quick !== "__price__" && quick !== "__location__") {
         return askDeliveryDate(quick);
       }
-      const category = extractCategory(text);
+      const category = extractCategory(text, shopCategories);
       if (category) return askDeliveryDate(category);
       return {
         reply: "Please tell us the category you need (e.g. Lehenga, Sherwani, Gown, Jewellery).",
@@ -523,8 +541,9 @@ export function processBotInbound(args: {
   daysSinceLastInbound?: number | null;
   state: BotConversationState;
   settings: WhatsAppBotSettings;
+  shopCategories?: string[];
 }): BotProcessResult {
-  const { text, messageType, isFirstContact, state, settings } = args;
+  const { text, messageType, isFirstContact, state, settings, shopCategories } = args;
 
   if (state.botMode === "TEAM_HANDLING" || state.botMode === "NEEDS_STAFF") {
     return { reply: null, nextState: {}, sendHandover: false };
@@ -572,7 +591,7 @@ export function processBotInbound(args: {
 
   const inFlow = state.botStep !== "IDLE" && state.botStep !== "READY_FOR_STAFF";
   if (inFlow && settings.flowEnabled) {
-    const flowResult = processFlowStep(text, state, settings);
+    const flowResult = processFlowStep(text, state, settings, shopCategories);
     if (flowResult.incrementInvalidAttempts) {
       const attempts = state.botInvalidAttempts + 1;
       if (attempts >= settings.maxInvalidResponses) {
@@ -584,11 +603,11 @@ export function processBotInbound(args: {
   }
 
   if (settings.flowEnabled) {
-    const category = extractCategory(text);
-    if (category && isBookingIntent(text)) {
+    const category = extractCategory(text, shopCategories);
+    if (category && isBookingIntent(text, shopCategories)) {
       return askDeliveryDate(category);
     }
-    if (isBookingIntent(text)) {
+    if (isBookingIntent(text, shopCategories)) {
       return startBookingFlow(null);
     }
   }

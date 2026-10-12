@@ -231,6 +231,24 @@ describe("WhatsApp bot flow", () => {
     assert.equal(extractCategory("Lehenga"), "Lehenga");
   });
 
+  it("22b recognises owner-added categories from the shop list", () => {
+    const shop = ["Saree", "Lehenga", "Gown", "FARSHI", "FISHCUT CROP-TOP", "CROP TOP", "LONG DRESS"];
+    assert.equal(extractCategory("farshi chahiye", shop), "FARSHI");
+    assert.equal(extractCategory("I want a fishcut crop top", shop), "FISHCUT CROP-TOP");
+    assert.equal(extractCategory("crop top", shop), "Crop Top");
+    assert.equal(extractCategory("long dress for party", shop), "LONG DRESS");
+    assert.equal(extractCategory("farshi"), null);
+    const r = processBotInbound({
+      text: "Farshi",
+      messageType: "text",
+      isFirstContact: false,
+      state: baseState({ botMode: "ACTIVE", botStep: "AWAITING_CATEGORY" }),
+      settings,
+      shopCategories: shop,
+    });
+    assert.equal(r.nextState.botCategory, "FARSHI");
+  });
+
   it("23 complaint triggers handover", () => {
     assert.ok(isHandoverIntent("I have a complaint"));
     const r = processBotInbound({

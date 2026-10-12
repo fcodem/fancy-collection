@@ -27,6 +27,8 @@ import BookingPhotoThumb from "@/components/BookingPhotoThumb";
 import ViewBookingButton from "@/components/ViewBookingButton";
 import { stripUnitSuffix } from "@/lib/dress";
 import { useToast } from "@/components/ui/Toast";
+import SizeSortBar, { useIsMensCategory } from "@/components/SizeSortBar";
+import { applySizeFilterSort, sizesFromDressNames, uniqueSortedSizes } from "@/lib/sizeSort";
 import {
   PACKING_DIVISIONS,
   formatPackingCategoryFilterLabel,
@@ -47,6 +49,7 @@ type ItemRow = {
   dress_name: string;
   display_name: string;
   category: string;
+  size?: string;
   price: number;
   notes: string;
   photo?: string;
@@ -293,6 +296,11 @@ function BookingCard({ booking, isUnavailable }: { booking: BookingRow; isUnavai
   );
 }
 
+function bookingSizes(b: BookingRow): string[] {
+  const fromItems = (b.items || []).map((i) => i.size || "").filter(Boolean);
+  return fromItems.length ? fromItems : sizesFromDressNames(b.dress_names);
+}
+
 function buildListQueryKey(params: URLSearchParams) {
   return `booking-list:${params.toString()}`;
 }
@@ -336,6 +344,12 @@ export default function BookingListClient({
   const debounceRef = useRef<ReturnType<typeof setTimeout> | null>(null);
   const toast = useToast();
   const activeDivision = parsePackingDivisionFilter(category);
+  const showSizeBar = useIsMensCategory(category);
+  const [sizeFilter, setSizeFilter] = useState("");
+  const [sizeSortOn, setSizeSortOn] = useState(false);
+  useEffect(() => {
+    setSizeFilter("");
+  }, [category]);
 
   const buildParams = useCallback(
     (dressOverride?: string) => {
@@ -479,8 +493,24 @@ export default function BookingListClient({
     }
   }
 
-  const { bookings, unavailable } = data;
-  const alternate = data.alternate || [];
+  const activeSize = showSizeBar ? sizeFilter : "";
+  const activeSizeSort = showSizeBar && sizeSortOn;
+  const sizeActive = Boolean(activeSize || activeSizeSort);
+  const availableSizes = useMemo(
+    () =>
+      uniqueSortedSizes(
+        [...data.bookings, ...data.unavailable, ...(data.alternate || [])].map(bookingSizes),
+      ),
+    [data],
+  );
+  const { bookings, unavailable, alternate } = useMemo(() => {
+    const opts = { selected: activeSize, sortOn: activeSizeSort };
+    return {
+      bookings: applySizeFilterSort(data.bookings, bookingSizes, opts),
+      unavailable: applySizeFilterSort(data.unavailable, bookingSizes, opts),
+      alternate: applySizeFilterSort(data.alternate || [], bookingSizes, opts),
+    };
+  }, [data, activeSize, activeSizeSort]);
   const empty = !bookings.length && !unavailable.length && !alternate.length;
   const pdfHeaders = [...STANDARD_BOOKING_HEADERS, "Status"];
 
@@ -492,14 +522,14 @@ export default function BookingListClient({
     let lastMonth = "";
     bookings.forEach((b, idx) => {
       const key = bookingMonthKey(b.delivery_date);
-      if (key && key !== lastMonth) {
+      if (!sizeActive && key && key !== lastMonth) {
         lastMonth = key;
         out.push({ type: "month", key, label: formatBookingMonthLabel(b.delivery_date) });
       }
       out.push({ type: "booking", booking: b, idx });
     });
     return out;
-  }, [bookings]);
+  }, [bookings, sizeActive]);
 
   async function exportPdfData() {
     const params = buildParams();
@@ -623,6 +653,16 @@ export default function BookingListClient({
               </p>
             ) : null}
           </div>
+          {showSizeBar ? (
+            <SizeSortBar
+              sizes={availableSizes}
+              selected={sizeFilter}
+              onSelect={setSizeFilter}
+              sortOn={sizeSortOn}
+              onToggleSort={() => setSizeSortOn((v) => !v)}
+              disabled={loading}
+            />
+          ) : null}
           <div
             className="booked-items-dress-search"
             style={{
@@ -730,16 +770,18 @@ export default function BookingListClient({
       {!empty && (
         <div style={{ display: "flex", gap: 12, flexWrap: "wrap", marginBottom: 16 }}>
           <div style={{ background: "var(--surface)", border: "1.5px solid var(--border)", borderRadius: 10, padding: "10px 18px", fontSize: 13 }}>
-            <strong>{data.totalMain}</strong> booking{data.totalMain !== 1 ? "s" : ""} in period
+            <strong>{activeSize ? bookings.length : data.totalMain}</strong> booking
+            {(activeSize ? bookings.length : data.totalMain) !== 1 ? "s" : ""} in period
+            {activeSize ? ` · Size ${activeSize}` : ""}
           </div>
-          {!!data.totalUnavailable && (
+          {!!(activeSize ? unavailable.length : data.totalUnavailable) && (
             <div style={{ background: "#7b2d2d33", border: "1.5px solid #e53e3e55", borderRadius: 10, padding: "10px 18px", fontSize: 13, color: "#fc8181" }}>
-              <strong>{data.totalUnavailable}</strong> not available
+              <strong>{activeSize ? unavailable.length : data.totalUnavailable}</strong> not available
             </div>
           )}
-          {!!(data.totalAlternate ?? alternate.length) && (
+          {!!(activeSize ? alternate.length : (data.totalAlternate ?? alternate.length)) && (
             <div style={{ background: "#fff7ed", border: "1.5px solid #f59e0b", borderRadius: 10, padding: "10px 18px", fontSize: 13, color: "#b45309" }}>
-              <strong>{data.totalAlternate ?? alternate.length}</strong> alternate
+              <strong>{activeSize ? alternate.length : (data.totalAlternate ?? alternate.length)}</strong> alternate
             </div>
           )}
           <div style={{ fontSize: 12, color: "var(--text-muted)", padding: "10px 0" }}>
@@ -760,7 +802,8 @@ export default function BookingListClient({
           {!!bookings.length && (
             <div style={{ marginBottom: 8, fontSize: 13, fontWeight: 700, color: "var(--primary)" }}>
               <i className="fa-solid fa-calendar-check" style={{ marginRight: 6 }} />
-              Bookings in Period ({bookings.length}) — oldest delivery first
+              Bookings in Period ({bookings.length}) —{" "}
+              {activeSizeSort ? "smallest size first" : "oldest delivery first"}
             </div>
           )}
           {bookingsByMonth.map((entry) =>

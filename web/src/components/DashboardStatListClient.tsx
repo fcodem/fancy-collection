@@ -24,6 +24,8 @@ import {
 import { fetchJson } from "@/lib/fetchJson";
 import { useRealtimeRefresh } from "@/hooks/useRealtimeRefresh";
 import { BOOKING_EVENTS } from "@/lib/realtime/types";
+import SizeSortBar, { useIsMensCategory } from "@/components/SizeSortBar";
+import { applySizeFilterSort, sizesFromDressNames, uniqueSortedSizes } from "@/lib/sizeSort";
 
 type Props = {
   listType: DashboardStatListType;
@@ -77,9 +79,27 @@ export default function DashboardStatListClient({
 
   useRealtimeRefresh(BOOKING_EVENTS, reloadAll);
 
-  const filtered = useMemo(
+  const showSizeBar = useIsMensCategory(appliedCategory);
+  const [sizeFilter, setSizeFilter] = useState("");
+  const [sizeSortOn, setSizeSortOn] = useState(false);
+  useEffect(() => {
+    setSizeFilter("");
+  }, [appliedCategory]);
+  const categoryFiltered = useMemo(
     () => filterStatListBookings(bookings, appliedQuery, appliedCategory),
     [bookings, appliedQuery, appliedCategory],
+  );
+  const availableSizes = useMemo(
+    () => uniqueSortedSizes(categoryFiltered.map((b) => sizesFromDressNames(b.dress_names))),
+    [categoryFiltered],
+  );
+  const filtered = useMemo(
+    () =>
+      applySizeFilterSort(categoryFiltered, (b) => sizesFromDressNames(b.dress_names), {
+        selected: showSizeBar ? sizeFilter : "",
+        sortOn: showSizeBar && sizeSortOn,
+      }),
+    [categoryFiltered, showSizeBar, sizeFilter, sizeSortOn],
   );
 
   useEffect(() => {
@@ -103,7 +123,7 @@ export default function DashboardStatListClient({
     setAppliedCategory("");
   }
 
-  const hasFilters = Boolean(appliedQuery || appliedCategory);
+  const hasFilters = Boolean(appliedQuery || appliedCategory || (showSizeBar && sizeFilter));
 
   const pdfHeaders = [
     ...STANDARD_BOOKING_HEADERS,
@@ -196,6 +216,17 @@ export default function DashboardStatListClient({
               )}
             </div>
           </div>
+          {showSizeBar ? (
+            <div style={{ marginTop: 14 }}>
+              <SizeSortBar
+                sizes={availableSizes}
+                selected={sizeFilter}
+                onSelect={setSizeFilter}
+                sortOn={sizeSortOn}
+                onToggleSort={() => setSizeSortOn((v) => !v)}
+              />
+            </div>
+          ) : null}
           <p style={{ fontSize: 11, color: "var(--text-muted)", marginTop: 10, marginBottom: 0 }}>
             Filters apply to rows in this list.
           </p>

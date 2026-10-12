@@ -46,6 +46,7 @@ export async function getDashboardEssentialData() {
                   returning: number;
                   lateReturns: number;
                   allUndelivered: number;
+                  activeOrders: number;
                 }>
               >`
             SELECT
@@ -185,7 +186,10 @@ export async function getDashboardEssentialData() {
                       WHERE bi.booking_id = bb.id AND bi.is_cancelled = false
                     )
                 )
-              )::int AS "allUndelivered"
+              )::int AS "allUndelivered",
+              (
+                SELECT COUNT(*)::int FROM booking_orders WHERE status = 'active'
+              )::int AS "activeOrders"
             `,
               ),
             runDashboardRead(() => countTomorrowPackingLeftItems(), ESSENTIAL_TIMEOUT_MS).catch(
@@ -215,6 +219,7 @@ export async function getDashboardEssentialData() {
               returning: r?.returning ?? 0,
               all_undelivered: r?.allUndelivered ?? 0,
               tomorrow_packing_left: tomorrowPackingLeft,
+              active_orders: r?.activeOrders ?? 0,
             },
             late_return_count: r?.lateReturns ?? 0,
             orders_due_soon_count: 0,

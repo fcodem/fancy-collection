@@ -1,4 +1,5 @@
 import prisma from "@/lib/prisma";
+import { getAllCategoriesAnyContext } from "@/lib/categories";
 import {
   isWhatsAppConfigured,
   sendWhatsAppInteractiveButtons,
@@ -176,6 +177,9 @@ export async function handleInboundAutoReply(args: {
       }
     }
 
+    const shopCategories = await getAllCategoriesAnyContext()
+      .then((c) => c.all_categories)
+      .catch(() => undefined);
     const result = processBotInbound({
       text: args.inboundText,
       messageType: args.messageType,
@@ -184,6 +188,7 @@ export async function handleInboundAutoReply(args: {
       daysSinceLastInbound,
       state,
       settings,
+      shopCategories,
     });
 
     if (!result.reply?.trim()) {

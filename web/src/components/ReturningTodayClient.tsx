@@ -10,6 +10,8 @@ import { BOOKING_EVENTS } from "@/lib/realtime/types";
 import DownloadPdfButton from "@/components/DownloadPdfButton";
 import StarBookingBadge from "@/components/StarBookingBadge";
 import { AlternateBookingTag } from "@/components/BookingDetailsColumns";
+import SizeSortBar, { useIsMensCategory } from "@/components/SizeSortBar";
+import { applySizeFilterSort, sizesFromDressNames, uniqueSortedSizes } from "@/lib/sizeSort";
 
 type BookingSide = {
   id: number;
@@ -95,6 +97,10 @@ function mapRow(raw: Record<string, unknown>): AlternateRow {
   }
 
   return { id: returning.id, returning, next: nextSide, item_categories: categories, delivery_notes: String(raw.delivery_notes || "") };
+}
+
+function alternateRowSizes(r: AlternateRow): string[] {
+  return sizesFromDressNames(r.returning.items.join(", "));
 }
 
 function DetailRow({ label, children }: { label: string; children: React.ReactNode }) {
@@ -261,10 +267,28 @@ export default function ReturningTodayClient({
     load();
   }, [load]);
 
-  const filtered = useMemo(() => {
+  const showSizeBar = useIsMensCategory(category);
+  const [sizeFilter, setSizeFilter] = useState("");
+  const [sizeSortOn, setSizeSortOn] = useState(false);
+  useEffect(() => {
+    setSizeFilter("");
+  }, [category]);
+  const categoryFiltered = useMemo(() => {
     if (!category) return rows;
     return rows.filter((r) => r.item_categories.includes(category));
   }, [rows, category]);
+  const availableSizes = useMemo(
+    () => uniqueSortedSizes(categoryFiltered.map(alternateRowSizes)),
+    [categoryFiltered],
+  );
+  const filtered = useMemo(
+    () =>
+      applySizeFilterSort(categoryFiltered, alternateRowSizes, {
+        selected: showSizeBar ? sizeFilter : "",
+        sortOn: showSizeBar && sizeSortOn,
+      }),
+    [categoryFiltered, showSizeBar, sizeFilter, sizeSortOn],
+  );
 
   const pdfHeaders = [
     "S.No",
@@ -352,6 +376,17 @@ export default function ReturningTodayClient({
               disabled={!loaded || !pdfRows.length}
             />
           </div>
+          {showSizeBar ? (
+            <div style={{ marginTop: 14 }}>
+              <SizeSortBar
+                sizes={availableSizes}
+                selected={sizeFilter}
+                onSelect={setSizeFilter}
+                sortOn={sizeSortOn}
+                onToggleSort={() => setSizeSortOn((v) => !v)}
+              />
+            </div>
+          ) : null}
         </div>
       </div>
 

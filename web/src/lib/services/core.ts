@@ -128,6 +128,7 @@ const _getDashboardDataRaw = async () => {
       today_remaining_delivery: number;
       today_returning: number;
       undelivered_count: number;
+      active_orders: number;
       total_items: number;
       available_items: number;
       rented_items: number;
@@ -187,6 +188,7 @@ const _getDashboardDataRaw = async () => {
             )
           )
       ) AS undelivered_count,
+      (SELECT COUNT(*)::int FROM booking_orders WHERE status = 'active') AS active_orders,
       (SELECT COUNT(*)::int FROM clothing_items) AS total_items,
       (SELECT COUNT(*)::int FROM clothing_items WHERE status = 'available') AS available_items,
       (SELECT COUNT(*)::int FROM clothing_items WHERE status = 'rented') AS rented_items,
@@ -209,6 +211,7 @@ const _getDashboardDataRaw = async () => {
     today_remaining_delivery: agg?.today_remaining_delivery ?? 0,
     today_returning: agg?.today_returning ?? 0,
     undelivered_count: agg?.undelivered_count ?? 0,
+    active_orders: agg?.active_orders ?? 0,
   };
   const biz = {
     total_items: agg?.total_items ?? 0,
@@ -287,6 +290,7 @@ const _getDashboardDataRaw = async () => {
       returning: b.today_returning,
       all_undelivered: b.undelivered_count,
       tomorrow_packing_left: 0,
+      active_orders: b.active_orders,
     },
     overdue_list: overdueList,
     late_return_count: b.late_return_count,
