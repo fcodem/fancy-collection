@@ -84,6 +84,7 @@ export async function getTomorrowPackingPageData(): Promise<TomorrowPackingPageD
       dressName: true,
       price: true,
       totalPrice: true,
+      totalFittingCharges: true,
       bookingItems: {
         where: { isCancelled: false },
         select: {
@@ -92,6 +93,7 @@ export async function getTomorrowPackingPageData(): Promise<TomorrowPackingPageD
           category: true,
           size: true,
           price: true,
+          fittingCharges: true,
           preparedBy: true,
           checkedBy: true,
           isPackedReady: true,

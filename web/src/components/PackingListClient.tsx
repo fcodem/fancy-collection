@@ -6,6 +6,7 @@ import {
   PackingBookingDetailsGrid,
   PackingReturningWarningPanel,
   BookingCardHeaderDates,
+  FittingBadge,
   type PackingReturningWarning,
 } from "@/components/BookingDetailsColumns";
 import type { StandardBookingDetails } from "@/lib/bookingDetails";
@@ -24,9 +25,16 @@ import { countPackingItemsByDivision, packingSectionsForRows } from "@/lib/packi
 import { sortByDeliverySchedule } from "@/lib/bookingDeliverySort";
 import SizeSortBar, { useIsMensCategory } from "@/components/SizeSortBar";
 import { applySizeFilterSort, normalizeSize, uniqueSortedSizes } from "@/lib/sizeSort";
+import { fittingLabel } from "@/lib/dress";
 
 function packingBookingSizes(b: { items: PackingItem[] }): string[] {
   return b.items.map((i) => i.size || "").filter(Boolean);
+}
+
+function packingItemPdfLabel(item: PackingItem): string {
+  const label = item.display_name || item.dress_name || "";
+  const fitting = item.fitting_charges ?? 0;
+  return label && fitting > 0 ? `${label} · ${fittingLabel(fitting)}` : label;
 }
 
 type PackingItem = {
@@ -40,6 +48,8 @@ type PackingItem = {
   category?: string;
   sub_category?: string;
   size?: string;
+  /** >0 means the dress must be altered before delivery. */
+  fitting_charges?: number;
   photo?: string;
   /** Per-dress note entered on the booking (shown highlighted for staff). */
   dress_note?: string;
@@ -271,7 +281,7 @@ export default function PackingListClient({
           b.serial_no,
           {
             ...b,
-            dress_names: item.display_name || item.dress_name || b.dress_names,
+            dress_names: packingItemPdfLabel(item) || b.dress_names,
           },
           [
             item.prepared_by || "—",
@@ -504,6 +514,12 @@ export default function PackingListClient({
                     <div className="packing-item-dress-text">
                       <span className="packing-item-dress-label">Dress</span>
                       <strong>{item.display_name || item.dress_name}</strong>
+                      {(item.fitting_charges ?? 0) > 0 && (
+                        <FittingBadge
+                          amount={item.fitting_charges ?? 0}
+                          style={{ fontSize: 13, padding: "4px 10px", marginTop: 4, alignSelf: "flex-start" }}
+                        />
+                      )}
                       {b.common_notes?.trim() ? (
                         <span className="packing-dress-note packing-common-note" title="Common note from booking">
                           <i className="fa-solid fa-note-sticky" aria-hidden />

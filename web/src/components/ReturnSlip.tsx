@@ -41,6 +41,7 @@ export type ReturnSlipProps = {
     staffNames?: string | null;
     securityDeposit: number;
     totalPrice: number;
+    totalFittingCharges?: number | null;
     totalAdvance: number;
     totalRemaining: number;
     remainingCollected?: number;
@@ -65,6 +66,7 @@ export type ReturnSlipProps = {
     sku?: string | null;
     photoUrl?: string | null;
     price: number;
+    fittingCharges?: number | null;
     advance: number;
     remaining: number;
     returnCondition?: string;
@@ -421,6 +423,13 @@ export default function ReturnSlip(props: ReturnSlipProps) {
                       </td>
                       <td data-label="Item" style={{ padding: "9px 10px", fontSize: "clamp(11px, 1.8vw, 13px)", fontWeight: 600 }}>
                         {item.dressName}
+                        {!isCancelled && (item.fittingCharges || 0) > 0 && (
+                          <div style={{ marginTop: 3 }}>
+                            <span style={{ fontSize: 10, fontWeight: 800, color: "#8a4b00", background: "#fff3cd", border: "1px solid #f0ad4e", padding: "1px 6px", borderRadius: 8 }}>
+                              FITTING {slipRs(item.fittingCharges || 0)} · ALTERED
+                            </span>
+                          </div>
+                        )}
                       </td>
                       <td data-label="Category" style={{ padding: "9px 10px", fontSize: "clamp(11px, 1.8vw, 13px)" }}>
                         {item.category || "—"}
@@ -483,6 +492,12 @@ export default function ReturnSlip(props: ReturnSlipProps) {
                 <span style={{ color: SLIP_GREY }}>Total Booking Amount</span>
                 <strong>{slipRs(b.totalPrice)}</strong>
               </div>
+              {(b.totalFittingCharges || 0) > 0 ? (
+                <div style={{ display: "flex", justifyContent: "space-between", padding: "7px 0", borderBottom: `1px solid ${SLIP_BORDER}` }}>
+                  <span style={{ color: SLIP_GREY }}>Fitting / Alteration Charges</span>
+                  <strong style={{ color: "#8a6d1a" }}>{slipRs(b.totalFittingCharges || 0)}</strong>
+                </div>
+              ) : null}
               <div style={{ display: "flex", justifyContent: "space-between", padding: "7px 0", borderBottom: `1px solid ${SLIP_BORDER}` }}>
                 <span style={{ color: SLIP_GREY }}>Advance Paid{b.totalAdvance > 0 ? payMode(b.advancePaymentMode) : ""}</span>
                 <strong style={{ color: SLIP_SUCCESS }}>{slipRs(b.totalAdvance)}</strong>

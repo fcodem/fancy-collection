@@ -98,7 +98,9 @@ export function standardBookingPdfRow(
       contact,
       whatsapp,
       d.venue || "—",
-      pdfCurrency(d.total_rent),
+      (d.total_fitting_charges ?? 0) > 0
+        ? `${pdfCurrency(d.total_rent)}\n+ Fitting ${pdfCurrency(d.total_fitting_charges)}`
+        : pdfCurrency(d.total_rent),
       advance != null ? pdfCurrency(advance) : "—",
       balanceRemainingLabel(d),
       pdfCurrency(d.security_deposit),

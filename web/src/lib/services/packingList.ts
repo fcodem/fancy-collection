@@ -27,6 +27,7 @@ type PackingListItemRow = {
   category: string;
   sub_category: string;
   size: string;
+  fitting_charges: number;
   photo: string;
   prepared_by: string;
   checked_by: string;
@@ -164,6 +165,7 @@ export async function getPackingListPage(opts: {
       venue: true,
       staffNames: true,
       totalPrice: true,
+      totalFittingCharges: true,
       totalAdvance: true,
       securityDeposit: true,
       commonNotes: true,
@@ -183,6 +185,7 @@ export async function getPackingListPage(opts: {
           category: true,
           size: true,
           price: true,
+          fittingCharges: true,
           notes: true,
           preparedBy: true,
           checkedBy: true,
@@ -310,6 +313,7 @@ export async function getPackingListPage(opts: {
             category: resolveEffectiveCategory(item.category, item.item?.category, item.item?.subCategory),
             sub_category: item.item?.subCategory || "",
             size: bookingItemSize(item),
+            fitting_charges: Number(item.fittingCharges) || 0,
             photo: item.item ? catalogPhotoRef(item.item) : "",
             prepared_by: item.preparedBy || "",
             checked_by: item.checkedBy || "",
@@ -353,6 +357,7 @@ export async function getPackingListPage(opts: {
             category: booking.legacyItem?.category || "",
             sub_category: "",
             size: booking.legacyItem?.size || "",
+            fitting_charges: 0,
             photo: booking.legacyItem ? catalogPhotoRef(booking.legacyItem) : "",
             prepared_by: "",
             checked_by: "",

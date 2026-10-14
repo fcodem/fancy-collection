@@ -24,6 +24,7 @@ export const lateReturnSelect = {
   returnDate: true,
   returnTime: true,
   totalPrice: true,
+  totalFittingCharges: true,
   price: true,
   totalAdvance: true,
   advance: true,

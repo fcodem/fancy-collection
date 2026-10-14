@@ -19,6 +19,17 @@ const DeliveredCancelBooking = dynamic(() => import("@/components/DeliveredCance
   ssr: false,
 });
 
+type CancelPanelItemSource = {
+  id?: number;
+  dressName?: string;
+  size?: string | null;
+  price?: number;
+  advance?: number;
+  isCancelled?: boolean;
+  isDelivered?: boolean;
+  isReturned?: boolean;
+};
+
 function editHref(id: number, status: string) {
   return status === "delivered" ? `/booking-delivery/${id}` : `/booking/${id}/edit`;
 }
@@ -223,6 +234,18 @@ export default function BookingViewClient({
           totalRemaining={totalRemaining}
           remainingCollected={booking.remainingCollected ?? 0}
           delivered={isDelivered}
+          items={((booking.bookingItems || []) as CancelPanelItemSource[])
+            .filter((bi): bi is CancelPanelItemSource & { id: number } => typeof bi.id === "number")
+            .map((bi) => ({
+              id: bi.id,
+              dressName: bi.dressName || "Dress",
+              size: bi.size,
+              price: bi.price ?? 0,
+              advance: bi.advance ?? 0,
+              isCancelled: bi.isCancelled,
+              isDelivered: bi.isDelivered,
+              isReturned: bi.isReturned,
+            }))}
           variant="inline"
           onDismiss={() => setShowCancel(false)}
         />

@@ -150,6 +150,7 @@ function mapSlipItem(bi: BookingWithItems["bookingItems"][number]) {
     sku: bi.item?.sku?.trim() || null,
     photoUrl: catalogRef ? photoUrl(catalogRef) || null : null,
     price: bi.price,
+    fittingCharges: bi.isCancelled ? 0 : bi.fittingCharges || 0,
     advance: bi.advance,
     remaining: bi.remaining,
     notes: bi.notes,
@@ -157,6 +158,18 @@ function mapSlipItem(bi: BookingWithItems["bookingItems"][number]) {
     cancelRefunded: Boolean(bi.isCancelled && (bi.cancelRefundAmount || 0) > 0),
     isPendingPickup: Boolean(!bi.isDelivered && !bi.isCancelled),
   };
+}
+
+function slipFittingTotal(
+  booking: BookingWithItems,
+  sourceItems: BookingWithItems["bookingItems"],
+  fullSlip: boolean,
+): number {
+  const itemSum = sourceItems.reduce(
+    (s, bi) => s + (bi.isCancelled ? 0 : bi.fittingCharges || 0),
+    0,
+  );
+  return fullSlip ? booking.totalFittingCharges || itemSum : itemSum;
 }
 
 export function buildDeliverySlipData(
@@ -315,6 +328,7 @@ export function buildDeliverySlipData(
       staffNames: booking.staffNames,
       securityDeposit,
       totalPrice,
+      totalFittingCharges: slipFittingTotal(booking, sourceItems, useFullSlip),
       totalAdvance,
       totalRemaining,
       remainingCollected,
@@ -347,6 +361,7 @@ function mapReturnSlipItem(bi: BookingWithItems["bookingItems"][number]) {
     sku: bi.item?.sku?.trim() || null,
     photoUrl: catalogRef ? photoUrl(catalogRef) || null : null,
     price: bi.price,
+    fittingCharges: bi.isCancelled ? 0 : bi.fittingCharges || 0,
     advance: bi.advance,
     remaining: bi.remaining,
     returnCondition: bi.isCancelled ? "cancelled" : (itemReturnCondition(bi) as string),
@@ -460,6 +475,7 @@ export function buildReturnSlipData(
         staffNames: booking.staffNames,
         securityDeposit,
         totalPrice,
+        totalFittingCharges: slipFittingTotal(booking, sourceItems, true),
         totalAdvance,
         totalRemaining,
         remainingCollected: remainingPaid,
@@ -541,6 +557,7 @@ export function buildReturnSlipData(
       staffNames: booking.staffNames,
       securityDeposit,
       totalPrice,
+      totalFittingCharges: slipFittingTotal(booking, sourceItems, false),
       totalAdvance,
       totalRemaining,
       remainingCollected: remainingPaid,

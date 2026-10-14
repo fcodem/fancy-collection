@@ -48,6 +48,7 @@ export default async function IncompleteReturnPage() {
       venue: true,
       status: true,
       totalPrice: true,
+      totalFittingCharges: true,
       totalAdvance: true,
       totalRemaining: true,
       securityDeposit: true,

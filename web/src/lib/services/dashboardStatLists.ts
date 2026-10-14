@@ -67,6 +67,7 @@ const bookingInclude = {
       size: true,
       notes: true,
       price: true,
+      fittingCharges: true,
       advance: true,
       remaining: true,
       itemRemainingCollected: true,

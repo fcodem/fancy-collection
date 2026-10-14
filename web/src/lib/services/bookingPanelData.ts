@@ -40,6 +40,7 @@ const bookingPanelSelect = {
   securityDeposit: true,
   securityCollected: true,
   totalPrice: true,
+  totalFittingCharges: true,
   totalAdvance: true,
   totalRemaining: true,
   remainingCollected: true,

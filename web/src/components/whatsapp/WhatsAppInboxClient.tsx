@@ -84,6 +84,13 @@ export default function WhatsAppInboxClient() {
   const [enquirySummary, setEnquirySummary] = useState<string | null>(null);
   const [botControlBusy, setBotControlBusy] = useState(false);
   const bottomRef = useRef<HTMLDivElement>(null);
+  const messagesBoxRef = useRef<HTMLDivElement>(null);
+  const nearBottomRef = useRef(true);
+  const lastSeenRef = useRef<{ convId: number | null; lastId: number | string | null }>({
+    convId: null,
+    lastId: null,
+  });
+  const [hasNewBelow, setHasNewBelow] = useState(false);
   const fileInputRef = useRef<HTMLInputElement>(null);
 
   const loadConversations = async () => {
@@ -277,9 +284,43 @@ export default function WhatsAppInboxClient() {
     return () => clearInterval(interval);
   }, [selected?.id]);
 
+  const scrollToBottom = (smooth: boolean) => {
+    const box = messagesBoxRef.current;
+    if (box) box.scrollTo({ top: box.scrollHeight, behavior: smooth ? "smooth" : "auto" });
+    nearBottomRef.current = true;
+    setHasNewBelow(false);
+  };
+
+  const onMessagesScroll = () => {
+    const box = messagesBoxRef.current;
+    if (!box) return;
+    const near = box.scrollHeight - box.scrollTop - box.clientHeight < 120;
+    nearBottomRef.current = near;
+    if (near) setHasNewBelow(false);
+  };
+
+  // Polling reloads the chat every few seconds — only follow the bottom when the
+  // conversation changes, staff sends a message, or staff is already at the bottom.
   useEffect(() => {
-    bottomRef.current?.scrollIntoView({ behavior: "smooth" });
-  }, [messages]);
+    const convId = selected?.id ?? null;
+    const last = messages[messages.length - 1];
+    const lastId = last?.id ?? null;
+    const prev = lastSeenRef.current;
+    lastSeenRef.current = { convId, lastId };
+
+    if (convId !== prev.convId) {
+      requestAnimationFrame(() => scrollToBottom(false));
+      return;
+    }
+    if (lastId === prev.lastId) return;
+    const sentByStaff = last?.direction === "outbound" && !last?.isAutomated;
+    if (nearBottomRef.current || sentByStaff) {
+      requestAnimationFrame(() => scrollToBottom(true));
+    } else {
+      setHasNewBelow(true);
+    }
+    // eslint-disable-next-line react-hooks/exhaustive-deps
+  }, [messages, selected?.id]);
 
   const filtered = conversations.filter(
     (c) =>
@@ -446,11 +487,40 @@ export default function WhatsAppInboxClient() {
             </div>
           )}
 
-          <div style={{ flex: 1, overflowY: "auto", padding: 16, display: "flex", flexDirection: "column", gap: 8 }}>
-            {messages.map((msg) => (
-              <MessageBubble key={msg.id} msg={msg} />
-            ))}
-            <div ref={bottomRef} />
+          <div style={{ flex: 1, minHeight: 0, position: "relative", display: "flex", flexDirection: "column" }}>
+            <div
+              ref={messagesBoxRef}
+              onScroll={onMessagesScroll}
+              style={{ flex: 1, overflowY: "auto", padding: 16, display: "flex", flexDirection: "column", gap: 8 }}
+            >
+              {messages.map((msg) => (
+                <MessageBubble key={msg.id} msg={msg} />
+              ))}
+              <div ref={bottomRef} />
+            </div>
+            {hasNewBelow && (
+              <button
+                type="button"
+                onClick={() => scrollToBottom(true)}
+                style={{
+                  position: "absolute",
+                  bottom: 12,
+                  left: "50%",
+                  transform: "translateX(-50%)",
+                  background: "#16a34a",
+                  color: "#fff",
+                  border: "none",
+                  borderRadius: 20,
+                  padding: "6px 14px",
+                  fontSize: 12,
+                  fontWeight: 600,
+                  boxShadow: "0 2px 8px rgba(0,0,0,0.2)",
+                  cursor: "pointer",
+                }}
+              >
+                New messages ↓
+              </button>
+            )}
           </div>
 
           <div style={{ padding: 16, borderTop: "1px solid #e5e7eb", background: "#fff" }}>

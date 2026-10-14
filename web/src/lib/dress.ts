@@ -120,8 +120,20 @@ export function bookingDressLabels(
   booking: Parameters<typeof serializeBookingItems>[0],
   fallback = "—"
 ): string {
-  const labels = serializeBookingItems(booking).map((i) => i.display_name || i.name).filter(Boolean);
+  const rows = (booking.bookingItems || []) as Array<{ fittingCharges?: number | null }>;
+  const labels = serializeBookingItems(booking)
+    .map((i, idx) => {
+      const label = i.display_name || i.name;
+      const fitting = Number(rows[idx]?.fittingCharges) || 0;
+      return label && fitting > 0 ? `${label} · ${fittingLabel(fitting)}` : label;
+    })
+    .filter(Boolean);
   return labels.length ? labels.join(", ") : fallback;
+}
+
+/** Staff-facing marker that a dress needs alteration (fitting charge > 0). */
+export function fittingLabel(amount: number): string {
+  return `✂ Fitting ₹${Math.round(amount).toLocaleString("en-IN")}`;
 }
 
 /** Count of dresses on a booking (matches bookingDressLabels rows). */

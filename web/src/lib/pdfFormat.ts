@@ -14,6 +14,7 @@ export function sanitizePdfText(value: string): string {
   return value
     .replace(/\u20B9/g, "Rs. ")
     .replace(/₹/g, "Rs. ")
+    .replace(/\u2702\uFE0F?\s*/g, "** ")
     .replace(/[\u2713\u2714\u2705\u2717]/g, "")
     .split("\n")
     .map((line) => line.replace(/\s+/g, " ").trim())

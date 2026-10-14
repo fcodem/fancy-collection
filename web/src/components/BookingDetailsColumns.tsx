@@ -70,6 +70,11 @@ export function StandardBookingTableCells({ d }: { d: StandardBookingDetails }) 
       </td>
       <td className="booking-col-money" style={{ fontWeight: 700, color: "var(--primary)" }}>
         ₹{formatInr(d.total_rent)}
+        {(d.total_fitting_charges ?? 0) > 0 && (
+          <div style={{ marginTop: 4 }}>
+            <FittingBadge amount={d.total_fitting_charges ?? 0} />
+          </div>
+        )}
       </td>
       <td className="booking-col-money">₹{formatInr(d.security_deposit)}</td>
       <td className="booking-col-dress">
@@ -108,6 +113,37 @@ export function StandardBookingTableCells({ d }: { d: StandardBookingDetails }) 
   );
 }
 
+/** Highlighted marker telling staff the dress must be altered before delivery. */
+export function FittingBadge({ amount, style }: { amount: number; style?: CSSProperties }) {
+  return (
+    <span
+      title="Fitting / alteration required"
+      style={{
+        display: "inline-flex",
+        alignItems: "center",
+        gap: 4,
+        padding: "2px 8px",
+        borderRadius: 999,
+        background: "#fff3cd",
+        border: "1px solid #f0ad4e",
+        color: "#8a4b00",
+        fontSize: 11,
+        fontWeight: 800,
+        whiteSpace: "nowrap",
+        ...style,
+      }}
+    >
+      <i className="fa-solid fa-scissors" />
+      Fitting ₹{formatInr(amount)} · Alteration
+    </span>
+  );
+}
+
+function fittingField(d: StandardBookingDetails): Array<{ label: string; value: ReactNode }> {
+  const amount = d.total_fitting_charges ?? 0;
+  return amount > 0 ? [{ label: "Fitting / Alteration", value: <FittingBadge amount={amount} /> }] : [];
+}
+
 function customerWithStar(d: StandardBookingDetails) {
   return (
     <span style={{ display: "inline-flex", alignItems: "center" }}>
@@ -127,6 +163,7 @@ export function StandardBookingDetailsGrid({ d }: { d: StandardBookingDetails })
     },
     { label: "Address", value: d.customer_address || "—" },
     { label: "Total Rent", value: `₹${formatInr(d.total_rent)}` },
+    ...fittingField(d),
     { label: "Security", value: `₹${formatInr(d.security_deposit)}` },
     { label: "Dress", value: d.dress_count > 0 ? `${d.dress_count} — ${d.dress_names || "—"}` : d.dress_names || "—" },
     { label: "Dress Notes", value: d.item_notes || "—" },
@@ -209,6 +246,7 @@ export function PackingBookingDetailsGrid({
     { label: "Venue", value: extras?.venue || "—" },
     { label: "Staff", value: extras?.staff_names || "—" },
     { label: "Total Rent", value: `₹${formatInr(d.total_rent)}` },
+    ...fittingField(d),
     { label: "Advance Paid", value: `₹${formatInr(extras?.total_advance ?? 0)}` },
     { label: "Dress", value: d.dress_count > 0 ? `${d.dress_count} — ${d.dress_names || "—"}` : d.dress_names || "—" },
     { label: "Dress Notes", value: d.item_notes || "—" },

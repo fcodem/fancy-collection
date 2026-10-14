@@ -4,7 +4,7 @@ import {
   whereReturnOnDate,
   whereUnavailableDuringPeriod,
 } from "@/lib/bookingDateQuery";
-import { dressDisplayName } from "@/lib/dress";
+import { dressDisplayName, fittingLabel } from "@/lib/dress";
 import { bookingDressPrismaWhereQuick } from "@/lib/search/textMatch";
 import {
   bookingListRecordFrom,
@@ -182,6 +182,7 @@ export const bookingListSelect = {
   returnDate: true,
   returnTime: true,
   totalPrice: true,
+  totalFittingCharges: true,
   totalAdvance: true,
   totalRemaining: true,
   commonNotes: true,
@@ -200,6 +201,7 @@ export const bookingListSelect = {
       dressName: true,
       category: true,
       price: true,
+      fittingCharges: true,
       size: true,
       notes: true,
       isDelivered: true,
@@ -268,7 +270,10 @@ function buildItems(
       const sz = bi.size || "";
       rows.push({
         dress_name: bi.dressName,
-        display_name: dressDisplayName(bi.dressName, bi.category, sz),
+        display_name:
+          (bi.fittingCharges || 0) > 0
+            ? `${dressDisplayName(bi.dressName, bi.category, sz)} · ${fittingLabel(bi.fittingCharges)}`
+            : dressDisplayName(bi.dressName, bi.category, sz),
         category: bi.category || "",
         size: sz,
         price: bi.price,

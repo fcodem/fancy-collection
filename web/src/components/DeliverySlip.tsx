@@ -25,6 +25,7 @@ export type DeliverySlipProps = {
     staffNames?: string | null;
     securityDeposit: number;
     totalPrice: number;
+    totalFittingCharges?: number | null;
     totalAdvance: number;
     totalRemaining: number;
     remainingCollected: number;
@@ -44,6 +45,7 @@ export type DeliverySlipProps = {
     sku?: string | null;
     photoUrl?: string | null;
     price: number;
+    fittingCharges?: number | null;
     advance: number;
     remaining: number;
     notes?: string | null;
@@ -85,6 +87,16 @@ function payMode(mode?: string | null) {
 }
 
 const TERMS = SLIP_TERMS;
+
+export function SlipFittingTag({ amount }: { amount: number }) {
+  return (
+    <div style={{ marginTop: 3, whiteSpace: "normal" }}>
+      <span style={{ fontSize: 9, fontWeight: 800, color: "#8a4b00", background: "#fff3cd", border: "1px solid #f0ad4e", padding: "1px 6px", borderRadius: 8 }}>
+        <Emoji char="✂️" /> FITTING {rs(amount)} · ALTERATION
+      </span>
+    </div>
+  );
+}
 
 export default function DeliverySlip(props: DeliverySlipProps) {
   const { booking: b, items, orders, qrDataUrl, businessName, businessPhone, businessAddress, slipSubtitle } = props;
@@ -314,6 +326,7 @@ export default function DeliverySlip(props: DeliverySlipProps) {
                       PENDING PICKUP
                     </span>
                   )}
+                  {(item.fittingCharges || 0) > 0 && <SlipFittingTag amount={item.fittingCharges || 0} />}
                 </div>
                 <div><span style={{ fontSize: 10, background: "#e8f5e9", color: G, padding: "2px 6px", borderRadius: 10, fontWeight: 600 }}>{item.category || "—"}</span></div>
                 <div><span style={{ fontSize: 10, background: "#f3f4f6", color: GREY, padding: "2px 6px", borderRadius: 10 }}>{item.size || "—"}</span></div>
@@ -378,6 +391,12 @@ export default function DeliverySlip(props: DeliverySlipProps) {
                 <span style={{ fontSize: 13, color: GREY }}>Total Rental (Incl. GST @ {GST_RATE}%)</span>
                 <span style={{ fontSize: 14, fontWeight: 700 }}>{rs(inclusiveRent)}</span>
               </div>
+              {(b.totalFittingCharges || 0) > 0 && (
+                <div style={{ display: "flex", justifyContent: "space-between", padding: "10px 16px", borderBottom: `1px solid ${BORDER}` }}>
+                  <span style={{ fontSize: 13, color: GREY }}>Fitting / Alteration Charges</span>
+                  <span style={{ fontSize: 14, fontWeight: 700, color: "#8a6d1a" }}>{rs(b.totalFittingCharges || 0)}</span>
+                </div>
+              )}
               <div style={{ display: "flex", justifyContent: "space-between", padding: "10px 16px", borderBottom: `1px solid ${BORDER}` }}>
                 <span style={{ fontSize: 13, color: GREY }}>Advance Paid (at booking)</span>
                 <span style={{ fontSize: 14, fontWeight: 700, color: SUCCESS }}>{rs(b.totalAdvance)}</span>
