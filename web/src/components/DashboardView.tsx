@@ -493,6 +493,26 @@ export default function DashboardView({
           <button type="button" className="btn" style={{ background: "rgba(255,255,255,0.15)", color: "white", border: "none" }} onClick={() => window.print()}>
             <i className="fa-solid fa-print" /> Print
           </button>
+          <a
+            href="/dashboard/print/deliveries?autoprint=1"
+            target="_blank"
+            rel="noopener"
+            className="btn"
+            style={{ background: "white", color: "#111", border: "none", fontWeight: 700 }}
+            title="Print full details of bookings remaining to deliver (black & white)"
+          >
+            <i className="fa-solid fa-truck-fast" /> Print Pending Deliveries
+          </a>
+          <a
+            href="/dashboard/print/returns?autoprint=1"
+            target="_blank"
+            rel="noopener"
+            className="btn"
+            style={{ background: "white", color: "#111", border: "none", fontWeight: 700 }}
+            title="Print full details of returns left to collect (black & white)"
+          >
+            <i className="fa-solid fa-rotate-left" /> Print Pending Returns
+          </a>
           <Link href="/booking/new" className="btn btn-gold"><i className="fa-solid fa-plus" /> New Booking</Link>
           <Link href="/booking" className="btn" style={{ background: "rgba(255,255,255,0.15)", color: "white", border: "1.5px solid rgba(255,255,255,0.4)" }}>
             <i className="fa-solid fa-list" /> All Bookings
