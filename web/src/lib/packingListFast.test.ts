@@ -34,11 +34,10 @@ describe("fast packing list contracts", () => {
     assert.match(service, /visibleItemIds/);
   });
 
-  it("filters whole Men / Women / Jewellery divisions in SQL", () => {
+  it("filters whole Men / Women / Jewellery divisions with the same classifier as the sections", () => {
     assert.match(service, /parsePackingDivisionFilter/);
-    assert.match(service, /divisionCategories/);
-    assert.match(service, /category: \{ in: divisionCategories \}/);
-    assert.match(service, /subCategory: \{ in: divisionCategories \}/);
+    assert.match(service, /itemMatchesDivision\(item, division, categoryLists\)/);
+    assert.doesNotMatch(service, /category: \{ in: divisionCategories \}/);
   });
 
   it("loads active custom orders only for the visible booking page", () => {

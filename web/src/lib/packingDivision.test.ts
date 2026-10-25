@@ -16,6 +16,12 @@ describe("packingDivision", () => {
     assert.equal(packingDivision("Kundan Jewellery"), "jewellery");
   });
 
+  it("keeps Indowestern dresses in Men even when the name has women's keywords or the label varies", () => {
+    assert.equal(packingDivision("Indowestern", "INDO SHRUG CUTDANA"), "mens");
+    assert.equal(packingDivision("INDOWESTERN ", "INDO SHRUG CUTDANA"), "mens");
+    assert.equal(packingDivision("Indo Western", "INDO SHRUG CUTDANA"), "mens");
+  });
+
   it("uses inventory sub-category when booking category is empty", () => {
     assert.equal(packingDivision("", "RANI SABESACHI", "Crop Top"), "womens");
     assert.equal(packingDivision(null, "Classic Sherwani", "Sherwani"), "mens");

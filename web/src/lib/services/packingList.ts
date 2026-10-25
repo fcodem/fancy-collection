@@ -15,6 +15,7 @@ import { serializeActiveOrders } from "@/lib/slipBookingData";
 import { decodePackingCursor, encodePackingCursor } from "@/lib/packingCursor";
 import { sortByDeliverySchedule } from "@/lib/bookingDeliverySort";
 import { catalogPhotoRef } from "@/lib/catalogPhotoRef";
+import { formatJewelleryPartsLabel } from "@/lib/jewelleryParts";
 import type { Prisma } from "@prisma/client";
 
 const DEFAULT_LIMIT = 2000;
@@ -59,7 +60,6 @@ export async function getPackingListPage(opts: {
   const division = parsePackingDivisionFilter(rawCategory);
   const category = division ? "" : rawCategory;
   const categoryLists = division ? await getCategoryDivisionLists() : null;
-  const divisionCategories = division && categoryLists ? [...categoryLists[division]] : [];
   const cursor = decodePackingCursor(opts.cursor);
   const dateWhere = await whereDeliveryInRange(
     opts.deliveryFrom,
@@ -86,63 +86,22 @@ export async function getPackingListPage(opts: {
             },
           },
           { bookingItems: { none: {} }, legacyItem: { is: { category } } },
+          {
+            selectedJewellery: {
+              some: { status: "active", OR: [{ category }, { item: { is: { category } } }] },
+            },
+          },
         ],
       }
-    : division && divisionCategories.length
-      ? {
-          OR: [
-            {
-              bookingItems: {
-                some: {
-                  isCancelled: false,
-                  category: { in: divisionCategories },
-                },
-              },
-            },
-            {
-              bookingItems: {
-                some: {
-                  isCancelled: false,
-                  item: {
-                    is: {
-                      OR: [
-                        { category: { in: divisionCategories } },
-                        { subCategory: { in: divisionCategories } },
-                      ],
-                    },
-                  },
-                },
-              },
-            },
-            {
-              bookingItems: { none: {} },
-              legacyItem: { is: { category: { in: divisionCategories } } },
-            },
-          ],
-        }
-      : {};
+    : {};
 
+  // Division filters ("All Men's" etc.) are applied after loading with the same classifier as the
+  // Mens / Women / Jewellery sections, so a dress never shows under "All" but vanishes under its division.
   const bookingItemCategoryWhere: Prisma.BookingItemWhereInput | undefined = category
     ? {
         OR: [{ category }, { item: { is: { category } } }],
       }
-    : division && divisionCategories.length
-      ? {
-          OR: [
-            { category: { in: divisionCategories } },
-            {
-              item: {
-                is: {
-                  OR: [
-                    { category: { in: divisionCategories } },
-                    { subCategory: { in: divisionCategories } },
-                  ],
-                },
-              },
-            },
-          ],
-        }
-      : undefined;
+    : undefined;
 
   const bookings = await prisma.booking.findMany({
     where: {
@@ -200,6 +159,30 @@ export async function getPackingListPage(opts: {
               thumbnailPhoto: true,
               originalPhoto: true,
             },
+          },
+        },
+      },
+      selectedJewellery: {
+        where: { status: "active" },
+        orderBy: { id: "asc" },
+        select: {
+          id: true,
+          name: true,
+          category: true,
+          photo: true,
+          note: true,
+          pickNecklace: true,
+          pickEarrings: true,
+          pickTeeka: true,
+          pickPasa: true,
+          pickSheeshpatti: true,
+          pickNath: true,
+          pickHathfool: true,
+          pickKamarband: true,
+          pickRings: true,
+          pickLongHar: true,
+          item: {
+            select: { category: true, photo: true, thumbnailPhoto: true, originalPhoto: true },
           },
         },
       },
@@ -295,9 +278,39 @@ export async function getPackingListPage(opts: {
     for (const itemId of ids) warningByDayItem.set(`${day}:${itemId}`, booking);
   }
 
+  const jewelleryLists =
+    categoryLists ??
+    (visible.some((b) => b.selectedJewellery.length) ? await getCategoryDivisionLists() : null);
+  const sameLabel = (a?: string | null, b?: string | null) =>
+    (a || "").trim().toLowerCase() === (b || "").trim().toLowerCase();
+
   const results = sortByDeliverySchedule(
     visible.flatMap((booking) => {
-    const items = booking.bookingItems.length
+    const jewelleryItems = booking.selectedJewellery
+      .filter((j) => !category || sameLabel(j.category, category) || sameLabel(j.item?.category, category))
+      .map((j) => {
+        const label = (j.category || j.item?.category || "").trim();
+        const isJewellery =
+          label && packingDivision(label, j.name, null, jewelleryLists ?? undefined) === "jewellery";
+        const parts = formatJewelleryPartsLabel(j);
+        return {
+          bi_id: null,
+          dress_name: j.name,
+          display_name: j.name,
+          category: isJewellery ? label : "Jewellery",
+          sub_category: "",
+          size: "",
+          fitting_charges: 0,
+          photo: j.item ? catalogPhotoRef(j.item) : j.photo || "",
+          prepared_by: "",
+          checked_by: "",
+          is_packed_ready: false,
+          packing_note: "",
+          dress_note: [parts ? `Parts: ${parts}` : "", (j.note || "").trim()].filter(Boolean).join(" · "),
+          returning_warning: null,
+        };
+      });
+    const dressItems = booking.bookingItems.length
       ? booking.bookingItems.map((item) => {
           const warning = item.itemId == null
             ? null
@@ -353,7 +366,7 @@ export async function getPackingListPage(opts: {
               : null,
           };
         })
-      : booking.dressName && !category && !division
+      : booking.dressName && !category
         ? [{
             bi_id: null,
             dress_name: booking.dressName,
@@ -371,6 +384,7 @@ export async function getPackingListPage(opts: {
             returning_warning: null,
           }]
         : [];
+    const items = [...dressItems, ...jewelleryItems];
     if (!items.length && ((category || division) || !booking.orders.length)) return [];
     return [{
       ...bookingListRecordFrom(booking),
