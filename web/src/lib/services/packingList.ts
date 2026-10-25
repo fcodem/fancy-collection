@@ -319,7 +319,11 @@ export async function getPackingListPage(opts: {
             checked_by: item.checkedBy || "",
             is_packed_ready: item.isPackedReady,
             packing_note: item.packingNote || "",
-            dress_note: (item.notes || "").trim(),
+            dress_note: (
+              item.notes ||
+              (booking.bookingItems.length === 1 ? booking.notes : "") ||
+              ""
+            ).trim(),
             returning_warning: warning
               ? {
                   id: warning.id,

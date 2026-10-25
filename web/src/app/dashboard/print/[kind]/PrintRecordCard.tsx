@@ -47,7 +47,6 @@ export const PRINT_CSS = `
   .bw-sec-t { font-size: 8.5px; font-weight: 800; text-transform: uppercase; margin: 3px 0 1px; }
   .bw-sec-v { font-size: 10.5px; overflow-wrap: anywhere; margin-top: 2px; }
   .bw-sec-v .bw-sec-t { display: inline; margin-right: 4px; }
-  @media (max-width: 760px) { .bw-grid { grid-template-columns: repeat(2, 1fr); } .bw-boxes { grid-template-columns: 1fr; } .bw-summary { grid-template-columns: repeat(2, 1fr); } }
   @media print {
     @page { size: A4 portrait; margin: 6mm; }
     html, body { background: #fff !important; }

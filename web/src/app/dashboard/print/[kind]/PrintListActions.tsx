@@ -2,6 +2,7 @@
 
 import Link from "next/link";
 import { useEffect } from "react";
+import { printWhenReady } from "@/components/print/PrintPaginator";
 
 export default function PrintListActions({
   kind,
@@ -13,9 +14,7 @@ export default function PrintListActions({
   autoPrint: boolean;
 }) {
   useEffect(() => {
-    if (!autoPrint) return;
-    const t = setTimeout(() => window.print(), 400);
-    return () => clearTimeout(t);
+    if (autoPrint) printWhenReady();
   }, [autoPrint]);
 
   const base = `/dashboard/print/${kind}`;

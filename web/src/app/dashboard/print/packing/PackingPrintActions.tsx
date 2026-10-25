@@ -2,12 +2,11 @@
 
 import Link from "next/link";
 import { useEffect } from "react";
+import { printWhenReady } from "@/components/print/PrintPaginator";
 
 export default function PackingPrintActions({ autoPrint }: { autoPrint: boolean }) {
   useEffect(() => {
-    if (!autoPrint) return;
-    const t = setTimeout(() => window.print(), 400);
-    return () => clearTimeout(t);
+    if (autoPrint) printWhenReady();
   }, [autoPrint]);
 
   return (

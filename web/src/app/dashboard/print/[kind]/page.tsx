@@ -6,6 +6,7 @@ import {
   loadDashboardPrintList,
   parseDashboardPrintKind,
 } from "@/lib/services/dashboardPrintLists";
+import PrintPaginator from "@/components/print/PrintPaginator";
 import PrintListActions from "./PrintListActions";
 import { PRINT_CSS, RecordCard, rs } from "./PrintRecordCard";
 
@@ -38,25 +39,83 @@ export default async function DashboardPrintPage({
   const scopeLabel =
     scope === "all"
       ? isReturn ? "All dresses still out with customers" : "All bookings not yet delivered"
-      : isReturn ? "Due today and overdue" : "Due today and overdue";
+      : "Due today and overdue";
+  const header = (
+    <PrintHeader
+      title={title}
+      scopeLabel={scopeLabel}
+      username={user.username}
+      isReturn={isReturn}
+      bookings={records.length}
+      dressCount={dressCount}
+      overdue={overdue}
+      totalBalance={totalBalance}
+      totalSecurity={totalSecurity}
+      truncated={truncated}
+    />
+  );
 
   return (
     <div className="bw-root">
       <style dangerouslySetInnerHTML={{ __html: PRINT_CSS }} />
       <PrintListActions kind={kind} scope={scope} autoPrint={sp.autoprint === "1"} />
+      <PrintPaginator
+        footerLabel={`${title} · ${scopeLabel}`}
+        blocks={[
+          { key: `head-${kind}-${scope}`, node: header },
+          ...(records.length === 0
+            ? [{
+                key: "empty",
+                node: (
+                  <p style={{ fontSize: 14, fontWeight: 700, border: "2px solid #000", padding: 12, textAlign: "center" }}>
+                    {isReturn ? "No returns left to collect." : "No bookings remaining to deliver."}
+                  </p>
+                ),
+              }]
+            : records.map((r) => ({ key: `rec-${r.id}`, node: <RecordCard r={r} kind={kind} /> }))),
+        ]}
+      />
+    </div>
+  );
+}
 
+function PrintHeader({
+  title,
+  scopeLabel,
+  username,
+  isReturn,
+  bookings,
+  dressCount,
+  overdue,
+  totalBalance,
+  totalSecurity,
+  truncated,
+}: {
+  title: string;
+  scopeLabel: string;
+  username: string;
+  isReturn: boolean;
+  bookings: number;
+  dressCount: number;
+  overdue: number;
+  totalBalance: number;
+  totalSecurity: number;
+  truncated: boolean;
+}) {
+  return (
+    <>
       <div className="bw-title">
         <div>
           <h1>{title}</h1>
           <div className="sub">{scopeLabel}</div>
         </div>
         <div style={{ fontSize: 9, textAlign: "right" }}>
-          Printed {formatDate(todayIso(), "display")} {new Date().toLocaleTimeString("en-IN", { hour: "2-digit", minute: "2-digit", hour12: true, timeZone: "Asia/Kolkata" })} by {user.username}
+          Printed {formatDate(todayIso(), "display")} {new Date().toLocaleTimeString("en-IN", { hour: "2-digit", minute: "2-digit", hour12: true, timeZone: "Asia/Kolkata" })} by {username}
         </div>
       </div>
 
       <div className="bw-summary">
-        <div>Bookings<strong>{records.length}</strong></div>
+        <div>Bookings<strong>{bookings}</strong></div>
         <div>Dresses<strong>{dressCount}</strong></div>
         <div>{isReturn ? "Late" : "Overdue"}<strong>{overdue}</strong></div>
         <div>{isReturn ? "Balance still to collect" : "Balance to collect"}<strong>{rs(totalBalance)}</strong></div>
@@ -68,14 +127,6 @@ export default async function DashboardPrintPage({
           Showing the first {DASHBOARD_PRINT_MAX} records only.
         </p>
       )}
-
-      {records.length === 0 ? (
-        <p style={{ fontSize: 14, fontWeight: 700, border: "2px solid #000", padding: 12, textAlign: "center" }}>
-          {isReturn ? "No returns left to collect." : "No bookings remaining to deliver."}
-        </p>
-      ) : (
-        records.map((r) => <RecordCard key={r.id} r={r} kind={kind} />)
-      )}
-    </div>
+    </>
   );
 }
