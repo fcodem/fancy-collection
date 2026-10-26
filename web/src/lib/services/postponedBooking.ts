@@ -182,7 +182,7 @@ export async function getPostponedPrintDetail(bookingId: number) {
     where: { id: bookingId },
     include: {
       bookingItems: { include: { item: { select: { id: true, name: true, size: true, sku: true } } } },
-      legacyItem: true,
+      legacyItem: { select: { id: true, name: true, sku: true, size: true, category: true, photo: true, status: true } },
     },
   });
   if (!booking || booking.status !== "postponed") return null;

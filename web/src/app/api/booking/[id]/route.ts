@@ -21,7 +21,7 @@ export async function GET(_req: NextRequest, { params }: { params: Promise<{ id:
     where: { id: parseInt(id, 10) },
     include: {
       bookingItems: { include: { item: { select: { id: true, name: true, size: true, sku: true, category: true, photo: true, status: true } } } },
-      legacyItem: true,
+      legacyItem: { select: { id: true, name: true, sku: true, size: true, category: true, photo: true, status: true } },
     },
   });
   if (!booking) return jsonError("Not found", 404);

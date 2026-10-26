@@ -536,6 +536,7 @@ export default function InventorySearchClient() {
   const [searchEngine, setSearchEngine] = useState<string>("");
   const [screenshotWarning, setScreenshotWarning] = useState(false);
   const textTimerRef = useRef<ReturnType<typeof setTimeout> | null>(null);
+  const textAbortRef = useRef<AbortController | null>(null);
   const fileInputRef = useRef<HTMLInputElement>(null);
   const [cameraOpen, setCameraOpen] = useState(false);
 
@@ -557,17 +558,22 @@ export default function InventorySearchClient() {
       setTextLoading(false);
       return;
     }
+    textAbortRef.current?.abort();
+    const ac = new AbortController();
+    textAbortRef.current = ac;
     setTextLoading(true);
     try {
       const res = await fetch(
         `/api/inventory/search?q=${encodeURIComponent(trimmed)}&category=${encodeURIComponent(cat)}`,
-        { credentials: "same-origin", cache: "no-store" },
+        { credentials: "same-origin", cache: "no-store", signal: ac.signal },
       );
+      if (ac.signal.aborted) return;
       if (!res.ok) {
         setTextData({ category_results: [], other_results: [], used_fallback: false, category: cat });
         return;
       }
       const data = (await res.json()) as SearchResponse;
+      if (ac.signal.aborted) return;
       setTextData({
         category_results: data.category_results || [],
         other_results: data.other_results || [],
@@ -575,9 +581,10 @@ export default function InventorySearchClient() {
         category: data.category || cat,
       });
     } catch {
+      if (ac.signal.aborted) return;
       setTextData({ category_results: [], other_results: [], used_fallback: false, category: cat });
     } finally {
-      setTextLoading(false);
+      if (textAbortRef.current === ac) setTextLoading(false);
     }
   }, []);
 
@@ -587,7 +594,7 @@ export default function InventorySearchClient() {
       setTextData(null);
       return;
     }
-    textTimerRef.current = setTimeout(() => void runTextSearch(q, category), 120);
+    textTimerRef.current = setTimeout(() => void runTextSearch(q, category), 350);
     return () => {
       if (textTimerRef.current) clearTimeout(textTimerRef.current);
     };

@@ -24,7 +24,7 @@ export default async function RemainingToDeliverPage() {
     where: await whereRemainingToDeliver(todayIso()),
     include: {
       bookingItems: { include: { item: { select: { id: true, name: true, size: true, sku: true, category: true, photo: true, status: true } } } },
-      legacyItem: true,
+      legacyItem: { select: { id: true, name: true, sku: true, size: true, category: true, photo: true, status: true } },
     },
     orderBy: [{ deliveryDate: "asc" }, { deliveryTime: "asc" }],
   });

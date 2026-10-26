@@ -21,6 +21,8 @@ type PageResponse = {
   hasMore: boolean;
 };
 
+const PAGE_SIZE = 150;
+
 export default function CustomersClient() {
   const [q, setQ] = useState("");
   const [rows, setRows] = useState<CustomerRow[]>([]);
@@ -32,27 +34,33 @@ export default function CustomersClient() {
   const [importResult, setImportResult] = useState<string | null>(null);
   const fileRef = useRef<HTMLInputElement>(null);
   const debounceRef = useRef<ReturnType<typeof setTimeout> | null>(null);
+  const abortRef = useRef<AbortController | null>(null);
 
-  const load = useCallback(async (opts?: { append?: boolean; cursor?: string | null; query?: string }) => {
+  const load = useCallback(async (opts?: { append?: boolean; cursor?: string | null; query?: string; limit?: number }) => {
     const append = opts?.append ?? false;
     const query = opts?.query ?? q;
+    if (!append) abortRef.current?.abort();
+    const ac = new AbortController();
+    if (!append) abortRef.current = ac;
     if (append) setLoadingMore(true);
     else setLoading(true);
     try {
-      const params = new URLSearchParams({ limit: "2000", page: "1" });
+      const params = new URLSearchParams({ limit: String(opts?.limit ?? PAGE_SIZE), page: "1" });
       if (query.trim()) params.set("q", query.trim());
       if (opts?.cursor) params.set("cursor", opts.cursor);
-      const res = await fetch(`/api/customers?${params}`);
+      const res = await fetch(`/api/customers?${params}`, { signal: ac.signal });
       if (!res.ok) return;
       const data = (await res.json()) as PageResponse;
       setRows((prev) => (append ? [...prev, ...data.rows] : data.rows));
       setNextCursor(data.nextCursor);
       setHasMore(data.hasMore);
     } catch {
-      /* ignore transient network errors */
+      /* aborted or transient network error */
     } finally {
-      setLoading(false);
-      setLoadingMore(false);
+      if (append || abortRef.current === ac) {
+        setLoading(false);
+        setLoadingMore(false);
+      }
     }
   }, [q]);
 
@@ -61,14 +69,14 @@ export default function CustomersClient() {
     // eslint-disable-next-line react-hooks/exhaustive-deps
   }, []);
 
-  useRealtimeRefresh(BOOKING_EVENTS, () => load({ append: false }));
+  useRealtimeRefresh(BOOKING_EVENTS, () => load({ append: false, limit: Math.min(2000, Math.max(PAGE_SIZE, rows.length)) }));
 
   function onSearchChange(value: string) {
     setQ(value);
     if (debounceRef.current) clearTimeout(debounceRef.current);
     debounceRef.current = setTimeout(() => {
       void load({ append: false, query: value });
-    }, 120);
+    }, 350);
   }
 
   async function handleBulkImport(e: React.ChangeEvent<HTMLInputElement>) {
@@ -194,6 +202,18 @@ export default function CustomersClient() {
               )}
             </tbody>
           </table>
+          {hasMore && nextCursor && (
+            <div style={{ display: "flex", justifyContent: "center", padding: 12 }}>
+              <button
+                type="button"
+                className="btn btn-sm btn-outline"
+                disabled={loadingMore}
+                onClick={() => load({ append: true, cursor: nextCursor })}
+              >
+                {loadingMore ? "Loading…" : "Load more"}
+              </button>
+            </div>
+          )}
         </div>
       </div>
     </div>

@@ -1,6 +1,8 @@
 export const DEFAULT_SEARCH_PAGE_SIZE = 2000;
 export const MAX_SEARCH_PAGE_SIZE = 2000;
 export const DASHBOARD_SEARCH_LIMIT = 12;
+/** First page for Search Booking / All Record Search; "Load more" grows it. */
+export const SEARCH_FIRST_PAGE_SIZE = 300;
 
 /** Delivery / Return / Jewellery operational lists */
 export const OPERATIONAL_LIST_DEFAULT_PAGE_SIZE = 2000;

@@ -167,6 +167,9 @@ type FreeItem = {
 
   name: string;
 
+  /** Small list thumbnail; `photo` is the full catalog image used for zoom. */
+  thumbnail?: string | null;
+
   display_name?: string;
 
   sku?: string;
@@ -1013,7 +1016,7 @@ export default function BookingFormClient(props: Props) {
     }
     const t = setTimeout(() => {
       void fetchAvailability(false, q);
-    }, 100);
+    }, 350);
     return () => clearTimeout(t);
   }, [nameSearch, fetchAvailability]);
 
@@ -2262,7 +2265,8 @@ export default function BookingFormClient(props: Props) {
                   >
 
                     <BookingPhotoThumb
-                      photo={item.photo}
+                      photo={item.thumbnail || item.photo}
+                      fullPhoto={item.photo}
                       size={56}
                       alt={item.display_name || item.name}
                     />

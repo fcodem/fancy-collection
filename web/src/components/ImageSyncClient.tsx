@@ -152,7 +152,7 @@ export default function ImageSyncClient() {
       (indexStatus?.queueProcessing ?? 0) > 0;
     if (!queueBusy) return;
     const id = setInterval(() => {
-      void refreshIndexStatus();
+      if (!document.hidden) void refreshIndexStatus();
     }, 15_000);
     return () => clearInterval(id);
   }, [

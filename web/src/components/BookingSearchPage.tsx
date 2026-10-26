@@ -14,7 +14,8 @@ import DownloadPdfButton from "@/components/DownloadPdfButton";
 import SizeSortBar, { useIsMensCategory } from "@/components/SizeSortBar";
 import { applySizeFilterSort, sizesFromDressNames, uniqueSortedSizes } from "@/lib/sizeSort";
 import {
-  DEFAULT_SEARCH_PAGE_SIZE,
+  MAX_SEARCH_PAGE_SIZE,
+  SEARCH_FIRST_PAGE_SIZE,
   OPERATIONAL_LIST_DEFAULT_PAGE_SIZE,
 } from "@/lib/searchPagination";
 import {
@@ -138,9 +139,10 @@ export default function BookingSearchPage({
   const [loading, setLoading] = useState(false);
   const [ready, setReady] = useState(false);
   const [page, setPage] = useState(1);
-  const [pageSize] = useState(
-    isOperationalList ? OPERATIONAL_LIST_DEFAULT_PAGE_SIZE : DEFAULT_SEARCH_PAGE_SIZE,
-  );
+  const basePageSize = isOperationalList ? OPERATIONAL_LIST_DEFAULT_PAGE_SIZE : SEARCH_FIRST_PAGE_SIZE;
+  const [pageSize, setPageSize] = useState(basePageSize);
+  const filterKey = `${searchDate}|${category}`;
+  const lastFilterKeyRef = useRef(filterKey);
   const [total, setTotal] = useState(0);
   const [totalExact, setTotalExact] = useState(true);
   const [hasMore, setHasMore] = useState(false);
@@ -246,6 +248,12 @@ export default function BookingSearchPage({
   // Date or category change: refresh list from page 1.
   useEffect(() => {
     if (!ready) return;
+    if (lastFilterKeyRef.current !== filterKey && pageSize !== basePageSize) {
+      lastFilterKeyRef.current = filterKey;
+      setPageSize(basePageSize);
+      return;
+    }
+    lastFilterKeyRef.current = filterKey;
     cursorByPageRef.current = new Map([[1, null]]);
     setPage(1);
     void runSearch(1, null);
@@ -258,12 +266,15 @@ export default function BookingSearchPage({
     if (lastDebouncedQueryRef.current === query) return;
     lastDebouncedQueryRef.current = query;
     if (debounceRef.current) clearTimeout(debounceRef.current);
-    const delay = query.trim().length >= 4 || /^\d+$/.test(query.trim()) ? 120 : 180;
     debounceRef.current = setTimeout(() => {
+      if (pageSize !== basePageSize) {
+        setPageSize(basePageSize);
+        return;
+      }
       setPage(1);
       cursorByPageRef.current = new Map([[1, null]]);
       void runSearch(1, null);
-    }, delay);
+    }, 350);
     return () => {
       if (debounceRef.current) clearTimeout(debounceRef.current);
     };
@@ -610,6 +621,16 @@ export default function BookingSearchPage({
                   {totalExact ? ` of ${total.toLocaleString()}` : ""} booking
                   {rows.length === 1 ? "" : "s"}
                 </div>
+                {hasMore && !isOperationalList && pageSize < MAX_SEARCH_PAGE_SIZE && (
+                  <button
+                    type="button"
+                    className="btn btn-sm btn-outline"
+                    disabled={loading}
+                    onClick={() => setPageSize((n) => Math.min(MAX_SEARCH_PAGE_SIZE, n + SEARCH_FIRST_PAGE_SIZE))}
+                  >
+                    {loading ? "Loading…" : "Load more"}
+                  </button>
+                )}
               </div>
             )}
           </div>

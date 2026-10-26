@@ -332,6 +332,7 @@ export default function FreeItemsClient({ today }: { today: string }) {
   const pageLimit = 100;
   const abortRef = useRef<AbortController | null>(null);
   const requestSeqRef = useRef(0);
+  const lastSearchAtRef = useRef(0);
 
   const showSize = category === "Sherwani" || category === "Suit" || category === "Blazer";
 
@@ -400,7 +401,12 @@ export default function FreeItemsClient({ today }: { today: string }) {
         const items: FreeItem[] = (data.free_items || []).filter(
           (i: { occupied?: boolean }) => !i.occupied,
         );
-        collected = pages === 0 ? items : [...collected, ...items];
+        if (pages === 0) {
+          collected = items;
+        } else {
+          const seen = new Set(collected.map((i) => i.id));
+          collected = [...collected, ...items.filter((i) => !seen.has(i.id))];
+        }
         setFree(collected);
         setLoaded(true);
 
@@ -418,15 +424,30 @@ export default function FreeItemsClient({ today }: { today: string }) {
   }, [deliveryDate, returnDate, group, category, size, subCat, dressSearch]);
 
   useEffect(() => {
-    const timer = setTimeout(() => void search(), 150);
+    const timer = setTimeout(() => {
+      lastSearchAtRef.current = Date.now();
+      void search();
+    }, dressSearch.trim() ? 400 : 150);
     return () => {
       clearTimeout(timer);
       abortRef.current?.abort();
     };
   }, [deliveryDate, returnDate, group, category, size, subCat, dressSearch]); // eslint-disable-line react-hooks/exhaustive-deps
 
+  const searchRef = useRef(search);
+  searchRef.current = search;
+  const pendingRefreshRef = useRef<ReturnType<typeof setTimeout> | null>(null);
+  useEffect(() => () => {
+    if (pendingRefreshRef.current) clearTimeout(pendingRefreshRef.current);
+  }, []);
   useRealtimeRefresh([...BOOKING_EVENTS, ...INVENTORY_EVENTS], () => {
-    if (loaded) void search();
+    if (!loaded || pendingRefreshRef.current) return;
+    const wait = Math.max(0, 15_000 - (Date.now() - lastSearchAtRef.current));
+    pendingRefreshRef.current = setTimeout(() => {
+      pendingRefreshRef.current = null;
+      lastSearchAtRef.current = Date.now();
+      void searchRef.current();
+    }, wait);
   });
 
   const totallyFree = collapseMultiUnitFreeItems(

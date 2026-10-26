@@ -83,6 +83,7 @@ export default function SessionHeartbeat() {
       void checkSessionOnce(router);
     }, SESSION_HEARTBEAT_INITIAL_DELAY_MS);
     const id = setInterval(() => {
+      if (document.hidden) return;
       void checkSessionOnce(router);
     }, SESSION_HEARTBEAT_INTERVAL_MS);
 

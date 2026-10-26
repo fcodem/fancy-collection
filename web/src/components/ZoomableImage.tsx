@@ -179,8 +179,8 @@ export default function ZoomableImage({
         alt={alt}
         width={width}
         height={height}
-        loading={loading}
-        decoding={decoding}
+        loading={loading ?? "lazy"}
+        decoding={decoding ?? "async"}
         onError={() => {
           const fallback = String(fullSrc || "").trim();
           if (fallback && fallback !== displaySrc) {

@@ -89,7 +89,7 @@ export default function UsersClient() {
 
   useEffect(() => {
     load();
-    const id = window.setInterval(load, 20000);
+    const id = window.setInterval(() => { if (!document.hidden) void load(); }, 30000);
     return () => window.clearInterval(id);
   }, [load]);
 

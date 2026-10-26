@@ -671,9 +671,7 @@ export async function searchAvailableItems(
     LEFT JOIN same_day_delivery_warnings bw ON bw.item_id = fa.id
     LEFT JOIN bookings bb ON bb.id = bw.booking_id
     LEFT JOIN bookings busy_b ON busy_b.id = fa."busyBookingId"
-    ORDER BY
-      CASE WHEN COALESCE(fa."isOccupied", false) THEN 1 ELSE 0 END,
-      fa.category, fa.name, COALESCE(fa.size, ''), fa.id
+    ORDER BY fa.category, fa.name, COALESCE(fa.size, ''), fa.id
   `;
   const queryMs = Math.round(performance.now() - queryStart);
 
@@ -741,25 +739,24 @@ export async function searchAvailableItems(
       const key = `${base.toLowerCase()}|${(row.category || "").toLowerCase()}|${size.toLowerCase()}`;
       if (!needed.has(key)) needed.set(key, { base, category: row.category, size });
     }
-    await Promise.all(
-      [...needed.entries()].map(async ([key, spec]) => {
-        const candidates = await prisma.clothingItem.findMany({
-          where: {
-            category: spec.category,
-            status: { notIn: ["maintenance", "repair", "cleaning"] },
-            OR: [{ name: spec.base }, { name: { startsWith: `${spec.base} #` } }],
-          },
-          select: { name: true, size: true },
-          take: 200,
-        });
-        const matched = candidates.filter(
-          (c) =>
-            stripUnitSuffix(c.name).toLowerCase() === spec.base.toLowerCase() &&
-            normSize(c.size).toLowerCase() === spec.size.toLowerCase(),
-        ).length;
-        mensSizeTotal.set(key, Math.max(matched, 1));
-      }),
-    );
+    const specs = [...needed.values()];
+    const candidates = await prisma.clothingItem.findMany({
+      where: {
+        status: { notIn: ["maintenance", "repair", "cleaning"] },
+        OR: specs.map((spec) => ({
+          category: spec.category,
+          OR: [{ name: spec.base }, { name: { startsWith: `${spec.base} #` } }],
+        })),
+      },
+      select: { name: true, size: true, category: true },
+      take: 5000,
+    });
+    const counts = new Map<string, number>();
+    for (const c of candidates) {
+      const key = `${stripUnitSuffix(c.name).toLowerCase()}|${(c.category || "").toLowerCase()}|${normSize(c.size).toLowerCase()}`;
+      counts.set(key, (counts.get(key) || 0) + 1);
+    }
+    for (const key of needed.keys()) mensSizeTotal.set(key, Math.max(counts.get(key) || 0, 1));
   }
 
   // Legacy multi-unit rows (no inventory_group_id): count siblings by base name + attrs.
@@ -772,26 +769,35 @@ export async function searchAvailableItems(
   ];
   const totalByLegacyKey = new Map<string, number>();
   if (legacyKeys.length) {
+    const samples = legacyKeys.flatMap((key) => {
+      const sample = visible.find((r) => freeItemGroupKey(r) === key);
+      return sample ? [{ key, sample, base: stripUnitSuffix(sample.name) }] : [];
+    });
+    const siblings = samples.length
+      ? await prisma.clothingItem.findMany({
+          where: {
+            inventoryGroupId: null,
+            status: { notIn: ["maintenance", "repair", "cleaning"] },
+            OR: samples.map(({ sample, base }) => ({
+              category: sample.category,
+              OR: [{ name: base }, { name: { startsWith: `${base} #` } }],
+            })),
+          },
+          select: { name: true, size: true, color: true, category: true },
+          take: 5000,
+        })
+      : [];
     for (const key of legacyKeys) {
       const freeInPage = freeCountByGroup.get(key) || 1;
-      const sample = visible.find((r) => freeItemGroupKey(r) === key);
-      if (!sample) {
+      const entry = samples.find((s) => s.key === key);
+      if (!entry) {
         totalByLegacyKey.set(key, freeInPage);
         continue;
       }
-      const base = stripUnitSuffix(sample.name);
-      const siblings = await prisma.clothingItem.findMany({
-        where: {
-          inventoryGroupId: null,
-          category: sample.category,
-          status: { notIn: ["maintenance", "repair", "cleaning"] },
-          OR: [{ name: base }, { name: { startsWith: `${base} #` } }],
-        },
-        select: { name: true, size: true, color: true },
-        take: 100,
-      });
+      const { sample, base } = entry;
       const matched = siblings.filter(
         (s) =>
+          s.category === sample.category &&
           stripUnitSuffix(s.name) === base &&
           normSize(s.size) === normSize(sample.size) &&
           (s.color || "") === (sample.color || ""),
@@ -800,7 +806,11 @@ export async function searchAvailableItems(
     }
   }
 
-  const free_items = visible.map((row) => {
+  // Cursor stays on the category/name order above; occupied dresses only move to the end for display.
+  const displayRows = [...visible].sort(
+    (a, b) => Number(Boolean(a.isOccupied)) - Number(Boolean(b.isOccupied)),
+  );
+  const free_items = displayRows.map((row) => {
     const isJewellery = jewelleryChecks && row.itemType === "jewellery";
     const thumbRef = pickInventoryThumbRef(row.thumbnailPhoto, row.photo);
     const fullRef = pickInventoryFullRef(row.photo, row.thumbnailPhoto);

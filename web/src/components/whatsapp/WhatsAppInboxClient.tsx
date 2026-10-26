@@ -274,13 +274,17 @@ export default function WhatsAppInboxClient() {
         setShopLocationReady(Boolean(data.configured));
       })
       .catch(() => setShopLocationReady(false));
-    const interval = setInterval(loadConversations, 30000);
+    const interval = setInterval(() => {
+      if (!document.hidden) loadConversations();
+    }, 30000);
     return () => clearInterval(interval);
   }, [inboxFilter]);
 
   useEffect(() => {
     if (!selected) return;
-    const interval = setInterval(() => loadConversation(selected), 10000);
+    const interval = setInterval(() => {
+      if (!document.hidden) loadConversation(selected);
+    }, 10000);
     return () => clearInterval(interval);
   }, [selected?.id]);
 
@@ -953,7 +957,7 @@ function InboxMediaAttachment({
     return (
       <a href={src} target="_blank" rel="noopener noreferrer" style={{ display: "block", marginBottom: 8 }}>
         {/* eslint-disable-next-line @next/next/no-img-element */}
-        <img src={src} alt="WhatsApp attachment" style={{ maxWidth: "100%", borderRadius: 8, display: "block" }} />
+        <img src={src} alt="WhatsApp attachment" loading="lazy" decoding="async" style={{ maxWidth: "100%", borderRadius: 8, display: "block" }} />
       </a>
     );
   }

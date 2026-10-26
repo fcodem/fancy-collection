@@ -19,6 +19,7 @@ export async function GET() {
         where: { username: { in: usernames } },
         orderBy: { createdAt: "desc" },
         take: Math.min(200, usernames.length * 12),
+        select: { id: true, username: true, action: true, entity: true, label: true, createdAt: true },
       })
     : [];
 

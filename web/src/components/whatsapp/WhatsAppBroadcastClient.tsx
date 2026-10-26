@@ -206,7 +206,7 @@ export default function WhatsAppBroadcastClient() {
     const active = broadcasts.some((b) => b.status === "sending");
     if (!active) return;
     const timer = setInterval(() => {
-      void loadBroadcasts();
+      if (!document.hidden) void loadBroadcasts();
     }, 4000);
     return () => clearInterval(timer);
   }, [broadcasts]);

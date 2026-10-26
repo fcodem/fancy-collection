@@ -168,7 +168,7 @@ export default function DressNameSuggestInput({
     }
     const q = String(value || "").trim();
     if (timerRef.current) clearTimeout(timerRef.current);
-    const wait = Math.max(0, Math.floor(debounceMs) || 0);
+    const wait = q ? Math.max(250, Math.floor(debounceMs) || 0) : 0;
     timerRef.current = setTimeout(() => void fetchSuggestions(q), wait);
     return () => {
       if (timerRef.current) clearTimeout(timerRef.current);
@@ -332,6 +332,8 @@ export default function DressNameSuggestInput({
                       <img
                         src={thumb}
                         alt=""
+                        loading="lazy"
+                        decoding="async"
                         className="dress-suggest-thumb"
                         draggable={false}
                         style={{

@@ -175,18 +175,28 @@ async function photoSearchInventoryHash(
       subCategory: true,
     },
   });
+  if (category) {
+    allItems.sort((a, b) => Number(b.category === category) - Number(a.category === category));
+  }
   const scored: Array<{ similarity: number; item: (typeof allItems)[0] }> = [];
-  for (const item of allItems) {
-    if (!item.photo) continue;
-    const storedBuffer = await loadPhotoBuffer(item.photo);
-    if (!storedBuffer) continue;
-    try {
-      const storedFp = await computeImageFingerprint(storedBuffer);
-      const similarity = combinedImageSimilarity(queryFp, storedFp);
-      if (similarity >= PHOTO_MATCH_MIN_SCORE) scored.push({ similarity, item });
-    } catch {
-      continue;
-    }
+  const deadline = Date.now() + 45_000;
+  const BATCH = 8;
+  for (let i = 0; i < allItems.length && Date.now() < deadline; i += BATCH) {
+    await Promise.all(
+      allItems.slice(i, i + BATCH).map(async (item) => {
+        const ref = item.photo;
+        if (!ref) return;
+        try {
+          const storedBuffer = await loadPhotoBuffer(ref);
+          if (!storedBuffer) return;
+          const storedFp = await computeImageFingerprint(storedBuffer);
+          const similarity = combinedImageSimilarity(queryFp, storedFp);
+          if (similarity >= PHOTO_MATCH_MIN_SCORE) scored.push({ similarity, item });
+        } catch {
+          /* skip unreadable photo */
+        }
+      }),
+    );
   }
   scored.sort((a, b) => b.similarity - a.similarity);
 

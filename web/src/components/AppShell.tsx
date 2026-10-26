@@ -187,7 +187,7 @@ export default function AppShell({
     function refreshIfVisible(reason: "focus" | "visible") {
       if (document.hidden) return;
       const now = Date.now();
-      if (now - lastFocusRefreshAt.current < 30_000) return;
+      if (now - lastFocusRefreshAt.current < 120_000) return;
       lastFocusRefreshAt.current = now;
       router.refresh();
       dispatchPageOpenRefresh(reason);

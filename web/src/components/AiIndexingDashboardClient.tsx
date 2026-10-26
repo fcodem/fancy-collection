@@ -181,7 +181,7 @@ export default function AiIndexingDashboardClient() {
 
   useEffect(() => {
     void refresh();
-    const t = setInterval(() => void refresh(), 15000);
+    const t = setInterval(() => { if (!document.hidden) void refresh(); }, 15000);
     return () => clearInterval(t);
   }, [refresh]);
 

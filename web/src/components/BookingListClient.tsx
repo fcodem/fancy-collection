@@ -422,7 +422,7 @@ export default function BookingListClient({
       invalidateClientCache("booking-list:");
       // Soft: keep prior rows visible while the new period loads.
       void load({ soft: true });
-    }, 120);
+    }, 250);
   }, [load]);
 
   useRealtimeRefresh(BOOKING_EVENTS, () => {
@@ -688,7 +688,7 @@ export default function BookingListClient({
                     aria-label="Search dresses in booked items"
                     showPhotos
                     minChars={1}
-                    debounceMs={120}
+                    debounceMs={300}
                     suggestLimit={16}
                     clearOnSelect={false}
                     onChange={(e) => setDressInput(e.target.value)}

@@ -15,6 +15,8 @@ export function getFreshShopRevision(): Promise<string> {
   if (freshRevisionInflight) return freshRevisionInflight;
   freshRevisionInflight = prisma.activityLog
     .findFirst({
+      // Read-only audit rows (owner opening AI dashboards) must not make every tab reload its lists.
+      where: { action: { not: "viewed" } },
       orderBy: { id: "desc" },
       select: { id: true },
     })

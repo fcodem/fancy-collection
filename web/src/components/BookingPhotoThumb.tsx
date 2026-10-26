@@ -6,6 +6,8 @@ import { photoUrl } from "@/lib/photoUrl";
 
 type Props = {
   photo?: string | null;
+  /** Full catalog photo for the zoom view; `photo` should be the small thumbnail when one exists. */
+  fullPhoto?: string | null;
   size?: number;
   alt?: string;
   className?: string;
@@ -18,6 +20,7 @@ type Props = {
  */
 export default function BookingPhotoThumb({
   photo,
+  fullPhoto,
   size = 56,
   alt = "",
   className = "",
@@ -44,11 +47,12 @@ export default function BookingPhotoThumb({
   return (
     <ZoomableImage
       src={src}
+      fullSrc={fullPhoto ? photoUrl(fullPhoto) : undefined}
       alt={alt}
       overlayCaption={alt || undefined}
       width={size}
       height={size}
-      loading="eager"
+      loading="lazy"
       decoding="async"
       className={`booking-photo-thumb booking-photo-thumb-zoomable ${className}`.trim()}
       style={{

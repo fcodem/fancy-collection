@@ -36,25 +36,41 @@ export function useRealtimeRefresh(
   const refreshOnPageOpen = opts?.refreshOnPageOpen !== false;
 
   useEffect(() => {
+    let timer: ReturnType<typeof setTimeout> | null = null;
+    let lastRunAt = 0;
+
+    const run = () => {
+      timer = null;
+      lastRunAt = Date.now();
+      safeRefresh(() => refreshRef.current());
+    };
+
+    /** Bursts of events (several saves, multiple tabs) collapse into one fetch. */
+    const schedule = (delayMs: number) => {
+      if (timer) clearTimeout(timer);
+      timer = setTimeout(run, delayMs);
+    };
+
     const onShopEvent = (e: Event) => {
       if (typeof document !== "undefined" && document.hidden) return;
       const event = (e as CustomEvent<ShopEvent>).detail;
       if (!event) return;
       if (event.type === "shop.changed" || typesRef.current.includes(event.type)) {
-        const jitter = Math.floor(Math.random() * 200);
-        setTimeout(() => safeRefresh(() => refreshRef.current()), jitter);
+        schedule(600 + Math.floor(Math.random() * 300));
       }
     };
 
     const onPageOpen = () => {
       if (!refreshOnPageOpen) return;
       if (typeof document !== "undefined" && document.hidden) return;
-      safeRefresh(() => refreshRef.current());
+      if (Date.now() - lastRunAt < 2_000) return;
+      schedule(0);
     };
 
     window.addEventListener("shop-realtime", onShopEvent);
     window.addEventListener(PAGE_OPEN_REFRESH_EVENT, onPageOpen);
     return () => {
+      if (timer) clearTimeout(timer);
       window.removeEventListener("shop-realtime", onShopEvent);
       window.removeEventListener(PAGE_OPEN_REFRESH_EVENT, onPageOpen);
     };

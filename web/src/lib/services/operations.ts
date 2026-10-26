@@ -371,7 +371,7 @@ export async function getDashboardFreeItems(deliveryDateStr: string, returnDateS
     else if (b.itemId) returnItemIds.add(b.itemId);
   }
   const returnItemsById = new Map(
-    (await prisma.clothingItem.findMany({ where: { id: { in: [...returnItemIds] } } })).map((i) => [i.id, i])
+    (await prisma.clothingItem.findMany({ where: { id: { in: [...returnItemIds] } }, select: { id: true, category: true, size: true } })).map((i) => [i.id, i])
   );
 
   for (const b of returningOnDeliveryBookings) {
@@ -2012,7 +2012,7 @@ export async function getReturningToday(targetDateStr: string) {
 
   const returningTodayInclude = {
     bookingItems: { include: { item: { select: { id: true, name: true, size: true, sku: true, category: true, photo: true, status: true } } } },
-    legacyItem: true,
+    legacyItem: { select: { id: true, name: true, sku: true, size: true, category: true, photo: true, status: true } },
   } as const;
 
   const [returning, candidates] = await Promise.all([
@@ -2262,7 +2262,7 @@ export async function getRecycleBin() {
     where: { status: "cancelled" },
     include: {
       bookingItems: { include: { item: { select: { id: true, name: true, size: true, sku: true, category: true, photo: true, status: true } } } },
-      legacyItem: true,
+      legacyItem: { select: { id: true, name: true, sku: true, size: true, category: true, photo: true, status: true } },
     },
     orderBy: { createdAt: "desc" },
     take: 200,

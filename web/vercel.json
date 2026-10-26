@@ -41,6 +41,10 @@
     {
       "path": "/api/cron/whatsapp-broadcast",
       "schedule": "*/2 * * * *"
+    },
+    {
+      "path": "/api/cron/inventory-thumbnails",
+      "schedule": "*/10 * * * *"
     }
   ]
 }

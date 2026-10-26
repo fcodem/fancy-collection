@@ -35,6 +35,7 @@ export default function BookingSearchSuggestInput({
   const wrapRef = useRef<HTMLDivElement>(null);
   const timerRef = useRef<ReturnType<typeof setTimeout> | null>(null);
   const suppressUntil = useRef(0);
+  const abortRef = useRef<AbortController | null>(null);
 
   const fetchSuggestions = useCallback(async (q: string) => {
     if (Date.now() < suppressUntil.current || q.length < 1) {
@@ -44,8 +45,17 @@ export default function BookingSearchSuggestInput({
     }
     const params = new URLSearchParams({ q, mode });
     if (searchDate) params.set("date", searchDate);
-    const res = await fetch(`/api/booking/suggest?${params}`);
-    const data = await res.json();
+    abortRef.current?.abort();
+    const ac = new AbortController();
+    abortRef.current = ac;
+    let data: unknown;
+    try {
+      const res = await fetch(`/api/booking/suggest?${params}`, { signal: ac.signal });
+      data = await res.json();
+    } catch {
+      return;
+    }
+    if (ac.signal.aborted) return;
     const list = Array.isArray(data) ? data : [];
     setItems(list);
     setOpen(list.length > 0);
@@ -55,7 +65,7 @@ export default function BookingSearchSuggestInput({
   useEffect(() => {
     const q = String(value || "").trim();
     if (timerRef.current) clearTimeout(timerRef.current);
-    timerRef.current = setTimeout(() => fetchSuggestions(q), 140);
+    timerRef.current = setTimeout(() => fetchSuggestions(q), 300);
     return () => { if (timerRef.current) clearTimeout(timerRef.current); };
   }, [value, fetchSuggestions]);
 

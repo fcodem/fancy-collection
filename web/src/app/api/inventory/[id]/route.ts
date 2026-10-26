@@ -46,9 +46,15 @@ export async function GET(_req: NextRequest, { params }: { params: Promise<{ id:
   perf.endStage("queryMs", "query");
   if (!item) return jsonError("Not found", 404);
   const timings = perf.finish({ kind: "read" });
+  const {
+    siglipEmbedding: _siglipEmbedding,
+    identificationIndex: _identificationIndex,
+    recognitionFingerprint: _recognitionFingerprint,
+    ...publicItem
+  } = item;
   return withServerTiming(
     jsonOk({
-      ...item,
+      ...publicItem,
       display_name: dressDisplayName(item.name, item.category, item.size),
       photo_url: catalogPhotoUrl(item),
       recognition_photo_url: recognitionPhotoUrl(item),

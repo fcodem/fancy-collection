@@ -48,7 +48,7 @@ export const bookingListInclude = {
 
 const bookingInclude = {
   bookingItems: { include: { item: { select: { id: true, name: true, size: true, sku: true, category: true, photo: true, status: true } } } },
-  legacyItem: true,
+  legacyItem: { select: { id: true, name: true, sku: true, size: true, category: true, photo: true, status: true } },
 } as const;
 
 export function words(q: string) {

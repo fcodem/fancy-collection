@@ -104,7 +104,7 @@ export default function InventoryListClient({
   const pathname = usePathname();
   const showToast = useToast();
   const cache = useBoundedQueryCache<ListResponse>({ ttlMs: 45_000 });
-  const search = useAbortableSearch(120);
+  const search = useAbortableSearch(300);
   const skipFilterEffect = useRef(true);
 
   const [groups, setGroups] = useState(initialGroups);
@@ -170,9 +170,10 @@ export default function InventoryListClient({
       category: string,
       subCategory: string,
       cursor: string | null,
-      opts: { append: boolean; debounce: boolean },
+      opts: { append: boolean; debounce: boolean; limit?: number },
     ) => {
-      const key = buildKey(q, status, category, subCategory, cursor);
+      const limit = opts.limit ?? pageSize;
+      const key = `${buildKey(q, status, category, subCategory, cursor)}|${limit}`;
       const cached = !cursor ? cache.get(key) : undefined;
       if (cached && !opts.append) {
         setGroups(cached.groups);
@@ -193,7 +194,7 @@ export default function InventoryListClient({
             if (category) params.set("category", category);
             if (subCategory) params.set("sub_category", subCategory);
             if (cursor) params.set("cursor", cursor);
-            params.set("limit", String(pageSize));
+            params.set("limit", String(limit));
             params.set("sort", "name");
             const res = await fetch(`/api/inventory/list?${params}`, {
               signal,
@@ -228,11 +229,34 @@ export default function InventoryListClient({
     [buildKey, cache, pageSize, search],
   );
 
+  const loadMoreRef = useRef<HTMLDivElement | null>(null);
+  const loadMore = useCallback(() => {
+    if (!nextCursor || loadingMore) return;
+    void fetchPage(deferredQuery, statusVal, categoryVal, subCategoryVal, nextCursor, {
+      append: true,
+      debounce: false,
+    });
+  }, [nextCursor, loadingMore, fetchPage, deferredQuery, statusVal, categoryVal, subCategoryVal]);
+
+  useEffect(() => {
+    const el = loadMoreRef.current;
+    if (!el || typeof IntersectionObserver === "undefined") return;
+    const io = new IntersectionObserver(
+      (entries) => {
+        if (entries.some((e) => e.isIntersecting)) loadMore();
+      },
+      { rootMargin: "600px 0px" },
+    );
+    io.observe(el);
+    return () => io.disconnect();
+  }, [loadMore, nextCursor]);
+
   useRealtimeRefresh([...BOOKING_EVENTS, ...INVENTORY_EVENTS], () => {
     cache.clear();
     fetchPage(deferredQuery, statusVal, categoryVal, subCategoryVal, null, {
       append: false,
       debounce: false,
+      limit: Math.min(1000, Math.max(pageSize, groups.length)),
     });
   });
 
@@ -1023,6 +1047,14 @@ export default function InventoryListClient({
         })}
         {!groups.length && <p className="inv-empty">No inventory matches.</p>}
       </div>
+
+      {nextCursor && groups.length > 0 && (
+        <div ref={loadMoreRef} style={{ display: "flex", justifyContent: "center", padding: 16 }}>
+          <button type="button" className="btn btn-outline btn-sm" disabled={loadingMore} onClick={loadMore}>
+            {loadingMore ? "Loading…" : "Load more"}
+          </button>
+        </div>
+      )}
 
       {drawer && (() => {
         const drawerIsMens =
