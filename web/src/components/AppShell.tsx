@@ -40,6 +40,7 @@ const NAV_MAIN = [
   { href: "/postponed-booking", label: "Postponed Bookings", icon: "fa-clock" },
   { href: "/remaining-to-deliver", label: "Remaining to Deliver", icon: "fa-clock", badgeKey: "overdue_delivery" as const },
   { href: "/incomplete-return", label: "Incomplete Return", icon: "fa-circle-exclamation" },
+  { href: "/cancelled-bookings", label: "Cancelled Bookings", icon: "fa-ban" },
 ];
 
 /** All AI tools live under /ai-features — single sidebar entry at the bottom. */
@@ -99,6 +100,7 @@ function pageTitle(pathname: string) {
   if (pathname.startsWith("/ai-features")) return "AI Features";
   if (pathname.startsWith("/search-qr")) return "Search QR Code";
   if (pathname.startsWith("/late-return")) return "Late Returns";
+  if (pathname.startsWith("/cancelled-bookings")) return "Cancelled Bookings";
   if (pathname.startsWith("/ai-tools/image-enhancer")) return "AI Enhancer";
   if (pathname.startsWith("/ai-tools/catalog-generator")) return "AI Catalog Generator";
   if (pathname.startsWith("/booking-assistant")) return "AI Booking Assistant";
@@ -463,22 +465,6 @@ function AppLayoutInner({
   onCloseMobile: () => void;
   onLogout: () => void;
 }) {
-  const PREFETCH = new Set([
-    "/",
-    "/booking",
-    "/booking/new",
-    "/booking-delivery",
-    "/return",
-    "/inventory",
-    "/packing-list",
-    "/booking-list",
-    "/free-items",
-    "/search-booking",
-    "/returning-today",
-    "/late-return",
-    "/jewellery-selection",
-    "/inventory/search",
-  ]);
 
   const [navSearch, setNavSearch] = useState("");
   const navSearchLower = navSearch.toLowerCase();
@@ -569,13 +555,7 @@ function AppLayoutInner({
             <Link
               key={item.href}
               href={item.href}
-              prefetch={
-                "noPrefetch" in item && item.noPrefetch
-                  ? false
-                  : PREFETCH.has(baseHref)
-                    ? true
-                    : undefined
-              }
+              prefetch={"noPrefetch" in item && item.noPrefetch ? false : undefined}
               className={`nav-item ${active ? "active" : ""}`}
               onClick={() => navClick(item.href)}
             >
@@ -591,7 +571,6 @@ function AppLayoutInner({
             <Link
               key={item.href}
               href={item.href}
-              prefetch={PREFETCH.has(item.href) || undefined}
               className={`nav-item ${
                 pathname === item.href ||
                 pathname.startsWith(item.href + "/") ||
@@ -646,7 +625,6 @@ function AppLayoutInner({
             <Link
               key={item.href}
               href={item.href}
-              prefetch
               className={`nav-item ${pathname === item.href ? "active" : ""}`}
               onClick={() => navClick(item.href)}
             >
@@ -726,7 +704,7 @@ function AppLayoutInner({
                 <span className="header-inbox-count">{whatsappUnread}</span>
               </Link>
             )}
-            <Link href="/booking/new" prefetch className="btn btn-primary btn-sm">
+            <Link href="/booking/new" className="btn btn-primary btn-sm">
               <i className="fa-solid fa-plus" /> New Booking
             </Link>
           </div>

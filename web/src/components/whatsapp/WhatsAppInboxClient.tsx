@@ -910,31 +910,11 @@ function InboxMediaAttachment({
   isOutbound: boolean;
   filename?: string;
 }) {
-  const [src, setSrc] = useState<string | null>(null);
   const [failed, setFailed] = useState(false);
+  const src = privateMediaUrl(mediaUrl);
 
   useEffect(() => {
-    let objectUrl: string | null = null;
-    let cancelled = false;
-    const proxyUrl = privateMediaUrl(mediaUrl);
-
-    fetch(proxyUrl, { credentials: "same-origin" })
-      .then(async (res) => {
-        if (!res.ok) throw new Error("load failed");
-        const blob = await res.blob();
-        if (cancelled) return;
-        objectUrl = URL.createObjectURL(blob);
-        setSrc(objectUrl);
-        setFailed(false);
-      })
-      .catch(() => {
-        if (!cancelled) setFailed(true);
-      });
-
-    return () => {
-      cancelled = true;
-      if (objectUrl) URL.revokeObjectURL(objectUrl);
-    };
+    setFailed(false);
   }, [mediaUrl]);
 
   if (failed) {
@@ -945,19 +925,18 @@ function InboxMediaAttachment({
     );
   }
 
-  if (!src) {
-    return (
-      <p style={{ margin: "0 0 8px", fontStyle: "italic", opacity: 0.85 }}>
-        Loading media…
-      </p>
-    );
-  }
-
   if (kind === "image") {
     return (
       <a href={src} target="_blank" rel="noopener noreferrer" style={{ display: "block", marginBottom: 8 }}>
         {/* eslint-disable-next-line @next/next/no-img-element */}
-        <img src={src} alt="WhatsApp attachment" loading="lazy" decoding="async" style={{ maxWidth: "100%", borderRadius: 8, display: "block" }} />
+        <img
+          src={src}
+          alt="WhatsApp attachment"
+          loading="lazy"
+          decoding="async"
+          onError={() => setFailed(true)}
+          style={{ maxWidth: "100%", borderRadius: 8, display: "block" }}
+        />
       </a>
     );
   }
@@ -966,14 +945,16 @@ function InboxMediaAttachment({
     return (
       <video
         controls
+        preload="none"
         src={src}
+        onError={() => setFailed(true)}
         style={{ maxWidth: "100%", borderRadius: 8, display: "block", marginBottom: 8 }}
       />
     );
   }
 
   if (kind === "audio") {
-    return <audio controls src={src} style={{ width: "100%", marginBottom: 8 }} />;
+    return <audio controls preload="none" src={src} onError={() => setFailed(true)} style={{ width: "100%", marginBottom: 8 }} />;
   }
 
   return (

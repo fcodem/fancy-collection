@@ -1,9 +1,12 @@
-import { NextRequest } from "next/server";
+import { after, NextRequest } from "next/server";
 import prisma from "@/lib/prisma";
 import { jsonOk, jsonError, requireOwner, isResponse } from "@/lib/api";
 import { repairMissingInboundMedia } from "@/lib/services/whatsapp/webhookInbound";
 import { serializeBotState } from "@/lib/services/whatsapp/botControl";
 import { botBadgeLabel, buildEnquirySummary } from "@/lib/services/whatsapp/botFlow";
+
+const REPAIR_INTERVAL_MS = 60_000;
+const lastRepairAt = new Map<number, number>();
 
 export async function GET(
   req: NextRequest,
@@ -18,7 +21,6 @@ export async function GET(
   const conversation = await prisma.whatsAppConversation.findUnique({
     where: { id: convId },
     include: {
-      messages: { where: { messageType: { not: "reaction" } }, orderBy: { createdAt: "asc" }, take: 150 },
       booking: {
         select: {
           id: true,
@@ -36,18 +38,25 @@ export async function GET(
 
   if (!conversation) return jsonError("Not found", 404);
 
-  await repairMissingInboundMedia({ conversationId: convId, limit: 10 });
+  // Meta media downloads can take seconds; repaired media shows on the next refresh.
+  if (Date.now() - (lastRepairAt.get(convId) ?? 0) > REPAIR_INTERVAL_MS) {
+    lastRepairAt.set(convId, Date.now());
+    after(() => repairMissingInboundMedia({ conversationId: convId, limit: 10 }).catch(() => {}));
+  }
 
-  const messages = await prisma.whatsAppMessage.findMany({
+  const latest = await prisma.whatsAppMessage.findMany({
     where: { conversationId: convId, messageType: { not: "reaction" } },
-    orderBy: { createdAt: "asc" },
+    orderBy: [{ createdAt: "desc" }, { id: "desc" }],
     take: 150,
   });
+  const messages = latest.reverse();
 
-  await prisma.whatsAppConversation.update({
-    where: { id: convId },
-    data: { unreadCount: 0 },
-  });
+  if (conversation.unreadCount > 0) {
+    await prisma.whatsAppConversation.update({
+      where: { id: convId },
+      data: { unreadCount: 0 },
+    });
+  }
 
   const bot = serializeBotState(conversation);
   const enquirySummary =

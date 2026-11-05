@@ -9,6 +9,8 @@ export type PrintBlock = {
   node: ReactNode;
   /** Never leave this block as the last thing on a sheet (section headings). */
   keepWithNext?: boolean;
+  /** Always start this block on a fresh sheet (e.g. each packing category). */
+  breakBefore?: boolean;
 };
 
 /** A4 portrait inside the 6mm @page margin used by every dashboard print. */
@@ -49,7 +51,10 @@ function buildSheets(heights: number[], blocks: PrintBlock[]): Sheet[] {
 
   let cur: number[] = [];
   for (let i = 0; i < heights.length; i++) {
-    if (cur.length && (sumOf(cur) + heights[i]) * MIN_ZOOM > AVAILABLE_PX) {
+    if (cur.length && blocks[i].breakBefore) {
+      close(cur, false);
+      cur = [];
+    } else if (cur.length && (sumOf(cur) + heights[i]) * MIN_ZOOM > AVAILABLE_PX) {
       const carry: number[] = [];
       while (cur.length > 1 && blocks[cur[cur.length - 1]].keepWithNext) carry.unshift(cur.pop()!);
       close(cur, false);

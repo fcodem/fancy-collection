@@ -19,14 +19,9 @@ export async function GET(req: NextRequest) {
     else if (filter === "bot_active") where.botMode = "ACTIVE";
     else if (filter === "booking_enquiries") where.botStep = "READY_FOR_STAFF";
 
-    const conversations = await prisma.whatsAppConversation.findMany({
+    const rows = await prisma.whatsAppConversation.findMany({
       where,
       include: {
-        messages: {
-          where: { messageType: { not: "reaction" } },
-          orderBy: { createdAt: "desc" },
-          take: 1,
-        },
         booking: {
           select: {
             publicBookingId: true,
@@ -39,6 +34,25 @@ export async function GET(req: NextRequest) {
       },
       orderBy: { lastMessageAt: "desc" },
       take: 100,
+    });
+
+    // One latest message per conversation; a nested `take: 1` makes Prisma load every message.
+    const convIds = rows.map((c) => c.id);
+    const latestIds = convIds.length
+      ? await prisma.$queryRaw<Array<{ id: number }>>`
+          SELECT DISTINCT ON (conversation_id) id
+          FROM whatsapp_messages
+          WHERE conversation_id = ANY(${convIds}::int[]) AND message_type <> 'reaction'
+          ORDER BY conversation_id, created_at DESC, id DESC
+        `
+      : [];
+    const latestMessages = latestIds.length
+      ? await prisma.whatsAppMessage.findMany({ where: { id: { in: latestIds.map((r) => r.id) } } })
+      : [];
+    const latestByConv = new Map(latestMessages.map((m) => [m.conversationId, m]));
+    const conversations = rows.map((c) => {
+      const last = latestByConv.get(c.id);
+      return { ...c, messages: last ? [last] : [] };
     });
 
     const now = Date.now();

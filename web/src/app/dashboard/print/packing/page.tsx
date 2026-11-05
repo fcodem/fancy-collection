@@ -236,10 +236,11 @@ export default async function PackingPrintPage({
     });
   }
 
-  for (const sec of sections) {
+  sections.forEach((sec, idx) => {
     blocks.push({
       key: `sec-${sec.division.key}`,
       keepWithNext: true,
+      breakBefore: idx > 0,
       node: (
         <SectionHeading
           label={sec.division.label}
@@ -250,12 +251,13 @@ export default async function PackingPrintPage({
     for (const b of sec.rows) {
       blocks.push({ key: `bk-${sec.division.key}-${b.id}`, node: <PackingBookingCard b={b} /> });
     }
-  }
+  });
 
   if (ordersRows.length > 0) {
     blocks.push({
       key: "sec-orders",
       keepWithNext: true,
+      breakBefore: sections.length > 0,
       node: <SectionHeading label="Custom orders" right={`${ordersRows.reduce((n, b) => n + b.orders.length, 0)} orders`} />,
     });
     for (const b of ordersRows) blocks.push({ key: `ord-${b.id}`, node: <OrdersCard b={b} /> });

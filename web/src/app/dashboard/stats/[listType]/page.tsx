@@ -32,11 +32,13 @@ export default async function DashboardStatListPage({
   if (!listType) notFound();
 
   const meta = DASHBOARD_STAT_LISTS[listType];
-  const firstPage = await getDashboardStatListPage(listType, { page: 1 });
+  const [firstPage, allCategories] = await Promise.all([
+    getDashboardStatListPage(listType, { page: 1 }),
+    getAllCategories()
+      .then((c) => c.all_categories.filter((n) => n !== "Other"))
+      .catch(() => [...BASE_MENS, ...BASE_WOMENS, ...BASE_JEWELLERY, ...BASE_ACCESSORY]),
+  ]);
   const listCategories = categoriesInList(firstPage.bookings);
-  const allCategories = await getAllCategories()
-    .then((c) => c.all_categories.filter((n) => n !== "Other"))
-    .catch(() => [...BASE_MENS, ...BASE_WOMENS, ...BASE_JEWELLERY, ...BASE_ACCESSORY]);
   const categories = [
     ...new Set([...listCategories, ...allCategories].filter(Boolean)),
   ].sort((a, b) => a.localeCompare(b));

@@ -38,7 +38,7 @@ import {
   mergeAvailabilityItemsById,
 } from "@/lib/mensAvailabilityCollapse";
 import { createTapGuard } from "@/lib/tapWithoutScroll";
-import { todayIso, parseDate, isDateBeforeToday } from "@/lib/constants";
+import { todayIso, parseDate, isDateBeforeToday, REMOVED_SUB_CATEGORIES } from "@/lib/constants";
 import { formatInr } from "@/lib/format";
 import { privateMediaUrl } from "@/lib/photoUrl";
 import { isAbortError } from "@/lib/bookingQrClient";
@@ -88,6 +88,7 @@ type WarningInfo = {
   delivery_date?: string;
   contact?: string;
   contact_1?: string;
+  customer_address?: string;
   booking_number?: string;
 };
 
@@ -175,6 +176,8 @@ type FreeItem = {
   sku?: string;
 
   category: string;
+
+  sub_category?: string;
 
   size?: string;
 
@@ -531,6 +534,8 @@ export default function BookingFormClient(props: Props) {
   );
 
   const [categoryFilter, setCategoryFilter] = useState("");
+  const [subCategoryFilter, setSubCategoryFilter] = useState("");
+  const [subCategoryOptions, setSubCategoryOptions] = useState<string[]>([]);
 
   const [sizeFilter, setSizeFilter] = useState("");
 
@@ -702,6 +707,7 @@ export default function BookingFormClient(props: Props) {
     setSelectedDresses([]);
     setOrders([]);
     setCategoryFilter("");
+    setSubCategoryFilter("");
     setSizeFilter("");
     setNameSearch("");
     setDateCheckResults([]);
@@ -741,6 +747,7 @@ export default function BookingFormClient(props: Props) {
         delivery_date: deliveryDate,
         return_date: returnDate,
         category: categoryFilter,
+        subcategory: subCategoryFilter,
         size: sizeFilter,
         search: searching ? searchQ : "",
         limit: String(pageLimit),
@@ -797,6 +804,7 @@ export default function BookingFormClient(props: Props) {
             delivery_date: deliveryDate,
             return_date: returnDate,
             category: categoryFilter,
+            subcategory: subCategoryFilter,
             size: sizeFilter,
             search: "",
             limit: String(pageLimit),
@@ -851,6 +859,7 @@ export default function BookingFormClient(props: Props) {
               .filter((item) => {
                 if (item.id == null || have.has(item.id as number)) return false;
                 if (categoryFilter && (item.category || "") !== categoryFilter) return false;
+                if (subCategoryFilter) return false;
                 if (sizeFilter && !(item.size || "").includes(sizeFilter)) return false;
                 return true;
               })
@@ -897,6 +906,7 @@ export default function BookingFormClient(props: Props) {
     returnDate,
     props.editId,
     categoryFilter,
+    subCategoryFilter,
     sizeFilter,
     availabilityPageLimit,
   ]);
@@ -999,7 +1009,7 @@ export default function BookingFormClient(props: Props) {
       void fetchAvailability(false, nameSearchRef.current);
     }, 350);
     return () => clearTimeout(t);
-  }, [deliveryDate, returnDate, categoryFilter, sizeFilter, fetchAvailability, props.editId]);
+  }, [deliveryDate, returnDate, categoryFilter, subCategoryFilter, sizeFilter, fetchAvailability, props.editId]);
 
   // Name typing — dedicated search path (keeps list in sync with what you type)
   useEffect(() => {
@@ -1034,6 +1044,24 @@ export default function BookingFormClient(props: Props) {
 
 
 
+  useEffect(() => {
+    let cancelled = false;
+    const removed = new Set(REMOVED_SUB_CATEGORIES.map((s) => s.toLowerCase()));
+    fetch("/api/sub-categories", { credentials: "same-origin" })
+      .then((r) => (r.ok ? r.json() : null))
+      .then((data: { sub_categories?: Array<{ name?: string }> } | null) => {
+        if (cancelled) return;
+        const names = (data?.sub_categories || [])
+          .map((s) => String(s.name || "").trim())
+          .filter((n) => n && !removed.has(n.toLowerCase()));
+        setSubCategoryOptions([...new Set(names)]);
+      })
+      .catch(() => {});
+    return () => {
+      cancelled = true;
+    };
+  }, []);
+
   /* ── Dress list filters (category, size, name) applied client-side ─────── */
 
   const showSizeFilter = props.mensCategories.includes(categoryFilter);
@@ -1048,6 +1076,7 @@ export default function BookingFormClient(props: Props) {
 
     // Always honour category / size from the filter bar.
     if (categoryFilter) list = list.filter((i) => i.category === categoryFilter);
+    if (subCategoryFilter) list = list.filter((i) => (i.sub_category || "") === subCategoryFilter);
     if (sizeFilter) list = list.filter((i) => i.size?.includes(sizeFilter));
 
     // While the server is searching by name, trust its name ranking — do not
@@ -1069,7 +1098,7 @@ export default function BookingFormClient(props: Props) {
       });
     }
     return list;
-  }, [allFreeItems, categoryFilter, dressNameFilter, nameSearch, sizeFilter, props.mensCategories]);
+  }, [allFreeItems, categoryFilter, subCategoryFilter, dressNameFilter, nameSearch, sizeFilter, props.mensCategories]);
 
 
 
@@ -2145,7 +2174,7 @@ export default function BookingFormClient(props: Props) {
 
           <div className="form-row-flex" style={{ marginBottom: 14, overflow: "visible", position: "relative", zIndex: 10 }}>
 
-            <select className="form-control" value={categoryFilter} onChange={(e) => { setCategoryFilter(e.target.value); setSizeFilter(""); }}>
+            <select className="form-control" value={categoryFilter} onChange={(e) => { setCategoryFilter(e.target.value); setSubCategoryFilter(""); setSizeFilter(""); }}>
 
               <option value="">All Categories</option>
 
@@ -2158,6 +2187,18 @@ export default function BookingFormClient(props: Props) {
               <optgroup label="Accessories">{props.accessoryCategories.map((c) => <option key={c} value={c}>{c}</option>)}</optgroup>
 
             </select>
+
+            {subCategoryOptions.length > 0 && (
+              <select
+                className="form-control"
+                value={subCategoryFilter}
+                onChange={(e) => setSubCategoryFilter(e.target.value)}
+                aria-label="Filter available dresses by sub category"
+              >
+                <option value="">All Sub Categories</option>
+                {subCategoryOptions.map((s) => <option key={s} value={s}>{s}</option>)}
+              </select>
+            )}
 
             {showSizeFilter && (
 
@@ -2886,6 +2927,8 @@ type ScanConflictRecord = {
   returnDate?: string;
   returnTime?: string;
   contact?: string;
+  customerAddress?: string;
+  venue?: string;
   reason?: string;
 };
 
@@ -2908,6 +2951,8 @@ function warningInfoToScanRecord(
     bookingNumber: w.booking_number || "",
     monthlySerial: w.serial_no,
     contact: w.contact_1 || w.contact,
+    customerAddress: w.customer_address,
+    venue: w.venue,
     deliveryDate: w.delivery_date,
     deliveryTime: w.delivery_time,
     returnDate: w.return_date,
@@ -2933,6 +2978,8 @@ function scanRecordToWarningInfo(record: ScanConflictRecord): WarningInfo {
     customer_name: record.customerName,
     serial_no: record.monthlySerial ?? 0,
     contact_1: record.contact,
+    customer_address: record.customerAddress,
+    venue: record.venue,
     delivery_date: record.deliveryDate,
     delivery_time: record.deliveryTime,
     return_date: record.returnDate,
@@ -2958,6 +3005,8 @@ function formatScanRecordBlock(record: ScanConflictRecord): string {
       `• ${record.customerName}${serial} (${record.bookingNumber})`,
       `  Returning ${record.returnDate || "—"} by ${record.returnTime || "—"}`,
       record.contact ? `  Contact: ${record.contact}` : "",
+      record.customerAddress?.trim() ? `  Address: ${record.customerAddress.trim()}` : "",
+      record.venue?.trim() ? `  Venue: ${record.venue.trim()}` : "",
     ]
       .filter(Boolean)
       .join("\n");
@@ -2967,6 +3016,8 @@ function formatScanRecordBlock(record: ScanConflictRecord): string {
       `• ${record.customerName}${serial} (${record.bookingNumber})`,
       `  Delivery ${record.deliveryDate || "—"} at ${record.deliveryTime || "—"}`,
       record.contact ? `  Contact: ${record.contact}` : "",
+      record.customerAddress?.trim() ? `  Address: ${record.customerAddress.trim()}` : "",
+      record.venue?.trim() ? `  Venue: ${record.venue.trim()}` : "",
     ]
       .filter(Boolean)
       .join("\n");

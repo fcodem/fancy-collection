@@ -55,6 +55,8 @@ export type ScannedDressBookingRecord = {
   monthlySerial: number;
   customerName: string;
   contact: string;
+  customerAddress: string;
+  venue: string;
   dressName: string;
   deliveryDate: string;
   deliveryTime: string;
@@ -190,6 +192,8 @@ const CONFLICT_BOOKING_SELECT = {
   monthlySerial: true,
   customerName: true,
   contact1: true,
+  customerAddress: true,
+  venue: true,
   deliveryDate: true,
   deliveryTime: true,
   returnDate: true,
@@ -205,6 +209,8 @@ type ConflictBookingRow = {
   monthlySerial: number;
   customerName: string;
   contact1: string | null;
+  customerAddress: string | null;
+  venue: string | null;
   deliveryDate: Date;
   deliveryTime: string;
   returnDate: Date;
@@ -256,6 +262,8 @@ function recordFrom(
     monthlySerial: booking.monthlySerial,
     customerName: booking.customerName,
     contact: booking.contact1 || "",
+    customerAddress: booking.customerAddress || "",
+    venue: booking.venue || "",
     dressName: activeRow?.dressName || booking.dressName || "",
     deliveryDate: formatDate(booking.deliveryDate, "iso"),
     deliveryTime: booking.deliveryTime,

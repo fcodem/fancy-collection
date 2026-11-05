@@ -256,7 +256,7 @@ async function BookingPanelBody({
 
       <div style={{ display: "flex", justifyContent: "flex-end", gap: 8, marginBottom: 16 }}>
         <BookingPanelPdfButton year={year} month={month} />
-        <Link href="/booking/new" className="btn btn-primary" prefetch>
+        <Link href="/booking/new" className="btn btn-primary">
           <i className="fa-solid fa-plus" /> New Booking
         </Link>
       </div>
@@ -398,7 +398,7 @@ async function BookingPanelBody({
           }}
         >
           {prevHref ? (
-            <Link href={prevHref} className="btn btn-outline btn-sm" prefetch>
+            <Link href={prevHref} className="btn btn-outline btn-sm">
               Previous
             </Link>
           ) : (
@@ -408,7 +408,7 @@ async function BookingPanelBody({
             Showing {bookings.length} of {totalCount} active (max {pageSize}/page)
           </span>
           {nextHref ? (
-            <Link href={nextHref} className="btn btn-outline btn-sm" prefetch>
+            <Link href={nextHref} className="btn btn-outline btn-sm">
               Next
             </Link>
           ) : (
