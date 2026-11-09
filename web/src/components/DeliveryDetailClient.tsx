@@ -875,6 +875,10 @@ export default function DeliveryDetailClient({
   const grandAdvance = dressAdvance + ordersAdvanceSum;
   const balanceReceived = dressRemainingCollected + ordersCollectedSum;
   const remainingBalance = Math.max(0, grandTotal - grandAdvance - balanceReceived);
+  const ordersOutstanding = localOrders
+    .filter((o) => !o.includedInRent)
+    .reduce((s, o) => s + Math.max(0, o.balance - o.balanceCollected), 0);
+  const dressOutstanding = Math.max(0, remainingBalance - ordersOutstanding);
 
   return (
     <div>
@@ -1230,6 +1234,36 @@ export default function DeliveryDetailClient({
             </div>
           )}
 
+          {ordersOutstanding > 0 && (
+            <div
+              style={{
+                display: "flex",
+                flexWrap: "wrap",
+                alignItems: "center",
+                justifyContent: "space-between",
+                gap: 10,
+                padding: "12px 16px",
+                marginBottom: 14,
+                borderRadius: 10,
+                border: "1.5px solid var(--danger)",
+                background: "rgba(220,53,69,0.06)",
+              }}
+            >
+              <div style={{ fontSize: 14 }}>
+                <div style={{ fontWeight: 800, color: "var(--danger)", fontSize: 16 }}>
+                  Collect at delivery: ₹{formatInr(remainingBalance)}
+                </div>
+                <div style={{ color: "var(--text-muted)", fontSize: 12, marginTop: 2 }}>
+                  Dress balance ₹{formatInr(dressOutstanding)} + Custom orders ₹{formatInr(ordersOutstanding)}
+                </div>
+              </div>
+              <a href="#custom-orders-collect" className="btn btn-sm btn-outline" style={{ color: "var(--danger)", borderColor: "var(--danger)" }}>
+                <i className="fa-solid fa-scissors" style={{ marginRight: 6 }} />
+                Collect order balance
+              </a>
+            </div>
+          )}
+
           {!allDelivered && (
             <p style={{ fontSize: 13, color: "var(--text-muted)", marginBottom: 14 }}>
               Tick each dress you are handing over now. Enter remaining and security for each dress,
@@ -1338,7 +1372,7 @@ export default function DeliveryDetailClient({
       </div>
 
       {localOrders.length > 0 && (
-        <div className="card" style={{ marginTop: 24 }}>
+        <div className="card" style={{ marginTop: 24 }} id="custom-orders-collect">
           <div className="card-header">
             <h3 className="card-title">
               <i className="fa-solid fa-scissors" style={{ marginRight: 8 }} />

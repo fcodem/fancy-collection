@@ -64,6 +64,7 @@ export type SlipOrderDisplay = {
   deliveryDate: string;
   deliveryTime: string;
   includedInRent: boolean;
+  collected?: number;
 };
 
 /** Custom Orders block shared by booking & delivery slips. */
@@ -175,6 +176,13 @@ export default function BookingSlip(props: BookingSlipProps) {
   const itemGrid = showFitting
     ? "28px 1fr 74px 46px 54px 64px 60px 64px 64px"
     : "28px 1fr 80px 52px 60px 70px 70px 68px";
+
+  const chargedOrders = (orders || []).filter((o) => !o.includedInRent);
+  const ordersCost = chargedOrders.reduce((s, o) => s + (o.cost || 0), 0);
+  const ordersAdvance = chargedOrders.reduce((s, o) => s + (o.advance || 0), 0);
+  const ordersBalance = chargedOrders.reduce((s, o) => s + Math.max(0, o.balance || 0), 0);
+  const advancePaid = b.totalAdvance + ordersAdvance;
+  const amountToBring = b.totalRemaining + ordersBalance;
 
   const inclusiveRent = b.totalPrice;
   const taxableAmount = Math.round(inclusiveRent / (1 + GST_RATE / 100));
@@ -503,12 +511,19 @@ export default function BookingSlip(props: BookingSlipProps) {
                 </div>
               )}
 
+              {ordersCost > 0 && (
+                <div style={{ display: "flex", justifyContent: "space-between", alignItems: "center", padding: "10px 16px", borderBottom: `1px solid ${BORDER}` }}>
+                  <span style={{ fontSize: 13, color: GREY }}>Custom Orders</span>
+                  <span style={{ fontSize: 14, fontWeight: 700, color: "#1a1a1a" }}>{rs(ordersCost)}</span>
+                </div>
+              )}
+
               {/* Advance Paid */}
               <div style={{ display: "flex", justifyContent: "space-between", alignItems: "center", padding: "10px 16px", borderBottom: `1px solid ${BORDER}` }}>
                 <div style={{ fontSize: 13, color: GREY }}>Advance Paid</div>
                 <div style={{ display: "flex", alignItems: "center", gap: 8 }}>
                   <span style={{ fontSize: 11, background: "#e8f5e9", color: SUCCESS, padding: "2px 8px", borderRadius: 12, fontWeight: 700 }}>PAID <Emoji char="✅" /></span>
-                  <span style={{ fontSize: 14, fontWeight: 700, color: SUCCESS }}>{rs(b.totalAdvance)}</span>
+                  <span style={{ fontSize: 14, fontWeight: 700, color: SUCCESS }}>{rs(advancePaid)}</span>
                 </div>
               </div>
 
@@ -521,8 +536,13 @@ export default function BookingSlip(props: BookingSlipProps) {
                   Amount to Bring on Pickup Day
                 </div>
                 <div style={{ fontSize: 26, fontWeight: 900, color: "#fff", fontFamily: "Georgia, serif" }}>
-                  {rs(b.totalRemaining)}
+                  {rs(amountToBring)}
                 </div>
+                {ordersBalance > 0 && (
+                  <div style={{ fontSize: 9, color: "rgba(255,255,255,0.85)", marginTop: 4 }}>
+                    Rent {rs(b.totalRemaining)} + Custom orders {rs(ordersBalance)}
+                  </div>
+                )}
               </div>
 
               {/* Security Deposit — same highlighted style */}

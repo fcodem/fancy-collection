@@ -3,6 +3,7 @@ import BookingListClient from "@/components/BookingListClient";
 import { getBookingListDataCached } from "@/lib/services/bookingList";
 import { todayIso } from "@/lib/constants";
 import { addDaysIso } from "@/lib/dateInput";
+import { isoDateParam } from "@/lib/urlDateParams";
 
 export const dynamic = "force-dynamic";
 
@@ -52,9 +53,15 @@ async function BookingListLoader({ today, tomorrow }: { today: string; tomorrow:
   );
 }
 
-export default async function BookingListPage() {
-  const today = todayIso();
-  const tomorrow = addDaysIso(today, 1);
+export default async function BookingListPage({
+  searchParams,
+}: {
+  searchParams: Promise<{ from?: string; to?: string }>;
+}) {
+  const sp = await searchParams;
+  const today = isoDateParam(sp.from, todayIso());
+  const toRaw = isoDateParam(sp.to, addDaysIso(today, 1));
+  const tomorrow = toRaw < today ? today : toRaw;
 
   return (
     <Suspense fallback={<BookingListFallback />}>

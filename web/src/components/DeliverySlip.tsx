@@ -113,7 +113,14 @@ export default function DeliverySlip(props: DeliverySlipProps) {
     hour: "2-digit", minute: "2-digit", hour12: true,
   });
 
-  const balanceLeft = Math.max(0, b.totalRemaining - b.remainingCollected);
+  const chargedOrders = (orders || []).filter((o) => !o.includedInRent);
+  const ordersCost = chargedOrders.reduce((s, o) => s + (o.cost || 0), 0);
+  const ordersAdvance = chargedOrders.reduce((s, o) => s + (o.advance || 0), 0);
+  const ordersDue = chargedOrders.reduce((s, o) => s + Math.max(0, o.balance || 0), 0);
+  const ordersCollected = chargedOrders.reduce((s, o) => s + Math.max(0, o.collected || 0), 0);
+  const balanceDue = b.totalRemaining + ordersDue;
+  const balancePaid = b.remainingCollected + ordersCollected;
+  const balanceLeft = Math.max(0, balanceDue - balancePaid);
   const balanceFullyPaid = balanceLeft <= 0;
 
   const inclusiveRent = b.totalPrice;
@@ -397,13 +404,22 @@ export default function DeliverySlip(props: DeliverySlipProps) {
                   <span style={{ fontSize: 14, fontWeight: 700, color: "#8a6d1a" }}>{rs(b.totalFittingCharges || 0)}</span>
                 </div>
               )}
+              {ordersCost > 0 && (
+                <div style={{ display: "flex", justifyContent: "space-between", padding: "10px 16px", borderBottom: `1px solid ${BORDER}` }}>
+                  <span style={{ fontSize: 13, color: GREY }}>Custom Orders</span>
+                  <span style={{ fontSize: 14, fontWeight: 700 }}>{rs(ordersCost)}</span>
+                </div>
+              )}
               <div style={{ display: "flex", justifyContent: "space-between", padding: "10px 16px", borderBottom: `1px solid ${BORDER}` }}>
                 <span style={{ fontSize: 13, color: GREY }}>Advance Paid (at booking)</span>
-                <span style={{ fontSize: 14, fontWeight: 700, color: SUCCESS }}>{rs(b.totalAdvance)}</span>
+                <span style={{ fontSize: 14, fontWeight: 700, color: SUCCESS }}>{rs(b.totalAdvance + ordersAdvance)}</span>
               </div>
               <div style={{ display: "flex", justifyContent: "space-between", padding: "8px 16px", borderBottom: `1px solid ${BORDER}`, background: "#fafafa" }}>
-                <span style={{ fontSize: 12, color: GREY }}>Balance Due at Delivery</span>
-                <span style={{ fontSize: 13, fontWeight: 600 }}>{rs(b.totalRemaining)}</span>
+                <span style={{ fontSize: 12, color: GREY }}>
+                  Balance Due at Delivery
+                  {ordersDue > 0 ? ` (Rent ${rs(b.totalRemaining)} + Orders ${rs(ordersDue)})` : ""}
+                </span>
+                <span style={{ fontSize: 13, fontWeight: 600 }}>{rs(balanceDue)}</span>
               </div>
 
               {/* Balance paid — green highlight */}
@@ -411,7 +427,7 @@ export default function DeliverySlip(props: DeliverySlipProps) {
                 <div style={{ fontSize: 10, color: "rgba(255,255,255,0.9)", textTransform: "uppercase", letterSpacing: "0.1em", fontWeight: 700, marginBottom: 4 }}>
                   Balance Paid by Customer at Delivery{payMode(b.remainingPaymentMode)}
                 </div>
-                <div style={{ fontSize: 26, fontWeight: 900, color: "#fff", fontFamily: "Georgia, serif" }}>{rs(b.remainingCollected)}</div>
+                <div style={{ fontSize: 26, fontWeight: 900, color: "#fff", fontFamily: "Georgia, serif" }}>{rs(balancePaid)}</div>
               </div>
 
               {/* Balance left — red if pending, green if fully paid */}

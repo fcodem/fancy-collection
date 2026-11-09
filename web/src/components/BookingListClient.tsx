@@ -14,6 +14,7 @@ import { BOOKING_EVENTS } from "@/lib/realtime/types";
 import DownloadPdfButton from "@/components/DownloadPdfButton";
 import StarBookingBadge from "@/components/StarBookingBadge";
 import { addDaysIso, isoToDisplay } from "@/lib/dateInput";
+import { writeDateParamsToUrl } from "@/lib/urlDateParams";
 import { warningPanelsFromItems } from "@/lib/bookingWarningPdf";
 import {
   STANDARD_BOOKING_HEADERS,
@@ -330,6 +331,10 @@ export default function BookingListClient({
 }) {
   const [from, setFrom] = useState(initialFrom);
   const [to, setTo] = useState(initialTo);
+
+  useEffect(() => {
+    writeDateParamsToUrl({ from, to });
+  }, [from, to]);
   const [deliveryTime, setDeliveryTime] = useState("");
   const [returnTime, setReturnTime] = useState("");
   const [category, setCategory] = useState("");

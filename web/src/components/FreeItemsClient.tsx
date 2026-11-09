@@ -13,6 +13,7 @@ import { BOOKING_EVENTS, INVENTORY_EVENTS } from "@/lib/realtime/types";
 import DownloadPdfButton from "@/components/DownloadPdfButton";
 import { formatJewelleryPartsLabel, type JewelleryPartKey } from "@/lib/jewelleryParts";
 import { addDaysIso } from "@/lib/dateInput";
+import { writeDateParamsToUrl } from "@/lib/urlDateParams";
 import { photoUrl, pickInventoryFullRef, pickInventoryThumbRef } from "@/lib/photoUrl";
 import ZoomableImage from "@/components/ZoomableImage";
 import { dressDisplayName, stripUnitSuffix } from "@/lib/dress";
@@ -314,9 +315,21 @@ function FreeItemsSection({
   );
 }
 
-export default function FreeItemsClient({ today }: { today: string }) {
-  const [deliveryDate, setDeliveryDate] = useState(today);
-  const [returnDate, setReturnDate] = useState(() => addDaysIso(today, 1));
+export default function FreeItemsClient({
+  today,
+  initialFrom,
+  initialTo,
+}: {
+  today: string;
+  initialFrom?: string;
+  initialTo?: string;
+}) {
+  const [deliveryDate, setDeliveryDate] = useState(initialFrom || today);
+  const [returnDate, setReturnDate] = useState(() => initialTo || addDaysIso(initialFrom || today, 1));
+
+  useEffect(() => {
+    writeDateParamsToUrl({ from: deliveryDate, to: returnDate });
+  }, [deliveryDate, returnDate]);
   const [group, setGroup] = useState("");
   const [category, setCategory] = useState("");
   const [size, setSize] = useState("");

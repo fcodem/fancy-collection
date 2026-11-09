@@ -94,6 +94,7 @@ type BookingWithItems = {
     deliveryDate: Date;
     deliveryTime: string;
     status: string;
+    balanceCollected?: number | null;
   }>;
 };
 
@@ -106,6 +107,8 @@ export type SlipOrder = {
   deliveryDate: string;
   deliveryTime: string;
   includedInRent: boolean;
+  /** Order balance already collected (delivery desk). */
+  collected: number;
 };
 
 function mapOrder(o: NonNullable<BookingWithItems["orders"]>[number]): SlipOrder {
@@ -118,6 +121,7 @@ function mapOrder(o: NonNullable<BookingWithItems["orders"]>[number]): SlipOrder
     deliveryDate: formatDate(o.deliveryDate, "display"),
     deliveryTime: o.deliveryTime,
     includedInRent: (o.cost || 0) === 0,
+    collected: Math.max(0, o.balanceCollected || 0),
   };
 }
 
