@@ -3,6 +3,7 @@ import prisma from "@/lib/prisma";
 import { getCurrentUserReadOnly } from "@/lib/auth";
 import PostponedBookingDetailClient from "@/components/PostponedBookingDetailClient";
 import { formatDate } from "@/lib/constants";
+import { dressDisplayName } from "@/lib/dress";
 
 export const dynamic = "force-dynamic";
 
@@ -38,6 +39,15 @@ export default async function PostponedBookingDetailPage({ params }: { params: P
         status={booking.status}
         totalAdvance={booking.totalAdvance || booking.advance || 0}
         postponedAt={postponedAtDisplay}
+        dresses={booking.bookingItems
+          .filter((bi) => !bi.isCancelled)
+          .map((bi) => ({
+            id: bi.id,
+            dressName: dressDisplayName(bi.dressName, bi.category, bi.size),
+            price: bi.price || 0,
+            advance: bi.advance || 0,
+            isDelivered: bi.isDelivered || bi.isReturned,
+          }))}
         booking={{
           ...booking,
           deliveryDate: formatDate(booking.deliveryDate),

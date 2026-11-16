@@ -2,6 +2,7 @@ import { NextRequest, after } from "next/server";
 import {
   listPostponedBookingsCached,
   postponeBooking,
+  postponeBookingItems,
   resolvePostponedBooking,
   searchBookingsToPostpone,
 } from "@/lib/services/postponedBooking";
@@ -47,16 +48,25 @@ export async function POST(req: NextRequest) {
 
   try {
     if (action === "postpone") {
-      await postponeBooking(bookingId, user.username);
-      await schedulePostponementHeld(bookingId, user.username);
+      const itemIds: number[] = Array.isArray(body.item_ids)
+        ? (body.item_ids as unknown[]).map(Number).filter((n) => Number.isFinite(n) && n > 0)
+        : [];
+      let postponedId = bookingId;
+      if (itemIds.length) {
+        const res = await postponeBookingItems(bookingId, itemIds, user.username);
+        postponedId = res.postponedBookingId;
+      } else {
+        await postponeBooking(bookingId, user.username);
+      }
+      await schedulePostponementHeld(postponedId, user.username);
       after(async () => {
         try {
-          await processWhatsAppJobQueue(2, { bookingId });
+          await processWhatsAppJobQueue(2, { bookingId: postponedId });
         } catch (e) {
           console.error("[postponed-booking] WhatsApp queue error:", e);
         }
       });
-      return jsonOk({ ok: true, status: "postponed" });
+      return jsonOk({ ok: true, status: "postponed", postponed_booking_id: postponedId });
     }
     if (action === "resolve") {
       await resolvePostponedBooking(bookingId, user.username);

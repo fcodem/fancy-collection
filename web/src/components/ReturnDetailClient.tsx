@@ -742,6 +742,22 @@ export default function ReturnDetailClient({
           totalRemaining={totalRemaining}
           remainingCollected={booking.remainingCollected ?? 0}
           variant="inline"
+          items={itemDelivery
+            .filter((d) => d.id > 0 && !d.isCancelled)
+            .map((d) => {
+              const priced = items.find((r) => r.id === d.id);
+              return {
+                id: d.id,
+                dressName: d.dressName,
+                size: d.size,
+                price: priced?.price ?? 0,
+                advance: d.advance ?? priced?.advance ?? 0,
+                remaining: priced?.remaining,
+                isCancelled: d.isCancelled,
+                isDelivered: d.isDelivered,
+                isReturned: d.isReturned,
+              };
+            })}
           onDismiss={() => setShowCancel(false)}
         />
       )}

@@ -1,5 +1,6 @@
 import prisma from "@/lib/prisma";
 import { findItemIdsStillInActiveBookings } from "@/lib/booking";
+import { bookingItemRemaining, sumBookingFittingCharges } from "@/lib/bookingLineTotals";
 import { bookingListRecordFrom, type BookingForListRecord } from "@/lib/bookingDetails";
 import { dressDisplayName, bookingItemSize } from "@/lib/dress";
 import { formatDate } from "@/lib/constants";
@@ -154,6 +155,147 @@ export async function postponeBooking(bookingId: number, by?: string) {
     before: snapshotBooking(booking as unknown as Record<string, unknown>),
     after: { status: "postponed", totalAdvance: booking.totalAdvance || booking.advance },
   });
+}
+
+/**
+ * Postpone only some dresses of a multi-dress booking. The chosen dresses (with their
+ * own rent / advance) move to a new postponed record that keeps the same serial; the
+ * original booking stays active with the remaining dresses.
+ */
+export async function postponeBookingItems(bookingId: number, bookingItemIds: number[], by?: string) {
+  const booking = await prisma.booking.findUnique({
+    where: { id: bookingId },
+    include: { bookingItems: true },
+  });
+  if (!booking) throw new Error("Booking not found");
+  if (booking.status !== "booked") {
+    throw new Error("Only booked (not yet delivered) bookings can be postponed");
+  }
+
+  const active = booking.bookingItems.filter((bi) => !bi.isCancelled);
+  const wanted = new Set(bookingItemIds);
+  const moving = active.filter((bi) => wanted.has(bi.id));
+  if (!moving.length) throw new Error("Select at least one dress to postpone.");
+  const blocked = moving.filter((bi) => bi.isDelivered || bi.isReturned);
+  if (blocked.length) {
+    throw new Error(`${blocked.map((bi) => bi.dressName).join(", ")} already delivered — cannot postpone.`);
+  }
+  if (moving.length === active.length) {
+    await postponeBooking(bookingId, by);
+    return { postponedBookingId: bookingId, whole: true };
+  }
+
+  const existingSuffixes = await prisma.booking.count({
+    where: { bookingNumber: { startsWith: `${booking.bookingNumber}-P` } },
+  });
+  let suffix = existingSuffixes + 1;
+  while (await prisma.booking.findUnique({ where: { bookingNumber: `${booking.bookingNumber}-P${suffix}` }, select: { id: true } })) {
+    suffix += 1;
+  }
+  const newNumber = `${booking.bookingNumber}-P${suffix}`;
+
+  const sum = (rows: typeof moving, pick: (r: (typeof moving)[number]) => number) =>
+    rows.reduce((s, r) => s + (pick(r) || 0), 0);
+  const movedPrice = sum(moving, (r) => r.price);
+  const movedFitting = sumBookingFittingCharges(moving);
+  const movedAdvance = sum(moving, (r) => r.advance);
+  const movedRemaining = moving.reduce(
+    (s, r) => s + bookingItemRemaining(r.price || 0, r.advance || 0, r.fittingCharges || 0),
+    0,
+  );
+
+  const newId = await prisma.$transaction(async (tx) => {
+    const created = await tx.booking.create({
+      data: {
+        bookingNumber: newNumber,
+        monthlySerial: booking.monthlySerial,
+        customerName: booking.customerName,
+        customerAddress: booking.customerAddress,
+        contact1: booking.contact1,
+        contact2: booking.contact2,
+        whatsappNo: booking.whatsappNo,
+        deliveryDate: booking.deliveryDate,
+        deliveryTime: booking.deliveryTime,
+        returnDate: booking.returnDate,
+        returnTime: booking.returnTime,
+        venue: booking.venue,
+        staffNames: booking.staffNames,
+        advancePaymentMode: booking.advancePaymentMode,
+        commonNotes: booking.commonNotes,
+        notes: booking.notes,
+        createdAt: booking.createdAt,
+        securityDeposit: 0,
+        totalPrice: movedPrice,
+        price: movedPrice,
+        totalFittingCharges: movedFitting,
+        totalAdvance: movedAdvance,
+        advance: movedAdvance,
+        totalRemaining: movedRemaining,
+        remaining: movedRemaining,
+        itemId: moving[0].itemId,
+        dressName: moving[0].dressName,
+        status: "postponed",
+        postponedAt: new Date(),
+      },
+      select: { id: true },
+    });
+
+    await tx.bookingItem.updateMany({
+      where: { id: { in: moving.map((m) => m.id) }, bookingId },
+      data: { bookingId: created.id },
+    });
+
+    const stay = await tx.bookingItem.findMany({ where: { bookingId } });
+    const stayActive = stay.filter((r) => !r.isCancelled);
+    const retainedAdvance = stay
+      .filter((r) => r.isCancelled && !(r.cancelRefundAmount > 0))
+      .reduce((s, r) => s + (r.advance || 0), 0);
+    const stayPrice = stayActive.reduce((s, r) => s + (r.price || 0), 0);
+    const stayAdvance = stayActive.reduce((s, r) => s + (r.advance || 0), 0) + retainedAdvance;
+    const stayRemaining = stayActive.reduce(
+      (s, r) => s + bookingItemRemaining(r.price || 0, r.advance || 0, r.fittingCharges || 0),
+      0,
+    );
+    await tx.booking.update({
+      where: { id: bookingId },
+      data: {
+        totalPrice: stayPrice,
+        price: stayPrice,
+        totalFittingCharges: sumBookingFittingCharges(stayActive),
+        totalAdvance: stayAdvance,
+        advance: stayAdvance,
+        totalRemaining: stayRemaining,
+        remaining: stayRemaining,
+        itemId: stayActive[0]?.itemId ?? booking.itemId,
+        dressName: stayActive[0]?.dressName ?? booking.dressName,
+      },
+    });
+
+    const itemIds = moving.map((bi) => bi.itemId).filter((id): id is number => id != null);
+    const stillUsed = await findItemIdsStillInActiveBookings(itemIds, created.id, tx);
+    for (const id of itemIds) {
+      if (!stillUsed.has(id)) {
+        await tx.clothingItem.update({ where: { id }, data: { status: "available" } });
+      }
+    }
+    return created.id;
+  });
+
+  broadcastShopEvent({ type: "booking.updated", bookingId, status: "booked", by });
+  broadcastShopEvent({ type: "booking.postponed", bookingId: newId, status: "postponed", by });
+  logActivity({
+    username: by || "system",
+    action: "postponed",
+    entity: "booking",
+    entityId: newId,
+    label: `Postponed ${moving.length} dress${moving.length === 1 ? "" : "es"} (${moving
+      .map((m) => m.dressName)
+      .join(", ")}) from booking #${String(booking.monthlySerial).padStart(2, "0")} — ${booking.customerName} → ${newNumber} (Advance held: ₹${movedAdvance})`,
+    before: snapshotBooking(booking as unknown as Record<string, unknown>),
+    after: { status: "postponed", fromBookingId: bookingId, bookingNumber: newNumber, totalAdvance: movedAdvance },
+  });
+
+  return { postponedBookingId: newId, whole: false };
 }
 
 export async function resolvePostponedBooking(bookingId: number, by?: string) {

@@ -213,6 +213,9 @@ describe("initialDeliveryItemForms", () => {
     const forms = initialDeliveryItemForms(items, 2000);
     assert.equal(forms[1].security, "2000");
     assert.equal(forms[2].security, "");
+    // Due remaining must not prefill as collected — unpaid stays blank/0.
+    assert.equal(forms[1].remaining, "");
+    assert.equal(forms[2].remaining, "");
   });
 });
 

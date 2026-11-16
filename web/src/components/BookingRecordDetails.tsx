@@ -63,6 +63,7 @@ export function BookingRecordDetails({
       itemRemainingCollected?: number | null;
       itemSecurityCollected?: number | null;
       isDelivered?: boolean;
+      isCancelled?: boolean;
     }>;
   }).bookingItems;
   const collectedAtDelivery = effectiveRemainingCollected(
@@ -89,9 +90,19 @@ export function BookingRecordDetails({
 
   const dressRows =
     items.length > 0
-      ? items.map((item) => item.display_name).filter(Boolean)
+      ? items
+          .map((item) => {
+            const bi =
+              item.id != null
+                ? bookingItems?.find((row) => row.id === item.id)
+                : undefined;
+            const cancelled = Boolean(item.isCancelled || bi?.isCancelled);
+            if (!item.display_name) return null;
+            return { name: item.display_name, cancelled };
+          })
+          .filter((row): row is { name: string; cancelled: boolean } => Boolean(row))
       : d.dress_names && d.dress_names !== "—"
-        ? [d.dress_names]
+        ? [{ name: d.dress_names, cancelled: false }]
         : [];
 
   const activeOrders = orders ?? [];
@@ -161,9 +172,31 @@ export function BookingRecordDetails({
                     gap: 4,
                   }}
                 >
-                  {dressRows.map((name, idx) => (
-                    <li key={`${idx}-${name}`}>
-                      <strong style={{ fontWeight: 600 }}>{idx + 1}.</strong> {name}
+                  {dressRows.map((row, idx) => (
+                    <li
+                      key={`${idx}-${row.name}`}
+                      style={
+                        row.cancelled
+                          ? { color: "var(--text-muted)", textDecoration: "line-through" }
+                          : undefined
+                      }
+                    >
+                      <strong style={{ fontWeight: 600 }}>{idx + 1}.</strong> {row.name}
+                      {row.cancelled ? (
+                        <span
+                          style={{
+                            marginLeft: 8,
+                            textDecoration: "none",
+                            display: "inline-block",
+                            fontSize: 11,
+                            fontWeight: 800,
+                            color: "var(--danger)",
+                            letterSpacing: 0.3,
+                          }}
+                        >
+                          CANCELLED
+                        </span>
+                      ) : null}
                     </li>
                   ))}
                 </ol>
@@ -276,19 +309,41 @@ export function BookingRecordDetails({
                 item.id != null
                   ? bookingItems?.find((row) => (row as { id?: number }).id === item.id)
                   : bookingItems?.[i];
+              const cancelled = Boolean(
+                item.isCancelled ||
+                  (bi as { isCancelled?: boolean } | undefined)?.isCancelled,
+              );
               const itemCollected = Number(
                 (bi as { itemRemainingCollected?: number | null } | undefined)?.itemRemainingCollected || 0,
               );
               const itemLeft = Math.max(0, (item.remaining || 0) - itemCollected);
               return (
                 <Fragment key={item.id ?? i}>
-                  <tr>
+                  <tr style={cancelled ? { opacity: 0.65 } : undefined}>
                     <td style={{ fontWeight: 700, color: "var(--text-muted)" }}>{i + 1}</td>
-                    <td>{item.display_name}</td>
-                    <td>₹{formatInr(item.price)}</td>
-                    <td>₹{formatInr(item.advance)}</td>
                     <td>
-                      {dressOut ? (
+                      <span style={cancelled ? { textDecoration: "line-through" } : undefined}>
+                        {item.display_name}
+                      </span>
+                      {cancelled ? (
+                        <span
+                          style={{
+                            marginLeft: 8,
+                            fontSize: 11,
+                            fontWeight: 800,
+                            color: "var(--danger)",
+                          }}
+                        >
+                          CANCELLED
+                        </span>
+                      ) : null}
+                    </td>
+                    <td>{cancelled ? "—" : `₹${formatInr(item.price)}`}</td>
+                    <td>{cancelled ? "—" : `₹${formatInr(item.advance)}`}</td>
+                    <td>
+                      {cancelled ? (
+                        "—"
+                      ) : dressOut ? (
                         itemLeft > 0 ? (
                           <span style={{ fontWeight: 700, color: "var(--danger)" }}>₹{formatInr(itemLeft)}</span>
                         ) : (
@@ -300,7 +355,7 @@ export function BookingRecordDetails({
                     </td>
                     <td style={{ fontSize: 12, wordBreak: "break-word" }}>{item.notes || "—"}</td>
                   </tr>
-                  {dressWarnings && (
+                  {dressWarnings && !cancelled && (
                     <tr>
                       <td colSpan={6} style={{ paddingTop: 0, paddingBottom: 12, borderTop: "none" }}>
                         <BookingItemWarningsBlock item={dressWarnings} />

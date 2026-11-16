@@ -87,11 +87,18 @@ export function serializeBookingItems(
       dressName: string;
       category?: string | null;
       size?: string | null;
+      isCancelled?: boolean | null;
       item?: { size?: string | null } | null;
     }>;
   }
 ) {
-  const items: Array<{ name: string; display_name: string; category: string; size: string }> = [];
+  const items: Array<{
+    name: string;
+    display_name: string;
+    category: string;
+    size: string;
+    isCancelled: boolean;
+  }> = [];
   if (booking.bookingItems?.length) {
     for (const bi of booking.bookingItems) {
       const sz = bookingItemSize(bi);
@@ -100,6 +107,7 @@ export function serializeBookingItems(
         display_name: dressDisplayName(bi.dressName, bi.category, sz),
         category: bi.category || "",
         size: sz,
+        isCancelled: Boolean(bi.isCancelled),
       });
     }
   } else if (booking.dressName) {
@@ -110,6 +118,7 @@ export function serializeBookingItems(
       display_name: dressDisplayName(booking.dressName, cat, sz),
       category: cat,
       size: sz || "",
+      isCancelled: false,
     });
   }
   return items;
@@ -120,12 +129,21 @@ export function bookingDressLabels(
   booking: Parameters<typeof serializeBookingItems>[0],
   fallback = "—"
 ): string {
-  const rows = (booking.bookingItems || []) as Array<{ fittingCharges?: number | null }>;
+  const rows = (booking.bookingItems || []) as Array<{
+    fittingCharges?: number | null;
+    isCancelled?: boolean | null;
+  }>;
   const labels = serializeBookingItems(booking)
     .map((i, idx) => {
-      const label = i.display_name || i.name;
-      const fitting = Number(rows[idx]?.fittingCharges) || 0;
-      return label && fitting > 0 ? `${label} · ${fittingLabel(fitting)}` : label;
+      let label = i.display_name || i.name;
+      if (!label) return "";
+      if (i.isCancelled || rows[idx]?.isCancelled) {
+        label = `${label} · Cancelled`;
+      } else {
+        const fitting = Number(rows[idx]?.fittingCharges) || 0;
+        if (fitting > 0) label = `${label} · ${fittingLabel(fitting)}`;
+      }
+      return label;
     })
     .filter(Boolean);
   return labels.length ? labels.join(", ") : fallback;
@@ -149,6 +167,7 @@ export type BookingItemPricingRow = {
   advance: number;
   remaining: number;
   notes: string;
+  isCancelled?: boolean;
 };
 
 /** Item rows with pricing for detail views (multi-item + legacy bookings). */
@@ -173,6 +192,7 @@ export function serializeBookingItemRows(
       advance: number;
       remaining: number;
       notes?: string | null;
+      isCancelled?: boolean | null;
       item?: { size?: string | null } | null;
     }>;
   }
@@ -187,6 +207,7 @@ export function serializeBookingItemRows(
       advance: bi.advance,
       remaining: bi.remaining,
       notes: bi.notes?.trim() || (items.length === 1 ? booking.notes || "" : "") || "",
+      isCancelled: Boolean(bi.isCancelled),
     }));
   }
   if (booking.dressName) {
@@ -198,6 +219,7 @@ export function serializeBookingItemRows(
       advance: booking.advance ?? booking.totalAdvance ?? 0,
       remaining: booking.remaining ?? booking.totalRemaining ?? 0,
       notes: booking.notes || "",
+      isCancelled: false,
     }];
   }
   return [];

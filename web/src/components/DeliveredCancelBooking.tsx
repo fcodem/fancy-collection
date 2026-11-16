@@ -10,6 +10,7 @@ export type CancelableDress = {
   size?: string | null;
   price: number;
   advance: number;
+  remaining?: number;
   isCancelled?: boolean;
   isDelivered?: boolean;
   isReturned?: boolean;
@@ -44,9 +45,12 @@ export default function DeliveredCancelBooking({
   const [advanceReturned, setAdvanceReturned] = useState<boolean | null>(null);
   const [refundAmount, setRefundAmount] = useState("");
   const [cancelling, setCancelling] = useState(false);
+  const [error, setError] = useState("");
   const activeItems = items.filter((i) => !i.isCancelled);
   const canPickDresses = activeItems.length > 1;
-  const [selectedIds, setSelectedIds] = useState<number[]>(() => activeItems.map((i) => i.id));
+  const [selectedIds, setSelectedIds] = useState<number[]>(() =>
+    activeItems.length > 1 ? [] : activeItems.map((i) => i.id),
+  );
   const selectedItems = activeItems.filter((i) => selectedIds.includes(i.id));
   const cancellingAll = !canPickDresses || selectedItems.length === activeItems.length;
   const blockedSelected = cancellingAll
@@ -54,15 +58,41 @@ export default function DeliveredCancelBooking({
     : selectedItems.filter((i) => i.isDelivered || i.isReturned);
   const selectedPrice = selectedItems.reduce((s, i) => s + (i.price || 0), 0);
   const selectedAdvance = selectedItems.reduce((s, i) => s + (i.advance || 0), 0);
+  const selectedRemaining = selectedItems.reduce(
+    (s, i) => s + (i.remaining != null ? i.remaining : Math.max(0, (i.price || 0) - (i.advance || 0))),
+    0,
+  );
+
+  /** Amounts shown in the summary — always match what will be cancelled. */
+  const displayRent = canPickDresses ? selectedPrice : totalPrice;
+  const displayAdvance = canPickDresses ? selectedAdvance : totalAdvance;
+  const displayRemaining = canPickDresses ? selectedRemaining : totalRemaining;
+  const refundHint = canPickDresses && !cancellingAll ? selectedAdvance : totalAdvance;
+
+  function setSelection(ids: number[]) {
+    setSelectedIds(ids);
+    setError("");
+    if (advanceReturned === true) {
+      const nextItems = activeItems.filter((i) => ids.includes(i.id));
+      const nextAll = nextItems.length === activeItems.length;
+      const nextAdvance = nextAll
+        ? totalAdvance
+        : nextItems.reduce((s, i) => s + (i.advance || 0), 0);
+      setRefundAmount(String(nextAdvance));
+    }
+  }
 
   function toggleDress(id: number) {
-    setSelectedIds((prev) => (prev.includes(id) ? prev.filter((x) => x !== id) : [...prev, id]));
+    setSelection(
+      selectedIds.includes(id) ? selectedIds.filter((x) => x !== id) : [...selectedIds, id],
+    );
   }
 
   function selectAdvanceReturned(yes: boolean) {
     setAdvanceReturned(yes);
+    setError("");
     if (yes) {
-      setRefundAmount(String(totalAdvance));
+      setRefundAmount(String(refundHint));
     } else {
       setRefundAmount("");
     }
@@ -74,29 +104,32 @@ export default function DeliveredCancelBooking({
         method: "POST",
         headers: { "Content-Type": "application/json" },
         body: JSON.stringify({ refund_advance: advanceReturned === true }),
+        credentials: "same-origin",
       });
+      const data = await res.json().catch(() => ({}));
       if (!res.ok) {
-        const data = await res.json().catch(() => ({}));
-        alert(`${item.dressName}: ${data.error || "Could not cancel this dress"}`);
-        router.refresh();
-        return;
+        const msg =
+          typeof data.error === "string" ? data.error : "Could not cancel this dress";
+        setError(`${item.dressName}: ${msg}`);
+        router.replace(`/booking/${bookingId}?updated=1`);
+        return false;
       }
     }
-    onDismiss ? onDismiss() : setShowPanel(false);
-    router.refresh();
+    return true;
   }
 
   async function confirmCancel() {
+    setError("");
     if (advanceReturned === null) {
-      alert("Please indicate whether advance was returned to the customer.");
+      setError("Please indicate whether advance was returned to the customer.");
       return;
     }
     if (canPickDresses && !selectedItems.length) {
-      alert("Select at least one dress to cancel.");
+      setError("Select at least one dress to cancel.");
       return;
     }
     if (blockedSelected.length) {
-      alert(
+      setError(
         `${blockedSelected.map((i) => i.dressName).join(", ")} already delivered — return it instead, or cancel the whole booking.`,
       );
       return;
@@ -104,7 +137,11 @@ export default function DeliveredCancelBooking({
     setCancelling(true);
     try {
       if (!cancellingAll) {
-        await cancelSelectedDresses();
+        const ok = await cancelSelectedDresses();
+        if (!ok) return;
+        onDismiss ? onDismiss() : setShowPanel(false);
+        // Bypass short booking-record cache so cancelled dresses show immediately.
+        router.replace(`/booking/${bookingId}?updated=1`);
         return;
       }
       const refund = advanceReturned ? Number(refundAmount) || 0 : 0;
@@ -112,13 +149,16 @@ export default function DeliveredCancelBooking({
         method: "POST",
         headers: { "Content-Type": "application/json" },
         body: JSON.stringify({ refund_amount: refund }),
+        credentials: "same-origin",
       });
       if (!res.ok) {
         const data = await res.json().catch(() => ({}));
-        alert(data.error || "Could not cancel booking");
+        setError(typeof data.error === "string" ? data.error : "Could not cancel booking");
         return;
       }
       router.push("/booking");
+    } catch (e) {
+      setError(e instanceof Error ? e.message : "Network error — try again");
     } finally {
       setCancelling(false);
     }
@@ -147,7 +187,7 @@ export default function DeliveredCancelBooking({
                 type="button"
                 className="btn btn-outline btn-sm"
                 disabled={cancelling}
-                onClick={() => setSelectedIds(activeItems.map((i) => i.id))}
+                onClick={() => setSelection(activeItems.map((i) => i.id))}
               >
                 Select all
               </button>
@@ -155,7 +195,7 @@ export default function DeliveredCancelBooking({
                 type="button"
                 className="btn btn-outline btn-sm"
                 disabled={cancelling}
-                onClick={() => setSelectedIds([])}
+                onClick={() => setSelection([])}
               >
                 Clear
               </button>
@@ -197,9 +237,11 @@ export default function DeliveredCancelBooking({
               })}
             </div>
             <p style={{ fontSize: 12, color: "var(--text-muted)", marginTop: 8, marginBottom: 0 }}>
-              {cancellingAll
-                ? "All dresses selected — the whole booking will be cancelled."
-                : `${selectedItems.length} of ${activeItems.length} dresses selected — only these will be cancelled; the rest of the booking stays active.`}
+              {!selectedItems.length
+                ? "Tick the dresses to cancel — payment below updates for your selection."
+                : cancellingAll
+                  ? "All dresses selected — the whole booking will be cancelled."
+                  : `${selectedItems.length} of ${activeItems.length} dresses selected — only these will be cancelled; the rest of the booking stays active.`}
             </p>
           </div>
         )}
@@ -216,22 +258,30 @@ export default function DeliveredCancelBooking({
           }}
         >
           <div>
-            <div style={{ fontSize: 11, color: "var(--text-muted)", fontWeight: 700, marginBottom: 4 }}>TOTAL RENT</div>
-            <div style={{ fontSize: 18, fontWeight: 700 }}>₹{formatInr(totalPrice)}</div>
+            <div style={{ fontSize: 11, color: "var(--text-muted)", fontWeight: 700, marginBottom: 4 }}>
+              {canPickDresses && !cancellingAll ? "SELECTED RENT" : "TOTAL RENT"}
+            </div>
+            <div style={{ fontSize: 18, fontWeight: 700 }}>₹{formatInr(displayRent)}</div>
           </div>
           <div>
-            <div style={{ fontSize: 11, color: "var(--text-muted)", fontWeight: 700, marginBottom: 4 }}>ADVANCE</div>
-            <div style={{ fontSize: 18, fontWeight: 700, color: "var(--primary)" }}>₹{formatInr(totalAdvance)}</div>
+            <div style={{ fontSize: 11, color: "var(--text-muted)", fontWeight: 700, marginBottom: 4 }}>
+              {canPickDresses && !cancellingAll ? "SELECTED ADVANCE" : "ADVANCE"}
+            </div>
+            <div style={{ fontSize: 18, fontWeight: 700, color: "var(--primary)" }}>
+              ₹{formatInr(displayAdvance)}
+            </div>
           </div>
           {delivered && (
             <div>
-              <div style={{ fontSize: 11, color: "var(--text-muted)", fontWeight: 700, marginBottom: 4 }}>BALANCE</div>
-              <div style={{ fontSize: 18, fontWeight: 700 }}>₹{formatInr(totalRemaining)}</div>
+              <div style={{ fontSize: 11, color: "var(--text-muted)", fontWeight: 700, marginBottom: 4 }}>
+                {canPickDresses && !cancellingAll ? "SELECTED BALANCE" : "BALANCE"}
+              </div>
+              <div style={{ fontSize: 18, fontWeight: 700 }}>₹{formatInr(displayRemaining)}</div>
             </div>
           )}
         </div>
 
-        {delivered && remainingCollected > 0 && (
+        {delivered && remainingCollected > 0 && cancellingAll && (
           <p style={{ fontSize: 13, marginBottom: 16, color: "var(--text-muted)" }}>
             Balance collected at delivery: <strong>₹{formatInr(remainingCollected)}</strong>
           </p>
@@ -242,7 +292,7 @@ export default function DeliveredCancelBooking({
           <button
             type="button"
             className={`btn ${advanceReturned === true ? "btn-primary" : "btn-outline"}`}
-            disabled={cancelling}
+            disabled={cancelling || (canPickDresses && !selectedItems.length)}
             onClick={() => selectAdvanceReturned(true)}
           >
             Yes
@@ -250,7 +300,7 @@ export default function DeliveredCancelBooking({
           <button
             type="button"
             className={`btn ${advanceReturned === false ? "btn-primary" : "btn-outline"}`}
-            disabled={cancelling}
+            disabled={cancelling || (canPickDresses && !selectedItems.length)}
             onClick={() => selectAdvanceReturned(false)}
           >
             No
@@ -285,6 +335,12 @@ export default function DeliveredCancelBooking({
             No refund recorded — advance is kept and will not reduce finance sale totals.
           </p>
         )}
+
+        {error ? (
+          <p style={{ fontSize: 13, marginBottom: 16, color: "var(--danger)", fontWeight: 600 }}>
+            {error}
+          </p>
+        ) : null}
 
         <div style={{ display: "flex", gap: 12, flexWrap: "wrap" }}>
           {(variant === "button" || onDismiss) && (

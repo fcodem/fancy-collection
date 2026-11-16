@@ -98,9 +98,9 @@ export async function loadBookingRecordCore(bookingId: number) {
 }
 
 /**
- * Empty "Remaining Collected" on deliver was saved as ₹0 while security was entered.
- * When a delivered booking has security collected but no remaining collection recorded,
- * backfill remaining collection from each delivered dress's due remaining.
+ * Formerly rewrote unpaid delivery balances as fully collected whenever security
+ * was taken. That made uncleared balances show as Paid. Kept as a no-op so
+ * existing call sites stay safe; blank remaining at delivery means unpaid.
  */
 export async function healMissingDeliveryRemainingCollection<
   T extends {
@@ -117,57 +117,8 @@ export async function healMissingDeliveryRemainingCollection<
       itemSecurityCollected: number;
     }>;
   },
->(booking: T): Promise<T | null> {
-  if (booking.status !== "delivered" && booking.status !== "incomplete_return") return null;
-  if ((booking.remainingCollected || 0) > 0) return null;
-
-  const delivered = booking.bookingItems.filter((i) => i.isDelivered && !i.isCancelled);
-  if (!delivered.length) return null;
-  if (delivered.some((i) => (i.itemRemainingCollected || 0) > 0)) return null;
-
-  const securityTaken =
-    (booking.securityCollected || 0) > 0 ||
-    delivered.some((i) => (i.itemSecurityCollected || 0) > 0);
-  if (!securityTaken) return null;
-
-  const dueTotal = delivered.reduce((s, i) => s + (i.remaining || 0), 0);
-  if (dueTotal <= 0) return null;
-
-  await prisma.$transaction([
-    ...delivered.map((i) =>
-      prisma.bookingItem.update({
-        where: { id: i.id },
-        data: { itemRemainingCollected: i.remaining || 0 },
-      }),
-    ),
-    prisma.booking.update({
-      where: { id: booking.id },
-      data: { remainingCollected: dueTotal },
-    }),
-  ]);
-
-  try {
-    const { logActivity } = await import("@/lib/activityLog");
-    await logActivity({
-      username: "system",
-      action: "updated",
-      entity: "booking",
-      entityId: booking.id,
-      label: `Backfilled delivery remaining ₹${dueTotal} (was blank at deliver)`,
-    });
-  } catch {
-    // Non-fatal: display heal already applied above.
-  }
-
-  return {
-    ...booking,
-    remainingCollected: dueTotal,
-    bookingItems: booking.bookingItems.map((i) =>
-      i.isDelivered && !i.isCancelled
-        ? { ...i, itemRemainingCollected: i.remaining || 0 }
-        : i,
-    ),
-  };
+>(_booking: T): Promise<T | null> {
+  return null;
 }
 
 export async function loadBookingRecordOrders(bookingId: number) {

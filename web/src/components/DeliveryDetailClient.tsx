@@ -111,16 +111,18 @@ type ItemFormState = {
   notes: string;
 };
 
-/** Blank remaining field means "collect full due"; explicit 0 means unpaid. */
-function resolveRemainingCollectedInput(raw: string | undefined, dueAmount: number): number {
-  if (raw == null || String(raw).trim() === "") return Math.max(0, dueAmount || 0);
+/** Blank / invalid remaining = ₹0 collected (unpaid). Staff must type what was paid. */
+function resolveRemainingCollectedInput(raw: string | undefined): number {
+  if (raw == null || String(raw).trim() === "") return 0;
   const n = Number(raw);
-  return Number.isFinite(n) && n >= 0 ? n : Math.max(0, dueAmount || 0);
+  return Number.isFinite(n) && n >= 0 ? n : 0;
 }
 
 /**
  * Prefill delivery security once for the booking — not once per dress.
  * Old bug copied the full deposit onto every dress (2 × ₹2000 → ₹4000 held).
+ * Remaining is only prefilled when already collected — never with the due amount
+ * (that made unpaid deliveries look/save as paid).
  */
 export function initialDeliveryItemForms(
   items: ItemRow[],
@@ -133,9 +135,7 @@ export function initialDeliveryItemForms(
 
   for (const it of items) {
     const remainingPrefill =
-      (it.itemRemainingCollected || 0) > 0
-        ? it.itemRemainingCollected
-        : it.remaining || 0;
+      (it.itemRemainingCollected || 0) > 0 ? it.itemRemainingCollected : 0;
 
     let securityPrefill = 0;
     if ((it.itemSecurityCollected || 0) > 0) {
@@ -146,7 +146,7 @@ export function initialDeliveryItemForms(
     }
 
     init[it.id] = {
-      remaining: String(remainingPrefill || ""),
+      remaining: remainingPrefill > 0 ? String(remainingPrefill) : "",
       security: String(securityPrefill || ""),
       notes: it.itemDeliveryNotes || "",
     };
@@ -438,10 +438,7 @@ export default function DeliveryDetailClient({
       delivery_notes: commonDeliveryNote.trim(),
       items: [{
         booking_item_id: itemId,
-        remaining_collected: resolveRemainingCollectedInput(
-          itemForms[itemId]?.remaining,
-          it.remaining || 0,
-        ),
+        remaining_collected: resolveRemainingCollectedInput(itemForms[itemId]?.remaining),
         security_collected: Number(itemForms[itemId]?.security) || 0,
         delivery_notes: (itemForms[itemId]?.notes || "").trim() || commonDeliveryNote.trim(),
         mark_delivered: !it.isDelivered,
@@ -519,10 +516,7 @@ export default function DeliveryDetailClient({
         const it = localItems.find((row) => row.id === id);
         return {
           booking_item_id: id,
-          remaining_collected: resolveRemainingCollectedInput(
-            itemForms[id]?.remaining,
-            it?.remaining || 0,
-          ),
+          remaining_collected: resolveRemainingCollectedInput(itemForms[id]?.remaining),
           security_collected: Number(itemForms[id]?.security) || 0,
           delivery_notes: (itemForms[id]?.notes || "").trim() || commonDeliveryNote.trim(),
           mark_delivered: true,
@@ -596,13 +590,9 @@ export default function DeliveryDetailClient({
       security_payment_mode: securityPaymentMode,
       delivery_notes: commonDeliveryNote.trim(),
       items: ids.map((id) => {
-        const it = localItems.find((row) => row.id === id);
         return {
           booking_item_id: id,
-          remaining_collected: resolveRemainingCollectedInput(
-            itemForms[id]?.remaining,
-            it?.remaining || 0,
-          ),
+          remaining_collected: resolveRemainingCollectedInput(itemForms[id]?.remaining),
           security_collected: Number(itemForms[id]?.security) || 0,
           delivery_notes: (itemForms[id]?.notes || "").trim() || commonDeliveryNote.trim(),
           mark_delivered: false,
@@ -1266,8 +1256,8 @@ export default function DeliveryDetailClient({
 
           {!allDelivered && (
             <p style={{ fontSize: 13, color: "var(--text-muted)", marginBottom: 14 }}>
-              Tick each dress you are handing over now. Enter remaining and security for each dress,
-              then press <strong>Deliver Selected</strong> at the bottom once.
+              Tick each dress you are handing over now. Enter only what the customer pays now
+              (leave Remaining blank or 0 if unpaid), then press <strong>Deliver Selected</strong> at the bottom once.
               {pendingItems.length > 1
                 ? " Two or more selected dresses send one combined delivery slip (WhatsApp + print)."
                 : " One dress sends a single delivery slip."}

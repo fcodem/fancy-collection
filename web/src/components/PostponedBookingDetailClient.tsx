@@ -15,6 +15,7 @@ export default function PostponedBookingDetailClient({
   status,
   totalAdvance,
   postponedAt,
+  dresses = [],
 }: {
   booking: BookingForStandardDetails & {
     id: number;
@@ -24,6 +25,7 @@ export default function PostponedBookingDetailClient({
   status: string;
   totalAdvance: number;
   postponedAt: string | null;
+  dresses?: Array<{ id: number; dressName: string; price: number; advance: number; isDelivered: boolean }>;
 }) {
   const router = useRouter();
   const [confirmText, setConfirmText] = useState("");
@@ -34,17 +36,35 @@ export default function PostponedBookingDetailClient({
   const canPostpone = status === "booked";
   const isPostponed = status === "postponed";
   const confirmOk = confirmText.trim().toUpperCase() === CONFIRM_WORD;
+  const canPickDresses = dresses.length > 1;
+  const [selectedIds, setSelectedIds] = useState<number[]>([]);
+  const selected = dresses.filter((d) => selectedIds.includes(d.id));
+  const postponingAll = !canPickDresses || selected.length === dresses.length;
+  const heldAdvance = postponingAll ? totalAdvance : selected.reduce((s, d) => s + d.advance, 0);
+  const pickOk = !canPickDresses || selected.length > 0;
+
+  function toggleDress(id: number) {
+    setSelectedIds((prev) => (prev.includes(id) ? prev.filter((x) => x !== id) : [...prev, id]));
+  }
 
   async function markPostponed() {
-    if (!confirmOk) return;
+    if (!confirmOk || !pickOk) return;
     setBusy(true);
     setError("");
     try {
-      await fetchJson("/api/postponed-booking", {
+      const data = await fetchJson<{ postponed_booking_id?: number }>("/api/postponed-booking", {
         method: "POST",
         headers: { "Content-Type": "application/json" },
-        body: JSON.stringify({ action: "postpone", booking_id: booking.id }),
+        body: JSON.stringify({
+          action: "postpone",
+          booking_id: booking.id,
+          ...(postponingAll ? {} : { item_ids: selected.map((d) => d.id) }),
+        }),
       });
+      if (!postponingAll && data.postponed_booking_id && data.postponed_booking_id !== booking.id) {
+        router.push(`/postponed-booking/${data.postponed_booking_id}`);
+        return;
+      }
       router.refresh();
     } catch (e) {
       setError(e instanceof Error ? e.message : "Could not postpone booking");
@@ -142,6 +162,66 @@ export default function PostponedBookingDetailClient({
               <strong style={{ color: "#E65100" }}>₹{formatInr(totalAdvance)}</strong> moves to the postponed held total
               and is removed from daily sale / finance reports.
             </p>
+            {canPickDresses && (
+              <div style={{ marginBottom: 16 }}>
+                <label className="form-label">Which dresses to postpone?</label>
+                <div style={{ display: "flex", gap: 8, marginBottom: 8, flexWrap: "wrap" }}>
+                  <button
+                    type="button"
+                    className="btn btn-outline btn-sm"
+                    disabled={busy}
+                    onClick={() => setSelectedIds(dresses.filter((d) => !d.isDelivered).map((d) => d.id))}
+                  >
+                    Select all
+                  </button>
+                  <button type="button" className="btn btn-outline btn-sm" disabled={busy} onClick={() => setSelectedIds([])}>
+                    Clear
+                  </button>
+                </div>
+                <div style={{ display: "grid", gap: 6 }}>
+                  {dresses.map((d) => {
+                    const checked = selectedIds.includes(d.id);
+                    return (
+                      <label
+                        key={d.id}
+                        style={{
+                          display: "flex",
+                          alignItems: "center",
+                          gap: 10,
+                          padding: "8px 12px",
+                          border: `1.5px solid ${checked ? "#E65100" : "var(--border)"}`,
+                          borderRadius: 8,
+                          background: checked ? "rgba(230,81,0,0.06)" : "#fff",
+                          opacity: d.isDelivered ? 0.55 : 1,
+                          cursor: busy || d.isDelivered ? "not-allowed" : "pointer",
+                        }}
+                      >
+                        <input
+                          type="checkbox"
+                          checked={checked}
+                          disabled={busy || d.isDelivered}
+                          onChange={() => toggleDress(d.id)}
+                        />
+                        <span style={{ flex: 1, minWidth: 0 }}>
+                          <strong>{d.dressName}</strong>
+                          <span style={{ display: "block", fontSize: 12, color: "var(--text-muted)" }}>
+                            Rent ₹{formatInr(d.price)} · Advance ₹{formatInr(d.advance)}
+                            {d.isDelivered ? " · Already delivered" : ""}
+                          </span>
+                        </span>
+                      </label>
+                    );
+                  })}
+                </div>
+                <p style={{ fontSize: 12, color: "var(--text-muted)", marginTop: 8, marginBottom: 0 }}>
+                  {!selected.length
+                    ? "Tick the dresses to postpone."
+                    : postponingAll
+                      ? "All dresses selected — the whole booking will be postponed."
+                      : `${selected.length} of ${dresses.length} dresses selected — these move to a separate postponed record (same serial). The other dresses stay booked. Advance held: ₹${formatInr(heldAdvance)}.`}
+                </p>
+              </div>
+            )}
             <label className="form-label">
               Type <strong>{CONFIRM_WORD}</strong> to confirm
             </label>
@@ -160,10 +240,14 @@ export default function PostponedBookingDetailClient({
               type="button"
               className="btn btn-primary"
               style={{ background: "#E65100", borderColor: "#E65100" }}
-              disabled={!confirmOk || busy}
+              disabled={!confirmOk || busy || !pickOk}
               onClick={() => void markPostponed()}
             >
-              {busy ? "Postponing…" : "Mark Postponed"}
+              {busy
+                ? "Postponing…"
+                : postponingAll
+                  ? "Mark Postponed"
+                  : `Postpone ${selected.length} dress${selected.length === 1 ? "" : "es"}`}
             </button>
           </div>
         </div>

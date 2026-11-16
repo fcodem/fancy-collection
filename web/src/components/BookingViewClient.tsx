@@ -25,6 +25,7 @@ type CancelPanelItemSource = {
   size?: string | null;
   price?: number;
   advance?: number;
+  remaining?: number;
   isCancelled?: boolean;
   isDelivered?: boolean;
   isReturned?: boolean;
@@ -242,6 +243,7 @@ export default function BookingViewClient({
               size: bi.size,
               price: bi.price ?? 0,
               advance: bi.advance ?? 0,
+              remaining: bi.remaining ?? Math.max(0, (bi.price ?? 0) - (bi.advance ?? 0)),
               isCancelled: bi.isCancelled,
               isDelivered: bi.isDelivered,
               isReturned: bi.isReturned,

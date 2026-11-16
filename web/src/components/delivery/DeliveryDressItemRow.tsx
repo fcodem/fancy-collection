@@ -210,6 +210,7 @@ function DeliveryDressItemRow({
                 onChange={(e) => onUpdateField(it.id, "remaining", e.target.value)}
                 onWheel={preventInputWheel}
                 disabled={it.isDelivered && !editing}
+                placeholder="0 if not paid"
               />
             </div>
             <div>
