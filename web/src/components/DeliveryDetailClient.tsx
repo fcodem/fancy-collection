@@ -111,7 +111,10 @@ type ItemFormState = {
   notes: string;
 };
 
-/** Blank / invalid remaining = ₹0 collected (unpaid). Staff must type what was paid. */
+/**
+ * Prefill shows the due amount for convenience. Blank or 0 = unpaid (not auto-paid).
+ * Staff clear/zero the field when the customer does not pay the balance.
+ */
 function resolveRemainingCollectedInput(raw: string | undefined): number {
   if (raw == null || String(raw).trim() === "") return 0;
   const n = Number(raw);
@@ -121,8 +124,7 @@ function resolveRemainingCollectedInput(raw: string | undefined): number {
 /**
  * Prefill delivery security once for the booking — not once per dress.
  * Old bug copied the full deposit onto every dress (2 × ₹2000 → ₹4000 held).
- * Remaining is only prefilled when already collected — never with the due amount
- * (that made unpaid deliveries look/save as paid).
+ * Remaining is prefilled with already-collected amount, else the due remaining.
  */
 export function initialDeliveryItemForms(
   items: ItemRow[],
@@ -135,7 +137,9 @@ export function initialDeliveryItemForms(
 
   for (const it of items) {
     const remainingPrefill =
-      (it.itemRemainingCollected || 0) > 0 ? it.itemRemainingCollected : 0;
+      (it.itemRemainingCollected || 0) > 0
+        ? it.itemRemainingCollected
+        : Math.max(0, it.remaining || 0);
 
     let securityPrefill = 0;
     if ((it.itemSecurityCollected || 0) > 0) {
@@ -1256,8 +1260,9 @@ export default function DeliveryDetailClient({
 
           {!allDelivered && (
             <p style={{ fontSize: 13, color: "var(--text-muted)", marginBottom: 14 }}>
-              Tick each dress you are handing over now. Enter only what the customer pays now
-              (leave Remaining blank or 0 if unpaid), then press <strong>Deliver Selected</strong> at the bottom once.
+              Tick each dress you are handing over now. Remaining is prefilled with the balance due —
+              clear it to <strong>0</strong> if the customer is not paying, then press{" "}
+              <strong>Deliver Selected</strong> at the bottom once.
               {pendingItems.length > 1
                 ? " Two or more selected dresses send one combined delivery slip (WhatsApp + print)."
                 : " One dress sends a single delivery slip."}

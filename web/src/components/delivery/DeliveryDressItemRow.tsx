@@ -145,9 +145,24 @@ function DeliveryDressItemRow({
             {it.category}
             {it.size ? ` · ${it.size}` : ""} · Rent ₹{formatInr(it.price)}
             {(it.fittingCharges || 0) > 0 && <> · Fitting ₹{formatInr(it.fittingCharges || 0)}</>}
-            {!it.isCancelled && <> · Remaining ₹{formatInr(it.remaining)}</>}
             {typeof it.advance === "number" && it.advance > 0 && (
               <> · Advance ₹{formatInr(it.advance)}</>
+            )}
+            {!it.isCancelled && (it.remaining || 0) > 0 && (
+              <>
+                {" · "}
+                <span
+                  style={{
+                    color: "var(--danger)",
+                    fontWeight: 800,
+                    background: "rgba(220,53,69,0.1)",
+                    padding: "1px 6px",
+                    borderRadius: 4,
+                  }}
+                >
+                  Balance due ₹{formatInr(it.remaining)}
+                </span>
+              </>
             )}
           </div>
         </div>
@@ -201,7 +216,14 @@ function DeliveryDressItemRow({
 
           <div style={{ display: "grid", gridTemplateColumns: "1fr 1fr", gap: 12, marginBottom: 12 }}>
             <div>
-              <label className="form-label">Remaining Collected (₹)</label>
+              <label className="form-label" style={{ color: (it.remaining || 0) > 0 ? "var(--danger)" : undefined }}>
+                Remaining Collected (₹)
+                {(it.remaining || 0) > 0 ? (
+                  <span style={{ fontWeight: 700, marginLeft: 6 }}>
+                    — due ₹{formatInr(it.remaining)}
+                  </span>
+                ) : null}
+              </label>
               <input
                 type="number"
                 inputMode="numeric"
@@ -210,8 +232,18 @@ function DeliveryDressItemRow({
                 onChange={(e) => onUpdateField(it.id, "remaining", e.target.value)}
                 onWheel={preventInputWheel}
                 disabled={it.isDelivered && !editing}
-                placeholder="0 if not paid"
+                placeholder={(it.remaining || 0) > 0 ? String(it.remaining) : "0 if not paid"}
+                style={
+                  (it.remaining || 0) > 0
+                    ? { borderColor: "var(--danger)", boxShadow: "0 0 0 1px rgba(220,53,69,0.15)" }
+                    : undefined
+                }
               />
+              {(it.remaining || 0) > 0 && !it.isDelivered ? (
+                <div style={{ fontSize: 11, color: "var(--text-muted)", marginTop: 4 }}>
+                  Prefilled with balance due. Set to <strong>0</strong> if customer is not paying.
+                </div>
+              ) : null}
             </div>
             <div>
               <label className="form-label">Security Collected (₹)</label>
