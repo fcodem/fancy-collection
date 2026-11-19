@@ -1,6 +1,12 @@
 import { describe, it } from "node:test";
 import assert from "node:assert/strict";
-import { packingDivision, parsePackingDivisionFilter, formatPackingCategoryFilterLabel } from "./packingDivision";
+import {
+  packingDivision,
+  parsePackingDivisionFilter,
+  formatPackingCategoryFilterLabel,
+  sortByPackingCategory,
+  groupItemsByPackingDivision,
+} from "./packingDivision";
 
 describe("packingDivision", () => {
   it("classifies booking sub-categories like Crop Top as Women", () => {
@@ -45,5 +51,23 @@ describe("packingDivision", () => {
     assert.equal(parsePackingDivisionFilter("division:womens"), "womens");
     assert.equal(parsePackingDivisionFilter("Lehenga"), null);
     assert.equal(formatPackingCategoryFilterLabel("division:womens"), "All Women's");
+  });
+
+  it("sorts slip lines Mens → Women → Jewellery with Sherwani before Indowestern", () => {
+    const sorted = sortByPackingCategory([
+      { id: 1, dressName: "RANI LEHENGA", category: "Lehenga" },
+      { id: 2, dressName: "GOLD SET", category: "Kundan Jewellery" },
+      { id: 3, dressName: "INDO OFF WHITE", category: "Indowestern" },
+      { id: 4, dressName: "ROYAL SHERWANI", category: "Sherwani" },
+    ]);
+    assert.deepEqual(
+      sorted.map((r) => r.dressName),
+      ["ROYAL SHERWANI", "INDO OFF WHITE", "RANI LEHENGA", "GOLD SET"],
+    );
+    const groups = groupItemsByPackingDivision(sorted);
+    assert.deepEqual(
+      groups.map((g) => g.label),
+      ["Men", "Women", "Jewellery"],
+    );
   });
 });

@@ -18,6 +18,7 @@ import type { ReturnSlipResolve } from "@/lib/bookingStatus";
 import type { ReturnSlipProps } from "@/components/ReturnSlip";
 import type { DeliverySlipProps } from "@/components/DeliverySlip";
 import type { BookingSlipProps } from "@/components/BookingSlip";
+import { sortByPackingCategory } from "@/lib/packingDivision";
 
 type BookingWithItems = {
   id: number;
@@ -291,11 +292,12 @@ export function buildDeliverySlipData(
   }
 
   // Always surface pending-pickup + cancelled dresses on the slip (not in money totals for partial).
-  const displayItems = [
+  // Print order: Mens (Sherwani, Indowestern, …) → Women → Jewellery.
+  const displayItems = sortByPackingCategory([
     ...sourceItems,
     ...pendingPickupItems.filter((p) => !sourceItems.some((s) => s.id != null && s.id === p.id)),
     ...cancelledItems.filter((c) => !sourceItems.some((s) => s.id != null && s.id === c.id)),
-  ];
+  ]);
 
   const items =
     displayItems.length > 0
@@ -445,7 +447,7 @@ export function buildReturnSlipData(
     securityDeposit = booking.securityDeposit;
 
     const items = sourceItems.length > 0
-      ? sourceItems.map(mapReturnSlipItem)
+      ? sortByPackingCategory(sourceItems).map(mapReturnSlipItem)
       : booking.dressName
         ? [{
             dressName: booking.dressName,
@@ -537,10 +539,10 @@ export function buildReturnSlipData(
   const actual = formatSlipDateTime(returnedAt);
   const late = isLateReturn(returnedAt, booking.returnDate);
 
-  const displayItems = [
+  const displayItems = sortByPackingCategory([
     ...sourceItems,
     ...cancelledItems.filter((c) => !sourceItems.some((s) => s.id != null && s.id === c.id)),
-  ];
+  ]);
 
   return {
     slipSubtitle,
@@ -600,7 +602,7 @@ export function buildBookingSlipData(booking: BookingWithItems): {
 
   const items =
     booking.bookingItems.length > 0
-      ? booking.bookingItems.map((bi) => ({
+      ? sortByPackingCategory(booking.bookingItems).map((bi) => ({
           dressName: bi.dressName,
           category: bi.category || "",
           size: bi.size || "",
@@ -680,9 +682,8 @@ export function buildIncompleteSlipData(
     return true;
   };
 
-  const incompleteItems = booking.bookingItems
-    .filter(incompleteFilter)
-    .map((bi) => {
+  const incompleteItems = sortByPackingCategory(booking.bookingItems.filter(incompleteFilter)).map(
+    (bi) => {
       const catalogRef = bi.item ? inventoryPhotoRef(bi.item) : "";
       return {
         dressName: bi.dressName,
@@ -694,7 +695,8 @@ export function buildIncompleteSlipData(
         photo: bi.itemIncompletePhoto,
         catalogPhotoUrl: catalogRef ? photoUrl(catalogRef) || null : null,
       };
-    });
+    },
+  );
 
   if (
     incompleteItems.length === 0 &&
@@ -712,13 +714,13 @@ export function buildIncompleteSlipData(
     });
   }
 
-  const returnedItems = booking.bookingItems
-    .filter((bi) => bi.isReturned && !bi.isIncompleteReturn)
-    .map((bi) => ({
-      dressName: bi.dressName,
-      category: bi.category || "",
-      size: bi.size || "",
-    }));
+  const returnedItems = sortByPackingCategory(
+    booking.bookingItems.filter((bi) => bi.isReturned && !bi.isIncompleteReturn),
+  ).map((bi) => ({
+    dressName: bi.dressName,
+    category: bi.category || "",
+    size: bi.size || "",
+  }));
 
   return {
     booking: {

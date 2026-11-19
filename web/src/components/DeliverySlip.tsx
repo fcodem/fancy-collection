@@ -8,6 +8,7 @@ import PremiumSlipMarker from "@/components/PremiumSlipMarker";
 import ZoomableImage from "@/components/ZoomableImage";
 import SlipOutfitPhoto from "@/components/SlipOutfitPhoto";
 import { WHATSAPP_CONTACT_LINE, WHATSAPP_TEAM_LINE, SLIP_TERMS } from "@/lib/slipConstants";
+import { groupItemsByPackingDivision } from "@/lib/packingDivision";
 
 export type DeliverySlipProps = {
   booking: {
@@ -103,6 +104,8 @@ export default function DeliverySlip(props: DeliverySlipProps) {
   const slipNo = String(b.monthlySerial).padStart(2, "0");
   const displayAddress = businessAddress?.trim() || DEFAULT_ADDRESS;
   const displayPhone = businessPhone?.trim() || DEFAULT_PHONE;
+  const itemGroups = groupItemsByPackingDivision(items);
+  const showDivisionHeaders = itemGroups.length > 1;
   const outfitItems = items.filter((it) => it.photoUrl);
 
   const deliveredDate = new Date(b.deliveredAt);
@@ -286,8 +289,30 @@ export default function DeliverySlip(props: DeliverySlipProps) {
               <div style={{ textAlign: "right" }}>Advance</div>
               <div style={{ textAlign: "right" }}>Balance</div>
             </div>
-            {items.map((item, i) => (
-              <div key={i} style={{
+            {itemGroups.flatMap((group, gi) => {
+              let rowBase = 0;
+              for (let g = 0; g < gi; g++) rowBase += itemGroups[g].items.length;
+              const header = showDivisionHeaders ? (
+                <div
+                  key={`div-${group.division}`}
+                  style={{
+                    background: "#e8f5e9",
+                    borderBottom: "1px solid #cfe8d4",
+                    padding: "6px 10px",
+                    fontSize: 11,
+                    fontWeight: 800,
+                    color: G,
+                    letterSpacing: "0.06em",
+                    textTransform: "uppercase",
+                  }}
+                >
+                  {group.label}
+                </div>
+              ) : null;
+              const rows = group.items.map((item, localIdx) => {
+                const i = rowBase + localIdx;
+                return (
+              <div key={`${group.division}-${i}`} style={{
                 display: "grid", gridTemplateColumns: "28px 44px 1fr 80px 52px 60px 70px 70px 68px",
                 background: item.isCancelled
                   ? "rgba(192,57,43,0.06)"
@@ -351,7 +376,10 @@ export default function DeliverySlip(props: DeliverySlipProps) {
                   {item.isCancelled || item.isPendingPickup ? "—" : rs(item.remaining)}
                 </div>
               </div>
-            ))}
+                );
+              });
+              return header ? [header, ...rows] : rows;
+            })}
             <div style={{
               display: "grid", gridTemplateColumns: "28px 44px 1fr 80px 52px 60px 70px 70px 68px",
               background: LIGHT_GREEN, borderTop: `2px solid ${G}`, padding: "8px 10px", gap: 4, fontSize: 12, fontWeight: 700,

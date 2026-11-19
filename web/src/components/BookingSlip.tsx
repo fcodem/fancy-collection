@@ -8,6 +8,7 @@ import SlipMottoBanner from "@/components/SlipMottoBanner";
 import Emoji from "@/components/Emoji";
 import PremiumSlipMarker from "@/components/PremiumSlipMarker";
 import { WHATSAPP_CONTACT_LINE, WHATSAPP_TEAM_LINE, SLIP_TERMS } from "@/lib/slipConstants";
+import { groupItemsByPackingDivision } from "@/lib/packingDivision";
 
 export type BookingSlipProps = {
   booking: {
@@ -168,6 +169,8 @@ export default function BookingSlip(props: BookingSlipProps) {
   const half = Math.ceil(TERMS.length / 2);
   const termsLeft = TERMS.slice(0, half);
   const termsRight = TERMS.slice(half);
+  const itemGroups = groupItemsByPackingDivision(items);
+  const showDivisionHeaders = itemGroups.length > 1;
   const outfitItems = items.filter((it) => it.photoUrl);
 
   const totalFitting =
@@ -394,9 +397,31 @@ export default function BookingSlip(props: BookingSlipProps) {
               <div style={{ textAlign: "right" }}>Balance</div>
             </div>
 
-            {/* Rows */}
-            {items.map((item, i) => (
-              <div key={i} style={{
+            {/* Rows — Mens → Women → Jewellery */}
+            {itemGroups.flatMap((group, gi) => {
+              let rowBase = 0;
+              for (let g = 0; g < gi; g++) rowBase += itemGroups[g].items.length;
+              const header = showDivisionHeaders ? (
+                <div
+                  key={`div-${group.division}`}
+                  style={{
+                    background: "#e8f5e9",
+                    borderBottom: "1px solid #cfe8d4",
+                    padding: "6px 10px",
+                    fontSize: 11,
+                    fontWeight: 800,
+                    color: G,
+                    letterSpacing: "0.06em",
+                    textTransform: "uppercase",
+                  }}
+                >
+                  {group.label}
+                </div>
+              ) : null;
+              const rows = group.items.map((item, localIdx) => {
+                const i = rowBase + localIdx;
+                return (
+              <div key={`${group.division}-${i}`} style={{
                 display: "grid",
                 gridTemplateColumns: itemGrid,
                 background: i % 2 === 0 ? "#fff" : "#f9fbf9",
@@ -437,7 +462,10 @@ export default function BookingSlip(props: BookingSlipProps) {
                   {rs(item.remaining)}
                 </div>
               </div>
-            ))}
+                );
+              });
+              return header ? [header, ...rows] : rows;
+            })}
 
             {/* Totals row */}
             <div style={{

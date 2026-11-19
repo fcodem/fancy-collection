@@ -187,3 +187,96 @@ export function packingDivisionForItem(
   );
   return packingDivision(category, dressName, inventorySubCategory, lists);
 }
+
+/** Sherwani → Indowestern → … → Women → Jewellery (same order as free-item lists). */
+const PACKING_CATEGORY_ORDER = [...BASE_MENS, ...BASE_WOMENS, ...BASE_JEWELLERY, ...BASE_ACCESSORY];
+
+function packingCategoryRank(category?: string | null): number {
+  const c = String(category || "").trim();
+  if (!c) return PACKING_CATEGORY_ORDER.length + 1;
+  const exact = PACKING_CATEGORY_ORDER.findIndex((name) => normalize(name) === normalize(c));
+  if (exact !== -1) return exact;
+  return PACKING_CATEGORY_ORDER.length;
+}
+
+export function packingDivisionRank(
+  division: PackingDivision,
+): number {
+  const idx = DIVISION_SORT_ORDER.indexOf(division);
+  return idx === -1 ? DIVISION_SORT_ORDER.length : idx;
+}
+
+type PackingSortableItem = {
+  category?: string | null;
+  dressName?: string | null;
+  isCancelled?: boolean | null;
+  id?: number | null;
+  item?: { category?: string | null; subCategory?: string | null } | null;
+};
+
+/**
+ * Sort booking/slip lines Mens → Women → Jewellery, then by base category
+ * (Sherwani, Indowestern, …), then dress name. Cancelled rows stay at the end
+ * of their category group.
+ */
+export function sortByPackingCategory<T extends PackingSortableItem>(
+  items: T[],
+  lists?: CategoryDivisionLists,
+): T[] {
+  return [...items].sort((a, b) => {
+    const aDiv = packingDivisionForItem(
+      a.category,
+      a.item?.category,
+      a.dressName,
+      a.item?.subCategory,
+      lists,
+    );
+    const bDiv = packingDivisionForItem(
+      b.category,
+      b.item?.category,
+      b.dressName,
+      b.item?.subCategory,
+      lists,
+    );
+    const div = packingDivisionRank(aDiv) - packingDivisionRank(bDiv);
+    if (div !== 0) return div;
+
+    const aCat = resolveEffectiveCategory(a.category, a.item?.category, a.item?.subCategory);
+    const bCat = resolveEffectiveCategory(b.category, b.item?.category, b.item?.subCategory);
+    const cat = packingCategoryRank(aCat) - packingCategoryRank(bCat);
+    if (cat !== 0) return cat;
+
+    const aCancel = a.isCancelled ? 1 : 0;
+    const bCancel = b.isCancelled ? 1 : 0;
+    if (aCancel !== bCancel) return aCancel - bCancel;
+
+    const name = String(a.dressName || "").localeCompare(String(b.dressName || ""), undefined, {
+      sensitivity: "base",
+    });
+    if (name !== 0) return name;
+
+    return (a.id || 0) - (b.id || 0);
+  });
+}
+
+/** Group already-sorted slip rows into Mens / Women / Jewellery bands for print headers. */
+export function groupItemsByPackingDivision<T extends { category?: string | null; dressName?: string | null }>(
+  items: T[],
+  lists?: CategoryDivisionLists,
+): Array<{ division: PackingDivision; label: string; items: T[] }> {
+  const groups: Array<{ division: PackingDivision; label: string; items: T[] }> = [];
+  for (const item of items) {
+    const division = packingDivision(item.category, item.dressName, null, lists);
+    const last = groups[groups.length - 1];
+    if (last && last.division === division) {
+      last.items.push(item);
+    } else {
+      groups.push({
+        division,
+        label: DIVISION_CHART_LABELS[division],
+        items: [item],
+      });
+    }
+  }
+  return groups;
+}

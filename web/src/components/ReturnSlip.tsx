@@ -22,6 +22,7 @@ import {
   slipPadSerial,
   slipRs,
 } from "@/lib/slipConstants";
+import { groupItemsByPackingDivision } from "@/lib/packingDivision";
 
 export type ReturnSlipProps = {
   booking: {
@@ -100,6 +101,8 @@ export default function ReturnSlip(props: ReturnSlipProps) {
   const slipNo = slipPadSerial(b.monthlySerial);
   const displayPhone = businessPhone?.trim() || SLIP_DEFAULT_PHONE;
   const displayAddress = businessAddress?.trim() || SLIP_DEFAULT_ADDRESS;
+  const itemGroups = groupItemsByPackingDivision(items);
+  const showDivisionHeaders = itemGroups.length > 1;
 
   const remainingCollected = b.remainingCollected ?? 0;
   const securityRefunded = b.securityRefunded ?? 0;
@@ -381,7 +384,28 @@ export default function ReturnSlip(props: ReturnSlipProps) {
                 </tr>
               </thead>
               <tbody>
-                {items.map((item, idx) => {
+                {itemGroups.flatMap((group, gi) => {
+                  let rowBase = 0;
+                  for (let g = 0; g < gi; g++) rowBase += itemGroups[g].items.length;
+                  const header = showDivisionHeaders ? (
+                    <tr key={`div-${group.division}`} style={{ background: "#e8f5e9" }}>
+                      <td
+                        colSpan={6}
+                        style={{
+                          padding: "6px 10px",
+                          fontSize: 11,
+                          fontWeight: 800,
+                          color: SLIP_GREEN,
+                          letterSpacing: "0.06em",
+                          textTransform: "uppercase",
+                        }}
+                      >
+                        {group.label}
+                      </td>
+                    </tr>
+                  ) : null;
+                  const rows = group.items.map((item, localIdx) => {
+                  const idx = rowBase + localIdx;
                   const isCancelled = item.isCancelled || item.returnCondition === "cancelled";
                   const normalized = isCancelled ? "good" : normalizeCondition(item.returnCondition);
                   const condition = isCancelled
@@ -415,7 +439,7 @@ export default function ReturnSlip(props: ReturnSlipProps) {
 
                   return (
                     <tr
-                      key={`${item.dressName}-${idx}`}
+                      key={`${group.division}-${item.dressName}-${idx}`}
                       style={{ background: isCancelled ? "rgba(192,57,43,0.05)" : idx % 2 === 0 ? "#fff" : "#fafdfa" }}
                     >
                       <td data-label="#" style={{ padding: "9px 10px", fontSize: "clamp(11px, 1.8vw, 13px)" }}>
@@ -467,6 +491,8 @@ export default function ReturnSlip(props: ReturnSlipProps) {
                       </td>
                     </tr>
                   );
+                  });
+                  return header ? [header, ...rows] : rows;
                 })}
               </tbody>
             </table>
