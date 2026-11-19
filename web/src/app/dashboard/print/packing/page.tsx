@@ -8,10 +8,16 @@ import { getPackingListPage } from "@/lib/services/packingList";
 import {
   PACKING_DIVISIONS,
   formatPackingCategoryFilterLabel,
+  packingDivision,
   packingDivisionFilterValue,
   parsePackingDivisionFilter,
+  type CategoryDivisionLists,
 } from "@/lib/packingDivision";
-import { packingSectionsForRows } from "@/lib/packingListSections";
+import {
+  groupPackingItemsByCategory,
+  packingDivisionOrderLabel,
+  packingSectionsForRows,
+} from "@/lib/packingListSections";
 import PrintPaginator, { type PrintBlock } from "@/components/print/PrintPaginator";
 import { PRINT_CSS } from "../[kind]/PrintRecordCard";
 import PackingPrintFilters from "./PackingPrintFilters";
@@ -53,7 +59,17 @@ function SectionHeading({ label, right }: { label: string; right: string }) {
   );
 }
 
-function PackingBookingCard({ b }: { b: PackingRow }) {
+function PackingBookingCard({
+  b,
+  categoryLists,
+  showOrders = false,
+}: {
+  b: PackingRow;
+  categoryLists: CategoryDivisionLists;
+  showOrders?: boolean;
+}) {
+  const categoryGroups = groupPackingItemsByCategory(b.items, categoryLists);
+  let rowNo = 0;
   return (
     <div className="pk-bk">
       <div className="pk-bk-head">
@@ -92,9 +108,29 @@ function PackingBookingCard({ b }: { b: PackingRow }) {
           </tr>
         </thead>
         <tbody>
-          {b.items.map((it, i) => (
+          {categoryGroups.flatMap((catGroup) => {
+            const header = (
+              <tr key={`cat-${catGroup.category}`}>
+                <td
+                  colSpan={9}
+                  style={{
+                    background: "#f0f0f0",
+                    fontWeight: 800,
+                    fontSize: 11,
+                    letterSpacing: "0.04em",
+                    textTransform: "uppercase",
+                  }}
+                >
+                  Category: {catGroup.category}
+                </td>
+              </tr>
+            );
+            const rows = catGroup.items.map((it) => {
+              rowNo += 1;
+              const i = rowNo;
+              return (
             <tr key={`${it.bi_id ?? "legacy"}-${i}`}>
-              <td>{i + 1}</td>
+              <td>{i}</td>
               <td style={{ fontWeight: 700 }}>
                 {it.display_name || it.dress_name}
                 {it.fitting_charges > 0 && (
@@ -111,9 +147,40 @@ function PackingBookingCard({ b }: { b: PackingRow }) {
                 {it.is_packed_ready ? "✔" : <span className="pk-box" />}
               </td>
             </tr>
-          ))}
+              );
+            });
+            return [header, ...rows];
+          })}
         </tbody>
       </table>
+      {showOrders && b.orders.length > 0 && (
+        <div style={{ borderTop: "1.5px solid #000" }}>
+          <div className="pk-note">
+            <span className="pk-note-l">Custom orders</span>
+            <span>With this booking</span>
+          </div>
+          <table className="bw-table">
+            <thead>
+              <tr>
+                <th>Order</th>
+                <th>Due</th>
+                <th className="num">Cost</th>
+                <th style={{ width: 38, textAlign: "center" }}>Ready</th>
+              </tr>
+            </thead>
+            <tbody>
+              {b.orders.map((o, i) => (
+                <tr key={i}>
+                  <td style={{ fontWeight: 700 }}>{o.description}</td>
+                  <td>{o.deliveryDate} {o.deliveryTime}</td>
+                  <td className="num">{o.cost > 0 ? `₹${formatInr(o.cost)}` : "Included"}</td>
+                  <td style={{ textAlign: "center" }}><span className="pk-box" /></td>
+                </tr>
+              ))}
+            </tbody>
+          </table>
+        </div>
+      )}
     </div>
   );
 }
@@ -243,13 +310,24 @@ export default async function PackingPrintPage({
       breakBefore: idx > 0,
       node: (
         <SectionHeading
-          label={sec.division.label}
-          right={`${sec.rows.length} booking${sec.rows.length === 1 ? "" : "s"} · ${dressesIn(sec.rows)} dresses`}
+          label={packingDivisionOrderLabel(sec.division.key)}
+          right={`Order ${idx + 1} of ${sections.length} · ${sec.rows.length} booking${sec.rows.length === 1 ? "" : "s"} · ${dressesIn(sec.rows)} dresses`}
         />
       ),
     });
     for (const b of sec.rows) {
-      blocks.push({ key: `bk-${sec.division.key}-${b.id}`, node: <PackingBookingCard b={b} /> });
+      const original = rows.find((r) => r.id === b.id);
+      const firstKey = PACKING_DIVISIONS.find((d) =>
+        (original?.items || []).some(
+          (item) =>
+            packingDivision(item.category, item.dress_name, item.sub_category, categoryLists) === d.key,
+        ),
+      )?.key;
+      const showOrders = firstKey === sec.division.key && (b.orders?.length || 0) > 0;
+      blocks.push({
+        key: `bk-${sec.division.key}-${b.id}`,
+        node: <PackingBookingCard b={b} categoryLists={categoryLists} showOrders={showOrders} />,
+      });
     }
   });
 
@@ -258,7 +336,12 @@ export default async function PackingPrintPage({
       key: "sec-orders",
       keepWithNext: true,
       breakBefore: sections.length > 0,
-      node: <SectionHeading label="Custom orders" right={`${ordersRows.reduce((n, b) => n + b.orders.length, 0)} orders`} />,
+      node: (
+        <SectionHeading
+          label="4. Custom orders"
+          right={`${ordersRows.reduce((n, b) => n + b.orders.length, 0)} orders · with bookings above when attached`}
+        />
+      ),
     });
     for (const b of ordersRows) blocks.push({ key: `ord-${b.id}`, node: <OrdersCard b={b} /> });
   }

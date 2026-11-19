@@ -139,7 +139,7 @@ function divisionFromText(text: string): PackingDivision {
     return "jewellery";
   }
   if (
-    /crop top|bodycon|sharara|gharara|garara|anarkali|lehenga|lehnga|saree|sari|gown|choli|blouse|reception|bridal|cutwork|cutdana|sabesach|sabyasach|rani\b|pista|stone\b|banarasi|bandhani|chikankari|organza|patola|party wear|haldi|mehendi|cocktail|koti\b|dupatta|clutch|tiara|crown/.test(
+    /crop top|bodycon|sharara|gharara|garara|anarkali|lehenga|lehnga|lancha|saree|sari|gown|choli|blouse|reception|bridal|cutwork|cutdana|sabesach|sabyasach|rani\b|pista|stone\b|banarasi|bandhani|chikankari|organza|patola|party wear|haldi|mehendi|cocktail|koti\b|dupatta|clutch|tiara|crown/.test(
       t,
     )
   ) {
@@ -246,6 +246,11 @@ export function sortByPackingCategory<T extends PackingSortableItem>(
     const cat = packingCategoryRank(aCat) - packingCategoryRank(bCat);
     if (cat !== 0) return cat;
 
+    const catName = String(aCat || "").localeCompare(String(bCat || ""), undefined, {
+      sensitivity: "base",
+    });
+    if (catName !== 0) return catName;
+
     const aCancel = a.isCancelled ? 1 : 0;
     const bCancel = b.isCancelled ? 1 : 0;
     if (aCancel !== bCancel) return aCancel - bCancel;
@@ -259,24 +264,85 @@ export function sortByPackingCategory<T extends PackingSortableItem>(
   });
 }
 
-/** Group already-sorted slip rows into Mens / Women / Jewellery bands for print headers. */
+export type SlipPrintCategoryGroup<T> = {
+  category: string;
+  items: T[];
+};
+
+export type SlipPrintDivisionGroup<T> = {
+  division: PackingDivision;
+  label: string;
+  categories: SlipPrintCategoryGroup<T>[];
+};
+
+function slipCategoryLabel(item: {
+  category?: string | null;
+  dressName?: string | null;
+}): string {
+  const cat = String(item.category || "").trim();
+  return cat || "Uncategorized";
+}
+
+/**
+ * Sort then nest slip rows as:
+ * Men → { Sherwani, Indowestern, … }
+ * Women → { Lehenga, Lancha, … }
+ * Jewellery → { … }
+ * Used for print headers above each division and each category.
+ */
+export function groupSlipItemsForPrint<T extends PackingSortableItem>(
+  items: T[],
+  lists?: CategoryDivisionLists,
+): SlipPrintDivisionGroup<T>[] {
+  const sorted = sortByPackingCategory(items, lists);
+  const divisions: SlipPrintDivisionGroup<T>[] = [];
+
+  for (const item of sorted) {
+    const division = packingDivisionForItem(
+      item.category,
+      item.item?.category,
+      item.dressName,
+      item.item?.subCategory,
+      lists,
+    );
+    const category = slipCategoryLabel({
+      category: resolveEffectiveCategory(
+        item.category,
+        item.item?.category,
+        item.item?.subCategory,
+      ),
+      dressName: item.dressName,
+    });
+
+    let divGroup = divisions[divisions.length - 1];
+    if (!divGroup || divGroup.division !== division) {
+      divGroup = {
+        division,
+        label: DIVISION_CHART_LABELS[division],
+        categories: [],
+      };
+      divisions.push(divGroup);
+    }
+
+    let catGroup = divGroup.categories[divGroup.categories.length - 1];
+    if (!catGroup || catGroup.category !== category) {
+      catGroup = { category, items: [] };
+      divGroup.categories.push(catGroup);
+    }
+    catGroup.items.push(item);
+  }
+
+  return divisions;
+}
+
+/** @deprecated Prefer groupSlipItemsForPrint — kept for callers that only need division bands. */
 export function groupItemsByPackingDivision<T extends { category?: string | null; dressName?: string | null }>(
   items: T[],
   lists?: CategoryDivisionLists,
 ): Array<{ division: PackingDivision; label: string; items: T[] }> {
-  const groups: Array<{ division: PackingDivision; label: string; items: T[] }> = [];
-  for (const item of items) {
-    const division = packingDivision(item.category, item.dressName, null, lists);
-    const last = groups[groups.length - 1];
-    if (last && last.division === division) {
-      last.items.push(item);
-    } else {
-      groups.push({
-        division,
-        label: DIVISION_CHART_LABELS[division],
-        items: [item],
-      });
-    }
-  }
-  return groups;
+  return groupSlipItemsForPrint(items as T[], lists).map((d) => ({
+    division: d.division,
+    label: d.label,
+    items: d.categories.flatMap((c) => c.items),
+  }));
 }

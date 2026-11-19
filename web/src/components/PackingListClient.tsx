@@ -21,7 +21,12 @@ import StarBookingBadge from "@/components/StarBookingBadge";
 import ViewBookingButton from "@/components/ViewBookingButton";
 import { addDaysIso } from "@/lib/dateInput";
 import { packingDivision, PACKING_DIVISIONS, parsePackingDivisionFilter, formatPackingCategoryFilterLabel, packingDivisionFilterValue, type CategoryDivisionLists, type PackingDivision } from "@/lib/packingDivision";
-import { countPackingItemsByDivision, packingSectionsForRows } from "@/lib/packingListSections";
+import {
+  countPackingItemsByDivision,
+  groupPackingItemsByCategory,
+  packingDivisionOrderLabel,
+  packingSectionsForRows,
+} from "@/lib/packingListSections";
 import { sortByDeliverySchedule } from "@/lib/bookingDeliverySort";
 import SizeSortBar, { useIsMensCategory } from "@/components/SizeSortBar";
 import { applySizeFilterSort, normalizeSize, uniqueSortedSizes } from "@/lib/sizeSort";
@@ -441,7 +446,7 @@ export default function PackingListClient({
       )}
 
       {loaded &&
-        packingSections.map(({ division: div, rows: sectionRows }) => {
+        packingSections.map(({ division: div, rows: sectionRows }, sectionIdx) => {
           const sortedRows = activeSizeSort
             ? applySizeFilterSort(sortByDeliverySchedule(sectionRows), packingBookingSizes, {
                 selected: "",
@@ -461,12 +466,13 @@ export default function PackingListClient({
                   fontSize: 18,
                 }}
               >
-                {div.label}
+                {packingDivisionOrderLabel(div.key)}
                 <span style={{ fontWeight: 500, fontSize: 13, color: "var(--text-muted)", marginLeft: 8 }}>
                   {sectionItemCount} item{sectionItemCount === 1 ? "" : "s"}
                   {sortedRows.length > 0
                     ? ` · ${sortedRows.length} booking${sortedRows.length === 1 ? "" : "s"}`
                     : ""}
+                  {" · "}print order {sectionIdx + 1} of {packingSections.length}
                 </span>
               </h2>
               {!sortedRows.length ? (
@@ -501,8 +507,25 @@ export default function PackingListClient({
             />
           </div>
           <div className="card-body packing-items-section">
-            {b.items.map((item, idx) => (
-              <div key={item.bi_id || idx} className="packing-item-block">
+            {groupPackingItemsByCategory(b.items, categoryLists).map((catGroup) => (
+              <div key={`${div.key}-${b.id}-${catGroup.category}`}>
+                <div
+                  style={{
+                    margin: "10px 0 8px",
+                    padding: "6px 10px",
+                    background: "var(--cream-dark, #f3efe6)",
+                    borderLeft: "4px solid var(--gold, #c9a84c)",
+                    borderRadius: 6,
+                    fontSize: 12,
+                    fontWeight: 800,
+                    color: "var(--primary, #1a5c2a)",
+                    letterSpacing: "0.02em",
+                  }}
+                >
+                  Category: {catGroup.category}
+                </div>
+                {catGroup.items.map((item, idx) => (
+              <div key={item.bi_id || `${catGroup.category}-${idx}`} className="packing-item-block">
                 <div className="packing-item-details-line">
                   <div className="packing-item-dress">
                     <BookingPhotoThumb
@@ -602,6 +625,8 @@ export default function PackingListClient({
                   )}
                 </div>
               </div>
+                ))}
+              </div>
             ))}
           </div>
           {(() => {
@@ -615,6 +640,19 @@ export default function PackingListClient({
             return firstKey === div.key && b.orders && b.orders.length > 0;
           })() && (
             <div className="card-body" style={{ paddingTop: 0 }}>
+              <div
+                style={{
+                  margin: "4px 0 10px",
+                  padding: "6px 10px",
+                  background: "rgba(201,168,76,0.12)",
+                  borderRadius: 6,
+                  fontSize: 12,
+                  fontWeight: 800,
+                  color: "var(--primary, #1a5c2a)",
+                }}
+              >
+                Custom orders with this booking
+              </div>
               <CustomOrdersSection orders={b.orders || []} showPhoto={false} />
             </div>
           )}

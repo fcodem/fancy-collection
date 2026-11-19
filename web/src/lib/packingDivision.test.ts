@@ -5,7 +5,7 @@ import {
   parsePackingDivisionFilter,
   formatPackingCategoryFilterLabel,
   sortByPackingCategory,
-  groupItemsByPackingDivision,
+  groupSlipItemsForPrint,
 } from "./packingDivision";
 
 describe("packingDivision", () => {
@@ -59,15 +59,24 @@ describe("packingDivision", () => {
       { id: 2, dressName: "GOLD SET", category: "Kundan Jewellery" },
       { id: 3, dressName: "INDO OFF WHITE", category: "Indowestern" },
       { id: 4, dressName: "ROYAL SHERWANI", category: "Sherwani" },
+      { id: 5, dressName: "PISTA LANCHA", category: "Lancha" },
     ]);
     assert.deepEqual(
       sorted.map((r) => r.dressName),
-      ["ROYAL SHERWANI", "INDO OFF WHITE", "RANI LEHENGA", "GOLD SET"],
+      ["ROYAL SHERWANI", "INDO OFF WHITE", "RANI LEHENGA", "PISTA LANCHA", "GOLD SET"],
     );
-    const groups = groupItemsByPackingDivision(sorted);
+    const groups = groupSlipItemsForPrint(sorted);
     assert.deepEqual(
       groups.map((g) => g.label),
       ["Men", "Women", "Jewellery"],
+    );
+    assert.deepEqual(
+      groups[0].categories.map((c) => c.category),
+      ["Sherwani", "Indowestern"],
+    );
+    assert.deepEqual(
+      groups[1].categories.map((c) => c.category),
+      ["Lehenga", "Lancha"],
     );
   });
 });

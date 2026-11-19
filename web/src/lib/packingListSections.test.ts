@@ -2,7 +2,9 @@ import { describe, it } from "node:test";
 import assert from "node:assert/strict";
 import {
   countPackingItemsByDivision,
+  groupPackingItemsByCategory,
   packingDivisionForListItem,
+  packingDivisionOrderLabel,
   packingSectionsForRows,
 } from "./packingListSections";
 import { PACKING_DIVISIONS } from "./packingDivision";
@@ -56,5 +58,25 @@ describe("packingListSections", () => {
       ),
       "jewellery",
     );
+  });
+
+  it("groups packing items by category in print order and labels divisions 1–3", () => {
+    const grouped = groupPackingItemsByCategory(
+      [
+        { category: "Indowestern", dress_name: "INDO A" },
+        { category: "Sherwani", dress_name: "SHER B" },
+        { category: "Indowestern", dress_name: "INDO C" },
+      ],
+      lists,
+    );
+    assert.deepEqual(
+      grouped.map((g) => g.category),
+      ["Sherwani", "Indowestern"],
+    );
+    assert.equal(grouped[0]!.items.length, 1);
+    assert.equal(grouped[1]!.items.length, 2);
+    assert.equal(packingDivisionOrderLabel("mens"), "1. Mens");
+    assert.equal(packingDivisionOrderLabel("womens"), "2. Women");
+    assert.equal(packingDivisionOrderLabel("jewellery"), "3. Jewellery");
   });
 });

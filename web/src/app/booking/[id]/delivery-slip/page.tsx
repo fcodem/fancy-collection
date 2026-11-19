@@ -10,6 +10,8 @@ import { parseBookingItemIdsParam } from "@/lib/slipDelta";
 import { requireSlipPageAccess } from "@/lib/requireSlipPageAccess";
 import { isValidPdfRenderSecret } from "@/lib/slipPdfAccess";
 import { SlipPdfPrintStyles } from "@/components/SlipPdfPrintStyles";
+import { loadWarningItemsForBooking } from "@/lib/bookingWarnings";
+import { findItemWarnings } from "@/components/BookingItemWarningsSection";
 import "@/styles/slip-print.css";
 
 export async function generateMetadata({
@@ -100,6 +102,22 @@ export default async function DeliverySlipPage({
 
   const { booking: slipBooking, items, orders: slipOrders, slipSubtitle } = slipData;
 
+  const allWarnings = await loadWarningItemsForBooking(booking);
+  const seen = new Set<string>();
+  const matchedWarnings = [];
+  for (const it of items) {
+    const w = findItemWarnings(allWarnings, { dressName: it.dressName });
+    if (!w) continue;
+    const key = `${w.item_id ?? ""}:${w.dress_name ?? ""}:${w.display_name ?? ""}`;
+    if (seen.has(key)) continue;
+    seen.add(key);
+    matchedWarnings.push(w);
+  }
+  // Prefer slip dresses; if none matched, still show any booking-level warnings.
+  const slipWarnings = matchedWarnings.length
+    ? matchedWarnings
+    : allWarnings.filter((w) => w.returning_warning || w.booked_warning);
+
   const qrToken = await ensureBookingQrToken(bookingId);
   const qrDataUrl = await bookingQrDataUrl(qrToken, undefined, 280);
 
@@ -117,6 +135,7 @@ export default async function DeliverySlipPage({
           businessPhone={SLIP_BIZ.phone}
           businessAddress={SLIP_BIZ.address}
           slipSubtitle={slipSubtitle}
+          warningItems={slipWarnings}
         />
       </div>
     </>
