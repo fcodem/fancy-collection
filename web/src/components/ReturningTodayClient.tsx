@@ -375,6 +375,17 @@ export default function ReturningTodayClient({
               rows={pdfRows}
               disabled={!loaded || !pdfRows.length}
             />
+            <a
+              href={`/dashboard/print/alternate?date=${encodeURIComponent(date)}&autoprint=1`}
+              target="_blank"
+              rel="noopener"
+              className="btn btn-outline"
+              style={{ fontWeight: 700 }}
+              title="Print alternate handovers with complete return and next-delivery records (Men / Women / Jewellery)"
+            >
+              <i className="fa-solid fa-print" style={{ marginRight: 6 }} />
+              Print Alternate List
+            </a>
           </div>
           {showSizeBar ? (
             <div style={{ marginTop: 14 }}>

@@ -16,10 +16,14 @@ import {
 } from "@/lib/bookingDetails";
 import { bookingItemSize, dressDisplayName } from "@/lib/dress";
 import { limitedDbRead } from "@/lib/readDbLimit";
-
 import type { DashboardPrintKind, DashboardPrintScope, PrintBookingRecord, PrintDressRow } from "@/lib/services/dashboardPrintTypes";
 
 export type { DashboardPrintKind, DashboardPrintScope, PrintBookingRecord } from "@/lib/services/dashboardPrintTypes";
+export {
+  groupDashboardPrintByDivision,
+  groupPrintDressesByCategory,
+  type DashboardPrintDivisionSection,
+} from "@/lib/services/dashboardPrintGrouping";
 
 export const DASHBOARD_PRINT_MAX = 500;
 
@@ -104,6 +108,7 @@ export async function loadDashboardPrintList(kind: DashboardPrintKind, scope: Da
     const dresses: PrintDressRow[] = items.length
       ? items.map((bi) => ({
           label: dressDisplayName(bi.dressName, bi.category, bookingItemSize(bi)),
+          category: (bi.category || "").trim(),
           price: bi.price || 0,
           fitting: bi.fittingCharges || 0,
           advance: bi.advance || 0,
@@ -117,6 +122,7 @@ export async function loadDashboardPrintList(kind: DashboardPrintKind, scope: Da
       : b.dressName
         ? [{
             label: dressDisplayName(b.dressName, b.legacyItem?.category, b.legacyItem?.size),
+            category: (b.legacyItem?.category || "").trim(),
             price: b.price || b.totalPrice || 0,
             fitting: 0,
             advance: b.advance || b.totalAdvance || 0,

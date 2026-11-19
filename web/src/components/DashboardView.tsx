@@ -523,6 +523,16 @@ export default function DashboardView({
           >
             <i className="fa-solid fa-boxes-packing" /> Print Packing List
           </a>
+          <a
+            href="/dashboard/print/alternate?autoprint=1"
+            target="_blank"
+            rel="noopener"
+            className="btn"
+            style={{ background: "white", color: "#111", border: "none", fontWeight: 700 }}
+            title="Print alternate handovers (return → next delivery) with complete records, Men / Women / Jewellery"
+          >
+            <i className="fa-solid fa-arrows-rotate" /> Print Alternate List
+          </a>
           <Link href="/booking/new" className="btn btn-gold"><i className="fa-solid fa-plus" /> New Booking</Link>
           <Link href="/booking" className="btn" style={{ background: "rgba(255,255,255,0.15)", color: "white", border: "1.5px solid rgba(255,255,255,0.4)" }}>
             <i className="fa-solid fa-list" /> All Bookings

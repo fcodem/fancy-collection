@@ -1,5 +1,6 @@
 import { formatInr } from "@/lib/format";
 import type { PrintBookingRecord } from "@/lib/services/dashboardPrintTypes";
+import { groupPrintDressesByCategory } from "@/lib/services/dashboardPrintGrouping";
 
 export const rs = (n: number) => `₹${formatInr(n)}`;
 const mode = (m: string) => (m.trim() ? ` (${m.toUpperCase()})` : "");
@@ -82,6 +83,10 @@ export function RecordCard({ r, kind }: { r: PrintBookingRecord; kind: "deliveri
   const itemDeliveryNotes = r.dresses.filter((d) => d.deliveryNote);
   const dressNotes = r.dresses.filter((d) => d.notes);
   const isReturn = kind === "returns";
+  const dressGroups = groupPrintDressesByCategory(r.dresses);
+  const colSpan =
+    6 + (hasFitting ? 1 : 0) + (isReturn ? 2 : 0);
+  let dressNo = 0;
 
   return (
     <section className="bw-rec">
@@ -128,9 +133,29 @@ export function RecordCard({ r, kind }: { r: PrintBookingRecord; kind: "deliveri
             </tr>
           </thead>
           <tbody>
-            {r.dresses.map((d, i) => (
-              <tr key={i}>
-                <td>{i + 1}</td>
+            {dressGroups.flatMap((group) => {
+              const header = (
+                <tr key={`cat-${group.category}`}>
+                  <td
+                    colSpan={colSpan}
+                    style={{
+                      background: "#f0f0f0",
+                      fontWeight: 800,
+                      fontSize: 10,
+                      letterSpacing: "0.04em",
+                      textTransform: "uppercase",
+                    }}
+                  >
+                    Category: {group.category}
+                  </td>
+                </tr>
+              );
+              const rows = group.items.map((d) => {
+                dressNo += 1;
+                const i = dressNo;
+                return (
+              <tr key={`${group.category}-${i}`}>
+                <td>{i}</td>
                 <td style={{ fontWeight: 700 }}>
                   {d.label}
                   {d.fitting > 0 && <span className="bw-tag">✂ Alteration needed</span>}
@@ -143,7 +168,10 @@ export function RecordCard({ r, kind }: { r: PrintBookingRecord; kind: "deliveri
                 {isReturn && <td className="num">{rs(d.securityCollected)}</td>}
                 <td>{d.status}</td>
               </tr>
-            ))}
+                );
+              });
+              return [header, ...rows];
+            })}
           </tbody>
         </table>
 

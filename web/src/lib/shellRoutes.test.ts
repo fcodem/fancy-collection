@@ -15,6 +15,7 @@ describe("isBareRoute (shell layout regression)", () => {
     assert.equal(isBareRoute("/dashboard/print/deliveries"), true);
     assert.equal(isBareRoute("/dashboard/print/returns"), true);
     assert.equal(isBareRoute("/dashboard/print/packing"), true);
+    assert.equal(isBareRoute("/dashboard/print/alternate"), true);
   });
 
   it("app routes use shell", () => {

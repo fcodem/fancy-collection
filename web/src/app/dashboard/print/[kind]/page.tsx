@@ -1,12 +1,9 @@
 import { notFound, redirect } from "next/navigation";
 import { getCurrentUserForLayout } from "@/lib/auth";
 import { todayIso, formatDate } from "@/lib/constants";
-import {
-  DASHBOARD_PRINT_MAX,
-  loadDashboardPrintList,
-  parseDashboardPrintKind,
-} from "@/lib/services/dashboardPrintLists";
-import PrintPaginator from "@/components/print/PrintPaginator";
+import { DASHBOARD_PRINT_MAX, loadDashboardPrintList, parseDashboardPrintKind } from "@/lib/services/dashboardPrintLists";
+import { groupDashboardPrintByDivision } from "@/lib/services/dashboardPrintGrouping";
+import PrintPaginator, { type PrintBlock } from "@/components/print/PrintPaginator";
 import PrintListActions from "./PrintListActions";
 import { PRINT_CSS, RecordCard, rs } from "./PrintRecordCard";
 
@@ -30,6 +27,7 @@ export default async function DashboardPrintPage({
   const scope = sp.scope === "all" ? "all" : "due";
 
   const { records, truncated } = await loadDashboardPrintList(kind, scope);
+  const sections = groupDashboardPrintByDivision(records);
   const isReturn = kind === "returns";
   const totalBalance = records.reduce((s, r) => s + r.balanceLeft, 0);
   const totalSecurity = records.reduce((s, r) => s + (isReturn ? r.securityCollected : r.securityDeposit), 0);
@@ -52,29 +50,71 @@ export default async function DashboardPrintPage({
       totalBalance={totalBalance}
       totalSecurity={totalSecurity}
       truncated={truncated}
+      sectionCounts={sections.map((s) => ({
+        label: s.label,
+        bookings: s.records.length,
+        dresses: s.records.reduce((n, r) => n + r.dresses.length, 0),
+      }))}
     />
   );
+
+  const blocks: PrintBlock[] = [{ key: `head-${kind}-${scope}`, node: header }];
+
+  if (records.length === 0) {
+    blocks.push({
+      key: "empty",
+      node: (
+        <p style={{ fontSize: 14, fontWeight: 700, border: "2px solid #000", padding: 12, textAlign: "center" }}>
+          {isReturn ? "No returns left to collect." : "No bookings remaining to deliver."}
+        </p>
+      ),
+    });
+  } else {
+    sections.forEach((sec, idx) => {
+      blocks.push({
+        key: `sec-${sec.division}`,
+        keepWithNext: true,
+        breakBefore: idx > 0,
+        node: (
+          <div
+            style={{
+              background: "#000",
+              color: "#fff",
+              padding: "6px 10px",
+              margin: "2px 0 6px",
+              fontSize: 15,
+              fontWeight: 800,
+              letterSpacing: "0.08em",
+              textTransform: "uppercase",
+              display: "flex",
+              justifyContent: "space-between",
+              gap: 8,
+              flexWrap: "wrap",
+            }}
+          >
+            <span style={{ color: "#fff" }}>{sec.label}</span>
+            <span style={{ color: "#fff", fontSize: 12 }}>
+              Order {idx + 1} of {sections.length} · {sec.records.length} booking
+              {sec.records.length === 1 ? "" : "s"} ·{" "}
+              {sec.records.reduce((n, r) => n + r.dresses.length, 0)} dresses
+            </span>
+          </div>
+        ),
+      });
+      for (const r of sec.records) {
+        blocks.push({
+          key: `rec-${sec.division}-${r.id}`,
+          node: <RecordCard r={r} kind={kind} />,
+        });
+      }
+    });
+  }
 
   return (
     <div className="bw-root">
       <style dangerouslySetInnerHTML={{ __html: PRINT_CSS }} />
       <PrintListActions kind={kind} scope={scope} autoPrint={sp.autoprint === "1"} />
-      <PrintPaginator
-        footerLabel={`${title} · ${scopeLabel}`}
-        blocks={[
-          { key: `head-${kind}-${scope}`, node: header },
-          ...(records.length === 0
-            ? [{
-                key: "empty",
-                node: (
-                  <p style={{ fontSize: 14, fontWeight: 700, border: "2px solid #000", padding: 12, textAlign: "center" }}>
-                    {isReturn ? "No returns left to collect." : "No bookings remaining to deliver."}
-                  </p>
-                ),
-              }]
-            : records.map((r) => ({ key: `rec-${r.id}`, node: <RecordCard r={r} kind={kind} /> }))),
-        ]}
-      />
+      <PrintPaginator footerLabel={`${title} · ${scopeLabel}`} blocks={blocks} />
     </div>
   );
 }
@@ -90,6 +130,7 @@ function PrintHeader({
   totalBalance,
   totalSecurity,
   truncated,
+  sectionCounts,
 }: {
   title: string;
   scopeLabel: string;
@@ -101,13 +142,16 @@ function PrintHeader({
   totalBalance: number;
   totalSecurity: number;
   truncated: boolean;
+  sectionCounts: Array<{ label: string; bookings: number; dresses: number }>;
 }) {
   return (
     <>
       <div className="bw-title">
         <div>
           <h1>{title}</h1>
-          <div className="sub">{scopeLabel}</div>
+          <div className="sub">
+            {scopeLabel} · Print order: 1. Mens → 2. Women → 3. Jewellery
+          </div>
         </div>
         <div style={{ fontSize: 9, textAlign: "right" }}>
           Printed {formatDate(todayIso(), "display")} {new Date().toLocaleTimeString("en-IN", { hour: "2-digit", minute: "2-digit", hour12: true, timeZone: "Asia/Kolkata" })} by {username}
@@ -121,6 +165,19 @@ function PrintHeader({
         <div>{isReturn ? "Balance still to collect" : "Balance to collect"}<strong>{rs(totalBalance)}</strong></div>
         <div>{isReturn ? "Security held (collected)" : "Security to collect"}<strong>{rs(totalSecurity)}</strong></div>
       </div>
+
+      {sectionCounts.length > 0 && (
+        <div className="bw-summary" style={{ gridTemplateColumns: `repeat(${Math.max(sectionCounts.length, 1)}, 1fr)` }}>
+          {sectionCounts.map((s) => (
+            <div key={s.label}>
+              {s.label}
+              <strong>
+                {s.bookings} bk · {s.dresses} dress{s.dresses === 1 ? "" : "es"}
+              </strong>
+            </div>
+          ))}
+        </div>
+      )}
 
       {truncated && (
         <p style={{ fontSize: 10, fontWeight: 700, border: "1.5px solid #000", padding: 3, margin: "0 0 5px" }}>

@@ -3,6 +3,8 @@ export type DashboardPrintScope = "due" | "all";
 
 export type PrintDressRow = {
   label: string;
+  /** Booking/inventory category — used to group Men / Women / Jewellery on print. */
+  category: string;
   price: number;
   fitting: number;
   advance: number;
